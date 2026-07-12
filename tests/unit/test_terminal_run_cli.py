@@ -101,7 +101,8 @@ def test_run_backup_preview_uses_task_model() -> None:
     assert result.exit_code == 0
     assert "Files" in result.output
     assert "Documents to create" in result.output
-    assert "Nothing will be written until final review." in result.output
+    assert "3 recovery sheets" in result.output
+    assert "Nothing will be written until final review." not in result.output
 
 
 def test_run_backup_json_preview_uses_task_model() -> None:
@@ -131,6 +132,30 @@ def test_run_backup_json_preview_uses_task_model() -> None:
     assert payload["error"] is None
 
 
+def test_run_backup_json_preview_uses_automatic_output_folder_when_unset() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "backup",
+            "--input",
+            "secrets.txt",
+            "--preview",
+            "--json",
+        ],
+    )
+
+    payload = json.loads(result.output)
+    assert result.exit_code == 0
+    assert payload["ready"] is True
+    assert payload["validation"]["issues"] == []
+    assert payload["plan"]["summary"] == (
+        "Create backup documents in an automatic folder named for the backup ID"
+    )
+    assert payload["plan"]["output_paths"] == ["backup-<backup id>"]
+
+
 def test_run_backup_requires_ready_state_without_preview() -> None:
     runner = CliRunner()
 
@@ -152,7 +177,6 @@ def test_run_backup_json_not_ready_is_machine_readable() -> None:
     assert payload["error"] == "Backup is not ready."
     assert [issue["code"] for issue in payload["validation"]["issues"]] == [
         "BACKUP_FILES_REQUIRED",
-        "BACKUP_OUTPUT_REQUIRED",
     ]
 
 
@@ -205,6 +229,63 @@ def test_run_backup_yes_executes_task_model(monkeypatch) -> None:
     assert calls[0].to_backup_args().qr_chunk_size == 384
     assert calls[0].to_backup_args().passphrase_words == 18
     assert "Backup documents created." in result.output
+
+
+def test_run_backup_yes_uses_automatic_output_folder_when_unset(monkeypatch) -> None:
+    calls = []
+
+    def fake_execute(self):
+        calls.append(self)
+        return TaskExecutionResult(ok=True, message="Backup documents created.")
+
+    monkeypatch.setattr("ethernity.tasks.backup.BackupTaskState.execute", fake_execute)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "backup",
+            "--input",
+            "secrets.txt",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert calls[0].output_dir is None
+    assert calls[0].to_backup_args().output_dir is None
+    assert "Backup documents created." in result.output
+
+
+def test_run_backup_zero_recovery_count_disables_passphrase_shards(monkeypatch) -> None:
+    calls = []
+
+    def fake_execute(self):
+        calls.append(self)
+        return TaskExecutionResult(ok=True, message="Backup documents created.")
+
+    monkeypatch.setattr("ethernity.tasks.backup.BackupTaskState.execute", fake_execute)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "backup",
+            "--input",
+            "secrets.txt",
+            "--recovery-count",
+            "0",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert calls[0].recovery_method == "single_phrase"
+    assert calls[0].shard_count == 0
+    assert calls[0].to_backup_args().shard_threshold is None
+    assert calls[0].to_backup_args().shard_count is None
 
 
 def test_run_backup_json_yes_executes_task_model(monkeypatch) -> None:
@@ -263,7 +344,7 @@ def test_run_restore_preview_uses_task_model() -> None:
 
     assert result.exit_code == 0
     assert "Backup source" in result.output
-    assert "Restore preview" in result.output
+    assert "Files to restore" in result.output
 
 
 def test_run_restore_yes_executes_task_model(monkeypatch) -> None:
@@ -331,6 +412,10 @@ def test_run_add_files_yes_executes_task_model(monkeypatch) -> None:
         return TaskExecutionResult(ok=True, message="Added files as backup update 01.")
 
     monkeypatch.setattr("ethernity.tasks.add_files.AddFilesTaskState.execute", fake_execute)
+    monkeypatch.setattr(
+        "ethernity.tasks.add_files.AddFilesTaskState.prepare_review",
+        lambda _self, *, force=False: None,
+    )
     runner = CliRunner()
 
     result = runner.invoke(
@@ -386,7 +471,7 @@ def test_run_rebuild_preview_uses_task_model() -> None:
     )
 
     assert result.exit_code == 0
-    assert "Backup source" in result.output
+    assert "Existing backup" in result.output
     assert "Rebuilt backup to create" in result.output
 
 
@@ -455,8 +540,8 @@ def test_run_replace_recovery_docs_preview_uses_task_model() -> None:
     )
 
     assert result.exit_code == 0
-    assert "Backup source" in result.output
-    assert "Replacement recovery documents to create" in result.output
+    assert "Existing backup" in result.output
+    assert "Replacement recovery sheets to create" in result.output
 
 
 def test_run_replace_recovery_docs_yes_executes_task_model(monkeypatch) -> None:
@@ -540,13 +625,3 @@ def test_run_print_kit_yes_executes_task_model(monkeypatch) -> None:
     assert str(calls[0].output_path) == "kit.pdf"
     assert calls[0].chunk_size == 512
     assert "Recovery kit created." in result.output
-
-
-def test_run_doctor_uses_task_model() -> None:
-    runner = CliRunner()
-
-    result = runner.invoke(cli, ["doctor"])
-
-    assert result.exit_code == 0
-    assert "Setup check" in result.output
-    assert "Python runtime" in result.output

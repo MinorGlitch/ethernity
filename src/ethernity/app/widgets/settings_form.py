@@ -19,21 +19,30 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from textual.app import ComposeResult
-from textual.containers import HorizontalGroup, VerticalScroll
+from textual.containers import HorizontalGroup, Vertical
 from textual.widget import Widget
-from textual.widgets import Button, Input, Label, Select, Static, Switch
+from textual.widgets import (
+    Button,
+    Input,
+    Label,
+    MaskedInput,
+    Select,
+    Static,
+    Switch,
+    TabbedContent,
+    TabPane,
+)
 
-from ethernity.tasks.models import TaskValidation
+from ethernity.app.app_context import EthernityAppContext
+from ethernity.app.widgets.actions import ActionButton, inline_action_group
+from ethernity.tasks.models import TaskIssue, TaskValidation
 from ethernity.tasks.presentation.common import middle_truncate_path
 from ethernity.tasks.settings import SETTING_DESCRIPTORS, SettingDescriptor, SettingsTaskState
 
-if TYPE_CHECKING:
-    from ethernity.app.application import EthernityApp
-
-ADVANCED_SETTINGS_GROUP = "Advanced QR and payload settings"
+ADVANCED_SETTINGS_GROUP = "Advanced"
 SETTINGS_GROUP_ORDER = (
     "Printing",
     "Backup defaults",
@@ -41,6 +50,15 @@ SETTINGS_GROUP_ORDER = (
     "Security defaults",
     ADVANCED_SETTINGS_GROUP,
 )
+SETTINGS_CONFIG_PANE_ID = "settings-pane-config"
+SETTINGS_TAB_LABELS = {
+    "Printing": "Print",
+    "Backup defaults": "Backup",
+    "Recovery defaults": "Recovery",
+    "Security defaults": "Security",
+}
+DEFAULT_RECOVERY_THRESHOLD = 2
+DEFAULT_RECOVERY_COUNT = 3
 
 
 class SettingsForm(Widget):
@@ -61,114 +79,137 @@ class SettingsForm(Widget):
             disabled=disabled,
             markup=markup,
         )
-        self._advanced_expanded = False
         self._config_full_path = ""
+        self._select_options_by_key: dict[str, tuple[tuple[str, str], ...]] = {}
 
     def compose(self) -> ComposeResult:
-        with VerticalScroll(id="settings-form"):
-            for group, descriptors in _settings_descriptor_groups():
-                yield Label(group, classes="settings-section-title")
-                group_id = _group_reset_id(group)
-                with HorizontalGroup(
-                    id=f"settings-reset-row-{group_id}",
-                    classes="settings-row settings-reset-row",
-                ):
-                    yield Label("Section defaults", classes="setting-label")
-                    yield Static("", classes="setting-value")
-                    yield Button(
-                        "Restore defaults",
-                        id=f"settings-reset-group-{group_id}",
-                        compact=True,
-                        classes="settings-control setting-path-button settings-reset-button",
-                    )
-                if group == ADVANCED_SETTINGS_GROUP:
+        with HorizontalGroup(id="settings-save-row"):
+            yield Static("", id="settings-save-status", markup=False)
+            yield inline_action_group(
+                ActionButton(
+                    "Retry save",
+                    "settings-retry-save",
+                    classes="settings-control settings-retry-button",
+                )
+            )
+        with Vertical(id="settings-form"):
+            with TabbedContent(
+                id="settings-tabs",
+                initial=_settings_pane_id(SETTINGS_GROUP_ORDER[0]),
+            ):
+                for group, descriptors in _settings_descriptor_groups():
+                    with TabPane(_settings_tab_title(group), id=_settings_pane_id(group)):
+                        yield _settings_reset_row(group)
+                        if group == "Recovery defaults":
+                            with HorizontalGroup(
+                                id="settings-recovery-summary-row",
+                                classes="settings-row settings-summary-row",
+                            ):
+                                yield Label("Backup recovery method", classes="setting-label")
+                                yield Static(
+                                    "",
+                                    id="settings-recovery-summary",
+                                    classes="setting-value",
+                                    markup=False,
+                                )
+                                yield Static("", classes="setting-marker")
+                            yield Static(
+                                "Applies to new backups only. Existing backup files and recovery "
+                                "sheets are not changed.",
+                                id="settings-recovery-summary-help",
+                                classes="setting-help",
+                            )
+                        for descriptor in descriptors:
+                            yield from _setting_descriptor_widgets(descriptor)
+                with TabPane("File", id=SETTINGS_CONFIG_PANE_ID):
                     with HorizontalGroup(
-                        id="settings-advanced-row",
-                        classes="settings-row settings-summary-row",
+                        id="settings-reset-all-row",
+                        classes="settings-row settings-reset-row",
                     ):
-                        yield Static(
-                            "Advanced: using saved defaults",
-                            id="settings-advanced-summary",
-                            classes="setting-value",
+                        yield Static("", classes="setting-reset-spacer")
+                        yield inline_action_group(
+                            ActionButton(
+                                "Reset all settings",
+                                "settings-reset-all",
+                                classes=(
+                                    "settings-control setting-path-button settings-reset-button"
+                                ),
+                            )
                         )
-                        yield Button(
-                            "Show advanced",
-                            id="settings-advanced-toggle",
-                            compact=True,
-                            classes="settings-control setting-path-button",
-                        )
-                for descriptor in descriptors:
-                    row_classes = "settings-row"
-                    if descriptor.kind == "bool":
-                        row_classes = "settings-row settings-row-bool"
                     with HorizontalGroup(
-                        id=f"setting-row-{descriptor.key}",
-                        classes=row_classes,
+                        id="setting-row-config",
+                        classes="settings-row settings-config-row",
                     ):
-                        yield Label(descriptor.title, classes="setting-label")
-                        yield _setting_control(descriptor)
+                        yield Label("Settings file", classes="setting-label")
                         yield Static(
                             "",
-                            id=f"setting-marker-{descriptor.key}",
-                            classes="setting-marker",
+                            id="setting-value-config",
+                            classes="setting-value",
+                            markup=False,
                         )
-                    yield Static(
-                        descriptor.prompt,
-                        id=f"setting-help-{descriptor.key}",
-                        classes="setting-help",
-                    )
-            yield Label("All settings", classes="settings-section-title")
-            with HorizontalGroup(
-                id="settings-reset-all-row",
-                classes="settings-row settings-reset-row",
-            ):
-                yield Label("All defaults", classes="setting-label")
-                yield Static("", classes="setting-value")
-                yield Button(
-                    "Restore all defaults",
-                    id="settings-reset-all",
-                    compact=True,
-                    classes="settings-control setting-path-button settings-reset-button",
-                )
-            yield Label("Config file", classes="settings-section-title")
-            with HorizontalGroup(
-                id="setting-row-config",
-                classes="settings-row settings-config-row",
-            ):
-                yield Label("Config file", classes="setting-label")
-                yield Static("", id="setting-value-config", classes="setting-value")
-                yield Button(
-                    "Copy path",
-                    id="settings-copy-config",
-                    compact=True,
-                    classes="settings-control setting-path-button",
-                )
-                yield Button(
-                    "Open folder",
-                    id="settings-open-config",
-                    compact=True,
-                    classes="settings-control setting-path-button",
-                )
-            yield Static("", id="settings-save-status", classes="setting-help")
+                        yield inline_action_group(
+                            ActionButton(
+                                "Copy path",
+                                "settings-copy-config",
+                                classes="settings-control setting-path-button",
+                            ),
+                            ActionButton(
+                                "Open folder",
+                                "settings-open-config",
+                                classes="settings-control setting-path-button",
+                            ),
+                        )
 
     def update_statuses(self, validation: TaskValidation) -> None:
+        issues_by_section: dict[str, TaskIssue] = {}
+        for issue in validation.issues:
+            if issue.section is None:
+                continue
+            current = issues_by_section.get(issue.section)
+            if current is None or issue.severity == "error":
+                issues_by_section[issue.section] = issue
         for section in validation.sections:
             row = self.query_one(f"#setting-row-{section.key}", HorizontalGroup)
-            row.set_class(section.status == "warning", "settings-row-warning")
-            row.set_class(section.status == "blocked", "settings-row-blocked")
+            issue = issues_by_section.get(section.key)
+            error = issue if issue is not None and issue.severity == "error" else None
+            warning = issue if issue is not None and issue.severity == "warning" else None
+            row.set_class(error is None and section.status == "warning", "settings-row-warning")
+            row.set_class(error is not None or section.status == "blocked", "settings-row-blocked")
             if section.key == "config":
-                self.query_one("#setting-value-config", Static).update(
-                    middle_truncate_path(section.summary)
+                _update_static(
+                    self.query_one("#setting-value-config", Static),
+                    middle_truncate_path(section.summary),
                 )
+                continue
+            descriptor = next(
+                (item for item in SETTING_DESCRIPTORS if item.key == section.key),
+                None,
+            )
+            if descriptor is None:
+                continue
+            help_text = descriptor.prompt
+            if error is not None:
+                help_text = f"Fix: {error.message}"
+            elif warning is not None:
+                help_text = warning.message
+            help_widget = self.query_one(f"#setting-help-{section.key}", Static)
+            _update_static(help_widget, help_text)
+            help_widget.set_class(error is not None, "setting-help-error")
+            help_widget.set_class(warning is not None, "setting-help-warning")
 
-    def update_values(self, settings: SettingsTaskState) -> None:
+    def update_values(
+        self,
+        settings: SettingsTaskState,
+        *,
+        write_locked: bool = False,
+    ) -> None:
         for descriptor in SETTING_DESCRIPTORS:
             control_id = f"#setting-control-{descriptor.key}"
             if descriptor.kind == "enum":
                 select = self.query_one(control_id, Select)
                 options = _select_options(settings, descriptor)
                 with select.prevent(Select.Changed):
-                    select.set_options(options)
+                    self._set_select_options(select, descriptor.key, options)
                     select.value = _select_value(settings, descriptor, options)
                     select.disabled = not bool(options)
             elif descriptor.kind == "bool":
@@ -177,67 +218,88 @@ class SettingsForm(Widget):
                     switch.value = bool(settings.setting_value(descriptor.key))
             elif descriptor.kind in {"path", "save_path"}:
                 self.query_one(control_id, Button).label = descriptor.action_label
-                self.query_one(f"#setting-value-{descriptor.key}", Static).update(
-                    settings.display_value(descriptor.key)
+                _update_static(
+                    self.query_one(f"#setting-value-{descriptor.key}", Static),
+                    settings.display_value(descriptor.key),
                 )
             else:
                 field = self.query_one(control_id, Input)
                 field.value = settings.edit_value(descriptor.key)
             marker = self.query_one(f"#setting-marker-{descriptor.key}", Static)
-            marker.update("" if settings.setting_is_default(descriptor.key) else "Changed")
+            if settings.setting_is_default(descriptor.key):
+                marker_text = ""
+            elif settings.setting_is_risky_custom(descriptor.key):
+                marker_text = "Warning"
+            else:
+                marker_text = "Custom"
+            _update_static(marker, marker_text)
             marker.set_class(
                 not settings.setting_is_default(descriptor.key),
                 "setting-marker-changed",
             )
         self._config_full_path = str(settings.execution_plan().output_paths[0])
-        self.query_one("#setting-value-config", Static).update(
-            middle_truncate_path(self._config_full_path)
+        _update_static(
+            self.query_one("#setting-value-config", Static),
+            middle_truncate_path(self._config_full_path),
         )
-        self.query_one("#settings-save-status", Static).update(settings.save_status)
-        self.query_one("#settings-advanced-summary", Static).update(_advanced_summary())
-        self._update_advanced_visibility()
+        save_status = "Locked while task runs" if write_locked else settings.save_status
+        status = self.query_one("#settings-save-status", Static)
+        _update_static(status, save_status)
+        status.set_class(settings.save_pending or write_locked, "settings-status-pending")
+        status.set_class(
+            save_status
+            in {
+                "Not saved",
+                "Save failed",
+            },
+            "settings-status-error",
+        )
+        retry = self.query_one("#settings-retry-save", Button)
+        retry.display = settings.save_pending and not write_locked
+        retry.disabled = write_locked
+        _update_static(
+            self.query_one("#settings-recovery-summary", Static),
+            _recovery_summary(settings),
+        )
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if button_id == "settings-advanced-toggle":
+        if button_id == "settings-retry-save":
             event.stop()
-            self._advanced_expanded = not self._advanced_expanded
-            self._update_advanced_visibility()
+            self._settings_app().settings_controller.retry_save()
             return
         if button_id == "settings-reset-all":
             event.stop()
-            self._owner_app().settings_controller.reset_all()
+            await self._settings_app().settings_controller.request_reset_all()
             return
         if button_id is not None and button_id.startswith("settings-reset-group-"):
             event.stop()
             group = _group_for_reset_id(button_id.removeprefix("settings-reset-group-"))
             if group is None:
-                self.app.notify("That settings section was not found.", severity="warning")
+                self.app.notify("Settings section not found.", severity="warning")
                 return
-            self._owner_app().settings_controller.reset_group(group)
+            self._settings_app().settings_controller.reset_group(group)
             return
         if button_id == "settings-copy-config":
             event.stop()
             self.app.copy_to_clipboard(self._config_full_path)
-            self.app.notify("Config path copied.")
+            self.app.notify("Settings file path copied.")
             return
         if button_id == "settings-open-config":
             event.stop()
             self._open_config_folder()
 
-    def _update_advanced_visibility(self) -> None:
-        for descriptor in SETTING_DESCRIPTORS:
-            if descriptor.group != ADVANCED_SETTINGS_GROUP:
-                continue
-            self.query_one(
-                f"#setting-row-{descriptor.key}", HorizontalGroup
-            ).display = self._advanced_expanded
-            self.query_one(
-                f"#setting-help-{descriptor.key}", Static
-            ).display = self._advanced_expanded
-        self.query_one("#settings-advanced-toggle", Button).label = (
-            "Hide advanced" if self._advanced_expanded else "Show advanced"
-        )
+    def _set_select_options(
+        self,
+        select: Select[str],
+        key: str,
+        options: list[tuple[str, str]],
+    ) -> None:
+        option_key = tuple(options)
+        if self._select_options_by_key.get(key) == option_key:
+            return
+        select.set_options(options)
+        self._select_options_by_key[key] = option_key
 
     def _open_config_folder(self) -> None:
         folder = str(self._config_folder())
@@ -251,15 +313,15 @@ class SettingsForm(Widget):
         except OSError as exc:
             self.app.notify(f"Could not open folder: {exc}", severity="error")
             return
-        self.app.notify("Opening config folder.")
+        self.app.notify("Opening settings folder.")
 
     def _config_folder(self) -> str:
         if not self._config_full_path:
             return "."
         return str(Path(self._config_full_path).parent)
 
-    def _owner_app(self) -> EthernityApp:
-        return cast("EthernityApp", self.app)
+    def _settings_app(self) -> EthernityAppContext:
+        return cast(EthernityAppContext, self.app)
 
 
 def _settings_descriptor_groups() -> tuple[tuple[str, list[SettingDescriptor]], ...]:
@@ -269,6 +331,14 @@ def _settings_descriptor_groups() -> tuple[tuple[str, list[SettingDescriptor]], 
     ordered = [(group, groups.pop(group)) for group in SETTINGS_GROUP_ORDER if group in groups]
     ordered.extend(groups.items())
     return tuple(ordered)
+
+
+def _settings_pane_id(group: str) -> str:
+    return f"settings-pane-{_group_reset_id(group)}"
+
+
+def _settings_tab_title(group: str) -> str:
+    return SETTINGS_TAB_LABELS.get(group, group)
 
 
 def _group_reset_id(group: str) -> str:
@@ -281,6 +351,48 @@ def _group_for_reset_id(group_id: str) -> str | None:
         if _group_reset_id(group) == group_id:
             return group
     return None
+
+
+def _settings_reset_row(group: str) -> Widget:
+    group_id = _group_reset_id(group)
+    return HorizontalGroup(
+        Static("", classes="setting-reset-spacer"),
+        inline_action_group(
+            ActionButton(
+                "Reset tab",
+                f"settings-reset-group-{group_id}",
+                classes="settings-control setting-path-button settings-reset-button",
+            )
+        ),
+        id=f"settings-reset-row-{group_id}",
+        classes="settings-row settings-reset-row",
+    )
+
+
+def _setting_descriptor_widgets(descriptor: SettingDescriptor) -> tuple[Widget, Widget]:
+    row_classes = "settings-row"
+    if descriptor.kind == "bool":
+        row_classes = "settings-row settings-row-bool"
+    return (
+        HorizontalGroup(
+            Label(descriptor.title, classes="setting-label"),
+            _setting_control(descriptor),
+            Static(
+                "",
+                id=f"setting-marker-{descriptor.key}",
+                classes="setting-marker",
+                markup=False,
+            ),
+            id=f"setting-row-{descriptor.key}",
+            classes=row_classes,
+        ),
+        Static(
+            descriptor.prompt,
+            id=f"setting-help-{descriptor.key}",
+            classes="setting-help",
+            markup=False,
+        ),
+    )
 
 
 def _setting_control(descriptor: SettingDescriptor) -> Widget:
@@ -303,14 +415,30 @@ def _setting_control(descriptor: SettingDescriptor) -> Widget:
         )
     if descriptor.kind in {"path", "save_path"}:
         return HorizontalGroup(
-            Static("", id=f"setting-value-{descriptor.key}", classes="setting-value"),
-            Button(
-                descriptor.action_label,
-                id=control_id,
-                compact=True,
-                classes="settings-control setting-path-button",
+            Static(
+                "",
+                id=f"setting-value-{descriptor.key}",
+                classes="setting-value",
+                markup=False,
+            ),
+            inline_action_group(
+                ActionButton(
+                    descriptor.action_label,
+                    control_id,
+                    classes="settings-control setting-path-button",
+                ),
             ),
             classes="setting-path-control",
+        )
+    if descriptor.kind in {"int", "optional_int"}:
+        return MaskedInput(
+            "0000000000",
+            value="",
+            placeholder=descriptor.placeholder,
+            valid_empty=descriptor.kind == "optional_int",
+            compact=True,
+            id=control_id,
+            classes="settings-control setting-input",
         )
     return Input(
         "",
@@ -325,13 +453,49 @@ def _select_options(
     settings: SettingsTaskState,
     descriptor: SettingDescriptor,
 ) -> list[tuple[str, str]]:
-    options = [(option, option) for option in settings.options.get(descriptor.option_key or "", ())]
+    options = [
+        (_setting_option_label(descriptor, option), option)
+        for option in settings.options.get(descriptor.option_key or "", ())
+    ]
     if descriptor.default is None:
-        options.insert(0, ("Ask each time", "__none__"))
+        options.insert(0, (descriptor.empty_label, "__none__"))
     current = settings.setting_value(descriptor.key)
     if current is not None and str(current) not in {value for _, value in options}:
         options.append((f"{current} (unsupported)", str(current)))
     return options or [("Unavailable", "__none__")]
+
+
+def _setting_option_label(descriptor: SettingDescriptor, option: str) -> str:
+    labels = {
+        "payload_codecs": {
+            "auto": "Automatic (recommended)",
+            "raw": "No compression",
+            "gzip": "gzip",
+        },
+        "qr_payload_codecs": {
+            "raw": "Raw (recommended)",
+            "base64": "Base64",
+        },
+        "signing_key_modes": {
+            "embedded": "Embedded",
+            "sharded": "Separate recovery sheets",
+        },
+        "extension_unlock_policies": {
+            "self-contained": "New recovery sheets",
+            "reuse-root": "Use original recovery set",
+        },
+        "extension_signing_key_modes": {
+            "not-stored": "Do not store",
+            "sharded": "Separate recovery sheets",
+        },
+    }
+    return labels.get(descriptor.option_key or "", {}).get(option, _enum_option_label(option))
+
+
+def _enum_option_label(option: str) -> str:
+    if option in {"A4", "L", "M", "Q", "H"}:
+        return option
+    return option.replace("_", " ").replace("-", " ").title()
 
 
 def _select_value(
@@ -346,5 +510,22 @@ def _select_value(
     return value
 
 
-def _advanced_summary() -> str:
-    return "Advanced: using saved defaults"
+def _recovery_summary(settings: SettingsTaskState) -> str:
+    threshold = _positive_int_or_default(
+        settings.setting_value("backup_shard_threshold"),
+        DEFAULT_RECOVERY_THRESHOLD,
+    )
+    count = _positive_int_or_default(
+        settings.setting_value("backup_shard_count"),
+        DEFAULT_RECOVERY_COUNT,
+    )
+    return f"{count} recovery sheets; any {threshold} required"
+
+
+def _positive_int_or_default(value: object, default: int) -> int:
+    return value if isinstance(value, int) and value > 0 else default
+
+
+def _update_static(static: Static, content: str) -> None:
+    if str(static.content) != content:
+        static.update(content)

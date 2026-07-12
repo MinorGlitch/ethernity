@@ -27,6 +27,9 @@ def run_task(
     not_ready_message: str,
     execute_without_confirmation: bool = False,
 ) -> None:
+    prepare_review = getattr(state, "prepare_review", None)
+    if callable(prepare_review):
+        prepare_review(force=True)
     validation = state.validate_task()
     task_preview = state.preview()
     plan = state.execution_plan()

@@ -288,6 +288,7 @@ def _snapshot_values_from_loaded(
             "quiet": cli_defaults.ui.quiet,
             "no_color": cli_defaults.ui.no_color,
             "no_animations": cli_defaults.ui.no_animations,
+            "show_internals": cli_defaults.ui.show_internals,
         },
         "debug": {"max_bytes": cli_defaults.debug.max_bytes},
         "runtime": {"render_jobs": cli_defaults.runtime.render_jobs},
@@ -423,6 +424,10 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     ui["quiet"] = _coerce_bool(ui_table.get("quiet"), fallback=ui["quiet"])
     ui["no_color"] = _coerce_bool(ui_table.get("no_color"), fallback=ui["no_color"])
     ui["no_animations"] = _coerce_bool(ui_table.get("no_animations"), fallback=ui["no_animations"])
+    ui["show_internals"] = _coerce_bool(
+        ui_table.get("show_internals"),
+        fallback=ui["show_internals"],
+    )
     debug["max_bytes"] = _coerce_optional_positive_int(
         debug_table.get("max_bytes"), fallback=debug["max_bytes"]
     )
@@ -832,6 +837,10 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
                 ui.get("no_animations"),
                 field="values.ui.no_animations",
             ),
+            "show_internals": _validate_bool(
+                ui.get("show_internals"),
+                field="values.ui.show_internals",
+            ),
         },
         "debug": {
             "max_bytes": debug_max_bytes,
@@ -1181,6 +1190,12 @@ def _apply_values_to_text(original: str, values: dict[str, object]) -> str:
         table="ui",
         key="no_animations",
         value=_toml_bool(cast(bool, ui["no_animations"])),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="ui",
+        key="show_internals",
+        value=_toml_bool(cast(bool, ui["show_internals"])),
     )
 
     updated = _upsert_table_key(

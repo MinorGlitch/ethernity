@@ -39,7 +39,6 @@ Examples:
   ethernity run replace-recovery-docs --scan scans --passphrase '...' \\
     --allow-stale-head --output-dir replacement-docs --preview
   ethernity run print-kit --output recovery_kit_qr.pdf --preview
-  ethernity run doctor
 """
 
 

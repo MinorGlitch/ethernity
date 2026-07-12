@@ -3,7 +3,6 @@ from __future__ import annotations
 from ethernity.app.app_context import EthernityAppContext
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
-from ethernity.tasks.doctor import DoctorTaskState
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
@@ -12,6 +11,10 @@ from ethernity.tasks.settings import SettingsTaskState
 
 
 class TaskStateMutationActions(EthernityAppContext):
+    def action_close_navigation(self) -> None:
+        if self._nav_drawer_open:
+            self._close_nav_drawer()
+
     def action_clear_task(self) -> None:
         if self.active_task == "backup":
             self.backup_state = BackupTaskState()
@@ -25,9 +28,9 @@ class TaskStateMutationActions(EthernityAppContext):
             self.replace_recovery_docs_state = ReplaceRecoveryDocsTaskState()
         elif self.active_task == "kit":
             self.kit_state = PrintKitTaskState()
-        elif self.active_task == "doctor":
-            self.doctor_state = DoctorTaskState()
         elif self.active_task == "settings":
-            self.settings_state = SettingsTaskState.from_current()
+            self.settings_state = SettingsTaskState.from_current(self.settings_state.config_path)
+        if self.active_task != "settings":
+            self._rehydrate_workflow_defaults()
         self._last_execution_result = None
         self.refresh_task_view()

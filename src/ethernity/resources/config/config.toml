@@ -76,6 +76,7 @@ output = ""
 quiet = false
 no_color = false
 no_animations = false
+show_internals = false
 
 [debug]
 # Set to 0 to unset and fall back to the CLI default (1024).

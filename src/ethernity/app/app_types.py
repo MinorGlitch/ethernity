@@ -6,7 +6,6 @@ from typing import Literal
 
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
-from ethernity.tasks.doctor import DoctorTaskState
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
@@ -20,7 +19,6 @@ ActiveTask = Literal[
     "rebuild",
     "replace_recovery_docs",
     "kit",
-    "doctor",
     "settings",
 ]
 
@@ -33,7 +31,6 @@ TaskState = (
     | RebuildTaskState
     | ReplaceRecoveryDocsTaskState
     | PrintKitTaskState
-    | DoctorTaskState
     | SettingsTaskState
 )
 

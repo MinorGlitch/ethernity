@@ -3,9 +3,25 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from textual.containers import HorizontalGroup, VerticalGroup
+from textual.content import Content
 from textual.widget import Widget
-from textual.widgets import Button, DataTable, Label, RadioButton, RadioSet, Select, Static
+from textual.widgets import (
+    Button,
+    Collapsible,
+    Label,
+    OptionList,
+    RadioButton,
+    RadioSet,
+    Rule,
+    Select,
+    Static,
+)
+from textual.widgets.option_list import Option
 
+from ethernity.app.widgets.collapsible import (
+    collapsible_panel,
+    sync_collapsible_panel,
+)
 from ethernity.crypto.passphrases import MNEMONIC_WORD_COUNTS
 from ethernity.tasks.presentation.models import (
     TaskPresentation,
@@ -18,14 +34,18 @@ DESIGN_OPTIONS = ("archive", "forge", "ledger", "maritime", "sentinel")
 PAPER_OPTIONS = ("A4", "LETTER")
 KIT_VARIANTS = ("lean", "scanner")
 BACKUP_PASSPHRASE_WORD_OPTIONS = (
-    ("Default: saved setting", "default"),
+    ("From settings", "default"),
     *((f"{count} words", str(count)) for count in MNEMONIC_WORD_COUNTS),
 )
+BACKUP_SIGNING_KEY_OPTIONS = (
+    ("Embedded in backup", "embedded"),
+    ("Separate key sheets", "sharded"),
+)
 SIGNING_KEY_RECOVERY_OPTIONS = (
-    ("Off - not signed", "off"),
-    ("Same quorum", "same"),
+    ("No separate key sheets", "off"),
+    ("Match recovery-sheet quorum", "same"),
     ("Custom quorum", "custom"),
-    ("Replace existing", "replace"),
+    ("Replace existing key sheets", "replace"),
 )
 PASSPHRASE_RECOVERY_OPTIONS = (
     ("Create new", "create"),
@@ -33,36 +53,148 @@ PASSPHRASE_RECOVERY_OPTIONS = (
     ("Skip", "off"),
 )
 RESTORE_AUTH_OPTIONS = (
-    ("Require trusted signature", "require-signed"),
-    ("Allow unsigned legacy", "allow-unsigned"),
+    ("Trusted signatures required", "require-signed"),
+    ("Allow unsigned legacy backups", "allow-unsigned"),
 )
 AUTH_MATERIAL_OPTIONS = (
-    ("From loaded backup", "auto"),
-    ("Trust text", "text"),
-    ("Trust payload files", "payloads"),
+    ("Loaded backup", "auto"),
+    ("Signature text file", "text"),
+    ("Signature payload file", "payloads"),
 )
 ADD_FILES_UNLOCK_POLICY_OPTIONS = (
-    ("Self-contained", "self-contained"),
-    ("Reuse root", "reuse-root"),
+    ("From settings", "default"),
+    ("Self-contained update", "self-contained"),
+    ("Reuse original recovery", "reuse-root"),
 )
 ADD_FILES_RECOVERY_OPTIONS = (
-    ("Using saved defaults", "default"),
+    ("From settings", "default"),
     ("No new sheets", "none"),
     ("Custom quorum", "custom"),
 )
 ADD_FILES_SIGNING_KEY_OPTIONS = (
-    ("Using saved default", "default"),
-    ("Not stored", "not-stored"),
-    ("Sharded", "sharded"),
-    ("Custom key sheets", "custom"),
+    ("From settings", "default"),
+    ("No separate key sheets", "not-stored"),
+    ("Separate key sheets", "sharded"),
+    ("Custom quorum", "custom"),
 )
 
 
 class BaseWorkspace(Widget):
     task_key = ""
+    advanced_panel_id: str | None = None
+    _advanced_expanded = False
 
     def update_presentation(self, presentation: TaskPresentation) -> None:
         return
+
+    def on_collapsible_expanded(self, event: Collapsible.Expanded) -> None:
+        if event.collapsible.id == self.advanced_panel_id:
+            event.stop()
+            self._advanced_expanded = True
+
+    def on_collapsible_collapsed(self, event: Collapsible.Collapsed) -> None:
+        if event.collapsible.id == self.advanced_panel_id:
+            event.stop()
+            self._advanced_expanded = False
+
+    def sync_advanced_panel(self, title: str) -> None:
+        if self.advanced_panel_id is None:
+            return
+        sync_collapsible_panel(
+            self,
+            self.advanced_panel_id,
+            expanded=getattr(self, "_advanced_expanded", False),
+            title=title,
+        )
+
+    def reveal_advanced_focus_target(self, selector: str) -> bool:
+        """Expand the advanced panel when it owns the requested focus target."""
+        if self.advanced_panel_id is None:
+            return False
+        try:
+            panel = self.query_one(f"#{self.advanced_panel_id}", Collapsible)
+            target = self.query_one(selector)
+        except Exception:
+            return False
+        if target is not panel and panel not in target.ancestors:
+            return False
+        self._advanced_expanded = True
+        panel.collapsed = False
+        return True
+
+
+class WorkspacePathList(OptionList):
+    """Read-only path list without selection controls."""
+
+    _workspace_items: tuple[tuple[str, str, str], ...] = ()
+
+    def action_select(self) -> None:
+        return
+
+
+class WorkspaceRadioSet(RadioSet):
+    """Native single-choice control that retains presentation choice keys."""
+
+    def __init__(
+        self,
+        prefix: str,
+        choices: Iterable[tuple[str, str]],
+        *,
+        id: str,
+        classes: str | None = None,
+    ) -> None:
+        self._prefix = prefix
+        self._empty_button = RadioButton(
+            "",
+            value=True,
+            disabled=True,
+            classes="workspace-choice-empty",
+        )
+        self._buttons = {
+            key: RadioButton(
+                Content.from_text(label, markup=False),
+                id=self._button_id(key),
+            )
+            for key, label in choices
+        }
+        super().__init__(
+            self._empty_button,
+            *self._buttons.values(),
+            id=id,
+            classes=classes,
+            compact=True,
+        )
+
+    @property
+    def selected_key(self) -> str | None:
+        return next((key for key, button in self._buttons.items() if button.value), None)
+
+    def key_for_button(self, button: RadioButton) -> str | None:
+        return next((key for key, candidate in self._buttons.items() if candidate is button), None)
+
+    def sync_choices(self, choices: tuple[WorkspaceChoice, ...]) -> None:
+        """Synchronize presentation state without emitting a user change message."""
+        selected_key = next((choice.key for choice in choices if choice.selected), None)
+        if tuple(self._buttons) != tuple(choice.key for choice in choices):
+            raise ValueError("radio choice keys cannot change after composition")
+        for choice in choices:
+            button = self._buttons[choice.key]
+            button.label = Content.from_text(choice.label, markup=False)
+        target = self._empty_button if selected_key is None else self._buttons[selected_key]
+        with self.prevent(RadioSet.Changed):
+            target.value = True
+
+    def _button_id(self, choice_key: str) -> str:
+        return f"{self._prefix}-{choice_key}"
+
+
+def advanced_panel(panel_id: str, title: str) -> Collapsible:
+    return collapsible_panel(
+        panel_id,
+        title,
+        classes="workspace-advanced-panel workspace-control",
+        title_classes="workspace-advanced-panel-title workspace-control",
+    )
 
 
 def group_label(label: str) -> Widget:
@@ -74,28 +206,59 @@ def status_note(note_id: str) -> Widget:
         "",
         id=note_id,
         classes="workspace-section-status workspace-status-ready",
+        markup=False,
     )
 
 
 def section() -> VerticalGroup:
-    return VerticalGroup(classes="workspace-section")
-
-
-def path_table(table_id: str) -> Widget:
     return VerticalGroup(
-        DataTable(id=table_id, classes="workspace-table workspace-control"),
-        Static("", id=f"{table_id}-empty", classes="workspace-empty-state"),
+        Rule(classes="workspace-section-rule"),
+        classes="workspace-section",
+    )
+
+
+def path_selection_list(list_id: str) -> Widget:
+    return VerticalGroup(
+        WorkspacePathList(
+            id=list_id,
+            classes="workspace-path-selection-list",
+            markup=False,
+            compact=True,
+        ),
+        Static(
+            "",
+            id=f"{list_id}-empty",
+            classes="workspace-empty-state",
+            markup=False,
+        ),
         classes="workspace-path-list",
     )
 
 
-def button_row(*actions: WorkspaceAction) -> Widget:
-    return HorizontalGroup(
-        *[
+def button_row(*actions: WorkspaceAction, spaced_after: bool = False) -> Widget:
+    row_classes = "workspace-button-row"
+    if spaced_after:
+        row_classes = f"{row_classes} workspace-button-row-spaced"
+    return HorizontalGroup(*_spaced_buttons(actions), classes=row_classes)
+
+
+def _spaced_buttons(actions: Iterable[WorkspaceAction]) -> list[Widget]:
+    widgets: list[Widget] = []
+    for index, action in enumerate(actions):
+        if index > 0:
+            widgets.append(Static("", classes="workspace-button-gap"))
+        widgets.append(
             Button(action.label, id=action.key, compact=True, classes="workspace-control")
-            for action in actions
-        ],
-        classes="workspace-button-row",
+        )
+    return widgets
+
+
+def choice_group(prefix: str, choices: Iterable[tuple[str, str]]) -> WorkspaceRadioSet:
+    return WorkspaceRadioSet(
+        prefix,
+        choices,
+        id=f"{prefix}-method",
+        classes="workspace-choice-set workspace-control",
     )
 
 
@@ -108,7 +271,8 @@ def field_row(
 ) -> Widget:
     return HorizontalGroup(
         Label(label, classes="workspace-field-label"),
-        Static("", id=value_id, classes="workspace-field-value"),
+        Static("", id=value_id, classes="workspace-field-value", markup=False),
+        Static("", classes="action-button-gap"),
         Button(action.label, id=action.key, compact=True, classes="workspace-control"),
         id=row_id,
         classes="workspace-field-row",
@@ -123,7 +287,7 @@ def value_row(
 ) -> Widget:
     return HorizontalGroup(
         Label(label, classes="workspace-field-label"),
-        Static("", id=value_id, classes="workspace-field-value"),
+        Static("", id=value_id, classes="workspace-field-value", markup=False),
         id=row_id,
         classes="workspace-field-row",
     )
@@ -139,15 +303,22 @@ def select_row(
     return HorizontalGroup(
         Label(label, classes="workspace-field-label"),
         Select(
-            [(option, option) for option in options],
+            [(_enum_display_label(option), option) for option in options],
             id=select_id,
             allow_blank=False,
             compact=True,
             classes="workspace-select workspace-control",
         ),
         id=row_id,
-        classes="workspace-field-row",
+        classes="workspace-field-row workspace-select-row",
     )
+
+
+def _enum_display_label(value: str) -> str:
+    """Turn stable enum keys into labels without changing their submitted values."""
+    if value == "A4":
+        return value
+    return value.replace("_", " ").replace("-", " ").title()
 
 
 def labeled_select_row(
@@ -156,18 +327,19 @@ def labeled_select_row(
     options: Iterable[tuple[str, str]],
     *,
     row_id: str | None = None,
+    allow_blank: bool = False,
 ) -> Widget:
     return HorizontalGroup(
         Label(label, classes="workspace-field-label"),
         Select(
             list(options),
             id=select_id,
-            allow_blank=False,
+            allow_blank=allow_blank,
             compact=True,
             classes="workspace-select workspace-control",
         ),
         id=row_id,
-        classes="workspace-field-row",
+        classes="workspace-field-row workspace-select-row",
     )
 
 
@@ -188,7 +360,7 @@ def select_summary_row(
             compact=True,
             classes="workspace-select workspace-control",
         ),
-        Static("", id=value_id, classes="workspace-field-value"),
+        Static("", id=value_id, classes="workspace-field-value", markup=False),
         id=row_id,
         classes="workspace-field-row",
     )
@@ -207,116 +379,106 @@ def value(group: WorkspaceGroup, key: str) -> str:
     return item_value or group.empty_label
 
 
-def update_table(table: DataTable, group: WorkspaceGroup) -> None:
-    table.clear(columns=True)
-    table.cursor_type = "row"
-    empty = _empty_state_for_table(table)
+def control_value(group: WorkspaceGroup, key: str) -> str:
+    """Return the machine-readable value for a workspace control."""
+    item = next((item for item in group.values if item.key == key), None)
+    if item is None:
+        return ""
+    return item.control_value if item.control_value is not None else item.value
+
+
+def update_path_selection_list(path_list: WorkspacePathList, group: WorkspaceGroup) -> None:
+    empty = _empty_state_for_path_list(path_list)
     if not group.values:
-        table.display = False
+        path_list.display = False
+        if path_list._workspace_items:
+            path_list.clear_options()
+            path_list._workspace_items = ()
         if empty is not None:
-            empty.display = True
-            empty.update(group.empty_label)
+            empty.display = bool(group.empty_label)
+            if group.empty_label:
+                empty.update(group.empty_label)
         return
-    table.display = True
+    path_list.display = True
     if empty is not None:
         empty.display = False
-    table.add_columns("Name", "Path")
-    for item in group.values:
-        table.add_row(item.label, item.value, key=item.key)
+    items = tuple((item.key, item.label, item.value) for item in group.values)
+    if path_list._workspace_items == items:
+        return
+    path_list.set_options(
+        [Option(f"{item.label}: {item.value}", id=item.key) for item in group.values]
+    )
+    path_list._workspace_items = items
 
 
-def update_radio(widget: Widget, prefix: str, choices: tuple[WorkspaceChoice, ...]) -> None:
-    radio = widget.query_one(f"#{prefix}-method", RadioSet)
-    with radio.prevent(RadioSet.Changed):
-        selected_any = False
-        for choice in choices:
-            button = widget.query_one(f"#{prefix}-{choice.key}", RadioButton)
-            button.value = choice.selected
-            selected_any = selected_any or choice.selected
-        if not selected_any and choices:
-            widget.query_one(f"#{prefix}-{choices[0].key}", RadioButton).value = True
+def update_choice_list(
+    widget: Widget,
+    prefix: str,
+    choices: tuple[WorkspaceChoice, ...],
+) -> None:
+    widget.query_one(f"#{prefix}-method", WorkspaceRadioSet).sync_choices(choices)
 
 
 def selected_choice(choices: tuple[WorkspaceChoice, ...]) -> str:
     for choice in choices:
         if choice.selected:
             return choice.key
-    return choices[0].key if choices else ""
-
-
-def add_files_recovery_select_value(summary: str) -> str:
-    lowered = summary.lower()
-    if lowered.startswith("no "):
-        return "none"
-    if lowered.startswith("custom") or "recovery sheets; any" in lowered:
-        return "custom"
-    return "default"
-
-
-def add_files_signing_key_select_value(summary: str) -> str:
-    lowered = summary.lower()
-    if lowered.startswith("not stored"):
-        return "not-stored"
-    if lowered.startswith("sharded,"):
-        return "custom"
-    if lowered.startswith("sharded"):
-        return "sharded"
-    return "default"
-
-
-def auth_material_select_value(summary: str) -> str:
-    lowered = summary.lower()
-    if lowered.startswith("trust text"):
-        return "text"
-    if lowered.startswith("trust payload"):
-        return "payloads"
-    return "auto"
-
-
-def replace_passphrase_recovery_select_value(summary: str) -> str:
-    lowered = summary.lower()
-    if lowered.startswith("do not"):
-        return "off"
-    if lowered.startswith("replace"):
-        return "replace"
-    return "create"
+    return ""
 
 
 def set_select(select: Select, value: str) -> None:
     with select.prevent(Select.Changed):
-        select.value = value
+        if value:
+            select.value = value
+        else:
+            select.clear()
 
 
 def update_buttons(widget: Widget, actions: tuple[WorkspaceAction, ...]) -> None:
     for action in actions:
         button = widget.query_one(f"#{action.key}", Button)
+        button.display = action.visible
         button.disabled = not action.enabled
 
 
 def update_status_note(widget: Widget, note_id: str, group: WorkspaceGroup) -> None:
     note = widget.query_one(f"#{note_id}", Static)
-    summary = group.status_summary or group.empty_label
-    note.update(
-        f"{status_label(group.status)}: {summary}" if summary else status_label(group.status)
-    )
-    for status in ("ready", "missing", "warning", "blocked"):
+    update_static_text(note, _status_note_text(group))
+    for status in ("ready", "missing", "optional", "warning", "blocked"):
         note.set_class(group.status == status, f"workspace-status-{status}")
+
+
+def update_static_text(static: Static, content: str) -> None:
+    if str(static.content) != content:
+        static.update(content)
+
+
+def _status_note_text(group: WorkspaceGroup) -> str:
+    label = status_label(group.status)
+    summary = group.status_summary or group.empty_label
+    if group.status == "ready":
+        return summary if group.kind in {"paths", "checklist"} else ""
+    if group.status == "optional":
+        return summary if group.kind in {"paths", "checklist"} else "Optional"
+    return f"{label}: {summary}" if summary else label
 
 
 def status_label(status: str) -> str:
     if status == "ready":
-        return "Complete"
+        return "Ready"
+    if status == "optional":
+        return "Optional"
     if status == "warning":
         return "Warning"
     if status == "blocked":
-        return "Invalid"
+        return "Needs input"
     return "Required"
 
 
-def _empty_state_for_table(table: DataTable) -> Static | None:
-    if table.id is None or table.parent is None:
+def _empty_state_for_path_list(path_list: WorkspacePathList) -> Static | None:
+    if path_list.id is None or path_list.parent is None:
         return None
     try:
-        return table.parent.query_one(f"#{table.id}-empty", Static)
+        return path_list.parent.query_one(f"#{path_list.id}-empty", Static)
     except Exception:
         return None

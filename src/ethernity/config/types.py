@@ -59,6 +59,7 @@ class UiDefaults:
     quiet: bool = False
     no_color: bool = False
     no_animations: bool = False
+    show_internals: bool = False
 
 
 @dataclass(frozen=True)

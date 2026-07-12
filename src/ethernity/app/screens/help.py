@@ -18,20 +18,34 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
-from textual.widgets import Button, Static
+from textual.containers import Vertical
+from textual.widgets import Button, MarkdownViewer, Static
+
+from ethernity.app.screens.modal import EthernityModalScreen
+from ethernity.app.widgets.actions import ActionButton, modal_action_row
+
+
+@dataclass(frozen=True)
+class HelpSection:
+    title: str
+    body: str
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class HelpShortcut:
+    keys: tuple[str, ...]
+    label: str
 
 
 @dataclass(frozen=True)
 class HelpMode:
     key: str
-    label: str
-    description: str
-    use_when: str
-    avoid_when: str
-    needs: tuple[str, ...]
+    summary: str
+    sections: tuple[HelpSection, ...]
+    shortcuts: tuple[HelpShortcut, ...]
 
 
 @dataclass(frozen=True)
@@ -41,7 +55,7 @@ class HelpContent:
     mode: HelpMode
 
 
-class HelpScreen(ModalScreen[None]):
+class HelpScreen(EthernityModalScreen[None]):
     """Contextual help for the active workflow."""
 
     BINDINGS = [("escape", "close", "Close")]
@@ -54,21 +68,24 @@ class HelpScreen(ModalScreen[None]):
         with Vertical(id="help-modal"):
             yield Static(self._content.title, id="help-title")
             yield Static(self._content.intro, id="help-intro")
-            with Vertical(id="help-body"):
-                yield Static("What it does", classes="help-section-title")
-                yield Static(self._content.mode.description, id="help-description")
-                yield Static("Use it when", classes="help-section-title")
-                yield Static(self._content.mode.use_when, id="help-use-when")
-                yield Static("Do not use it when", classes="help-section-title")
-                yield Static(self._content.mode.avoid_when, id="help-avoid-when")
-                yield Static("You will choose", classes="help-section-title")
-                yield Static(_needs_text(self._content.mode.needs), id="help-needs")
-            with Horizontal(id="help-actions"):
-                yield Static("", id="help-action-spacer")
-                yield Button("Close", id="help-close", compact=True)
+            yield Static(
+                _shortcut_text(self._content.mode.shortcuts),
+                id="help-shortcuts",
+                markup=False,
+            )
+            yield MarkdownViewer(
+                _help_markdown(self._content),
+                id="help-body",
+                show_table_of_contents=False,
+                open_links=False,
+            )
+            yield modal_action_row(
+                "help-actions",
+                ActionButton("Close", "help-close"),
+            )
 
     def on_mount(self) -> None:
-        self.query_one("#help-close", Button).focus()
+        self.query_one("#help-body", MarkdownViewer).document.focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id != "help-close":
@@ -80,5 +97,24 @@ class HelpScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
-def _needs_text(needs: tuple[str, ...]) -> str:
-    return "\n".join(f"- {need}" for need in needs)
+def _help_markdown(content: HelpContent) -> str:
+    return "\n\n".join(_markdown_section(section) for section in content.mode.sections)
+
+
+def _markdown_section(section: HelpSection) -> str:
+    notes = f"\n\n{_markdown_items(section.notes)}" if section.notes else ""
+    return f"### {section.title}\n{section.body}{notes}"
+
+
+def _markdown_items(items: tuple[str, ...]) -> str:
+    return "\n".join(f"- {item}" for item in items)
+
+
+def _shortcut_text(shortcuts: tuple[HelpShortcut, ...]) -> Text:
+    text = Text()
+    for index, shortcut in enumerate(shortcuts):
+        if index:
+            text.append("\n" if index % 3 == 0 else "   ")
+        text.append("/".join(shortcut.keys), style="bold")
+        text.append(f": {shortcut.label}")
+    return text

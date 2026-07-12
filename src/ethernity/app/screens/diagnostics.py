@@ -16,22 +16,27 @@
 
 from __future__ import annotations
 
+import json
+
+from rich.syntax import Syntax
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.content import Content
-from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     Label,
     RichLog,
     Static,
     Switch,
+    TabbedContent,
+    TabPane,
 )
 
+from ethernity.app.screens.modal import EthernityModalScreen
+from ethernity.app.widgets.actions import ActionButton, modal_action_row
 from ethernity.tasks.models import TaskDiagnostics
 
 
-class DiagnosticsScreen(ModalScreen[None]):
+class DiagnosticsScreen(EthernityModalScreen[None]):
     """On-demand advanced diagnostics for the current task."""
 
     BINDINGS = [("escape", "close", "Close")]
@@ -46,21 +51,44 @@ class DiagnosticsScreen(ModalScreen[None]):
             yield Static(self._diagnostics.title, id="diagnostics-title")
             if self._diagnostics.has_sensitive_values:
                 with Horizontal(id="diagnostics-toolbar"):
-                    yield Label("Reveal secrets", id="diagnostics-reveal-label")
+                    yield Label("Show sensitive values", id="diagnostics-reveal-label")
                     yield Switch(False, animate=False, id="diagnostics-reveal")
-            yield RichLog(
-                id="diagnostics-internals",
-                highlight=False,
-                markup=False,
-                wrap=False,
+            with TabbedContent(
+                initial=_diagnostics_tab_id(0),
+                id="diagnostics-tabs",
+            ):
+                for index, block in enumerate(self._diagnostics.blocks):
+                    with TabPane(block.title, id=_diagnostics_tab_id(index)):
+                        yield RichLog(
+                            id=_diagnostics_log_id(index),
+                            classes="diagnostics-internals",
+                            highlight=True,
+                            markup=False,
+                            wrap=False,
+                        )
+                if not self._diagnostics.blocks:
+                    with TabPane("Diagnostics", id=_diagnostics_tab_id(0)):
+                        yield RichLog(
+                            id=_diagnostics_log_id(0),
+                            classes="diagnostics-internals",
+                            highlight=True,
+                            markup=False,
+                            wrap=False,
+                        )
+            yield modal_action_row(
+                "diagnostics-actions",
+                ActionButton("Close", "diagnostics-close"),
             )
-            with Horizontal(id="diagnostics-actions"):
-                yield Static("", id="diagnostics-action-spacer")
-                yield Button("Close", id="diagnostics-close", compact=True)
 
     def on_mount(self) -> None:
         self._refresh_internals()
-        self.query_one("#diagnostics-internals", RichLog).focus()
+        self._focus_active_log()
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        if event.tabbed_content.id != "diagnostics-tabs":
+            return
+        event.stop()
+        self._focus_active_log()
 
     def on_switch_changed(self, event: Switch.Changed) -> None:
         if event.switch.id != "diagnostics-reveal":
@@ -78,11 +106,44 @@ class DiagnosticsScreen(ModalScreen[None]):
         self.dismiss(None)
 
     def _refresh_internals(self) -> None:
-        log = self.query_one("#diagnostics-internals", RichLog)
-        log.clear()
         if not self._diagnostics.blocks:
+            log = self.query_one(f"#{_diagnostics_log_id(0)}", RichLog)
+            log.clear()
+            log.write("No diagnostic data for these inputs.")
             return
-        for block in self._diagnostics.blocks:
-            log.write(Content.assemble((block.title, "bold $text-primary")))
-            log.write(block.display_content(reveal_sensitive=self._reveal_sensitive))
-            log.write("")
+        for index, block in enumerate(self._diagnostics.blocks):
+            log = self.query_one(f"#{_diagnostics_log_id(index)}", RichLog)
+            log.clear()
+            content = block.display_content(reveal_sensitive=self._reveal_sensitive)
+            if _looks_like_json(content):
+                log.write(Syntax(content, "json", word_wrap=False, background_color="default"))
+            else:
+                log.write(content)
+
+    def _focus_active_log(self) -> None:
+        tabs = self.query_one("#diagnostics-tabs", TabbedContent)
+        active_tab = tabs.active or _diagnostics_tab_id(0)
+        try:
+            index = int(active_tab.rsplit("-", 1)[1])
+        except ValueError:
+            index = 0
+        self.query_one(f"#{_diagnostics_log_id(index)}", RichLog).focus()
+
+
+def _diagnostics_tab_id(index: int) -> str:
+    return f"diagnostics-tab-{index}"
+
+
+def _diagnostics_log_id(index: int) -> str:
+    return f"diagnostics-log-{index}"
+
+
+def _looks_like_json(content: str) -> bool:
+    stripped = content.strip()
+    if not stripped.startswith(("{", "[")):
+        return False
+    try:
+        json.loads(stripped)
+    except ValueError:
+        return False
+    return True

@@ -443,6 +443,11 @@ def _parse_ui_defaults(cfg: dict[str, object]) -> UiDefaults:
             field="ui.no_animations",
             default=False,
         ),
+        show_internals=_parse_bool(
+            cfg.get("show_internals"),
+            field="ui.show_internals",
+            default=False,
+        ),
     )
 
 

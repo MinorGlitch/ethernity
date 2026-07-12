@@ -22,6 +22,12 @@ from ethernity.tasks.quorum import MAX_SHARDS
     help="Generated backup folder to update.",
 )
 @click.option(
+    "--output-folder",
+    "loose_output_folder",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="New or empty destination for an update created from scans.",
+)
+@click.option(
     "--scan",
     "source_paths",
     multiple=True,
@@ -33,14 +39,14 @@ from ethernity.tasks.quorum import MAX_SHARDS
     "input_paths",
     multiple=True,
     type=click.Path(exists=False, path_type=Path),
-    help="File to add. Repeat for multiple files.",
+    help="File to add or replace. Repeat for multiple files.",
 )
 @click.option(
     "--input-dir",
     "input_dirs",
     multiple=True,
     type=click.Path(file_okay=False, exists=False, path_type=Path),
-    help="Folder to add. Repeat for multiple folders.",
+    help="Folder to add or replace. Repeat for multiple folders.",
 )
 @click.option(
     "--base-dir",
@@ -83,14 +89,12 @@ from ethernity.tasks.quorum import MAX_SHARDS
 @click.option(
     "--unlock-policy",
     type=click.Choice(["self-contained", "reuse-root"]),
-    default="self-contained",
-    show_default=True,
-    help="How the update should store unlock material.",
+    help="How the update should store unlock material; otherwise use the saved default.",
 )
 @click.option(
     "--signing-key-mode",
     type=click.Choice(["not-stored", "sharded"]),
-    help="How the update signing key is stored.",
+    help="How redundant signing-key recovery is stored.",
 )
 @click.option(
     "--signing-key-threshold",
@@ -105,8 +109,8 @@ from ethernity.tasks.quorum import MAX_SHARDS
     help="How many signing-key recovery documents to create.",
 )
 @click.option("--qr-chunk-size", type=click.IntRange(min=1), help="Payload bytes per QR chunk.")
-@click.option("--paper", "paper_size", type=click.Choice(["A4", "LETTER"]), default="A4")
-@click.option("--design", default="sentinel", show_default=True, help="Built-in render style.")
+@click.option("--paper", "paper_size", type=click.Choice(["A4", "LETTER"]))
+@click.option("--design", help="Built-in render style; otherwise use the saved style.")
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")
 @click.option("--json", "json_output", is_flag=True, help="Emit one machine-readable JSON object.")
@@ -114,6 +118,7 @@ from ethernity.tasks.quorum import MAX_SHARDS
 def add_files(
     ctx: click.Context,
     backup_folder: Path | None,
+    loose_output_folder: Path | None,
     source_paths: tuple[Path, ...],
     input_paths: tuple[Path, ...],
     input_dirs: tuple[Path, ...],
@@ -125,21 +130,22 @@ def add_files(
     allow_stale_head: bool,
     recovery_document_count: int | None,
     recovery_document_threshold: int | None,
-    unlock_policy: str,
+    unlock_policy: str | None,
     signing_key_mode: str | None,
     signing_key_recovery_threshold: int | None,
     signing_key_recovery_count: int | None,
     qr_chunk_size: int | None,
-    paper_size: str,
-    design: str,
+    paper_size: str | None,
+    design: str | None,
     preview: bool,
     yes: bool,
     json_output: bool,
 ) -> None:
-    """Add files to an existing backup."""
+    """Add or replace files in an existing backup."""
 
     state = AddFilesTaskState(
         backup_folder=backup_folder,
+        loose_output_folder=loose_output_folder,
         config_path=current_config_path(ctx),
         source_paths=list(source_paths),
         input_paths=list(input_paths),
@@ -150,7 +156,7 @@ def add_files(
         recovery_payload_files=list(recovery_payload_files),
         expected_head_doc_hash=expected_head_doc_hash,
         allow_stale_head=allow_stale_head,
-        unlock_policy=cast(AddFilesUnlockPolicy, unlock_policy),
+        unlock_policy=cast(AddFilesUnlockPolicy | None, unlock_policy),
         recovery_document_threshold=recovery_document_threshold,
         recovery_document_count=recovery_document_count,
         signing_key_mode=cast(AddFilesSigningKeyMode | None, signing_key_mode),

@@ -17,12 +17,14 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Static
+from textual.containers import Vertical
+from textual.widgets import Button, Input, Label, MaskedInput, Static
+
+from ethernity.app.screens.modal import EthernityModalScreen
+from ethernity.app.widgets.actions import ActionButton, modal_action_row
 
 
-class EditFieldScreen(ModalScreen[str | None]):
+class EditFieldScreen(EthernityModalScreen[str | None]):
     """Small modal for editing one task field."""
 
     BINDINGS = [("escape", "cancel", "Cancel")]
@@ -35,6 +37,7 @@ class EditFieldScreen(ModalScreen[str | None]):
         value: str = "",
         placeholder: str = "",
         password: bool = False,
+        mask_template: str | None = None,
     ) -> None:
         super().__init__()
         self._field_title = title
@@ -42,32 +45,44 @@ class EditFieldScreen(ModalScreen[str | None]):
         self._value = value
         self._placeholder = placeholder
         self._password = password
+        self._mask_template = mask_template
 
     def compose(self) -> ComposeResult:
         with Vertical(id="edit-field-modal"):
             yield Static(self._field_title, id="edit-field-title")
             yield Label(self._prompt, id="edit-field-prompt")
-            yield Input(
-                self._value,
-                placeholder=self._placeholder,
-                password=self._password,
-                id="edit-field-input",
+            if self._mask_template is None:
+                yield Input(
+                    self._value,
+                    placeholder=self._placeholder,
+                    password=self._password,
+                    id="edit-field-input",
+                )
+            else:
+                yield MaskedInput(
+                    self._mask_template,
+                    value=self._value,
+                    placeholder=self._placeholder,
+                    valid_empty=True,
+                    id="edit-field-input",
+                )
+            yield modal_action_row(
+                "edit-field-actions",
+                ActionButton("Apply", "edit-field-save", variant="primary"),
+                ActionButton("Clear", "edit-field-clear"),
+                ActionButton("Cancel", "edit-field-cancel"),
             )
-            with Horizontal(id="edit-field-actions"):
-                yield Button("Save", id="edit-field-save", variant="primary")
-                yield Button("Clear", id="edit-field-clear")
-                yield Button("Cancel", id="edit-field-cancel")
 
     def on_mount(self) -> None:
         self.query_one("#edit-field-input", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.dismiss(event.value)
+        self.dismiss(self._normalized_input_value(event.input))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
         if button_id == "edit-field-save":
-            self.dismiss(self.query_one("#edit-field-input", Input).value)
+            self.dismiss(self._normalized_input_value(self.query_one("#edit-field-input", Input)))
         elif button_id == "edit-field-clear":
             self.dismiss("")
         else:
@@ -75,3 +90,9 @@ class EditFieldScreen(ModalScreen[str | None]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def _normalized_input_value(self, field: Input) -> str:
+        value = field.value
+        if isinstance(field, MaskedInput):
+            return value.replace(" ", "")
+        return value

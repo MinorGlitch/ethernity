@@ -1,72 +1,18 @@
 from __future__ import annotations
 
 from ethernity.app.app_types import ActiveTask
+from ethernity.app.workflow_registry import WORKFLOWS, nav_option_indices, workflow_definition
 
-TASK_TITLES: dict[ActiveTask, str] = {
-    "backup": "Create backup",
-    "restore": "Restore files",
-    "add_files": "Add files to backup",
-    "rebuild": "Rebuild backup",
-    "replace_recovery_docs": "Create replacement recovery sheets",
-    "kit": "Create recovery kit PDF",
-    "doctor": "Setup check",
-    "settings": "Settings",
-}
+TASK_TITLES: dict[ActiveTask, str] = {workflow.key: workflow.title for workflow in WORKFLOWS}
 
-TASK_ORDER: tuple[ActiveTask, ...] = (
-    "backup",
-    "restore",
-    "add_files",
-    "rebuild",
-    "replace_recovery_docs",
-    "kit",
-    "doctor",
-    "settings",
-)
+TASK_ORDER: tuple[ActiveTask, ...] = tuple(workflow.key for workflow in WORKFLOWS)
 
-NAV_OPTION_INDEX: dict[ActiveTask, int] = {
-    "backup": 1,
-    "restore": 3,
-    "add_files": 5,
-    "rebuild": 6,
-    "replace_recovery_docs": 7,
-    "kit": 9,
-    "doctor": 10,
-    "settings": 11,
-}
+NAV_OPTION_INDEX: dict[ActiveTask, int] = nav_option_indices()
 
 
 def execute_label(task: ActiveTask) -> str:
-    if task == "restore":
-        return "Restore files"
-    if task == "add_files":
-        return "Create update"
-    if task == "rebuild":
-        return "Rebuild backup"
-    if task == "replace_recovery_docs":
-        return "Create replacement sheets"
-    if task == "kit":
-        return "Create PDF"
-    if task == "doctor":
-        return "Run checks again"
-    if task == "settings":
-        return "Save settings"
-    return "Create backup"
+    return workflow_definition(task).execute_label
 
 
 def review_label(task: ActiveTask) -> str:
-    if task == "restore":
-        return "Review restore"
-    if task == "add_files":
-        return "Review update"
-    if task == "rebuild":
-        return "Review rebuild"
-    if task == "replace_recovery_docs":
-        return "Review replacement sheets"
-    if task == "kit":
-        return "Review PDF"
-    if task == "doctor":
-        return "Run checks again"
-    if task == "settings":
-        return "Save"
-    return "Review backup"
+    return workflow_definition(task).review_label

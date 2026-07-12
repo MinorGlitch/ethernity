@@ -13,7 +13,7 @@ from ethernity.app.mutations.paths import TaskPathMutationActions
 from ethernity.app.path_utils import split_file_dir_paths
 from ethernity.tasks.quorum import MAX_SHARDS
 
-QUORUM_INPUT_HELP = f"Use a threshold/count from 1 to {MAX_SHARDS}, such as 2/3."
+QUORUM_INPUT_HELP = f"Use required/total sheets from 1 to {MAX_SHARDS}, such as 2/3."
 
 
 class TaskMutationActions(TaskPathMutationActions):
@@ -50,19 +50,35 @@ class TaskMutationActions(TaskPathMutationActions):
             )
             self.refresh_task_view()
 
+    def _apply_add_files_input_files_picked(self, paths: tuple[Path, ...] | None) -> None:
+        if paths is not None:
+            self.add_files_state.input_paths = list(paths)
+            self.refresh_task_view()
+
+    def _apply_add_files_input_folder_picked(self, paths: tuple[Path, ...] | None) -> None:
+        if paths:
+            folder = paths[0]
+            if folder not in self.add_files_state.input_dirs:
+                self.add_files_state.input_dirs.append(folder)
+            self.refresh_task_view()
+
     def _apply_add_files_sources(self, value: str | None) -> None:
         if value is not None:
             self.add_files_state.source_paths = parse_paths(value)
+            if self.add_files_state.source_paths:
+                self.add_files_state.backup_folder = None
             self.add_files_state.allow_stale_head = False
             self.add_files_state.expected_head_doc_hash = None
-            self.refresh_task_view()
+            self._source_changed("add_files")
 
     def _apply_add_files_sources_picked(self, paths: tuple[Path, ...] | None) -> None:
         if paths is not None:
             self.add_files_state.source_paths = list(paths)
+            if self.add_files_state.source_paths:
+                self.add_files_state.backup_folder = None
             self.add_files_state.allow_stale_head = False
             self.add_files_state.expected_head_doc_hash = None
-            self.refresh_task_view()
+            self._source_changed("add_files")
 
     def _apply_add_files_passphrase(self, value: str | None) -> None:
         if value is None:
@@ -141,7 +157,7 @@ class TaskMutationActions(TaskPathMutationActions):
             self.backup_state.shard_threshold = threshold
         else:
             self.notify(
-                f"Use recommended, single, or a threshold/count from 1 to {MAX_SHARDS}.",
+                f"Use recommended, single, or required/total sheets from 1 to {MAX_SHARDS}.",
                 severity="error",
             )
             return
@@ -209,7 +225,7 @@ class TaskMutationActions(TaskPathMutationActions):
             self.add_files_state.recovery_document_threshold = threshold
         else:
             self.notify(
-                f"Use default, none, or a threshold/count from 1 to {MAX_SHARDS}.",
+                f"Use default, none, or required/total sheets from 1 to {MAX_SHARDS}.",
                 severity="error",
             )
             return
@@ -228,7 +244,7 @@ class TaskMutationActions(TaskPathMutationActions):
         counts = parse_threshold_count(normalized)
         if counts is None:
             self.notify(
-                f"Use default or a threshold/count from 1 to {MAX_SHARDS}.",
+                f"Use default or required/total sheets from 1 to {MAX_SHARDS}.",
                 severity="error",
             )
             return
@@ -241,10 +257,12 @@ class TaskMutationActions(TaskPathMutationActions):
 
     def _apply_replace_recovery_set(self, value: str | None) -> None:
         if value is None:
+            self.refresh_task_view()
             return
         counts = parse_threshold_count(value.strip().lower())
         if counts is None:
             self.notify(QUORUM_INPUT_HELP, severity="error")
+            self.refresh_task_view()
             return
         threshold, count = counts
         self.replace_recovery_docs_state.recovery_threshold = 1
@@ -393,7 +411,7 @@ class TaskMutationActions(TaskPathMutationActions):
             self.rebuild_state.allow_stale_head = True
             self.rebuild_state.expected_head_doc_hash = None
             self.refresh_task_view()
-            self.notify("Backup source accepted for this rebuild.")
+            self.notify("Existing backup accepted for this rebuild.")
         elif (
             self.active_task == "replace_recovery_docs"
             and self.replace_recovery_docs_state.source_paths
@@ -401,9 +419,9 @@ class TaskMutationActions(TaskPathMutationActions):
             self.replace_recovery_docs_state.allow_stale_head = True
             self.replace_recovery_docs_state.expected_head_doc_hash = None
             self.refresh_task_view()
-            self.notify("Backup source accepted for replacement recovery sheets.")
+            self.notify("Existing backup accepted for replacement recovery sheets.")
         else:
-            self.notify("Choose backup scans before confirming freshness.", severity="warning")
+            self.notify("Choose scanned pages before confirming freshness.", severity="warning")
 
     def _toggle_kit_variant(self) -> None:
         if self.active_task != "kit":

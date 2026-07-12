@@ -46,9 +46,22 @@ def print_task_preview(preview: TaskPreview) -> None:
 def print_task_execution_result(result: TaskExecutionResult) -> None:
     style = "green" if result.ok else "red"
     console.print(f"[{style}]{result.message}[/{style}]")
-    if not result.output_paths:
-        return
-    table = Table("Written files", show_lines=False)
-    for path in result.output_paths:
-        table.add_row(str(path))
-    console.print(table)
+    if result.details:
+        details = Table("Result", "Value", show_lines=False)
+        for detail in result.details:
+            value = (
+                ", ".join(detail.value)
+                if isinstance(detail.value, tuple)
+                else ""
+                if detail.value is None
+                else str(detail.value)
+            )
+            details.add_row(detail.label, value)
+        console.print(details)
+    if result.output_paths:
+        table = Table("Written files", show_lines=False)
+        for path in result.output_paths:
+            table.add_row(str(path))
+        console.print(table)
+    for step in result.next_steps:
+        console.print(f"[yellow]{step}[/yellow]")
