@@ -26,6 +26,7 @@ export function DecryptSection({
   onExtensionTargetChange,
   onExpectedHeadDocHashChange,
   onDecrypt,
+  onDecryptIntensive,
   onDecryptRootOnly,
   canDecrypt,
   canDecryptRootOnly,
@@ -48,6 +49,14 @@ export function DecryptSection({
         : "Enter your passphrase to unlock.",
     },
   ];
+  if (onDecryptIntensive) {
+    decryptActions.push({
+      label: isDecrypting ? "Unlocking..." : "Try resource-intensive browser unlock",
+      className: "secondary",
+      onClick: onDecryptIntensive,
+      disabled: isDecrypting,
+    });
+  }
   if (onDecryptRootOnly) {
     decryptActions.push({
       label: isDecrypting ? "Unlocking..." : "Unlock root only",

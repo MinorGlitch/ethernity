@@ -277,6 +277,7 @@ test("buildCompressedLoaderHtml decodes and renders gzip payload", async () => {
     payloadBase91Safe,
     alphabet: BASE91_ALPHABET,
   });
+  assert.match(html, /name="ethernity-kit-compression" content="gzip"/);
   const written = [];
   const document = {
     open() {
@@ -311,6 +312,7 @@ test("buildCompressedLoaderHtml decodes and renders brotli payload", async () =>
     alphabet: BASE91_ALPHABET,
     compression: "brotli",
   });
+  assert.match(html, /name="ethernity-kit-compression" content="brotli"/);
   const written = [];
   const document = {
     open() {
@@ -342,6 +344,7 @@ test("generated recovery kit bundles decode to extension-capable UI", async () =
 
   for (const bundlePath of bundlePaths) {
     const html = await readFile(new URL(bundlePath, import.meta.url), "utf8");
+    assert.match(html, /name="ethernity-kit-compression" content="gzip"/);
     const written = [];
     const document = {
       open() {

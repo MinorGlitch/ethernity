@@ -18,9 +18,7 @@
 import { hmac } from "@noble/hashes/hmac.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { scrypt } from "@noble/hashes/scrypt.js";
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
-
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const LABEL_SCRYPT = textEncoder.encode("age-encryption.org/v1/scrypt");
@@ -29,6 +27,23 @@ const LABEL_PAYLOAD = textEncoder.encode("payload");
 const CHUNK_SIZE = 64 * 1024;
 const TAG_SIZE = 16;
 const STREAM_BLOCK_BYTES = CHUNK_SIZE + TAG_SIZE;
+export const MAX_BROWSER_AGE_SCRYPT_LOG_N = 20;
+export const MAX_SCRYPT_LOG_N = MAX_BROWSER_AGE_SCRYPT_LOG_N;
+export const MAX_AUTOMATIC_AGE_SCRYPT_LOG_N = 18;
+export const MAX_AUTOMATIC_RECOVERY_SCRYPT_WORK = 8 * 2 ** MAX_AUTOMATIC_AGE_SCRYPT_LOG_N;
+export const INTENSIVE_SCRYPT_APPROVAL_PREFIX = "INTENSIVE_SCRYPT_APPROVAL_REQUIRED:";
+const SCRYPT_WORKER_UNAVAILABLE =
+  "This browser cannot safely run the required scrypt work. Use the Ethernity desktop app to recover this backup.";
+const SYNC_SCRYPT_ENABLED =
+  typeof __ETHERNITY_SYNC_SCRYPT_ENABLED__ === "boolean"
+    ? __ETHERNITY_SYNC_SCRYPT_ENABLED__
+    : typeof window === "undefined";
+
+function embeddedScryptWorkerSource() {
+  return typeof __ETHERNITY_SCRYPT_WORKER_SOURCE__ === "string"
+    ? __ETHERNITY_SCRYPT_WORKER_SOURCE__
+    : null;
+}
 
 function decodeBase64NoPad(text) {
   const cleaned = text.trim();
@@ -146,7 +161,7 @@ function decryptFileKey(body, key) {
   }
 }
 
-function unwrapScrypt(passphrase, saltText, logNText, body) {
+function parseSupportedScryptProfile(saltText, logNText) {
   if (!/^[1-9][0-9]*$/.test(logNText)) {
     throw new Error("invalid scrypt stanza");
   }
@@ -155,16 +170,152 @@ function unwrapScrypt(passphrase, saltText, logNText, body) {
     throw new Error("invalid scrypt stanza");
   }
   const logN = Number(logNText);
-  if (logN > 20) {
-    throw new Error("scrypt work factor is too high");
+  if (!Number.isSafeInteger(logN) || logN < 1 || logN > MAX_SCRYPT_LOG_N) {
+    throw new Error(`scrypt work factor must be between 1 and ${MAX_SCRYPT_LOG_N}`);
   }
   const labelAndSalt = new Uint8Array(LABEL_SCRYPT.length + 16);
   labelAndSalt.set(LABEL_SCRYPT);
   labelAndSalt.set(salt, LABEL_SCRYPT.length);
-  const scryptCost = 2 ** logN;
-  const maxmem = 128 * 8 * (scryptCost + 2);
-  const key = scrypt(passphrase, labelAndSalt, { N: scryptCost, r: 8, p: 1, dkLen: 32, maxmem });
+  const work = 2 ** logN;
+  return {
+    labelAndSalt,
+    logN,
+    work,
+    memoryBytes: 128 * 8 * (work + 2),
+  };
+}
+
+async function unwrapScrypt(passphrase, saltText, logNText, body, options) {
+  const profile = parseSupportedScryptProfile(saltText, logNText);
+  const key = await deriveScryptKey(passphrase, profile, options);
   return decryptFileKey(body, key);
+}
+
+async function deriveScryptKey(passphrase, profile, { signal } = {}) {
+  if (typeof window !== "undefined") {
+    return deriveScryptKeyInWorker(passphrase, profile, signal);
+  }
+  if (!SYNC_SCRYPT_ENABLED) {
+    throw new Error(SCRYPT_WORKER_UNAVAILABLE);
+  }
+  const scryptModule = ["@noble/hashes", "scrypt.js"].join("/");
+  const { scrypt } = await import(scryptModule);
+  return scrypt(passphrase, profile.labelAndSalt, {
+    N: profile.work,
+    r: 8,
+    p: 1,
+    dkLen: 32,
+    maxmem: profile.memoryBytes,
+  });
+}
+
+function deriveScryptKeyInWorker(passphrase, profile, signal) {
+  const workerSource = embeddedScryptWorkerSource();
+  if (!browserScryptWorkerAvailable(workerSource)) {
+    throw new Error(SCRYPT_WORKER_UNAVAILABLE);
+  }
+  if (signal?.aborted) {
+    throw abortError();
+  }
+  const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" }));
+  const worker = new Worker(workerUrl);
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      signal?.removeEventListener("abort", handleAbort);
+      worker.terminate();
+      URL.revokeObjectURL(workerUrl);
+    };
+    const handleAbort = () => {
+      cleanup();
+      reject(abortError());
+    };
+    worker.onmessage = (event) => {
+      cleanup();
+      if (event.data?.key instanceof Uint8Array) {
+        resolve(event.data.key);
+      } else {
+        reject(new Error(SCRYPT_WORKER_UNAVAILABLE));
+      }
+    };
+    worker.onerror = () => {
+      cleanup();
+      reject(new Error(SCRYPT_WORKER_UNAVAILABLE));
+    };
+    signal?.addEventListener("abort", handleAbort, { once: true });
+    worker.postMessage({
+      passphrase: passphrase,
+      labelAndSalt: profile.labelAndSalt,
+      logN: profile.logN,
+    });
+  });
+}
+
+function browserScryptWorkerAvailable(workerSource = embeddedScryptWorkerSource()) {
+  return Boolean(
+    workerSource &&
+      typeof Worker === "function" &&
+      typeof Blob === "function" &&
+      typeof URL !== "undefined" &&
+      typeof URL.createObjectURL === "function",
+  );
+}
+
+function abortError() {
+  const error = new Error("scrypt operation was cancelled");
+  error.name = "AbortError";
+  return error;
+}
+
+export function inspectAgeScryptWork(fileBytes) {
+  const bytes =
+    fileBytes instanceof Uint8Array ? fileBytes : new Uint8Array(fileBytes.buffer ?? fileBytes);
+  const header = parseHeaderScrypt(bytes);
+  const profile = parseSupportedScryptProfile(header.saltText, header.logNText);
+  return { logN: profile.logN, work: profile.work, memoryBytes: profile.memoryBytes };
+}
+
+export function preflightAgeScryptBatch(fileBytesList, { allowResourceIntensive = false } = {}) {
+  if (!Array.isArray(fileBytesList) || !fileBytesList.length) {
+    throw new Error("scrypt preflight requires at least one encrypted document");
+  }
+  let totalWork = 0;
+  let peakMemoryBytes = 0;
+  const errors = [];
+  const profiles = fileBytesList.map((fileBytes) => {
+    try {
+      const profile = inspectAgeScryptWork(fileBytes);
+      totalWork += profile.work;
+      peakMemoryBytes = Math.max(peakMemoryBytes, profile.memoryBytes);
+      errors.push(null);
+      return profile;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(message);
+      return null;
+    }
+  });
+  if (typeof window !== "undefined" && !browserScryptWorkerAvailable()) {
+    throw new Error(SCRYPT_WORKER_UNAVAILABLE);
+  }
+  const resourceIntensiveProfiles = profiles.filter(
+    (profile) => profile && profile.logN > MAX_AUTOMATIC_AGE_SCRYPT_LOG_N,
+  );
+  const requiresResourceIntensiveApproval =
+    resourceIntensiveProfiles.length > 0 || totalWork > MAX_AUTOMATIC_RECOVERY_SCRYPT_WORK;
+  if (requiresResourceIntensiveApproval && !allowResourceIntensive) {
+    const peakMiB = Math.round(peakMemoryBytes / (1024 * 1024));
+    const operationCount = profiles.filter(Boolean).length;
+    throw new Error(
+      `${INTENSIVE_SCRYPT_APPROVAL_PREFIX} Unlocking these ${operationCount} backup document(s) can require up to about ${peakMiB} MiB of memory at once and prolonged CPU work. The browser will not start resource-intensive work automatically. Use the Ethernity desktop app, or explicitly choose the browser attempt.`,
+    );
+  }
+  return {
+    profiles,
+    errors,
+    totalWork,
+    peakMemoryBytes,
+    requiresResourceIntensiveApproval,
+  };
 }
 
 function compareBytes(a, b) {
@@ -207,11 +358,17 @@ function decryptPayloadBytes(key, payloadBytes) {
   return flatten(out);
 }
 
-export async function decryptAgePassphrase(fileBytes, passphrase) {
+export async function decryptAgePassphrase(fileBytes, passphrase, options = {}) {
   const bytes =
     fileBytes instanceof Uint8Array ? fileBytes : new Uint8Array(fileBytes.buffer ?? fileBytes);
   const header = parseHeaderScrypt(bytes);
-  const fileKey = unwrapScrypt(passphrase, header.saltText, header.logNText, header.body);
+  const fileKey = await unwrapScrypt(
+    passphrase,
+    header.saltText,
+    header.logNText,
+    header.body,
+    options,
+  );
   if (fileKey === null) {
     throw new Error("invalid passphrase");
   }
@@ -228,3 +385,5 @@ export async function decryptAgePassphrase(fileBytes, passphrase) {
   const payload = bytes.subarray(header.payloadOffset + 16);
   return decryptPayloadBytes(streamKey, payload);
 }
+
+decryptAgePassphrase.preflightBatch = preflightAgeScryptBatch;

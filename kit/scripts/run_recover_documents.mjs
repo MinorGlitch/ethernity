@@ -87,7 +87,7 @@ async function main() {
     documents,
     fixture.passphrase,
     decryptAgePassphrase,
-    { extensionTarget },
+    { extensionTarget, allowResourceIntensiveScrypt: true },
   );
   const files = result.files.map((file) => ({
     path: file.path,

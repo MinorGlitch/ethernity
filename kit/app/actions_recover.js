@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { decryptAgePassphrase } from "../lib/age_scrypt.js";
+import { decryptAgePassphrase, INTENSIVE_SCRYPT_APPROVAL_PREFIX } from "../lib/age_scrypt.js";
 import { recoverLatestFromEncryptedDocuments } from "./extension_recovery.js";
 import { extractFiles } from "./envelope.js";
 import { collectedRecoveryDocuments, reassembleCiphertext } from "./frames_cipher.js";
@@ -33,6 +33,13 @@ import {
   setLineStatus,
 } from "./actions_common.js";
 
+let activeDecryptController = null;
+
+export function cancelActiveDecryptWork() {
+  activeDecryptController?.abort();
+  activeDecryptController = null;
+}
+
 export async function decryptCiphertext(dispatch, getState, options = {}) {
   const { decrypt = decryptAgePassphrase, verifySignature } = options;
   const base = cloneState(getState());
@@ -46,8 +53,13 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
   clearDecryptedEnvelope(prep);
   let didStartDecrypt = false;
   let finalState = null;
+  let decryptController = null;
+  let extensionTarget = null;
   try {
-    const extensionTarget = resolveExtensionTarget(prep, options);
+    extensionTarget =
+      options.allowResourceIntensiveScrypt && base.intensiveRecoveryTarget
+        ? base.intensiveRecoveryTarget
+        : resolveExtensionTarget(prep, options);
     if (prep.conflicts > 0) {
       throw new Error("conflicting duplicate frames detected");
     }
@@ -71,16 +83,25 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     }
     prep.decryptRequestId = base.decryptRequestId + 1;
     prep.isDecrypting = true;
+    prep.intensiveRecoveryTarget = null;
     setLineStatus(prep, "decryptStatus", "Unlocking backup...");
     const requestId = prep.decryptRequestId;
     dispatchState(dispatch, prep);
     didStartDecrypt = true;
+    cancelActiveDecryptWork();
+    decryptController = new AbortController();
+    activeDecryptController = decryptController;
 
     const result = await recoverLatestFromEncryptedDocuments(
       documents,
       prep.agePassphrase,
       decrypt,
-      { verifySignature, extensionTarget },
+      {
+        verifySignature,
+        extensionTarget,
+        signal: decryptController.signal,
+        allowResourceIntensiveScrypt: options.allowResourceIntensiveScrypt === true,
+      },
     );
     const next = cloneLatest(getState);
     if (!isCurrentDecryptRequest(next, requestId)) {
@@ -91,6 +112,7 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     next.decryptedEnvelopeSource = "Collected ciphertext";
     applyExtractResult(next, result);
     next.isDecrypting = false;
+    next.intensiveRecoveryTarget = null;
     next.recoveryComplete = true;
     next.decryptStatus = {
       lines: [
@@ -113,8 +135,19 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     next.isDecrypting = false;
     const errorMsg = String(err);
     const friendlyError = recoveryFriendlyError(errorMsg);
-    setLineStatus(next, "decryptStatus", friendlyError, "error");
+    const intensiveApprovalRequired = errorMsg.includes(INTENSIVE_SCRYPT_APPROVAL_PREFIX);
+    next.intensiveRecoveryTarget = intensiveApprovalRequired ? extensionTarget : null;
+    setLineStatus(
+      next,
+      "decryptStatus",
+      friendlyError,
+      intensiveApprovalRequired ? "warn" : "error",
+    );
     finalState = next;
+  } finally {
+    if (activeDecryptController === decryptController) {
+      activeDecryptController = null;
+    }
   }
   dispatchState(dispatch, finalState);
 }
@@ -124,6 +157,9 @@ function isCurrentDecryptRequest(state, requestId) {
 }
 
 function recoveryFriendlyError(errorMsg) {
+  if (errorMsg.includes(INTENSIVE_SCRYPT_APPROVAL_PREFIX)) {
+    return errorMsg.split(INTENSIVE_SCRYPT_APPROVAL_PREFIX, 2)[1].trim();
+  }
   if (
     errorMsg.includes("selected extension doc_hash") ||
     errorMsg.includes("supplied backup documents")

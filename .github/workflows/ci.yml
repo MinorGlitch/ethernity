@@ -221,6 +221,8 @@ jobs:
       - name: Install kit dependencies
         working-directory: kit
         run: npm ci
+      - name: Install kit gzip compressor
+        run: sudo apt-get update && sudo apt-get install --yes libdeflate-tools
       - name: Generate kit bundles for package artifacts
         working-directory: kit
         run: node build_kit.mjs
@@ -288,6 +290,9 @@ jobs:
         working-directory: kit
         run: npm ci
 
+      - name: Install kit gzip compressor
+        run: sudo apt-get update && sudo apt-get install --yes libdeflate-tools
+
       - name: Generate kit bundles
         working-directory: kit
         run: node build_kit.mjs
@@ -302,6 +307,10 @@ jobs:
       - name: Run kit tests
         working-directory: kit
         run: npm test
+
+      - name: Smoke generated recovery kits in Chrome
+        working-directory: kit
+        run: npm run test:browser
 
       - name: Setup Python
         uses: ./.github/actions/setup-python

@@ -28,7 +28,8 @@ def _assert_generated_kit_bundles_present() -> None:
         raise SetupError(
             "recovery kit bundles must be generated before building release artifacts:\n"
             f"{details}\n"
-            "Run 'cd kit && node build_kit.mjs'."
+            "Install libdeflate-gzip (Ubuntu: libdeflate-tools; macOS: Homebrew libdeflate), "
+            "then run 'cd kit && node build_kit.mjs'."
         )
 
 

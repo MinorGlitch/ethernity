@@ -256,6 +256,9 @@ jobs:
         working-directory: kit
         run: npm ci
 
+      - name: Install kit gzip compressor
+        run: sudo apt-get update && sudo apt-get install --yes libdeflate-tools
+
       - name: Generate kit bundles
         working-directory: kit
         run: node build_kit.mjs

@@ -53,6 +53,10 @@ uv run pytest tests/unit tests/integration -q
 
 Optional, when touching browser kit assets:
 
+Install `libdeflate-gzip` before rebuilding the generated bundles (Ubuntu:
+`sudo apt-get install libdeflate-tools`; macOS with Homebrew: `brew install libdeflate`). The
+executable must be available on `PATH`.
+
 ```sh
 cd kit
 npm ci

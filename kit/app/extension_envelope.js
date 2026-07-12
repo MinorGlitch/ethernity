@@ -28,8 +28,10 @@ import {
   EXTENSION_ENVELOPE_VERSION,
   EXTENSION_SCHEMA_VERSION,
   MAX_DECOMPRESSED_PAYLOAD_BYTES,
+  MAX_EXTENSION_INDEX,
   MAX_MANIFEST_CBOR_BYTES,
   MAX_MANIFEST_FILES,
+  MAX_RECOVERY_DECODED_CHUNK_BYTES,
 } from "./constants.js";
 import { validateManifestPath } from "../lib/path_validation.js";
 
@@ -58,7 +60,7 @@ export function decodeExtensionEnvelopeHeader(bytes) {
   return readExtensionEnvelopeHeader(bytes).header;
 }
 
-export async function decodeExtensionEnvelope(bytes) {
+export async function decodeExtensionEnvelope(bytes, { decodeChunks = true } = {}) {
   const { header, bodyStart, bodyEnd } = readExtensionEnvelopeHeader(bytes);
   const body = await parseExtensionBody(
     decodeCanonicalCbor(bytes.slice(bodyStart, bodyEnd), "extension body", {
@@ -66,6 +68,7 @@ export async function decodeExtensionEnvelope(bytes) {
       preserveMapType: true,
     }),
     header,
+    { decodeChunks },
   );
   return { header, files: body.files, chunks: body.chunks };
 }
@@ -131,6 +134,9 @@ function parseExtensionHeader(value) {
     throw new Error(`unsupported extension header version: ${version}`);
   }
   const index = requirePositiveInt(header.get(2), "extension header index");
+  if (index > MAX_EXTENSION_INDEX) {
+    throw new Error(`extension header index exceeds MAX_EXTENSION_INDEX (${MAX_EXTENSION_INDEX})`);
+  }
   const parentDocHash = requireBytes(header.get(4), 32, "extension header parent_doc_hash");
   const rootDocHash = requireBytes(header.get(5), 32, "extension header root_doc_hash");
   const createdAt = requireInt(header.get(7), "extension header created_at");
@@ -194,7 +200,7 @@ function parseChunking(value) {
   return profile;
 }
 
-async function parseExtensionBody(value, header) {
+async function parseExtensionBody(value, header, { decodeChunks }) {
   const body = requireIntKeyMap(value, BODY_KEYS, "extension body");
   if (!body.has(1) || !body.has(2)) {
     throw new Error("extension body files and chunks are required");
@@ -230,13 +236,15 @@ async function parseExtensionBody(value, header) {
       throw new Error("extension inline chunks must be referenced by files in the same envelope");
     }
   }
-  for (const chunk of chunks) {
-    chunk.decoded = await decodeChunkData(chunk);
-  }
-  for (const file of files) {
-    validateCanonicalChunkRefs(file, new Map(), chunks, header.chunking, {
-      allowUnresolved: true,
-    });
+  if (decodeChunks) {
+    for (const chunk of chunks) {
+      chunk.decoded = await decodeChunkData(chunk);
+    }
+    for (const file of files) {
+      validateCanonicalChunkRefs(file, new Map(), chunks, header.chunking, {
+        allowUnresolved: true,
+      });
+    }
   }
   return { files, chunks };
 }
@@ -248,6 +256,9 @@ function parseExtensionFile(value) {
   }
   const path = validateManifestPath(requireString(fields[0], "extension file path"));
   const size = requireNonNegativeInt(fields[1], "extension file size");
+  if (size > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
+    throw new Error("extension file size exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES");
+  }
   const sha = requireBytes(fields[2], 32, "extension file sha256");
   const mtime = fields[3] === null ? null : requireInt(fields[3], "extension file mtime");
   const chunkRefs = requireArray(fields[4], "extension file chunk_refs").map(parseChunkRef);
@@ -270,10 +281,14 @@ function parseChunkRef(value) {
     throw new Error("extension chunk_ref must contain exactly 2 items");
   }
   const chunkId = requireBytes(fields[0], 32, "extension chunk_ref chunk_id");
+  const uncompressedLen = requirePositiveInt(fields[1], "extension chunk_ref uncompressed_len");
+  if (uncompressedLen > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
+    throw new Error("extension chunk_ref uncompressed_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES");
+  }
   return {
     chunkId,
     chunkIdHex: bytesToHex(chunkId),
-    uncompressedLen: requirePositiveInt(fields[1], "extension chunk_ref uncompressed_len"),
+    uncompressedLen,
   };
 }
 
@@ -307,37 +322,130 @@ export async function reconstructLatestFiles(rootFiles, rootDocHash, extensions)
     return rootFiles.map((file) => ({ ...file, data: file.data.slice() }));
   }
   validateExtensionChain(rootDocHash, extensions);
-  const lockedChunking = extensions[0].header.chunking;
-  const state = new Map(rootFiles.map((file) => [file.path, { ...file, data: file.data.slice() }]));
+  requireDecodedChunkBudget(extensions);
   const neededRefs = extensionChunkRefCounts(extensions);
-  const seenChunkIds = new Set();
-  const availableChunks = virtualRootChunkMap(rootFiles, lockedChunking, neededRefs, seenChunkIds);
-
+  const replay = createExtensionReplay(rootFiles, extensions[0].header.chunking, neededRefs);
   for (const extension of extensions) {
-    mergeNewExtensionChunks(availableChunks, extension, neededRefs, seenChunkIds);
-    const projected = new Map(state);
-    for (const file of extension.files) {
-      projected.set(file.path, { ...file, data: new Uint8Array(file.size) });
-    }
-    if (projected.size > MAX_MANIFEST_FILES) {
-      throw new Error(`logical latest state exceeds MAX_MANIFEST_FILES (${MAX_MANIFEST_FILES})`);
-    }
-    const logicalBytes = Array.from(projected.values()).reduce(
-      (sum, file) => sum + logicalFileSize(file),
-      0,
-    );
-    if (logicalBytes > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
-      throw new Error("logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES");
-    }
-    for (const file of extension.files) {
-      state.set(file.path, resolveExtensionFileState(file, availableChunks, lockedChunking));
-    }
-    consumeExtensionChunkRefs(neededRefs, availableChunks, extension);
+    replayExtension(replay, extension);
+  }
+  return replayFiles(replay);
+}
+
+export async function reconstructLatestFilesFromEnvelopes(
+  rootFiles,
+  rootDocHash,
+  extensionEnvelopes,
+  { decodeEnvelope = decodeExtensionEnvelope, onExtensionReplayed = null } = {},
+) {
+  if (!extensionEnvelopes.length) {
+    return rootFiles.map((file) => ({ ...file, data: file.data.slice() }));
+  }
+  validateExtensionChain(rootDocHash, extensionEnvelopes);
+  const neededRefs = new Map();
+  let decodedChunkBytes = 0;
+  for (const item of extensionEnvelopes) {
+    const metadata = await decodeEnvelope(item.plaintext, { decodeChunks: false });
+    requireMatchingEnvelopeHeader(metadata.header, item.header);
+    addExtensionChunkRefCounts(neededRefs, metadata);
+    decodedChunkBytes = addDecodedChunkBytes(decodedChunkBytes, metadata);
   }
 
-  return Array.from(state.keys())
+  const replay = createExtensionReplay(
+    rootFiles,
+    extensionEnvelopes[0].header.chunking,
+    neededRefs,
+  );
+  for (const item of extensionEnvelopes) {
+    const extension = await decodeEnvelope(item.plaintext);
+    requireMatchingEnvelopeHeader(extension.header, item.header);
+    replayExtension(replay, extension);
+    onExtensionReplayed?.({
+      index: item.header.index,
+      retainedChunkBytes: availableChunkBytes(replay.availableChunks),
+    });
+  }
+  return replayFiles(replay);
+}
+
+function createExtensionReplay(rootFiles, lockedChunking, neededRefs) {
+  const state = new Map(rootFiles.map((file) => [file.path, { ...file, data: file.data.slice() }]));
+  const seenChunkIds = new Set();
+  const availableChunks = virtualRootChunkMap(rootFiles, lockedChunking, neededRefs, seenChunkIds);
+  return { state, lockedChunking, neededRefs, seenChunkIds, availableChunks };
+}
+
+function replayExtension(replay, extension) {
+  const { state, lockedChunking, neededRefs, seenChunkIds, availableChunks } = replay;
+  mergeNewExtensionChunks(availableChunks, extension, neededRefs, seenChunkIds);
+  const projected = new Map(state);
+  for (const file of extension.files) {
+    projected.set(file.path, file);
+  }
+  if (projected.size > MAX_MANIFEST_FILES) {
+    throw new Error(`logical latest state exceeds MAX_MANIFEST_FILES (${MAX_MANIFEST_FILES})`);
+  }
+  const logicalBytes = Array.from(projected.values()).reduce(
+    (sum, file) => sum + logicalFileSize(file),
+    0,
+  );
+  if (logicalBytes > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
+    throw new Error("logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES");
+  }
+  for (const file of extension.files) {
+    state.set(file.path, resolveExtensionFileState(file, availableChunks, lockedChunking));
+  }
+  consumeExtensionChunkRefs(neededRefs, availableChunks, extension);
+}
+
+function replayFiles(replay) {
+  return Array.from(replay.state.keys())
     .sort(compareUnicodeCodePointStrings)
-    .map((path) => state.get(path));
+    .map((path) => replay.state.get(path));
+}
+
+function requireMatchingEnvelopeHeader(actual, expected) {
+  if (
+    actual.version !== expected.version ||
+    actual.index !== expected.index ||
+    !bytesEqual(actual.parentDocHash, expected.parentDocHash) ||
+    !bytesEqual(actual.rootDocHash, expected.rootDocHash) ||
+    actual.createdAt !== expected.createdAt ||
+    !chunkingEqual(actual.chunking, expected.chunking) ||
+    actual.inputOrigin !== expected.inputOrigin ||
+    actual.inputRoots.length !== expected.inputRoots.length ||
+    actual.inputRoots.some((root, index) => root !== expected.inputRoots[index])
+  ) {
+    throw new Error("decoded extension header changed after authenticated selection");
+  }
+}
+
+function inlineChunkRawBytes(extension) {
+  return extension.chunks.reduce((total, chunk) => total + chunk.rawLen, 0);
+}
+
+function requireDecodedChunkBudget(extensions) {
+  let decodedChunkBytes = 0;
+  for (const extension of extensions) {
+    decodedChunkBytes = addDecodedChunkBytes(decodedChunkBytes, extension);
+  }
+}
+
+function addDecodedChunkBytes(currentBytes, extension) {
+  const decodedChunkBytes = currentBytes + inlineChunkRawBytes(extension);
+  if (decodedChunkBytes > MAX_RECOVERY_DECODED_CHUNK_BYTES) {
+    throw new Error(
+      `extension chain inline chunk bytes exceed MAX_RECOVERY_DECODED_CHUNK_BYTES (${MAX_RECOVERY_DECODED_CHUNK_BYTES}); rebuild the latest logical state as a fresh standalone backup before adding more files`,
+    );
+  }
+  return decodedChunkBytes;
+}
+
+function availableChunkBytes(chunks) {
+  let total = 0;
+  for (const chunk of chunks.values()) {
+    total += chunk.length;
+  }
+  return total;
 }
 
 function logicalFileSize(file) {
@@ -477,13 +585,17 @@ function mergeNewExtensionChunks(target, extension, neededRefs, seenChunkIds) {
 function extensionChunkRefCounts(extensions) {
   const counts = new Map();
   for (const extension of extensions) {
-    for (const file of extension.files) {
-      for (const ref of file.chunkRefs) {
-        counts.set(ref.chunkIdHex, (counts.get(ref.chunkIdHex) ?? 0) + 1);
-      }
-    }
+    addExtensionChunkRefCounts(counts, extension);
   }
   return counts;
+}
+
+function addExtensionChunkRefCounts(counts, extension) {
+  for (const file of extension.files) {
+    for (const ref of file.chunkRefs) {
+      counts.set(ref.chunkIdHex, (counts.get(ref.chunkIdHex) ?? 0) + 1);
+    }
+  }
 }
 
 function consumeExtensionChunkRefs(refCounts, availableChunks, extension) {

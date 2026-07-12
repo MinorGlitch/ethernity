@@ -12,6 +12,7 @@
   },
   "scripts": {
     "test": "node scripts/run_tests.mjs",
+    "test:browser": "node scripts/smoke_generated_bundle_chrome.mjs",
     "lint": "biome lint --error-on-warnings .",
     "format:check": "biome check --linter-enabled=false --assist-enabled=false .",
     "format": "biome format --write ."

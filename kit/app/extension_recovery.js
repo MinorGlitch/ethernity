@@ -21,9 +21,8 @@ import { bytesEqual, bytesToHex } from "../lib/encoding.js";
 import { DOC_ID_LEN, EXTENSION_ENVELOPE_VERSION, ENVELOPE_VERSION } from "./constants.js";
 import { extractFiles, readEnvelopeVersion } from "./envelope.js";
 import {
-  decodeExtensionEnvelope,
   decodeExtensionEnvelopeHeader,
-  reconstructLatestFiles,
+  reconstructLatestFilesFromEnvelopes,
 } from "./extension_envelope.js";
 import { deriveSigningPublicKey, verifyAuthSignature } from "./auth.js";
 import { enforceRecoveryDocumentBudget } from "./frames_cipher.js";
@@ -188,38 +187,39 @@ export async function recoverLatestFromPlaintextDocuments(
   }
 
   const selectedHeaders = selectSuppliedChainForTarget(authenticatedExtensions, target);
-  const selected = [];
-  for (const item of selectedHeaders) {
-    let extension;
-    try {
-      extension = await decodeExtensionEnvelope(item.document.plaintext);
-    } catch (err) {
+  let files;
+  try {
+    files = await reconstructLatestFilesFromEnvelopes(
+      root.extracted.files,
+      root.document.docHash,
+      selectedHeaders.map((item) => ({
+        header: item.header,
+        plaintext: item.document.plaintext,
+        docHash: item.document.docHash,
+      })),
+    );
+  } catch (err) {
+    const selectedDocument = selectedHeaders.at(-1)?.document;
+    if (selectedDocument) {
       throwIfSelectedDocHashFailure(
         target,
-        item.document,
+        selectedDocument,
         "decoded",
         `root-authority extension could not be decoded: ${String(err)}`,
       );
-      throw new Error(`root-authority extension could not be decoded: ${String(err)}`);
     }
-    selected.push({
-      ...extension,
-      docHash: item.document.docHash,
-      docHashHex: item.document.docHashHex,
-      authPayload: item.authPayload,
-    });
+    throw new Error(`root-authority extension could not be decoded: ${String(err)}`);
   }
-  const files = await reconstructLatestFiles(root.extracted.files, root.document.docHash, selected);
-  const latest = selected.at(-1);
+  const latest = selectedHeaders.at(-1);
   ensureExpectedHeadSatisfied(target, latest?.docHashHex ?? root.document.docHashHex);
   return {
     files,
-    manifest: selected.length
+    manifest: selectedHeaders.length
       ? syntheticManifestFromFiles(root.extracted.manifest, files)
       : root.extracted.manifest,
     selectedExtensionIndex: latest?.header.index ?? null,
     selectedExtensionDocHash: latest?.docHashHex ?? null,
-    freshnessScope: selected.length ? "supplied_carriers_only" : null,
+    freshnessScope: selectedHeaders.length ? "supplied_carriers_only" : null,
     decryptedEnvelope: root.document.plaintext,
     replayTarget: target.kind === "latest" ? "latest" : "extension",
     suppliedDocumentCount: documents.length,
@@ -230,22 +230,55 @@ export async function recoverLatestFromEncryptedDocuments(
   documents,
   passphrase,
   decrypt,
-  { verifySignature = verifyAuthSignature, extensionTarget = "latest" } = {},
+  {
+    verifySignature = verifyAuthSignature,
+    extensionTarget = "latest",
+    signal,
+    allowResourceIntensiveScrypt = false,
+  } = {},
 ) {
   const target = normalizeExtensionTarget(extensionTarget);
   enforceRecoveryDocumentBudget(documents);
+  const authPreflight = await preflightEncryptedDocumentAuth(documents, verifySignature);
+  const decryptPreflight =
+    typeof decrypt.preflightBatch === "function"
+      ? decrypt.preflightBatch(
+          documents.map((document) => document.ciphertext),
+          {
+            allowResourceIntensive: allowResourceIntensiveScrypt,
+          },
+        )
+      : null;
+  if (target.kind === "latest") {
+    const firstAuthError = authPreflight.errors.find(Boolean);
+    if (firstAuthError) {
+      throw new Error(firstAuthError);
+    }
+    if (authPreflight.hasMultipleSigningAuthorities) {
+      throw new Error("supplied AUTH payloads advertise multiple signing authorities");
+    }
+    const firstPreflightError = decryptPreflight?.errors?.find(Boolean);
+    if (firstPreflightError) {
+      throw new Error(firstPreflightError);
+    }
+  }
   const plaintextDocuments = [];
   const decryptErrors = [];
-  for (const document of documents) {
-    let identifiedDocument = document;
+  for (const [documentIndex, document] of authPreflight.documents.entries()) {
+    if (signal?.aborted) {
+      throw new Error("recovery decryption was cancelled");
+    }
+    const identifiedDocument = document;
     try {
-      const identity = deriveDocumentIdentityFromCiphertext(document);
-      identifiedDocument = {
-        ...document,
-        ...identity,
-      };
-      const plaintext = await decrypt(document.ciphertext, passphrase);
-      assertSuppliedDocumentIdentityMatches(document, identity);
+      const authError = authPreflight.errors[documentIndex];
+      if (authError) {
+        throw new Error(authError);
+      }
+      const preflightError = decryptPreflight?.errors?.[documentIndex];
+      if (preflightError) {
+        throw new Error(preflightError);
+      }
+      const plaintext = await decrypt(document.ciphertext, passphrase, { signal });
       plaintextDocuments.push({
         ...identifiedDocument,
         plaintext,
@@ -268,6 +301,45 @@ export async function recoverLatestFromEncryptedDocuments(
     extensionTarget: target,
   });
   return result;
+}
+
+async function preflightEncryptedDocumentAuth(documents, verifySignature) {
+  const identifiedDocuments = [];
+  const errors = [];
+  const signingAuthorities = new Set();
+  for (const document of documents) {
+    let identifiedDocument = document;
+    let error = null;
+    try {
+      const identity = deriveDocumentIdentityFromCiphertext(document);
+      identifiedDocument = {
+        ...document,
+        ...identity,
+      };
+      assertSuppliedDocumentIdentityMatches(document, identity);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+    if (identifiedDocument.authPayload) {
+      try {
+        const payload = await requireVerifiedDocumentAuth(
+          identifiedDocument,
+          null,
+          verifySignature,
+        );
+        signingAuthorities.add(bytesToHex(payload.signPub));
+      } catch (err) {
+        error ??= err instanceof Error ? err.message : String(err);
+      }
+    }
+    identifiedDocuments.push(identifiedDocument);
+    errors.push(error);
+  }
+  return {
+    documents: identifiedDocuments,
+    errors,
+    hasMultipleSigningAuthorities: signingAuthorities.size > 1,
+  };
 }
 
 function deriveDocumentIdentityFromCiphertext(document) {

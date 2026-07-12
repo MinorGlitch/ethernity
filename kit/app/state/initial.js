@@ -70,6 +70,7 @@ export function createBaseState() {
     decryptStatus: { lines: [], type: "" },
     decryptRequestId: 0,
     isDecrypting: false,
+    intensiveRecoveryTarget: null,
     isAddingFrames: false,
     isAddingShards: false,
     recoveryComplete: false,

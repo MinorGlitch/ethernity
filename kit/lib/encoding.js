@@ -99,6 +99,9 @@ export function decodeZBase32(text) {
   const normalizedChars = [];
   for (const ch of text) {
     if (ch === "-" || /\s/.test(ch)) continue;
+    if (ch.codePointAt(0) > 0x7f) {
+      throw new Error(`invalid z-base-32 character: ${ch}`);
+    }
     const normalized = ch.toLowerCase();
     const idx = ZBASE32_ALPHABET.indexOf(normalized);
     if (idx === -1) throw new Error(`invalid z-base-32 character: ${ch}`);
@@ -120,21 +123,25 @@ export function decodeZBase32(text) {
 }
 
 export function filterZBase32Lines(text) {
-  const lines = text.split(/\r?\n/);
+  const lines = text.split(/\r\n|\r|\n/);
   const filtered = [];
   for (const raw of lines) {
     const line = raw.trim().replace(/^\d{1,4}\.\s*/, "");
     if (!line) continue;
-    const ok = true;
     for (const ch of line) {
       if (ch === "-" || /\s/.test(ch)) continue;
+      if (ch.codePointAt(0) > 0x7f) {
+        throw new Error(
+          "fallback text contains non-empty lines with characters outside the z-base-32 alphabet",
+        );
+      }
       if (!ZBASE32_ALPHABET.includes(ch.toLowerCase())) {
         throw new Error(
           "fallback text contains non-empty lines with characters outside the z-base-32 alphabet",
         );
       }
     }
-    if (ok) filtered.push(line);
+    filtered.push(line);
   }
   return filtered;
 }

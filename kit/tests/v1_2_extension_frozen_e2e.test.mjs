@@ -73,7 +73,7 @@ async function restoreScenario(snapshotPath, { extensionTarget = "latest" } = {}
     documents,
     snapshot.passphrase,
     decryptAgePassphrase,
-    { extensionTarget },
+    { extensionTarget, allowResourceIntensiveScrypt: true },
   );
   return { result, snapshot };
 }
@@ -119,6 +119,7 @@ async function restoreScenarioWithPassphrase(snapshotPath, passphrase) {
     documents,
     passphrase,
     decryptAgePassphrase,
+    { allowResourceIntensiveScrypt: true },
   );
   return { result, snapshot };
 }

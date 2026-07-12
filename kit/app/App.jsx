@@ -112,6 +112,8 @@ export function App() {
   const handleDecrypt = () => decryptCiphertext(dispatch, getState);
   const handleDecryptRootOnly = () =>
     decryptCiphertext(dispatch, getState, { extensionTarget: "root" });
+  const handleIntensiveDecrypt = () =>
+    decryptCiphertext(dispatch, getState, { allowResourceIntensiveScrypt: true });
   const handleExtract = () => extractEnvelope(dispatch, getState);
   const handleDownloadEnvelope = () => downloadEnvelope(dispatch, getState);
   const handleClearOutput = () => clearOutput(dispatch, getState);
@@ -266,6 +268,7 @@ export function App() {
             onExtensionTargetChange={handleExtensionTargetChange}
             onExpectedHeadDocHashChange={handleExpectedHeadDocHashChange}
             onDecrypt={handleDecrypt}
+            onDecryptIntensive={state.intensiveRecoveryTarget ? handleIntensiveDecrypt : null}
             onDecryptRootOnly={actionState.hasMultipleDocuments ? handleDecryptRootOnly : null}
             canDecrypt={actionState.canDecryptCiphertext}
             canDecryptRootOnly={actionState.canDecryptRootOnly}

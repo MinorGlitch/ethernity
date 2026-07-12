@@ -24,13 +24,17 @@ import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
 
 import { minify as terserMinify } from "terser";
 
+import {
+  compressedBundleName,
+  DEFAULT_KIT_COMPRESSION,
+  selectedCompressions,
+} from "./lib/build_compression.mjs";
 import { scannerHookPathForMode, selectedVariants } from "./lib/build_variants.mjs";
 import { buildCompressedLoaderHtml } from "./lib/loader_html.js";
 // 91 printable ASCII chars excluding double quote, backslash, and less-than.
 // This keeps Base91 density while avoiding JS string and </script> escaping overhead.
 const BASE91_ALPHABET =
   "!#$%&'()*+,-./0123456789:;=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~";
-const DEFAULT_KIT_COMPRESSION = "brotli";
 const DEFAULT_KIT_PROPERTY_MANGLE = "true";
 const STYLE_TAG_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/i;
 const SCANNER_ONLY_CSS_RE =
@@ -107,14 +111,18 @@ const PROPERTY_MANGLE_RESERVED = [
   "doc_id",
   "doc_id_hex",
   "entries",
+  "error",
   "files",
   "hash",
   "index",
   "input_origin",
   "input_roots",
   "length",
+  "labelAndSalt",
+  "logN",
   "manifest",
   "mtime",
+  "passphrase",
   "path",
   "path_encoding",
   "path_prefixes",
@@ -475,24 +483,6 @@ function brotliBundlePayload(rawBundle) {
   return { bytes: new Uint8Array(bytes), method: "node:brotli-q11" };
 }
 
-function compressedBundleName(bundleName, compression, { defaultCompression, hasMultiple }) {
-  if (!hasMultiple || compression === defaultCompression) {
-    return bundleName;
-  }
-  return bundleName.replace(/\.bundle\.html$/u, `.${compression}.bundle.html`);
-}
-
-function selectedCompressions(requested = DEFAULT_KIT_COMPRESSION) {
-  const normalized = requested.toLowerCase();
-  if (normalized === "both") {
-    return [DEFAULT_KIT_COMPRESSION, "gzip"];
-  }
-  if (normalized === "gzip" || normalized === "brotli") {
-    return [normalized];
-  }
-  throw new Error("ETHERNITY_KIT_COMPRESSION must be one of: gzip, brotli, both");
-}
-
 function propertyManglingEnabled(requested = DEFAULT_KIT_PROPERTY_MANGLE) {
   const normalized = requested.toLowerCase();
   if (["1", "true", "yes", "on"].includes(normalized)) {
@@ -594,6 +584,31 @@ async function ensureTrailingNewline(path) {
   }
 }
 
+function buildScryptWorkerSource(tmpBase) {
+  const workerEntry = resolve(kitDir, "lib", "age_scrypt_worker.js");
+  const workerOutput = `${tmpBase}.scrypt-worker.js`;
+  const result = spawnSync(
+    "npx",
+    [
+      "--no-install",
+      "esbuild",
+      workerEntry,
+      "--bundle",
+      "--format=iife",
+      "--platform=browser",
+      "--target=es2020",
+      "--minify",
+      "--legal-comments=none",
+      `--outfile=${workerOutput}`,
+    ],
+    { stdio: "inherit" },
+  );
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+  return readFile(workerOutput, "utf8");
+}
+
 const kitDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const inputPath = resolve(kitDir, process.argv[2] ?? "recovery_kit.html");
 const distDir = resolve(kitDir, "dist");
@@ -627,6 +642,7 @@ async function buildBundleVariant(variant) {
   const scannerPanelPath =
     variant.scannerMode === "jsqr" ? scannerPanelFullPath : scannerPanelNonePath;
 
+  const scryptWorkerSource = await buildScryptWorkerSource(tmpBase);
   const esbuildArgs = [
     entryPoint,
     "--bundle",
@@ -639,6 +655,8 @@ async function buildBundleVariant(variant) {
     "--tree-shaking=true",
     "--legal-comments=none",
     '--define:process.env.NODE_ENV="production"',
+    `--define:__ETHERNITY_SCRYPT_WORKER_SOURCE__=${JSON.stringify(scryptWorkerSource)}`,
+    "--define:__ETHERNITY_SYNC_SCRYPT_ENABLED__=false",
     `--alias:microact=${microactIndexPath}`,
     `--alias:microact/hooks=${microactHooksPath}`,
     `--alias:microact/jsx-runtime=${microactJsxRuntimePath}`,
@@ -706,10 +724,7 @@ async function buildBundleVariant(variant) {
       compression,
     });
 
-    const targetBundleName = compressedBundleName(variant.bundleName, compression, {
-      defaultCompression: DEFAULT_KIT_COMPRESSION,
-      hasMultiple: compressions.length > 1,
-    });
+    const targetBundleName = compressedBundleName(variant.bundleName, compression);
     const targetOutputPath = resolve(distDir, targetBundleName);
     const targetPackagePath = resolve(packageDir, targetBundleName);
     const tmpLoader = `${tmpBase}.${compression}.loader.html`;

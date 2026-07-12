@@ -141,6 +141,7 @@ export function clearRecoveryResult(state) {
   clearRecoveredOutput(state);
   clearDecryptedEnvelope(state);
   state.recoveryComplete = false;
+  state.intensiveRecoveryTarget = null;
   setStatus(state, "decryptStatus", []);
 }
 
