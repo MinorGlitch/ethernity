@@ -10,6 +10,7 @@ from ethernity.render.direct_pdf import (
     build_sentinel_recovery_direct_plan,
     packaged_direct_pdf_assets,
     render_sentinel_recovery_direct_pdf,
+    sentinel_recovery as sentinel_recovery_module,
 )
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
 from ethernity.render.proofs import (
@@ -119,6 +120,7 @@ class TestDirectPdfSentinelRecovery(unittest.TestCase):
             validate_fallback_text_in_pdf(
                 artifact_label="direct Sentinel recovery document",
                 reader=reader,
+                fallback_sections=inputs.fallback_sections or (),
                 fallback_proof=result.fallback_proof,
             )
 
@@ -133,6 +135,54 @@ class TestDirectPdfSentinelRecovery(unittest.TestCase):
             self.assertGreater(len(plan.page_plans), 1)
             self.assertEqual(plan.artifact_proof.page_count, len(plan.page_plans))
             self.assertTrue(plan.fallback_proof.fully_consumed)
+            for page in plan.page_plans:
+                labels = [
+                    placement.text
+                    for item in page.plans
+                    if "fallback-line-number" in item.component_id
+                    for placement in getattr(item, "lines", ())
+                ]
+                if labels:
+                    self.assertEqual(labels[0], "01.")
+                    self.assertTrue(all(len(label.removesuffix(".")) <= 4 for label in labels))
+
+    def test_custom_paginator_resets_display_numbers_per_page_and_section(self) -> None:
+        entries = (
+            sentinel_recovery_module._FallbackTitleEntry(section_index=0, title="AUTH FRAME"),
+            *(
+                sentinel_recovery_module._FallbackLineEntry(
+                    section_index=0,
+                    line_number=index,
+                    text="yyyy",
+                )
+                for index in range(1, 71)
+            ),
+            sentinel_recovery_module._FallbackTitleEntry(section_index=1, title="MAIN FRAME"),
+            *(
+                sentinel_recovery_module._FallbackLineEntry(
+                    section_index=1,
+                    line_number=index,
+                    text="yyyy",
+                )
+                for index in range(1, 8)
+            ),
+        )
+
+        pages = sentinel_recovery_module._paginate_fallback_entries(entries)
+
+        self.assertGreater(len(pages), 1)
+        for page in pages:
+            current_block: list[int] = []
+            for page_entry in page.entries:
+                if page_entry.display_line_number is None:
+                    if current_block:
+                        self.assertEqual(current_block, list(range(1, len(current_block) + 1)))
+                        current_block = []
+                    continue
+                current_block.append(page_entry.display_line_number)
+                self.assertLessEqual(len(str(page_entry.display_line_number)), 4)
+            if current_block:
+                self.assertEqual(current_block, list(range(1, len(current_block) + 1)))
 
 
 if __name__ == "__main__":

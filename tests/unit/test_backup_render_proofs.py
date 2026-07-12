@@ -124,7 +124,6 @@ class TestBackupRenderProofs(unittest.TestCase):
                     inputs=inputs,
                     result=result,
                     artifact_label="rendered recovery document",
-                    fallback_frames=(frame,),
                 )
 
         self.assertIn("missing fallback render proof", str(ctx.exception))

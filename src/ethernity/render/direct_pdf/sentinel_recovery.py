@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
@@ -96,6 +97,7 @@ _FallbackEntry = _FallbackTitleEntry | _FallbackLineEntry
 class _FallbackPageEntry:
     entry: _FallbackEntry
     row_index: int
+    display_line_number: int | None
 
 
 @dataclass(frozen=True)
@@ -194,7 +196,7 @@ def _fallback_sections(sections: Sequence[FallbackSection]) -> tuple[_FallbackSe
             encoded,
             group_size=_FALLBACK_GROUP_SIZE,
             line_length=_FALLBACK_LINE_LENGTH,
-            line_count=None,
+            line_count=MAX_FALLBACK_LINES,
         )
         resolved.append(
             _FallbackSectionLines(
@@ -260,6 +262,7 @@ def _consume_page_entries(
     placed: list[_FallbackPageEntry] = []
     row_index = 0
     consumed = 0
+    display_line_number = 0
     for index, entry in enumerate(entries):
         required_rows = 1
         if isinstance(entry, _FallbackTitleEntry):
@@ -267,7 +270,19 @@ def _consume_page_entries(
             required_rows = 2 if isinstance(next_entry, _FallbackLineEntry) else 1
         if row_index + required_rows > row_capacity:
             break
-        placed.append(_FallbackPageEntry(entry=entry, row_index=row_index))
+        if isinstance(entry, _FallbackTitleEntry):
+            display_line_number = 0
+            displayed = None
+        else:
+            display_line_number += 1
+            displayed = display_line_number
+        placed.append(
+            _FallbackPageEntry(
+                entry=entry,
+                row_index=row_index,
+                display_line_number=displayed,
+            )
+        )
         row_index += 1
         consumed += 1
     return tuple(placed), consumed
@@ -650,7 +665,16 @@ def _first_page_fallback_rows(
                 _fallback_title_row(surface, prefix, page_entry.entry.title, row_rect, index)
             )
         else:
-            plans.extend(_fallback_line_row(surface, prefix, page_entry.entry, row_rect, index))
+            plans.extend(
+                _fallback_line_row(
+                    surface,
+                    prefix,
+                    page_entry.entry,
+                    row_rect,
+                    index,
+                    display_line_number=page_entry.display_line_number,
+                )
+            )
 
     used_rows = {entry.row_index for entry in fallback_page.entries}
     for row_index in range(fallback_page.row_capacity):
@@ -699,7 +723,11 @@ def _fallback_line_row(
     entry: _FallbackLineEntry,
     row_rect: PdfRect,
     index: int,
+    *,
+    display_line_number: int | None,
 ) -> list[PaintPlan]:
+    if display_line_number is None:
+        raise ValueError("fallback payload line is missing its display number")
     return [
         Rule(
             component_id=f"{prefix}-fallback-line-rule-{index}",
@@ -707,7 +735,7 @@ def _fallback_line_row(
         ).plan(surface, PdfRect(row_rect.x_mm, row_rect.bottom_mm, row_rect.width_mm, 0.2)),
         TextBox(
             component_id=f"{prefix}-fallback-line-number-{index}",
-            text=f"{entry.line_number:02d}.",
+            text=f"{display_line_number:02d}.",
             style=SENTINEL_THEME.mono_style(size_pt=7.0, color=SENTINEL_TEXT),
             policy=TextFitPolicy.FAIL,
             align=TextAlign.RIGHT,
@@ -873,7 +901,16 @@ def _continuation_fallback_rows(
                 _continuation_title_row(surface, prefix, page_entry.entry.title, row_rect, index)
             )
         else:
-            plans.extend(_continuation_line_row(surface, prefix, page_entry.entry, row_rect, index))
+            plans.extend(
+                _continuation_line_row(
+                    surface,
+                    prefix,
+                    page_entry.entry,
+                    row_rect,
+                    index,
+                    display_line_number=page_entry.display_line_number,
+                )
+            )
     return plans
 
 
@@ -901,11 +938,15 @@ def _continuation_line_row(
     entry: _FallbackLineEntry,
     row_rect: PdfRect,
     index: int,
+    *,
+    display_line_number: int | None,
 ) -> list[PaintPlan]:
+    if display_line_number is None:
+        raise ValueError("fallback payload line is missing its display number")
     return [
         TextBox(
             component_id=f"{prefix}-fallback-line-number-{index}",
-            text=f"{entry.line_number:02d}.",
+            text=f"{display_line_number:02d}.",
             style=SENTINEL_THEME.mono_style(size_pt=8.5, bold=True, color=SENTINEL_MUTED),
             policy=TextFitPolicy.FAIL,
             align=TextAlign.RIGHT,

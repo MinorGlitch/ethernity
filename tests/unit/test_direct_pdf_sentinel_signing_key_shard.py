@@ -101,6 +101,7 @@ class TestDirectPdfSentinelSigningKeyShard(unittest.TestCase):
             validate_fallback_text_in_pdf(
                 artifact_label="direct Sentinel signing-key shard document",
                 reader=reader,
+                fallback_sections=inputs.fallback_sections or (),
                 fallback_proof=result.fallback_proof,
             )
             validate_text_in_pdf(

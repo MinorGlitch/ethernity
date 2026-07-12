@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import Sequence
 
+from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.qr.codec import QrConfig, qr_bytes
@@ -30,6 +31,7 @@ from ethernity.render.direct_pdf.forge_common import (
     build_forge_footer_plans,
     build_forge_header_plans,
     build_forge_shell_context,
+    explicit_creation_date,
     forge_component_prefix,
 )
 from ethernity.render.direct_pdf.forge_preview import A4_HEIGHT_MM, A4_WIDTH_MM
@@ -112,6 +114,9 @@ def render_forge_shard_direct_pdf(inputs: RenderInputs) -> RenderResult:
     """Render a Forge shard document directly to PDF and return validation proofs."""
 
     surface = FpdfSurface(page_width_mm=A4_WIDTH_MM, page_height_mm=A4_HEIGHT_MM)
+    creation_date = explicit_creation_date(inputs)
+    if creation_date is not None:
+        surface.set_creation_date(creation_date)
     packaged_direct_pdf_assets().register_fonts(surface)
     plan = build_forge_shard_direct_plan(surface, inputs)
     layout_proof = build_direct_layout_proof(plan.page_plans)
@@ -227,7 +232,7 @@ def _fallback_sections(sections: Sequence[FallbackSection]) -> tuple[_FallbackSe
             encoded,
             group_size=_FALLBACK_GROUP_SIZE,
             line_length=_FALLBACK_LINE_LENGTH,
-            line_count=None,
+            line_count=MAX_FALLBACK_LINES,
         )
         resolved.append(
             _FallbackSectionLines(

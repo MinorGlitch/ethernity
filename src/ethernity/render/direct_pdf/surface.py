@@ -8,6 +8,7 @@ backend if the feasibility spike proves `fpdf2` insufficient.
 from __future__ import annotations
 
 from collections.abc import Set
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Protocol, cast
@@ -24,6 +25,9 @@ class PdfSurface(Protocol):
 
     def add_page(self) -> None:
         """Append a page to the output document."""
+
+    def set_creation_date(self, value: datetime) -> None:
+        """Set deterministic PDF creation metadata before pages are emitted."""
 
     def register_ttf_font(self, family: str, path: str | Path, *, style: FontStyle = "") -> None:
         """Register a TrueType/OpenType font for later measurement and painting."""
@@ -97,6 +101,9 @@ class FpdfSurface:
 
     def add_page(self) -> None:
         self._pdf.add_page()
+
+    def set_creation_date(self, value: datetime) -> None:
+        self._pdf.set_creation_date(value)
 
     def register_ttf_font(self, family: str, path: str | Path, *, style: FontStyle = "") -> None:
         font_path = Path(path)

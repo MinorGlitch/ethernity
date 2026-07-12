@@ -8,7 +8,7 @@ Document-specific renderers own their content areas and proof construction.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 
 from ethernity.render.copy_catalog import build_copy_bundle
 from ethernity.render.direct_pdf.components import Panel, Rule, TextAlign, TextBox
@@ -115,6 +115,34 @@ def resolve_created_timestamp(base_context: dict[str, object]) -> str:
     if created_dt is not None:
         base_context["created_date"] = created_dt.date().isoformat()
     return created_timestamp_utc
+
+
+def explicit_creation_date(inputs: RenderInputs) -> datetime | None:
+    """Resolve explicit render timestamps for deterministic PDF metadata."""
+
+    value = inputs.context.get("created_timestamp_utc")
+    if value is None:
+        value = inputs.context.get("created_date")
+    if isinstance(value, datetime):
+        resolved = value
+    elif isinstance(value, date):
+        resolved = datetime.combine(value, time.min, tzinfo=timezone.utc)
+    elif isinstance(value, str):
+        normalized = value.strip()
+        resolved = None
+        for pattern in ("%Y-%m-%d %H:%M UTC", "%Y-%m-%d"):
+            try:
+                resolved = datetime.strptime(normalized, pattern).replace(tzinfo=timezone.utc)
+                break
+            except ValueError:
+                continue
+        if resolved is None:
+            return None
+    else:
+        return None
+    if resolved.tzinfo is None:
+        return resolved.replace(tzinfo=timezone.utc)
+    return resolved.astimezone(timezone.utc)
 
 
 def resolve_doc_id(inputs: RenderInputs, base_context: dict[str, object]) -> str:
@@ -417,6 +445,7 @@ __all__ = [
     "build_forge_footer_plans",
     "build_forge_header_plans",
     "build_forge_shell_context",
+    "explicit_creation_date",
     "forge_component_prefix",
     "generator_label",
     "lineage_payload",

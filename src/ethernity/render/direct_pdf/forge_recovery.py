@@ -11,6 +11,7 @@ import math
 from dataclasses import dataclass
 from typing import Sequence
 
+from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
@@ -63,10 +64,10 @@ from ethernity.render.types import (
 _COMPONENT_BASE = "forge-recovery"
 _FALLBACK_ROW_HEIGHT_MM = 6.4
 _FALLBACK_COLUMN_GAP_MM = 12.0
-_FALLBACK_LINE_NUMBER_WIDTH_MM = 10.0
-_FALLBACK_LINE_GAP_MM = 2.0
+_FALLBACK_LINE_NUMBER_WIDTH_MM = 8.5
+_FALLBACK_LINE_GAP_MM = 1.5
 _FALLBACK_GROUP_SIZE = 4
-_FALLBACK_LINE_LENGTH = 29
+_FALLBACK_LINE_LENGTH = 44
 _FIRST_PAGE_FALLBACK_AREA = PdfRect(FORGE_CONTENT_X_MM, 134.0, FORGE_CONTENT_WIDTH_MM, 70.0)
 _CONTINUATION_FALLBACK_AREA = PdfRect(
     FORGE_CONTENT_X_MM,
@@ -114,6 +115,7 @@ class _FallbackPageEntry:
     entry: _FallbackEntry
     row_index: int
     column_index: int | None
+    display_line_number: int | None
 
 
 @dataclass(frozen=True)
@@ -216,7 +218,7 @@ def _fallback_sections(sections: Sequence[FallbackSection]) -> tuple[_FallbackSe
             encoded,
             group_size=_FALLBACK_GROUP_SIZE,
             line_length=_FALLBACK_LINE_LENGTH,
-            line_count=None,
+            line_count=MAX_FALLBACK_LINES,
         )
         resolved.append(
             _FallbackSectionLines(
@@ -303,6 +305,7 @@ def _consume_page_entries(
     row_index = 0
     column_index = 0
     consumed = 0
+    display_line_number = 0
     first_section_index = _entry_section_index(entries[0]) if entries else None
 
     for index, entry in enumerate(entries):
@@ -313,12 +316,20 @@ def _consume_page_entries(
         ):
             break
         if isinstance(entry, _FallbackTitleEntry):
+            display_line_number = 0
             next_entry = entries[index + 1] if index + 1 < len(entries) else None
             title_row = row_index + (1 if column_index else 0)
             required_rows = 2 if isinstance(next_entry, _FallbackLineEntry) else 1
             if title_row + required_rows > rows_per_column:
                 break
-            placed.append(_FallbackPageEntry(entry=entry, row_index=title_row, column_index=None))
+            placed.append(
+                _FallbackPageEntry(
+                    entry=entry,
+                    row_index=title_row,
+                    column_index=None,
+                    display_line_number=None,
+                )
+            )
             row_index = title_row + 1
             column_index = 0
             consumed += 1
@@ -326,11 +337,13 @@ def _consume_page_entries(
 
         if row_index >= rows_per_column:
             break
+        display_line_number += 1
         placed.append(
             _FallbackPageEntry(
                 entry=entry,
                 row_index=row_index,
                 column_index=column_index,
+                display_line_number=display_line_number,
             )
         )
         if column_index == 0:
@@ -521,13 +534,15 @@ def _fallback_line_plans(
     area: PdfRect,
 ) -> list[PaintPlan]:
     assert isinstance(page_entry.entry, _FallbackLineEntry)
+    if page_entry.display_line_number is None:
+        raise ValueError("fallback payload line is missing its display number")
     column_index = page_entry.column_index or 0
     column_width = (area.width_mm - _FALLBACK_COLUMN_GAP_MM) / 2.0
     column_x = area.x_mm + 5.0 + column_index * (column_width + _FALLBACK_COLUMN_GAP_MM)
     row_y = area.y_mm + page_entry.row_index * _FALLBACK_ROW_HEIGHT_MM + 0.7
     payload_x = column_x + _FALLBACK_LINE_NUMBER_WIDTH_MM + _FALLBACK_LINE_GAP_MM
     payload_width = column_width - _FALLBACK_LINE_NUMBER_WIDTH_MM - _FALLBACK_LINE_GAP_MM - 5.0
-    line_number_text = f"{page_entry.entry.line_number:02d}."
+    line_number_text = f"{page_entry.display_line_number:02d}."
     return [
         TextBox(
             component_id=f"{prefix}-fallback-line-number-{index}",

@@ -807,10 +807,12 @@ def _fallback_entry_plans(
                 ).plan(surface, PdfRect(area.x_mm + 1.2, y_mm, area.width_mm - 2.4, 3.0))
             )
         else:
+            if page_entry.display_line_number is None:
+                raise ValueError("fallback payload line is missing its display number")
             plans.append(
                 TextBox(
                     component_id=f"{prefix}-fallback-line-{entry.section_index}-{entry.line_number}",
-                    text=f"{entry.line_number:02d}. {entry.text}",
+                    text=f"{page_entry.display_line_number:02d}. {entry.text}",
                     style=_mono_style(size_pt=5.8, color=_INK),
                     policy=TextFitPolicy.SHRINK,
                     min_size_pt=4.0,

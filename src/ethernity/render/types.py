@@ -20,13 +20,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Sequence
+from typing import Literal, Sequence
 
 from ethernity.encoding.framing import Frame
 from ethernity.qr.codec import QrConfig
-
-if TYPE_CHECKING:
-    from ethernity.render.recovery_meta import RecoveryMeta
+from ethernity.render.recovery_meta import RecoveryMeta
 
 
 @dataclass(frozen=True)
@@ -67,7 +65,7 @@ class RenderInputs:
     render_qr: bool = True
     render_fallback: bool = True
     key_lines: Sequence[str] | None = None
-    recovery_meta: "RecoveryMeta | None" = None
+    recovery_meta: RecoveryMeta | None = None
     render_jobs: int | Literal["auto"] | None = None
     layout_debug_json_path: str | Path | None = None
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Sequence
 
+from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.render.fallback_text import format_zbase32_lines
@@ -96,7 +97,7 @@ def fallback_lines_from_sections(
             encode_zbase32(encode_frame(section.frame)),
             group_size=group_size,
             line_length=line_length,
-            line_count=None,
+            line_count=MAX_FALLBACK_LINES,
         )
         lines.extend(section_lines)
         if idx < len(sections) - 1:

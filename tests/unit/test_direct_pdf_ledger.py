@@ -24,6 +24,7 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
 from ethernity.render.proofs import (
+    validate_fallback_text_in_pdf,
     validate_pdf_has_pages,
     validate_render_artifact_proof,
     validate_text_in_pdf,
@@ -183,6 +184,12 @@ class TestDirectPdfLedger(unittest.TestCase):
                 inputs=inputs,
                 artifact_proof=result.artifact_proof,
             )
+            validate_fallback_text_in_pdf(
+                artifact_label="direct Ledger recovery document",
+                reader=reader,
+                fallback_sections=inputs.fallback_sections or (),
+                fallback_proof=result.fallback_proof,
+            )
             validate_text_in_pdf(
                 artifact_label="direct Ledger recovery document",
                 reader=reader,
@@ -211,6 +218,12 @@ class TestDirectPdfLedger(unittest.TestCase):
                     artifact_label=f"direct Ledger {doc_type} document",
                     inputs=inputs,
                     artifact_proof=result.artifact_proof,
+                )
+                validate_fallback_text_in_pdf(
+                    artifact_label=f"direct Ledger {doc_type} document",
+                    reader=reader,
+                    fallback_sections=inputs.fallback_sections or (),
+                    fallback_proof=result.fallback_proof,
                 )
                 validate_text_in_pdf(
                     artifact_label=f"direct Ledger {doc_type} document",

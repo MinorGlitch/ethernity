@@ -22,6 +22,7 @@ from ethernity.render.proofs import (
     validate_fallback_text_in_pdf,
     validate_pdf_has_pages,
     validate_render_artifact_proof,
+    validate_render_layout_proof,
     validate_text_in_pdf,
 )
 from ethernity.render.service import RenderService
@@ -58,5 +59,6 @@ __all__ = [
     "validate_fallback_text_in_pdf",
     "validate_pdf_has_pages",
     "validate_render_artifact_proof",
+    "validate_render_layout_proof",
     "validate_text_in_pdf",
 ]

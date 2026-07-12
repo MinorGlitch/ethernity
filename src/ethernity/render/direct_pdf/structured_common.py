@@ -7,6 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
+from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import Frame, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.qr.codec import QrConfig, qr_bytes
@@ -117,6 +118,7 @@ class FallbackPageEntry:
 
     entry: FallbackEntry
     row_index: int
+    display_line_number: int | None
 
 
 @dataclass(frozen=True)
@@ -330,7 +332,7 @@ def fallback_sections(
             encoded,
             group_size=group_size,
             line_length=line_length,
-            line_count=None,
+            line_count=MAX_FALLBACK_LINES,
         )
         resolved.append(
             FallbackSectionLines(
@@ -376,13 +378,25 @@ def paginate_fallback_entries(
     remaining = tuple(entries)
     page_number = 1
     while remaining:
-        page_entries = tuple(
-            FallbackPageEntry(entry=entry, row_index=index)
-            for index, entry in enumerate(remaining[:capacity])
-        )
+        page_entries: list[FallbackPageEntry] = []
+        display_line_number = 0
+        for row_index, entry in enumerate(remaining[:capacity]):
+            if isinstance(entry, FallbackTitleEntry):
+                display_line_number = 0
+                displayed = None
+            else:
+                display_line_number += 1
+                displayed = display_line_number
+            page_entries.append(
+                FallbackPageEntry(
+                    entry=entry,
+                    row_index=row_index,
+                    display_line_number=displayed,
+                )
+            )
         if not page_entries:
             raise ValueError("fallback layout cannot fit even one entry on a page")
-        pages.append(FallbackPage(page_number=page_number, entries=page_entries))
+        pages.append(FallbackPage(page_number=page_number, entries=tuple(page_entries)))
         remaining = remaining[len(page_entries) :]
         page_number += 1
     return tuple(pages)

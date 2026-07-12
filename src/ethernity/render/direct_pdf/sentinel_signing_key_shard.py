@@ -6,6 +6,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.qr.codec import QrConfig, qr_bytes
@@ -226,7 +227,7 @@ def _fallback_sections(sections: Sequence[FallbackSection]) -> tuple[_FallbackSe
             encoded,
             group_size=_FALLBACK_GROUP_SIZE,
             line_length=_FALLBACK_LINE_LENGTH,
-            line_count=None,
+            line_count=MAX_FALLBACK_LINES,
         )
         resolved.append(
             _FallbackSectionLines(

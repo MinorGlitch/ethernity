@@ -17,6 +17,7 @@ from ethernity.render.proofs import (
     validate_fallback_text_in_pdf,
     validate_pdf_has_pages,
     validate_render_artifact_proof,
+    validate_render_layout_proof,
     validate_text_in_pdf,
 )
 from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
@@ -111,9 +112,15 @@ class TestDirectPdfForgeShard(unittest.TestCase):
                 inputs=inputs,
                 artifact_proof=result.artifact_proof,
             )
+            validate_render_layout_proof(
+                artifact_label="direct Forge shard document",
+                layout_proof=result.layout_proof,
+                expected_page_count=len(reader.pages),
+            )
             validate_fallback_text_in_pdf(
                 artifact_label="direct Forge shard document",
                 reader=reader,
+                fallback_sections=inputs.fallback_sections or (),
                 fallback_proof=result.fallback_proof,
             )
             validate_text_in_pdf(
@@ -122,19 +129,43 @@ class TestDirectPdfForgeShard(unittest.TestCase):
                 expected_text=("SHARD PAYLOAD", "TOTAL SHARDS"),
             )
 
+    def test_explicit_created_timestamp_produces_stable_pdf_bytes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            first_path = Path(tmp) / "first.pdf"
+            second_path = Path(tmp) / "second.pdf"
+
+            render_forge_shard_direct_pdf(_inputs(first_path))
+            render_forge_shard_direct_pdf(_inputs(second_path))
+
+            self.assertEqual(first_path.read_bytes(), second_path.read_bytes())
+
     def test_build_plan_paginates_and_repeats_qr_on_continuation(self) -> None:
         with TemporaryDirectory() as tmp:
-            inputs = _inputs(Path(tmp) / "shard.pdf", data=b"x" * 700)
+            output_path = Path(tmp) / "shard.pdf"
+            inputs = _inputs(output_path, data=b"x" * 700)
             surface = FpdfSurface(page_width_mm=A4_WIDTH_MM, page_height_mm=A4_HEIGHT_MM)
             packaged_direct_pdf_assets().register_fonts(surface)
 
             plan = build_forge_shard_direct_plan(surface, inputs)
+            result = render_forge_shard_direct_pdf(inputs)
+            reader = validate_pdf_has_pages(output_path)
 
             self.assertGreater(len(plan.page_plans), 1)
             self.assertEqual(plan.artifact_proof.physical_qr_count, len(plan.page_plans))
             self.assertEqual(
                 plan.artifact_proof.physical_qr_payload_indexes,
                 tuple(0 for _ in plan.page_plans),
+            )
+            validate_render_layout_proof(
+                artifact_label="paginated direct Forge shard document",
+                layout_proof=result.layout_proof,
+                expected_page_count=len(reader.pages),
+            )
+            validate_fallback_text_in_pdf(
+                artifact_label="paginated direct Forge shard document",
+                reader=reader,
+                fallback_sections=inputs.fallback_sections or (),
+                fallback_proof=result.fallback_proof,
             )
 
     def test_signing_key_shard_doc_type_is_not_accepted_by_shard_renderer(self) -> None:
