@@ -25,6 +25,7 @@ from ethernity.cli.features.backup.service import execute_prepared_backup, prepa
 from ethernity.cli.shared.types import BackupArgs
 from ethernity.crypto.passphrases import MNEMONIC_WORD_COUNTS
 from ethernity.tasks.backup_debug import build_backup_internals_diagnostics
+from ethernity.tasks.file_summary import display_path, selected_paths_summary
 from ethernity.tasks.models import (
     PreviewItem,
     TaskDiagnosticBlock,
@@ -34,13 +35,21 @@ from ethernity.tasks.models import (
     TaskIssue,
     TaskPreview,
     TaskSection,
+    TaskSectionStatus,
     TaskValidation,
+)
+from ethernity.tasks.output_checks import (
+    existing_output_summary,
+    existing_output_warning,
+    selected_output_status,
 )
 from ethernity.tasks.quorum import validate_optional_shard_count, validate_required_shard_count
 
 RecoveryMethod = Literal["recommended_shards", "single_phrase", "custom_shards"]
 PaperSize = Literal["A4", "LETTER"]
 SigningKeyMode = Literal["embedded", "sharded"]
+AUTO_BACKUP_OUTPUT_LABEL = "Automatic folder named for backup ID"
+AUTO_BACKUP_OUTPUT_PATH = Path("backup-<backup id>")
 
 
 class BackupTaskState(BaseModel):
@@ -65,9 +74,16 @@ class BackupTaskState(BaseModel):
     signing_key_shard_threshold: int | None = None
     signing_key_shard_count: int | None = None
 
-    @field_validator("shard_threshold", "shard_count")
+    @field_validator("shard_threshold")
+    @classmethod
+    def _validate_recovery_shard_threshold(cls, value: int) -> int:
+        return validate_required_shard_count(value, label="recovery document threshold")
+
+    @field_validator("shard_count")
     @classmethod
     def _validate_recovery_shard_count(cls, value: int) -> int:
+        if value == 0:
+            return value
         return validate_required_shard_count(value, label="recovery document count")
 
     @field_validator("signing_key_shard_threshold", "signing_key_shard_count")
@@ -97,9 +113,9 @@ class BackupTaskState(BaseModel):
         if self.recovery_method == "single_phrase":
             return self
         if self.shard_threshold < 1:
-            raise ValueError("recovery document threshold must be at least 1")
+            raise ValueError("recovery sheet threshold must be at least 1")
         if self.shard_count < self.shard_threshold:
-            raise ValueError("recovery document count must be at least the threshold")
+            raise ValueError("recovery sheet count must be at least the threshold")
         return self
 
     def sections(self) -> tuple[TaskSection, ...]:
@@ -108,42 +124,32 @@ class BackupTaskState(BaseModel):
                 key="files",
                 title="Files to back up",
                 status="ready" if self._has_inputs() else "missing",
-                summary=(
-                    f"{len(self.input_paths) + len(self.input_dirs)} path(s) selected"
-                    if self._has_inputs()
-                    else "No files selected yet. Choose at least one file or folder."
+                summary=selected_paths_summary(
+                    input_paths=self.input_paths,
+                    input_dirs=self.input_dirs,
+                    base_dir=self.base_dir,
+                    empty_label="Choose at least one file or folder.",
                 ),
                 action_label="Choose files...",
             ),
             TaskSection(
                 key="recovery",
                 title="Recovery method",
-                status="ready",
+                status=self._recovery_status(),
                 summary=self._recovery_summary(),
-                action_label="Change recovery",
+                action_label="Change recovery method...",
             ),
             TaskSection(
                 key="output",
                 title="Save documents to",
-                status="ready" if self.output_dir is not None else "missing",
-                summary=(
-                    str(self.output_dir)
-                    if self.output_dir is not None
-                    else "No output folder selected."
-                ),
-                action_label="Choose output folder...",
-            ),
-            TaskSection(
-                key="layout",
-                title="Print options",
-                status="ready",
-                summary=f"{self.paper_size} {self.design}",
-                action_label="Change layout",
+                status=self._output_status(),
+                summary=self._output_summary(),
+                action_label="Choose custom output folder...",
             ),
             TaskSection(
                 key="advanced",
                 title="Advanced",
-                status="warning" if self._advanced_issues() else "ready",
+                status=self._advanced_status(),
                 summary=self._advanced_summary(),
                 action_label="Change advanced options",
             ),
@@ -157,14 +163,6 @@ class BackupTaskState(BaseModel):
                     code="BACKUP_FILES_REQUIRED",
                     message="Choose at least one file or folder to back up.",
                     section="files",
-                )
-            )
-        if self.output_dir is None:
-            issues.append(
-                TaskIssue(
-                    code="BACKUP_OUTPUT_REQUIRED",
-                    message="Choose where backup documents will be saved.",
-                    section="output",
                 )
             )
         issues.extend(self._advanced_issues())
@@ -193,24 +191,40 @@ class BackupTaskState(BaseModel):
                         detail=f"any {signing_threshold} can restore",
                     )
                 )
-        items.append(PreviewItem(label="Recovery kit index", detail="when supported by layout"))
+        items.append(
+            PreviewItem(
+                label="Kit index",
+                detail="Included when the selected design supports it",
+            )
+        )
         if self.qr_chunk_size is not None:
-            items.append(PreviewItem(label="QR chunk size", detail=f"{self.qr_chunk_size} bytes"))
+            items.append(PreviewItem(label="QR density", detail=f"{self.qr_chunk_size} bytes"))
         warnings = (
-            TaskIssue(
-                code="FINAL_REVIEW_REQUIRED",
-                message="Nothing will be written until final review.",
-                severity="warning",
+            *existing_output_warning(
+                self.output_dir,
+                code="BACKUP_OUTPUT_EXISTS",
+                target="output_folder",
             ),
+            *self._recovery_warnings(),
+            *self._advanced_warnings(),
         )
         return TaskPreview(title="Documents to create", items=tuple(items), warnings=warnings)
 
     def execution_plan(self) -> TaskExecutionPlan:
-        output_paths = (self.output_dir,) if self.output_dir is not None else ()
+        output_paths = (
+            (self.output_dir,) if self.output_dir is not None else (AUTO_BACKUP_OUTPUT_PATH,)
+        )
         return TaskExecutionPlan(
             summary=self._execution_summary(),
+            read_paths=(*self.input_paths, *self.input_dirs),
             output_paths=output_paths,
             writes_files=True,
+            safety_notes=(self._output_safety_note(),),
+            trust_notes=(self._signing_review_note(),),
+            recovery_notes=(
+                self._recovery_summary(),
+                "Store recovery sheets separately from encrypted backup documents.",
+            ),
         )
 
     def execute(self) -> TaskExecutionResult:
@@ -244,13 +258,13 @@ class BackupTaskState(BaseModel):
 
     def diagnostics(self) -> TaskDiagnostics:
         if not self._has_inputs():
-            return TaskDiagnostics(title="Backup internals")
+            return TaskDiagnostics(title="Backup diagnostics")
 
         try:
             prepared = prepare_backup_run(self.to_backup_args(assume_yes=True, quiet=True))
         except Exception as exc:
             return TaskDiagnostics(
-                title="Backup internals",
+                title="Backup diagnostics",
                 blocks=(
                     TaskDiagnosticBlock(
                         title="Preparation Error",
@@ -293,20 +307,79 @@ class BackupTaskState(BaseModel):
         return bool(self.input_paths or self.input_dirs)
 
     def _execution_summary(self) -> str:
-        output = str(self.output_dir) if self.output_dir is not None else "missing output"
+        output = (
+            str(self.output_dir)
+            if self.output_dir is not None
+            else "an automatic folder named for the backup ID"
+        )
         return f"Create backup documents in {output}"
+
+    def _output_status(self) -> TaskSectionStatus:
+        if self.output_dir is None:
+            return "ready"
+        return selected_output_status(self.output_dir)
+
+    def _output_summary(self) -> str:
+        if self.output_dir is None:
+            return AUTO_BACKUP_OUTPUT_LABEL
+        return existing_output_summary(
+            self.output_dir,
+            target="output_folder",
+            missing_summary=AUTO_BACKUP_OUTPUT_LABEL,
+        )
+
+    def _output_safety_note(self) -> str:
+        if self.output_dir is None:
+            return "Ethernity will create a folder named for the backup ID in the current folder."
+        return "Ethernity will create the folder if needed and write the backup PDFs inside it."
 
     def _recovery_summary(self) -> str:
         if self.recovery_method == "single_phrase":
             return "One recovery phrase"
         if self.recovery_method == "recommended_shards":
-            return "Recommended: 3 recovery sheets; any 2 can restore"
+            return "3 recovery sheets; any 2 can restore (recommended)"
         return f"{self.shard_count} recovery sheets; any {self.shard_threshold} required"
+
+    def _recovery_status(self) -> TaskSectionStatus:
+        if self.recovery_method == "recommended_shards":
+            return "ready"
+        return "warning"
+
+    def _recovery_warnings(self) -> tuple[TaskIssue, ...]:
+        if self.recovery_method == "single_phrase":
+            return (
+                TaskIssue(
+                    code="BACKUP_SINGLE_RECOVERY_PHRASE",
+                    message=(
+                        "One recovery phrase is a single secret; store it carefully because "
+                        "there are no spare recovery sheets."
+                    ),
+                    severity="warning",
+                    section="recovery",
+                ),
+            )
+        if self.recovery_method == "custom_shards":
+            return (
+                TaskIssue(
+                    code="BACKUP_CUSTOM_RECOVERY_QUORUM",
+                    message="A custom quorum changes how many sheets you need to restore.",
+                    severity="warning",
+                    section="recovery",
+                ),
+            )
+        return ()
+
+    def _signing_review_note(self) -> str:
+        if self.signing_key_mode == "sharded":
+            return "Separate signing-key recovery sheets will be created."
+        if self.signing_key_mode == "embedded":
+            return "The signing key will be embedded in the backup documents."
+        return "Signing-key recovery follows the configured backup policy."
 
     def _advanced_summary(self) -> str:
         parts: list[str] = []
         if self.base_dir is not None:
-            parts.append(f"base {self.base_dir}")
+            parts.append(f"base folder {display_path(self.base_dir)}")
         if self.passphrase is not None:
             parts.append("custom passphrase")
         elif self.passphrase_words is not None:
@@ -314,12 +387,31 @@ class BackupTaskState(BaseModel):
         if self.signing_key_mode == "sharded":
             threshold = self.signing_key_shard_threshold or self.shard_threshold
             count = self.signing_key_shard_count or self.shard_count
-            parts.append(f"signing key any {threshold} of {count}")
+            parts.append(f"{count} key sheets, any {threshold} required")
         else:
-            parts.append("embedded signing key")
+            parts.append("signing key embedded")
         if self.qr_chunk_size is not None:
             parts.append(f"QR {self.qr_chunk_size} bytes")
         return ", ".join(parts)
+
+    def _advanced_status(self) -> TaskSectionStatus:
+        if self._advanced_issues():
+            return "blocked"
+        if self._advanced_warnings():
+            return "warning"
+        return "optional"
+
+    def _advanced_warnings(self) -> tuple[TaskIssue, ...]:
+        if self.qr_chunk_size is None:
+            return ()
+        return (
+            TaskIssue(
+                code="BACKUP_CUSTOM_QR_DENSITY",
+                message=("Custom QR density can change page count and make codes harder to scan."),
+                severity="warning",
+                section="advanced",
+            ),
+        )
 
     def _advanced_issues(self) -> list[TaskIssue]:
         issues: list[TaskIssue] = []
@@ -329,7 +421,7 @@ class BackupTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="BACKUP_SIGNING_KEY_QUORUM_INCOMPLETE",
-                    message="Set both signing key threshold and document count.",
+                    message="Set both required and total key-sheet counts.",
                     severity="error",
                     section="advanced",
                 )
@@ -338,7 +430,7 @@ class BackupTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="BACKUP_SIGNING_KEY_QUORUM_MODE_REQUIRED",
-                    message="Signing key shard counts require sharded signing key storage.",
+                    message="Choose separate key sheets before setting their quorum.",
                     severity="error",
                     section="advanced",
                 )
@@ -347,7 +439,7 @@ class BackupTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="BACKUP_SIGNING_KEY_SHARDS_REQUIRE_RECOVERY_DOCS",
-                    message="Signing key sharding requires recovery sheets.",
+                    message="Separate key sheets require recovery sheets.",
                     severity="error",
                     section="recovery",
                 )

@@ -14,14 +14,13 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Structured backup internals used by the Textual internals view."""
+"""Structured backup diagnostics for the Textual app."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 from dataclasses import replace
-from pathlib import Path
 
 from ethernity.cli.features.backup.service import PreparedBackupRun
 from ethernity.cli.shared.types import InputFile
@@ -29,6 +28,10 @@ from ethernity.crypto import signing as signing_module
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.formats import envelope_codec, payload_codec as payload_codec_module
 from ethernity.formats.envelope_types import EnvelopeManifest, PayloadPart
+from ethernity.formats.manifest_debug import (
+    decode_manifest_debug_value,
+    json_safe_debug_value,
+)
 from ethernity.render.recovery_lines import format_grouped_lines, format_hex_lines
 from ethernity.tasks.models import TaskDiagnosticBlock, TaskDiagnostics
 
@@ -41,10 +44,10 @@ def build_backup_internals_diagnostics(
     passphrase: str | None,
     max_bytes: int | None = DEFAULT_DEBUG_MAX_BYTES,
 ) -> TaskDiagnostics:
-    """Build a no-write backup internals snapshot for the diagnostics modal."""
+    """Build a no-write snapshot for the backup diagnostics modal."""
 
     sign_priv, sign_pub = signing_module.generate_signing_keypair()
-    envelope, payload, manifest = _prepare_debug_envelope(prepared, sign_priv)
+    envelope, payload, manifest, manifest_bytes = _prepare_debug_envelope(prepared, sign_priv)
     masked_passphrase = (
         _format_masked_text_secret(passphrase)
         if passphrase is not None
@@ -56,7 +59,16 @@ def build_backup_internals_diagnostics(
             content=f"Passphrase\n{masked_passphrase}",
             sensitive_content=(f"Passphrase\n{passphrase}" if passphrase is not None else None),
         ),
-        TaskDiagnosticBlock(title="Manifest JSON", content=_manifest_json(manifest)),
+        TaskDiagnosticBlock(
+            title="Manifest JSON",
+            content=_manifest_json(manifest, reveal_sensitive=False),
+            sensitive_content=_manifest_json(manifest, reveal_sensitive=True),
+        ),
+        TaskDiagnosticBlock(
+            title="Envelope Manifest",
+            content=_manifest_cbor_json(manifest, manifest_bytes, reveal_sensitive=False),
+            sensitive_content=_manifest_cbor_json(manifest, manifest_bytes, reveal_sensitive=True),
+        ),
         TaskDiagnosticBlock(title="Input entries", content=_input_entries(prepared.input_files)),
         TaskDiagnosticBlock(
             title="Payload Preview (hex)",
@@ -81,7 +93,7 @@ def build_backup_internals_diagnostics(
         ),
     ]
     return TaskDiagnostics(
-        title="Backup internals",
+        title="Backup diagnostics",
         blocks=tuple(blocks),
     )
 
@@ -89,7 +101,7 @@ def build_backup_internals_diagnostics(
 def _prepare_debug_envelope(
     prepared: PreparedBackupRun,
     sign_priv: bytes,
-) -> tuple[bytes, bytes, EnvelopeManifest]:
+) -> tuple[bytes, bytes, EnvelopeManifest, bytes]:
     parts = [
         PayloadPart(path=item.relative_path, data=item.data, mtime=item.mtime)
         for item in prepared.input_files
@@ -112,12 +124,41 @@ def _prepare_debug_envelope(
         payload_codec=payload_codec,
         payload_raw_len=payload_raw_len,
     )
+    manifest_bytes = envelope_codec.encode_manifest(manifest)
     envelope = envelope_codec.encode_envelope(encoded_payload, manifest)
-    return envelope, payload, manifest
+    return envelope, payload, manifest, manifest_bytes
 
 
-def _manifest_json(manifest: EnvelopeManifest) -> str:
-    return json.dumps(_json_safe(manifest.to_dict()), indent=2, sort_keys=True)
+def _manifest_json(manifest: EnvelopeManifest, *, reveal_sensitive: bool) -> str:
+    manifest_dict = json_safe_debug_value(manifest.to_dict())
+    if (
+        not reveal_sensitive
+        and isinstance(manifest_dict, dict)
+        and manifest.signing_seed is not None
+    ):
+        manifest_dict["signing_seed"] = _format_masked_bytes_secret(manifest.signing_seed)
+    return json.dumps(manifest_dict, indent=2, sort_keys=True)
+
+
+def _manifest_cbor_json(
+    manifest: EnvelopeManifest,
+    manifest_bytes: bytes,
+    *,
+    reveal_sensitive: bool,
+) -> str:
+    decoded = decode_manifest_debug_value(manifest_bytes)
+    if decoded is None:
+        decoded = "(unable to decode manifest CBOR map)"
+    if not reveal_sensitive and isinstance(decoded, dict) and manifest.signing_seed is not None:
+        decoded["seed"] = _format_masked_bytes_secret(manifest.signing_seed)
+    return json.dumps(
+        {
+            "canonical_cbor_bytes": len(manifest_bytes),
+            "cbor": decoded,
+        },
+        indent=2,
+        sort_keys=True,
+    )
 
 
 def _input_entries(input_files: tuple[InputFile, ...]) -> str:
@@ -173,15 +214,3 @@ def _format_masked_text_secret(secret: str) -> str:
 def _format_masked_bytes_secret(secret: bytes) -> str:
     digest = hashlib.blake2b(secret, digest_size=8).hexdigest()
     return f"<masked bytes={len(secret)} blake2b8={digest}>"
-
-
-def _json_safe(value: object) -> object:
-    if isinstance(value, bytes):
-        return value.hex()
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
-    return value

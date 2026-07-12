@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from ethernity.tasks.backup import BackupTaskState
+from ethernity.tasks.file_summary import display_path
 from ethernity.tasks.models import TaskSection
 from ethernity.tasks.presentation.common import (
     path_values,
+    qr_chunk_size_control_value,
     qr_chunk_size_summary,
     section_value,
 )
@@ -25,20 +27,27 @@ def backup_groups(
             title="Files to back up",
             kind="paths",
             values=path_values("file", (*state.input_paths, *state.input_dirs)),
-            actions=(WorkspaceAction("workspace-backup-files", "Choose files..."),),
-            empty_label="No files selected yet. Choose at least one file or folder.",
+            actions=(
+                WorkspaceAction("workspace-backup-files", "Choose files..."),
+                WorkspaceAction(
+                    "workspace-backup-clear-files",
+                    "Clear files",
+                    visible=bool(state.input_paths or state.input_dirs),
+                ),
+            ),
+            empty_label="No files selected.",
             status=sections["files"].status,
             status_summary=sections["files"].summary,
         ),
         WorkspaceGroup(
             key="recovery",
-            title="Recovery",
+            title="Recovery method",
             kind="radio",
             values=(section_value(sections["recovery"]),),
             choices=(
                 WorkspaceChoice(
                     "recommended_shards",
-                    "Recommended: 3 recovery sheets; any 2 can restore",
+                    "3 recovery sheets; any 2 can restore (recommended)",
                     state.recovery_method == "recommended_shards",
                 ),
                 WorkspaceChoice(
@@ -48,7 +57,7 @@ def backup_groups(
                 ),
                 WorkspaceChoice(
                     "custom_shards",
-                    f"Custom recovery sheets: any {state.shard_threshold} of {state.shard_count}",
+                    f"Custom: {state.shard_count} sheets; any {state.shard_threshold} required",
                     state.recovery_method == "custom_shards",
                 ),
             ),
@@ -57,56 +66,69 @@ def backup_groups(
         ),
         WorkspaceGroup(
             key="destination",
-            title="Save backup documents to",
-            kind="layout",
-            values=(section_value(sections["output"]),),
-            actions=(WorkspaceAction("workspace-backup-output", "Choose output folder..."),),
-            status=sections["output"].status,
-            status_summary=sections["output"].summary,
-        ),
-        WorkspaceGroup(
-            key="layout",
-            title="Print options",
+            title="Destination",
             kind="layout",
             values=(
-                WorkspaceValue("paper", "Paper size", state.paper_size),
-                WorkspaceValue("design", "Print design", state.design),
+                WorkspaceValue(
+                    "output",
+                    "Folder",
+                    sections["output"].summary,
+                    status=sections["output"].status,
+                ),
             ),
-            status=sections["layout"].status,
-            status_summary=sections["layout"].summary,
+            actions=(WorkspaceAction("workspace-backup-output", "Choose folder..."),),
+            status=sections["output"].status,
+            status_summary=sections["output"].summary,
         ),
         WorkspaceGroup(
             key="advanced",
             title="Advanced",
             kind="fields",
             values=(
-                WorkspaceValue("passphrase", "Passphrase", backup_passphrase_summary(state)),
+                WorkspaceValue(
+                    "passphrase",
+                    "Passphrase",
+                    backup_passphrase_summary(state),
+                    control_value="custom" if state.passphrase is not None else "generated",
+                ),
                 WorkspaceValue(
                     "passphrase-words",
-                    "Generated words",
+                    "Generated passphrase",
                     str(state.passphrase_words)
                     if state.passphrase_words is not None
-                    else "Default: saved setting",
+                    else "From settings",
+                    control_value=(
+                        str(state.passphrase_words)
+                        if state.passphrase_words is not None
+                        else "default"
+                    ),
                 ),
                 WorkspaceValue(
                     "base-dir",
                     "Base folder",
-                    str(state.base_dir)
+                    display_path(state.base_dir)
                     if state.base_dir is not None
-                    else "Automatic, based on selected files",
+                    else "Based on selected files",
+                    control_value="custom" if state.base_dir is not None else "automatic",
                 ),
                 WorkspaceValue(
                     "qr-chunk-size",
                     "QR density",
                     qr_chunk_size_summary(state.qr_chunk_size),
+                    control_value=qr_chunk_size_control_value(state.qr_chunk_size),
                 ),
-                WorkspaceValue("signing-key", "Signing key", backup_signing_key_summary(state)),
+                WorkspaceValue(
+                    "signing-key",
+                    "Signing-key recovery",
+                    backup_signing_key_summary(state),
+                    control_value=state.signing_key_mode,
+                ),
             ),
             actions=(
                 WorkspaceAction("workspace-backup-passphrase", "Set passphrase..."),
                 WorkspaceAction("workspace-backup-base-dir", "Choose base folder..."),
                 WorkspaceAction("workspace-backup-qr-chunk-size", "Set QR density..."),
-                WorkspaceAction("workspace-backup-signing-key-shards", "Set key sheets..."),
+                WorkspaceAction("workspace-backup-signing-key-shards", "Set quorum..."),
             ),
             status=sections["advanced"].status,
             status_summary=sections["advanced"].summary,
@@ -119,12 +141,12 @@ def backup_passphrase_summary(state: BackupTaskState) -> str:
         return "Custom"
     if state.passphrase_words is not None:
         return f"{state.passphrase_words} generated words"
-    return "Generated automatically"
+    return "Generated"
 
 
 def backup_signing_key_summary(state: BackupTaskState) -> str:
     if state.signing_key_mode != "sharded":
-        return "Embedded signing key"
+        return "Embedded in backup"
     threshold = state.signing_key_shard_threshold or state.shard_threshold
     count = state.signing_key_shard_count or state.shard_count
-    return f"Sharded, any {threshold} of {count} key sheets"
+    return f"{count} key sheets; any {threshold} can recover the key"

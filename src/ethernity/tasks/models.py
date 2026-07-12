@@ -21,7 +21,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-TaskSectionStatus = Literal["missing", "ready", "warning", "blocked"]
+TaskSectionStatus = Literal["missing", "ready", "optional", "warning", "blocked"]
 TaskIssueSeverity = Literal["info", "warning", "error"]
 
 
@@ -85,8 +85,20 @@ class TaskExecutionPlan(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     summary: str
+    read_paths: tuple[Path, ...] = Field(default_factory=tuple)
     output_paths: tuple[Path, ...] = Field(default_factory=tuple)
     writes_files: bool = True
+    safety_notes: tuple[str, ...] = Field(default_factory=tuple)
+    trust_notes: tuple[str, ...] = Field(default_factory=tuple)
+    recovery_notes: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class TaskResultDetail(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    label: str
+    value: str | int | bool | None | tuple[str, ...]
 
 
 class TaskExecutionResult(BaseModel):
@@ -95,6 +107,8 @@ class TaskExecutionResult(BaseModel):
     ok: bool
     message: str
     output_paths: tuple[Path, ...] = Field(default_factory=tuple)
+    details: tuple[TaskResultDetail, ...] = Field(default_factory=tuple)
+    next_steps: tuple[str, ...] = Field(default_factory=tuple)
 
 
 class TaskDiagnosticBlock(BaseModel):

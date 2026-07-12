@@ -19,10 +19,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
+from ethernity.cli.shared.io.frames import frames_from_fallback_text
 from ethernity.cli.shared.types import RecoverArgs
+from ethernity.encoding.framing import Frame
+from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
     TaskExecutionPlan,
@@ -32,16 +35,26 @@ from ethernity.tasks.models import (
     TaskSection,
     TaskValidation,
 )
+from ethernity.tasks.source_assessment import (
+    SourceAssessableTaskState,
+    SourceAssessmentRequest,
+    recovery_source_request,
+)
 
 RestoreTarget = Literal["latest", "original", "specific_update"]
+RESTORE_DESTINATION_NON_EMPTY_WARNING = (
+    "The restore folder contains files or folders; restored files with matching names may be "
+    "replaced."
+)
 
 
-class RestoreTaskState(BaseModel):
+class RestoreTaskState(SourceAssessableTaskState):
     """Beginner-facing state for restoring files."""
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
     source_paths: list[Path] = Field(default_factory=list)
+    recovery_text: str | None = None
     recovery_text_file: Path | None = None
     payloads_file: Path | None = None
     auth_text_file: Path | None = None
@@ -58,36 +71,56 @@ class RestoreTaskState(BaseModel):
     allow_unsigned: bool = False
 
     def sections(self) -> tuple[TaskSection, ...]:
+        destination_warning = self._destination_warning()
+        source_error = self._recovery_text_error()
         return (
             TaskSection(
                 key="source",
-                title="Backup to restore",
-                status="ready" if self._has_source() else "missing",
-                summary=self._source_summary(),
+                title="Backup source",
+                status=(
+                    "blocked"
+                    if source_error is not None
+                    else "ready"
+                    if self._has_source()
+                    else "missing"
+                ),
+                summary=(
+                    "Pasted recovery text is not valid recovery text."
+                    if source_error is not None
+                    else self._source_summary()
+                    if self._has_source()
+                    else "Choose backup material."
+                ),
                 action_label="Load backup...",
             ),
             TaskSection(
                 key="unlock",
-                title="Unlock backup",
+                title="Unlock",
                 status="ready" if self._has_unlock() else "missing",
                 summary=self._unlock_summary(),
                 action_label="Set unlock method...",
             ),
             TaskSection(
                 key="target",
-                title="Version to restore",
+                title="Version",
                 status="ready",
                 summary=self._target_summary(),
                 action_label="Change target",
             ),
             TaskSection(
                 key="output",
-                title="Restore files to",
-                status="ready" if self.output_path is not None else "missing",
+                title="Destination",
+                status=(
+                    "missing"
+                    if self.output_path is None
+                    else "warning"
+                    if destination_warning
+                    else "ready"
+                ),
                 summary=(
-                    str(self.output_path)
-                    if self.output_path is not None
-                    else "No restore folder selected."
+                    "No restore folder selected."
+                    if self.output_path is None
+                    else destination_warning or display_path(self.output_path)
                 ),
                 action_label="Choose restore folder...",
             ),
@@ -99,7 +132,15 @@ class RestoreTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="RESTORE_SOURCE_REQUIRED",
-                    message="Load a backup before continuing.",
+                    message="Choose backup material.",
+                    section="source",
+                )
+            )
+        if self.recovery_text and self._recovery_text_error() is not None:
+            issues.append(
+                TaskIssue(
+                    code="RESTORE_RECOVERY_TEXT_INVALID",
+                    message="Pasted recovery text is not valid recovery text.",
                     section="source",
                 )
             )
@@ -107,7 +148,7 @@ class RestoreTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="RESTORE_UNLOCK_REQUIRED",
-                    message="Choose a passphrase or recovery sheets.",
+                    message="Choose a passphrase, recovery sheets, or recovery payload files.",
                     section="unlock",
                 )
             )
@@ -135,39 +176,76 @@ class RestoreTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="RESTORE_AUTH_MATERIAL_CONFLICT",
-                    message="Use authentication text or authentication payloads, not both.",
+                    message="Choose either signature text or a signature payload, not both.",
                     section="source",
                 )
             )
-        return TaskValidation(sections=self.sections(), issues=tuple(issues))
+        return TaskValidation(
+            sections=self.sections(),
+            issues=self.source_assessment_issues(issues),
+        )
+
+    def source_assessment_request(self) -> SourceAssessmentRequest | None:
+        return recovery_source_request(
+            issue_section="source",
+            scan_paths=self.source_paths,
+            recovery_text=self.recovery_text,
+            recovery_text_file=self.recovery_text_file,
+            payloads_file=self.payloads_file,
+            auth_text_file=self.auth_text_file,
+            auth_payloads_file=self.auth_payloads_file,
+            config_path=self.config_path,
+            allow_unsigned=self.allow_unsigned,
+        )
 
     def preview(self) -> TaskPreview:
-        warnings = (
-            TaskIssue(
-                code="FINAL_REVIEW_REQUIRED",
-                message="Nothing will be written until final review.",
-                severity="warning",
-            ),
-        )
+        warnings: list[TaskIssue] = []
+        if self.allow_unsigned:
+            warnings.append(
+                TaskIssue(
+                    code="RESTORE_UNSIGNED_ALLOWED",
+                    message="Unsigned legacy recovery is allowed; signatures will not be required.",
+                    severity="warning",
+                    section="authentication",
+                )
+            )
+        destination_warning = self._destination_warning()
+        if destination_warning is not None:
+            warnings.append(
+                TaskIssue(
+                    code="RESTORE_DESTINATION_CONFLICT_WARNING",
+                    message=destination_warning,
+                    severity="warning",
+                    section="output",
+                )
+            )
         return TaskPreview(
             title="Files to restore",
             items=(
-                PreviewItem(label="Backup to restore", detail=self._source_summary()),
-                PreviewItem(label="Newest loaded version", detail=self._expected_head_summary()),
-                PreviewItem(label="Unlock method", detail=self._unlock_summary()),
-                PreviewItem(label="Version to restore", detail=self._target_summary()),
+                PreviewItem(label="Backup source", detail=self._source_summary()),
+                PreviewItem(label="Latest fingerprint", detail=self._expected_head_summary()),
+                PreviewItem(label="Unlock", detail=self._unlock_summary()),
+                PreviewItem(label="Version", detail=self._target_summary()),
                 PreviewItem(label="Signature check", detail=self._authentication_summary()),
-                PreviewItem(label="Trust source", detail=self._auth_material_summary()),
+                PreviewItem(label="Verification source", detail=self._auth_material_summary()),
             ),
-            warnings=warnings,
+            warnings=tuple(warnings),
         )
 
     def execution_plan(self) -> TaskExecutionPlan:
         output_paths = (self.output_path,) if self.output_path is not None else ()
         return TaskExecutionPlan(
             summary=self._execution_summary(),
+            read_paths=self._read_paths(),
             output_paths=output_paths,
             writes_files=True,
+            safety_notes=self._destination_safety_notes(),
+            trust_notes=(
+                f"Signature check: {self._authentication_summary()}",
+                f"Verification source: {self._auth_material_summary()}",
+                f"Latest fingerprint: {self._expected_head_summary()}",
+            ),
+            recovery_notes=(f"Unlock: {self._unlock_summary()}",),
         )
 
     def execute(self) -> TaskExecutionResult:
@@ -190,11 +268,42 @@ class RestoreTaskState(BaseModel):
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:
         return self.validate_task().issues
 
+    def _destination_safety_notes(self) -> tuple[str, ...]:
+        if self.output_path is None:
+            return ()
+        if not self.output_path.exists():
+            return ("The restore folder does not exist and will be created.",)
+        if not self.output_path.is_dir():
+            return ("The restore path exists but is not a folder.",)
+        try:
+            has_existing_entries = any(self.output_path.iterdir())
+        except OSError as exc:
+            return (f"Ethernity could not inspect the restore folder: {exc}",)
+        if has_existing_entries:
+            return (RESTORE_DESTINATION_NON_EMPTY_WARNING,)
+        return ("The restore folder exists and is empty.",)
+
+    def _destination_warning(self) -> str | None:
+        if self.output_path is None or not self.output_path.exists():
+            return None
+        if not self.output_path.is_dir():
+            return "The restore path exists but is not a folder."
+        try:
+            has_existing_entries = any(self.output_path.iterdir())
+        except OSError as exc:
+            return f"Ethernity could not inspect the restore folder: {exc}"
+        if has_existing_entries:
+            return RESTORE_DESTINATION_NON_EMPTY_WARNING
+        return None
+
     def to_recover_args(self, *, assume_yes: bool = False, quiet: bool = False) -> RecoverArgs:
         return RecoverArgs(
             config=str(self.config_path) if self.config_path is not None else None,
+            frames=self._recovery_text_frames(quiet=quiet),
             fallback_file=(
-                str(self.recovery_text_file) if self.recovery_text_file is not None else None
+                str(self.recovery_text_file)
+                if self.recovery_text_file is not None and not self.recovery_text
+                else None
             ),
             payloads_file=str(self.payloads_file) if self.payloads_file is not None else None,
             scan=[str(path) for path in self.source_paths] or None,
@@ -217,56 +326,100 @@ class RestoreTaskState(BaseModel):
         )
 
     def _has_source(self) -> bool:
-        return bool(self.source_paths or self.recovery_text_file or self.payloads_file)
+        return bool(
+            self.source_paths or self.recovery_text or self.recovery_text_file or self.payloads_file
+        )
 
     def _has_unlock(self) -> bool:
         return bool(self.passphrase or self.recovery_documents or self.recovery_payload_files)
 
+    def _read_paths(self) -> tuple[Path, ...]:
+        paths = [
+            *self.source_paths,
+            *self.recovery_documents,
+            *self.recovery_payload_files,
+        ]
+        for path in (
+            self.recovery_text_file,
+            self.payloads_file,
+            self.auth_text_file,
+            self.auth_payloads_file,
+        ):
+            if path is not None:
+                paths.append(path)
+        return tuple(paths)
+
     def _source_summary(self) -> str:
         if self.source_paths:
-            return f"{len(self.source_paths)} scanned page path(s)"
+            return format_count(len(self.source_paths), "scanned page")
+        if self.recovery_text:
+            return self._recovery_text_summary()
         if self.recovery_text_file is not None:
-            return f"Recovery text: {self.recovery_text_file}"
+            return f"Recovery text: {display_path(self.recovery_text_file)}"
         if self.payloads_file is not None:
-            return f"Payload files: {self.payloads_file}"
-        return "Load scanned pages, paste recovery text, or load payload files."
+            return f"Backup payload file: {display_path(self.payloads_file)}"
+        return "Load scanned pages, paste recovery text, or load a backup payload file."
 
     def _expected_head_summary(self) -> str:
         if self.expected_head_doc_hash is None:
-            return "Not set"
-        return "Expected latest backup fingerprint provided"
+            return "Not provided"
+        return "Provided"
 
     def _unlock_summary(self) -> str:
         if self.passphrase:
-            return "Passphrase provided"
+            return "Passphrase"
         if self.recovery_documents:
-            return f"{len(self.recovery_documents)} recovery sheet(s)"
+            return format_count(len(self.recovery_documents), "recovery sheet")
         if self.recovery_payload_files:
-            return f"{len(self.recovery_payload_files)} recovery payload file(s)"
-        return "Choose passphrase or recovery sheets"
+            return format_count(len(self.recovery_payload_files), "recovery payload file")
+        return "Choose an unlock method"
 
     def _target_summary(self) -> str:
         if self.target == "original":
             return "Initial backup only"
         if self.target == "specific_update":
             if self.extension_index is not None:
-                return f"Version/update {self.extension_index}"
+                return f"Update {self.extension_index}"
             if self.extension_doc_hash is not None:
-                return "Specific version/update by fingerprint"
-            return "Specific version/update"
+                return "Version matching fingerprint"
+            return "Specific version"
         return "Newest loaded version"
 
     def _authentication_summary(self) -> str:
         if self.allow_unsigned:
-            return "Allow unsigned legacy recovery"
-        return "Require trusted signature"
+            return "Unsigned legacy backups allowed"
+        return "Trusted signatures required"
 
     def _auth_material_summary(self) -> str:
         if self.auth_text_file is not None:
-            return f"Trust text: {self.auth_text_file}"
+            return f"Signature text: {display_path(self.auth_text_file)}"
         if self.auth_payloads_file is not None:
-            return f"Trust payload files: {self.auth_payloads_file}"
-        return "From loaded backup"
+            return f"Signature payload: {display_path(self.auth_payloads_file)}"
+        return "Loaded backup"
+
+    def _recovery_text_summary(self) -> str:
+        if not self.recovery_text:
+            return "Pasted recovery text"
+        line_count = len([line for line in self.recovery_text.splitlines() if line.strip()])
+        if line_count == 1:
+            return "Pasted recovery text: 1 line"
+        return f"Pasted recovery text: {line_count} lines"
+
+    def _recovery_text_frames(self, *, quiet: bool) -> list[Frame] | None:
+        if not self.recovery_text:
+            return None
+        return frames_from_fallback_text(
+            self.recovery_text,
+            allow_invalid_auth=self.allow_unsigned,
+            quiet=quiet,
+        )
+
+    def _recovery_text_error(self) -> str | None:
+        try:
+            self._recovery_text_frames(quiet=True)
+        except ValueError as exc:
+            return str(exc)
+        return None
 
     def _recover_extension_index(self) -> int | None:
         if self.target == "original":

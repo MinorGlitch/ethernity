@@ -77,6 +77,7 @@ from ethernity.render.proofs import (
     validate_fallback_text_in_pdf,
     validate_pdf_has_pages,
     validate_render_artifact_proof,
+    validate_render_layout_proof,
     validate_text_in_pdf,
 )
 from ethernity.render.recovery_lines import append_signing_key_lines
@@ -163,7 +164,6 @@ def _validate_rendered_pdf_artifact(
     inputs: RenderInputs,
     result: object,
     artifact_label: str,
-    fallback_frames: tuple[Frame, ...] = (),
     expected_text: tuple[str, ...] = (),
 ) -> None:
     if not isinstance(result, RenderResult):
@@ -180,16 +180,23 @@ def _validate_rendered_pdf_artifact(
         artifact_proof=artifact_proof,
     )
     reader = validate_pdf_has_pages(inputs.output_path, artifact_label=artifact_label)
-    if fallback_frames:
+    if inputs.render_fallback:
+        fallback_sections = tuple(inputs.fallback_sections or ())
         fallback_proof = artifact_proof.fallback_proof or result.fallback_proof
         validate_fallback_render_proof(
             artifact_label=artifact_label,
-            frames=fallback_frames,
+            frames=tuple(section.frame for section in fallback_sections),
             fallback_proof=fallback_proof,
+        )
+        validate_render_layout_proof(
+            artifact_label=artifact_label,
+            layout_proof=result.layout_proof,
+            expected_page_count=len(reader.pages),
         )
         validate_fallback_text_in_pdf(
             artifact_label=artifact_label,
             reader=reader,
+            fallback_sections=fallback_sections,
             fallback_proof=fallback_proof,
         )
     if expected_text:
@@ -472,7 +479,6 @@ def _render_with_progress(
         inputs=recovery_inputs,
         result=recovery_result,
         artifact_label="rendered recovery document",
-        fallback_frames=tuple(section.frame for section in recovery_inputs.fallback_sections or ()),
     )
     progress_bar.advance(task_id)
     _advance_render(
@@ -614,9 +620,6 @@ def _render_without_progress(
             inputs=recovery_inputs,
             result=recovery_result,
             artifact_label="rendered recovery document",
-            fallback_frames=tuple(
-                section.frame for section in recovery_inputs.fallback_sections or ()
-            ),
         )
     _advance_render(
         "Rendered recovery document",

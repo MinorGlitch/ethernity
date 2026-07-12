@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+from ethernity.tasks.file_summary import display_path
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.models import TaskSection
-from ethernity.tasks.presentation.common import qr_chunk_size_summary, section_value
+from ethernity.tasks.presentation.common import (
+    qr_chunk_size_control_value,
+)
 from ethernity.tasks.presentation.models import WorkspaceAction, WorkspaceGroup, WorkspaceValue
 
 
@@ -21,16 +26,16 @@ def kit_groups(
         ),
         WorkspaceGroup(
             key="output",
-            title="Save PDF as",
+            title="PDF file",
             kind="output",
-            values=(section_value(sections["output"]),),
-            actions=(WorkspaceAction("workspace-kit-output", "Choose PDF path..."),),
+            values=(WorkspaceValue("output", "Save as", _kit_output_display(state)),),
+            actions=(WorkspaceAction("workspace-kit-output", "Choose PDF file..."),),
             status=sections["output"].status,
-            status_summary=sections["output"].summary,
+            status_summary=_kit_output_display(state),
         ),
         WorkspaceGroup(
             key="layout",
-            title="Print layout",
+            title="Print setup",
             kind="layout",
             values=(
                 WorkspaceValue("paper", "Paper size", state.paper_size),
@@ -44,9 +49,31 @@ def kit_groups(
             title="QR sizing",
             kind="fields",
             values=(
-                WorkspaceValue("chunk-size", "QR sizing", qr_chunk_size_summary(state.chunk_size)),
+                WorkspaceValue(
+                    "chunk-size",
+                    "Bytes per code",
+                    _kit_qr_summary(state.chunk_size),
+                    control_value=qr_chunk_size_control_value(state.chunk_size),
+                ),
             ),
             actions=(WorkspaceAction("workspace-kit-chunk-size", "Set QR sizing..."),),
-            status_summary=qr_chunk_size_summary(state.chunk_size),
+            status=sections["qr"].status,
+            status_summary=sections["qr"].summary,
         ),
     )
+
+
+def _kit_output_display(state: PrintKitTaskState) -> str:
+    if state.output_path.is_absolute():
+        summary = display_path(state.output_path)
+    elif state.output_path.parent == Path("."):
+        summary = f"{state.output_path} (current folder)"
+    else:
+        summary = f"{display_path(state.output_path)} (relative)"
+    return summary
+
+
+def _kit_qr_summary(chunk_size: int | None) -> str:
+    if chunk_size is None:
+        return "Automatic (recommended)"
+    return f"{chunk_size} bytes per code"

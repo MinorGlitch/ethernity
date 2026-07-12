@@ -18,10 +18,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from ethernity.cli.features.compact.service import run_compact
 from ethernity.cli.shared.types import CompactArgs
+from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
     TaskExecutionPlan,
@@ -32,9 +33,19 @@ from ethernity.tasks.models import (
     TaskSectionStatus,
     TaskValidation,
 )
+from ethernity.tasks.output_checks import (
+    existing_output_summary,
+    existing_output_warning,
+    selected_output_status,
+)
+from ethernity.tasks.source_assessment import (
+    SourceAssessableTaskState,
+    SourceAssessmentRequest,
+    folder_or_scans_source_request,
+)
 
 
-class RebuildTaskState(BaseModel):
+class RebuildTaskState(SourceAssessableTaskState):
     """Beginner-facing state for rebuilding a backup from its latest recoverable state."""
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
@@ -78,33 +89,26 @@ class RebuildTaskState(BaseModel):
             ),
             TaskSection(
                 key="freshness",
-                title="Rebuild options",
+                title="Scan version",
                 status=self._freshness_status(),
                 summary=self._freshness_summary(),
                 action_label="Confirm source",
             ),
             TaskSection(
                 key="output",
-                title="Save rebuilt backup documents to",
-                status="ready" if self.output_dir is not None else "missing",
-                summary=(
-                    str(self.output_dir)
-                    if self.output_dir is not None
-                    else "No output folder selected."
+                title="Save rebuilt backup to",
+                status=selected_output_status(self.output_dir),
+                summary=existing_output_summary(
+                    self.output_dir,
+                    target="output_folder",
+                    missing_summary="No output folder selected.",
                 ),
                 action_label="Choose output folder...",
             ),
             TaskSection(
-                key="layout",
-                title="Print options",
-                status="ready",
-                summary=f"{self.paper_size} {self.design}",
-                action_label="Change print options",
-            ),
-            TaskSection(
                 key="advanced",
                 title="Advanced",
-                status="blocked" if self._advanced_issues() else "ready",
+                status=self._advanced_status(),
                 summary=self._advanced_summary(),
                 action_label="Review advanced options",
             ),
@@ -116,7 +120,7 @@ class RebuildTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="REBUILD_SOURCE_REQUIRED",
-                    message="Choose either a generated backup folder or backup scans.",
+                    message="Choose a backup folder or scanned pages.",
                     section="source",
                 )
             )
@@ -124,7 +128,7 @@ class RebuildTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="REBUILD_UNLOCK_REQUIRED",
-                    message="Choose a passphrase or recovery sheets.",
+                    message="Choose a passphrase, recovery sheets, or recovery payload files.",
                     section="unlock",
                 )
             )
@@ -133,8 +137,8 @@ class RebuildTaskState(BaseModel):
                 TaskIssue(
                     code="REBUILD_HEAD_TRUST_REQUIRED",
                     message=(
-                        "When rebuilding from scans, provide the expected latest backup "
-                        "fingerprint or explicitly allow a stale source."
+                        "Enter the expected latest fingerprint, or accept that the scans may "
+                        "be stale."
                     ),
                     section="freshness",
                 )
@@ -148,31 +152,57 @@ class RebuildTaskState(BaseModel):
                 )
             )
         issues.extend(self._advanced_issues())
-        return TaskValidation(sections=self.sections(), issues=tuple(issues))
+        return TaskValidation(
+            sections=self.sections(),
+            issues=self.source_assessment_issues(issues),
+        )
+
+    def source_assessment_request(self) -> SourceAssessmentRequest | None:
+        return folder_or_scans_source_request(
+            issue_section="source",
+            backup_folder=self.backup_folder,
+            scan_paths=self.source_paths,
+            config_path=self.config_path,
+            auth_text_file=self.auth_text_file,
+            auth_payloads_file=self.auth_payloads_file,
+        )
 
     def preview(self) -> TaskPreview:
         warnings = (
-            TaskIssue(
-                code="FINAL_REVIEW_REQUIRED",
-                message="Nothing will be written until final review.",
-                severity="warning",
+            *existing_output_warning(
+                self.output_dir,
+                code="REBUILD_OUTPUT_EXISTS",
+                target="output_folder",
             ),
+            *self._freshness_warnings(),
+            *self._advanced_warnings(),
         )
         items = [
             PreviewItem(label="Existing backup", detail=self._source_summary()),
-            PreviewItem(label="Unlock method", detail=self._unlock_summary()),
-            PreviewItem(label="Rebuild options", detail=self._freshness_summary()),
-            PreviewItem(label="Trust source", detail=self._auth_material_summary()),
-            PreviewItem(label="Output folder", detail=str(self.output_dir or "missing")),
+            PreviewItem(label="Unlock", detail=self._unlock_summary()),
+            PreviewItem(label="Scan version", detail=self._freshness_summary()),
+            PreviewItem(label="Verification source", detail=self._auth_material_summary()),
             PreviewItem(
-                label="Existing files",
-                detail="Existing backup files are not deleted or modified.",
+                label="Destination",
+                detail=(
+                    display_path(self.output_dir) if self.output_dir is not None else "Not selected"
+                ),
             ),
-            PreviewItem(label="Print layout", detail=f"{self.paper_size} {self.design}"),
-            PreviewItem(label="New backup documents", detail="main, recovery, and shards"),
+            PreviewItem(
+                label="Existing backup files",
+                detail="Left unchanged",
+            ),
+            PreviewItem(
+                label="Credentials",
+                detail="Same passphrase and signing key",
+            ),
+            PreviewItem(
+                label="New documents",
+                detail="Backup, recovery guide, and recovery sheets",
+            ),
         ]
         if self.qr_chunk_size is not None:
-            items.append(PreviewItem(label="QR chunk size", detail=f"{self.qr_chunk_size} bytes"))
+            items.append(PreviewItem(label="QR density", detail=f"{self.qr_chunk_size} bytes"))
         return TaskPreview(
             title="Rebuilt backup to create",
             items=tuple(items),
@@ -183,8 +213,24 @@ class RebuildTaskState(BaseModel):
         outputs = (self.output_dir,) if self.output_dir is not None else ()
         return TaskExecutionPlan(
             summary=f"Rebuild backup into {self.output_dir or 'missing output'}",
+            read_paths=self._read_paths(),
             output_paths=outputs,
             writes_files=True,
+            safety_notes=(
+                "Ethernity will create the folder if needed and write the rebuilt PDFs inside it.",
+                "Existing backup files stay unchanged.",
+            ),
+            trust_notes=(
+                f"Scan version: {self._freshness_summary()}",
+                "Latest means the newest valid version in the material you loaded.",
+                f"Verification source: {self._auth_material_summary()}",
+            ),
+            recovery_notes=(
+                f"Unlock: {self._unlock_summary()}",
+                "The rebuilt backup gets a new set of recovery sheets.",
+                "The passphrase and signing key stay the same.",
+                "Use Create backup when you need a new passphrase or signing key.",
+            ),
         )
 
     def execute(self) -> TaskExecutionResult:
@@ -207,6 +253,10 @@ class RebuildTaskState(BaseModel):
             ok=True,
             message="Rebuilt backup documents created.",
             output_paths=output_paths,
+            next_steps=(
+                "The rebuilt backup uses the same passphrase and signing key.",
+                "Use Create backup when you need a new passphrase or signing key.",
+            ),
         )
 
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:
@@ -241,45 +291,82 @@ class RebuildTaskState(BaseModel):
     def _has_unlock(self) -> bool:
         return bool(self.passphrase or self.recovery_documents or self.recovery_payload_files)
 
+    def _read_paths(self) -> tuple[Path, ...]:
+        paths = [
+            *self.source_paths,
+            *self.recovery_documents,
+            *self.recovery_payload_files,
+        ]
+        if self.backup_folder is not None:
+            paths.insert(0, self.backup_folder)
+        for path in (self.auth_text_file, self.auth_payloads_file):
+            if path is not None:
+                paths.append(path)
+        return tuple(paths)
+
     def _source_summary(self) -> str:
         if self.backup_folder is not None and self.source_paths:
-            return "Choose folder or scans, not both"
+            return "Choose a folder or scans, not both"
         if self.backup_folder is not None:
-            return str(self.backup_folder)
+            return display_path(self.backup_folder)
         if self.source_paths:
-            return f"{len(self.source_paths)} scanned page path(s)"
-        return "Choose backup folder or load scanned pages"
+            return format_count(len(self.source_paths), "scanned page")
+        return "Choose a backup folder or scanned pages."
 
     def _unlock_summary(self) -> str:
         if self.passphrase:
-            return "Passphrase provided"
+            return "Passphrase"
         if self.recovery_documents:
-            return f"{len(self.recovery_documents)} recovery sheet(s)"
+            return format_count(len(self.recovery_documents), "recovery sheet")
         if self.recovery_payload_files:
-            return f"{len(self.recovery_payload_files)} recovery payload file(s)"
-        return "Choose passphrase or recovery sheets"
+            return format_count(len(self.recovery_payload_files), "recovery payload file")
+        return "Choose an unlock method"
 
     def _auth_material_summary(self) -> str:
         if self.auth_text_file is not None:
-            return f"Trust text: {self.auth_text_file}"
+            return f"Signature text: {display_path(self.auth_text_file)}"
         if self.auth_payloads_file is not None:
-            return f"Trust payload files: {self.auth_payloads_file}"
-        return "From loaded backup"
+            return f"Signature payload: {display_path(self.auth_payloads_file)}"
+        return "Loaded backup"
 
     def _advanced_summary(self) -> str:
-        parts = [self._auth_material_summary()]
+        has_source = self.backup_folder is not None or bool(self.source_paths)
+        parts = [
+            self._auth_material_summary()
+            if has_source or self.auth_text_file is not None or self.auth_payloads_file is not None
+            else "Verification available after loading a backup"
+        ]
         if self.qr_chunk_size is not None:
-            parts.append(f"QR density: {self.qr_chunk_size} bytes")
+            parts.append(f"QR {self.qr_chunk_size} bytes")
         else:
-            parts.append("QR density: using saved default")
+            parts.append("QR from settings")
         return ", ".join(parts)
+
+    def _advanced_status(self) -> TaskSectionStatus:
+        if self._advanced_issues():
+            return "blocked"
+        if self._advanced_warnings():
+            return "warning"
+        return "optional"
+
+    def _advanced_warnings(self) -> tuple[TaskIssue, ...]:
+        if self.qr_chunk_size is None:
+            return ()
+        return (
+            TaskIssue(
+                code="REBUILD_CUSTOM_QR_DENSITY",
+                message="Custom QR density can change page count and make codes harder to scan.",
+                severity="warning",
+                section="advanced",
+            ),
+        )
 
     def _advanced_issues(self) -> tuple[TaskIssue, ...]:
         if self.auth_text_file is not None and self.auth_payloads_file is not None:
             return (
                 TaskIssue(
                     code="REBUILD_AUTH_MATERIAL_CONFLICT",
-                    message="Use authentication text or authentication payloads, not both.",
+                    message="Choose either signature text or a signature payload, not both.",
                     section="advanced",
                 ),
             )
@@ -288,15 +375,29 @@ class RebuildTaskState(BaseModel):
     def _freshness_status(self) -> TaskSectionStatus:
         if not self.source_paths:
             return "ready"
-        if self.expected_head_doc_hash is not None or self.allow_stale_head:
+        if self.expected_head_doc_hash is not None:
             return "ready"
+        if self.allow_stale_head:
+            return "warning"
         return "missing"
 
     def _freshness_summary(self) -> str:
         if not self.source_paths:
-            return "Generated backup folder"
+            return "Backup folder"
         if self.expected_head_doc_hash is not None:
-            return "Expected latest backup fingerprint provided"
+            return "Latest fingerprint provided"
         if self.allow_stale_head:
-            return "Stale source risk accepted"
-        return "Confirm these scans are latest"
+            return "Latest loaded version accepted"
+        return "Confirm the scans contain the latest version"
+
+    def _freshness_warnings(self) -> tuple[TaskIssue, ...]:
+        if not self.source_paths or not self.allow_stale_head:
+            return ()
+        return (
+            TaskIssue(
+                code="REBUILD_STALE_SOURCE_ACCEPTED",
+                message="These scans may not contain the latest backup version.",
+                severity="warning",
+                section="freshness",
+            ),
+        )
