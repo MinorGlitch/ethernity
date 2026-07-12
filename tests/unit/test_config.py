@@ -498,6 +498,7 @@ qr_payload_codec = "base64"
 quiet = true
 no_color = true
 no_animations = true
+show_internals = true
 
 [debug]
 max_bytes = 4096
@@ -531,6 +532,7 @@ render_jobs = 6
         self.assertTrue(config.cli_defaults.ui.quiet)
         self.assertTrue(config.cli_defaults.ui.no_color)
         self.assertTrue(config.cli_defaults.ui.no_animations)
+        self.assertTrue(config.cli_defaults.ui.show_internals)
         self.assertEqual(config.cli_defaults.debug.max_bytes, 4096)
         self.assertEqual(config.cli_defaults.runtime.render_jobs, 6)
 

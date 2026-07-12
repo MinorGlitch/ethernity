@@ -227,7 +227,7 @@ class TestKitFlowHelpers(unittest.TestCase):
             metadata = kit_module._extract_kit_bundle_loader_metadata(bundle_path.read_bytes())
 
             self.assertGreater(len(metadata.payload), 1000)
-            self.assertEqual(metadata.compression, "brotli")
+            self.assertEqual(metadata.compression, "gzip")
 
 
 class TestRenderKitDocument(unittest.TestCase):
