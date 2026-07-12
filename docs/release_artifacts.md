@@ -23,9 +23,16 @@ For releases that include the v1.2 extension profile, CI must pass the frozen ex
 - `cd kit && node --test tests/v1_2_extension_frozen_e2e.test.mjs`
 - `cd kit && node build_kit.mjs`
 - `cd kit && node --test tests/loader_html.test.mjs`
+- `cd kit && npm run test:browser`
 
-The generated recovery kit bundles must decode to an extension-capable UI before release. Recovery
-kit bundles are release artifacts, not committed source files.
+The canonical `recovery_kit.bundle.html` and `recovery_kit.scanner.bundle.html` artifacts use gzip.
+Optional Brotli builds use suffixed `*.brotli.bundle.html` names and never replace the canonical
+gzip artifacts. Deterministic gzip builds require the `libdeflate-gzip` executable (provided by the
+`libdeflate-tools` package on Ubuntu).
+
+The generated canonical bundles must decode to an extension-capable UI and pass the real-Chrome
+boot and scrypt Worker smoke before release. Recovery kit bundles are release artifacts, not
+committed source files.
 
 ## Quick Verification Example
 

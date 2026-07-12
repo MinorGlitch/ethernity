@@ -1,40 +1,55 @@
 # Ethernity
 
-Ethernity is a Python CLI for creating encrypted backup artifacts you can recover offline from
-printed QR and fallback documents.
+Ethernity turns small files you cannot afford to lose into encrypted pages you can print, store in
+different locations, and restore without internet access.
 
-It is built for small, high-value data and deliberate recovery procedures, not continuous sync or
-large bulk archives.
+It works well for seed phrases, key files, small configuration sets, and recovery packets. Use a
+regular backup system for large archives, continuous sync, or unattended jobs.
+
+The encrypted content must fit within **1 MiB** and contain no more than **2,048 file paths**.
 
 ## Install
 
-### pipx
+Ethernity requires Python 3.11 or newer. Install the CLI in an isolated environment with `pipx`:
 
-```bash
+```sh
 pipx install ethernity-paper
-```
-
-### pip
-
-```bash
-pip install ethernity-paper
-```
-
-## First Commands
-
-```bash
 ethernity --help
-ethernity run backup --help
-ethernity run restore --help
 ```
 
-## First Drill
+The package name is `ethernity-paper`; the installed command is `ethernity`. A standard Python
+environment also works:
 
-```bash
-printf "ethernity test payload\n" > payload.txt
+```sh
+python -m pip install ethernity-paper
+```
+
+The [full installation guide](https://github.com/MinorGlitch/ethernity#install) covers Homebrew,
+Windows, and release archives.
+
+## Create and restore a test backup
+
+Open the guided terminal app:
+
+```sh
+ethernity
+```
+
+1. Choose **Create backup** and select a disposable test file or folder.
+2. Keep the recommended recovery method: 3 recovery sheets, any 2 can restore.
+3. Review the destination and create the backup.
+4. Choose **Restore files**, load the backup folder or scanned pages, and unlock them.
+5. Restore into an empty destination and compare the result with the original test data.
+
+### Scriptable test
+
+This macOS and Linux example uses a test-only passphrase:
+
+```sh
+printf "ethernity README test\n" > test-file.txt
 
 ethernity run backup \
-  --input ./payload.txt \
+  --input ./test-file.txt \
   --output-dir ./backup-demo \
   --passphrase "ethernity test passphrase" \
   --yes
@@ -45,40 +60,47 @@ ethernity run restore \
   --output ./restored.txt \
   --yes
 
-cmp ./payload.txt ./restored.txt
+cmp ./test-file.txt ./restored.txt
 ```
 
-## Main Workflows
+`cmp` produces no output when both files match.
 
-- `ethernity`: open the terminal app
-- `ethernity run backup`: create a standalone backup set
-- `ethernity run restore`: restore from scans, payload files, or fallback text
-- `ethernity run add-files`: append files to an existing backup
-- `ethernity run rebuild`: rebuild a backup from its latest recoverable state
-- `ethernity run replace-recovery-docs`: create replacement recovery documents
-- `ethernity run print-kit`: generate a printable QR document for the recovery kit
-- `ethernity run doctor`: check local setup
+## Store your backup safely
 
-## Useful Commands
+- Keep an independent backup outside Ethernity.
+- Put recovery sheets in separate locations and keep them apart from the encrypted backup pages.
+- Treat every generated page as sensitive and give recovery sheets the same care as passwords.
+- Create and restore backups only on computers you trust.
+- Print PDFs at actual size and scan at least one printed QR code before storing the set.
+- Test a restore from the pages and recovery sheets you plan to keep.
 
-```bash
-ethernity
-ethernity run doctor
-ethernity run print-kit --variant scanner --output ./recovery_kit_scanner_qr.pdf --yes
-ethernity run restore --scan ./backup-demo --passphrase "ethernity test passphrase" --preview
-```
+## Other workflows
 
-## Links
+The guided app can add or replace files, rebuild a backup as one standalone set, create replacement
+recovery sheets, and create a printable copy of the offline browser recovery tool.
 
-- Source: https://github.com/MinorGlitch/ethernity
-- Getting started: https://github.com/MinorGlitch/ethernity/wiki/Getting-Started
-- Backup workflow: https://github.com/MinorGlitch/ethernity/wiki/Backup-Workflow
-- Extension workflow: https://github.com/MinorGlitch/ethernity/wiki/Extension-Workflow
-- Recovery workflow: https://github.com/MinorGlitch/ethernity/wiki/Recovery-Workflow
-- Recovery kit: https://github.com/MinorGlitch/ethernity/wiki/Recovery-Kit
-- Helper rendering: https://github.com/MinorGlitch/ethernity/wiki/Helper-Rendering
-- Configuration: https://github.com/MinorGlitch/ethernity/wiki/Configuration-and-Defaults
-- Troubleshooting: https://github.com/MinorGlitch/ethernity/wiki/Troubleshooting
-- Release artifacts: https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts
-- Format spec: https://github.com/MinorGlitch/ethernity/blob/master/docs/format.md
-- Security policy: https://github.com/MinorGlitch/ethernity/blob/master/SECURITY.md
+Run `ethernity run --help` to see the six scriptable tasks.
+
+## Learn more
+
+### Using Ethernity
+
+- [Project README](https://github.com/MinorGlitch/ethernity)
+- [Advanced workflows](https://github.com/MinorGlitch/ethernity/blob/master/docs/advanced-workflows.md)
+
+### Safety and trust
+
+- [Security policy](https://github.com/MinorGlitch/ethernity/blob/master/SECURITY.md)
+- [Release verification](https://github.com/MinorGlitch/ethernity/blob/master/docs/release_artifacts.md)
+
+### Technical reference
+
+- [Format specification](https://github.com/MinorGlitch/ethernity/blob/master/docs/format.md)
+- [Format rationale and operations](https://github.com/MinorGlitch/ethernity/blob/master/docs/format_notes.md)
+- [Compatibility ledger](https://github.com/MinorGlitch/ethernity/blob/master/docs/format_changes.md)
+
+## Contributing and license
+
+Read the [contribution guide](https://github.com/MinorGlitch/ethernity/blob/master/CONTRIBUTING.md)
+before opening a pull request. The project uses the
+[GPLv3 or later](https://github.com/MinorGlitch/ethernity/blob/master/LICENSE).
