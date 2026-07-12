@@ -538,9 +538,11 @@ Decoding:
      rendered line labels.
   3. Remove all Unicode whitespace code points and ASCII dashes (`-`).
   4. If the resulting string is empty, discard it.
-  5. The remaining string MUST consist only of z-base-32 alphabet characters
-     (`ybndrfg8ejkmcpqxot1uwisza345h769`) when compared case-insensitively.
-  6. Normalize the remaining string to lowercase ASCII and append it to the filtered-line list.
+  5. Every remaining code point MUST be ASCII and MUST belong to the z-base-32 alphabet
+     (`ybndrfg8ejkmcpqxot1uwisza345h769`) after ASCII `A-Z` case folding. Decoders MUST reject
+     non-ASCII lookalikes or Unicode compatibility characters before case normalization.
+  6. Normalize ASCII uppercase characters to lowercase and append the remaining string to the
+     filtered-line list.
 - `MAX_FALLBACK_LINES` counts the number of filtered lines after Step 6.
 - `MAX_FALLBACK_NORMALIZED_CHARS` counts the sum of lengths of all filtered lines after Step 6.
 - Decoders MUST reject any fallback section that exceeds either bound.
@@ -784,7 +786,7 @@ Unicode Normalization Forms: https://unicode.org/reports/tr15/
 
 ## 17) Resource Bounds
 
-This section defines mandatory Version 1 resource bounds.
+This section defines mandatory Version 1 and root-plus-extension recovery resource bounds.
 
 Encoders MUST NOT emit artifacts that exceed these bounds.
 Decoders MUST reject inputs that exceed these bounds.
@@ -809,6 +811,11 @@ Constants:
 - `MAX_FALLBACK_LINES = 50_000`
 - `MAX_RECOVERY_TEXT_BYTES = 10_485_760`
 - `MAX_DECOMPRESSED_PAYLOAD_BYTES = 67_108_864` (64 MiB)
+- `MAX_JS_SAFE_INTEGER = 9_007_199_254_740_991`
+- `MAX_RECOVERY_DOCUMENTS = 128` (one root plus at most 127 extensions)
+- `MAX_EXTENSION_INDEX = 127`
+- `MAX_RECOVERY_CIPHERTEXT_BYTES = 67_108_864` (64 MiB across the complete chain)
+- `MAX_RECOVERY_DECODED_CHUNK_BYTES = 268_435_456` (256 MiB across extension inline chunks)
 
 ## 18) Normative Conformance Appendix
 
@@ -925,7 +932,7 @@ The extension header MUST be a CBOR map with exactly these integer keys:
 
 Requirements:
 - `version`: int == `1`
-- `index`: positive int (`>= 1`)
+- `index`: int in `1..MAX_EXTENSION_INDEX`
 - `parent_doc_hash`: 32 bytes
 - `root_doc_hash`: 32 bytes
 - `created_at`: int
@@ -954,6 +961,11 @@ Requirements:
 Unknown header keys MUST be rejected.
 Header keys `3`, `6`, `8`, and `9` are not part of the Version 2 extension schema and MUST be
 rejected.
+
+Every integer encoded in a Version 2 extension header or body MUST be within
+`-MAX_JS_SAFE_INTEGER..MAX_JS_SAFE_INTEGER`, inclusive. A narrower field-specific bound takes
+precedence. This includes timestamps and mtimes; non-negative sizes and chunk lengths remain subject
+to their smaller resource bounds.
 
 ### 19.3) Extension Body
 
@@ -999,7 +1011,7 @@ Each chunk reference MUST be:
 
 Requirements:
 - `chunk_id`: 32 bytes
-- `uncompressed_len`: positive int
+- `uncompressed_len`: positive int and MUST be `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
 
 Chunking rules:
 - extension-envelope file recipes MUST be derived from content-defined chunking under the locked
@@ -1189,6 +1201,9 @@ NOT trust a caller-supplied or serialized `chain_id` value as evidence of chain 
 
 Requirements:
 - every extension ciphertext in one chain MUST decrypt with the same passphrase as the root backup
+- an appendable root MUST be unsealed and carry its signing seed in the encrypted Version 1
+  manifest; possession of the root carriers plus material sufficient to unlock that manifest is
+  therefore sufficient to create an authenticated extension
 - chain validation MUST start from the authenticated root `doc_hash`
 - each extension MUST carry exactly one AUTH payload bound to its ciphertext `doc_hash`
 - in authenticated mode, each extension AUTH payload MUST verify successfully and its `sign_pub`
@@ -1202,6 +1217,27 @@ Requirements:
 - every later extension in the same chain MUST carry the exact same chunking profile
 - signing authority for extension-local validation is derived from the embedded signing seed of the
   unsealed root backup; it is not embedded in the extension header
+- signing-key recovery sheets are redundant custody copies of signing authority; they MUST NOT be
+  interpreted or presented as an additional append approval, second factor, or dual-control
+  requirement
+
+Chain resource profile:
+- one recovery or append session MUST admit at most `MAX_RECOVERY_DOCUMENTS` complete MAIN
+  documents, including the root
+- the sum of their ciphertext lengths MUST be `<= MAX_RECOVERY_CIPHERTEXT_BYTES`
+- the sum of inline chunk `raw_len` values across all admitted extensions MUST be
+  `<= MAX_RECOVERY_DECODED_CHUNK_BYTES`
+- implementations MUST enforce document count and aggregate ciphertext before decryption, and MUST
+  enforce the remaining decoded-chunk budget from declared canonical bodies before decompressing an
+  extension's inline chunks
+- append writers MUST reject an extension that would cross any chain limit and direct the operator
+  to rebuild the latest logical state as a fresh standalone backup
+
+Append implementations MUST preserve the rule that a chunk record is introduced at most once over
+the complete chain. They MAY bound working memory by retaining raw chunk bytes only for the latest
+logical state and tracking older introduced chunks by `chunk_id`. When selected input contains bytes
+whose `SHA-256` matches such an older `chunk_id`, the writer MUST emit a reference to that historical
+chunk rather than reintroducing it inline.
 
 Operational rescue modes that tolerate unsigned or invalid extension AUTH are outside the
 normative authenticated profile described in this section.
@@ -1219,6 +1255,8 @@ Replay rules:
 - paths present in an extension replace the previous logical state for that path
 - extensions cannot represent deletes or tombstones; a path that existed in the root or an earlier
   extension remains recoverable unless a later extension replaces it with new file content
+- an extension is therefore an add-or-replace operation, not filesystem synchronization; encoding a
+  renamed path adds the new path without removing the old path
 - each chunk reference MUST resolve to either:
   - a newly introduced chunk in the current or earlier validated extension, or
   - a chain-global virtual root chunk, keyed by the `SHA-256` of each re-chunked root chunk byte
@@ -1273,6 +1311,11 @@ Import rules:
 - content import authenticates only the recovery carriers supplied to the recovery session; without
   a separate signed freshness source, implementations MUST NOT claim to prove that no later
   extension exists
+- independent appends from the same authenticated head can produce distinct valid forks; each fork
+  MAY validate when supplied separately, while a recovery session supplied conflicting forks MUST
+  reject them as ambiguous
+- in this profile, `latest` means the latest valid authenticated state among the supplied carriers;
+  no global ledger or online head registry is consulted
 
 Recovery MAY succeed from any complete, authenticated machine-readable MAIN carrier for a document.
 Multiple carrier copies are redundancy, not identity. Implementations MAY provide separate audit
@@ -1289,16 +1332,47 @@ artifact bundle outside the canonical `extensions/` namespace. It MUST NOT creat
 `extensions/<index>` directory when the earlier canonical prefix is not present. The writable output
 root for a loose scan-mode append MUST be missing or empty before publishing.
 
+For this release profile, creation/publish of a canonical root export, and later append from that
+export, MUST require the root `recovery_document.pdf` and exact-validate its extractable fallback
+sections against the authenticated root AUTH frame and complete root MAIN ciphertext frame.
+Canonical root shard filenames, when present, are:
+
+```text
+shard-<doc_id>-<share_index>-of-<share_count>.pdf
+signing-key-shard-<doc_id>-<share_index>-of-<share_count>.pdf
+```
+
+Every such canonical-named carrier MUST contain exactly one distinct `KEY_DOCUMENT` QR frame. Its
+signed shard payload and fallback text MUST match the filename role, lowercase 16-hex root
+`doc_id`, share index/count, authenticated root `doc_hash`, and root signing authority. Each present
+canonical passphrase or signing-key shard role MUST form a complete, internally consistent set with
+indexes `1..share_count`. A matching-root shard PDF under a non-canonical filename MAY be audited as
+an individual content carrier, but its name does not establish set membership or completeness.
+Non-PDF KEY carriers and unrelated or foreign-root carriers under non-canonical names are outside
+this fallback audit. Every canonical-pattern shard filename remains fail-closed, including one whose
+`doc_id` or contents belong to a foreign root.
+
+The root format has no signed publication manifest enumerating which shard roles or counts were
+originally exported. Therefore, when no canonical filenames for a root shard role are present,
+append validation cannot infer that a set is missing and MUST NOT claim completeness for that absent
+set. This limitation does not relax validation of any canonical set that is present.
+
 An implementation that appends from an existing published export tree MUST require the existing
 published chain head to satisfy the canonical export layout before publishing the next extension.
 For this release profile, a published extension directory is append-valid only when the required
 `qr_document-*` and `recovery_document-*` MAIN artifacts are present and pass publish/discovery
 validation. If shard artifacts are present in the published extension directory, each shard document
 type MUST form a complete set with one declared `share_count` and share indexes `1..share_count`;
-passphrase shards and signing-key shards are validated as independent sets.
+passphrase shards and signing-key shards are validated as independent sets. Append validation MUST
+load every shard PDF, recover exactly one `KEY_DOCUMENT` frame, and verify that the signed shard
+payload matches the filename share index/count, extension ciphertext `doc_id`/`doc_hash`, artifact
+key type, root signing authority, and the other members of that shard set. Immediate
+creation/publish and later append/discovery validation MUST also exact-validate the extractable
+fallback text layer of each fallback-bearing shard PDF against that expected `KEY_DOCUMENT` frame
+as described below.
 
 Canonical published extension directory names MUST be the decimal extension index with two digits
-for indexes `1..99` (`01`, `02`, ..., `99`) and unpadded decimal for indexes `>= 100`.
+for indexes `1..99` (`01`, `02`, ..., `99`) and unpadded decimal for indexes `100..127`.
 Canonical MAIN artifact filenames MUST use:
 
 ```text
@@ -1315,7 +1389,8 @@ shard-<index>-<doc_id>-<share_index>-of-<share_count>.pdf
 signing-key-shard-<index>-<doc_id>-<share_index>-of-<share_count>.pdf
 ```
 
-`share_index` and `share_count` are unpadded positive decimal integers.
+`share_index` and `share_count` are unpadded positive decimal integers satisfying
+`1 <= share_index <= share_count <= 255`.
 
 For this release profile, `qr_document-*` artifacts are the only machine-readable
 payload-bearing MAIN carriers in a canonical published extension directory. This filename role is an
@@ -1325,11 +1400,18 @@ payloads. Extension `recovery_document-*` artifacts are human-readable fallback 
 transcription when QR scanning is unavailable or damaged. Manually typed or transcribed fallback text
 MAY be accepted through explicit text inputs, but implementations MUST NOT extract or parse fallback
 text from PDF or image files as a content-import or chain-replay carrier. Publish implementations
-MUST validate every machine-readable payload-bearing carrier before promotion. Append/discovery
-validation for a published chain head MUST also load the required `recovery_document-*` PDF and
-verify that it is a usable PDF artifact. This recovery-document check establishes the presence of
-the human fallback artifact only; implementations MUST NOT parse or bind visible fallback text from
-PDF or image files for append/discovery identity, content import, or chain replay.
+MUST validate every machine-readable payload-bearing carrier before promotion. Immediate
+creation/publish and later append/discovery validation for a canonical published chain head MUST
+also exact-validate the extractable fallback text layer of every required `recovery_document-*` PDF
+against that document's expected MAIN and AUTH frames. Exact validation MUST identify the designated
+canonical fallback
+sections, decode them in document order under Section 11, and require a one-to-one byte match with the
+expected ordered frames and their roles. It MUST fail closed when the PDF or text layer is unusable,
+or when a required section is missing, malformed, extra, reordered, or mismatched. This is
+per-carrier text-layer validation: it binds the extractable fallback encoding to the same document
+identity and role as the authoritative ciphertext and AUTH data. It does not establish physical
+visibility or legibility, make PDF text an authoritative content-import or chain-replay carrier, or
+constitute a signed publication manifest enumerating a globally complete carrier set.
 
 The authoritative extension identity comes from recovered ciphertext, AUTH, and decrypted
 extension-header metadata.
@@ -1372,3 +1454,5 @@ Compaction rules:
 - if the root is unsealed, compaction MUST preserve the root signing seed exactly
 - if the root is sealed, compaction MUST NOT emit signing-key shard documents
 - compaction MUST NOT mutate or delete the original recovery carriers in place
+- compaction does not rotate, revoke, or create a new signing authority; the compacted checkpoint
+  remains inside the source chain's security boundary

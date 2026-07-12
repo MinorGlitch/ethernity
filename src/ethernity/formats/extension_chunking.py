@@ -21,12 +21,21 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 
-Chunker = Callable[[bytes, "ExtensionChunkingProfile"], Sequence[bytes]]
+class ExtensionChunkingProfileLike(Protocol):
+    @property
+    def target_size(self) -> int: ...
+
+    @property
+    def min_size(self) -> int: ...
+
+    @property
+    def max_size(self) -> int: ...
+
+
+Chunker = Callable[[bytes, ExtensionChunkingProfileLike], Sequence[bytes]]
 
 _ROLLING_HASH_MASK = (1 << 64) - 1
 _MIN_MASK_BITS = 4
@@ -50,7 +59,7 @@ _GEAR_TABLE = _build_gear_table()
 
 def default_extension_chunker(
     data: bytes,
-    profile: "ExtensionChunkingProfile",
+    profile: ExtensionChunkingProfileLike,
 ) -> tuple[bytes, ...]:
     if not data:
         return ()
@@ -75,7 +84,7 @@ def default_extension_chunker(
 
 def canonical_chunk_refs_for_bytes(
     data: bytes,
-    profile: "ExtensionChunkingProfile",
+    profile: ExtensionChunkingProfileLike,
 ) -> tuple[tuple[bytes, int], ...]:
     """Return the canonical chunk reference sequence for bytes under an extension profile."""
 
@@ -88,7 +97,7 @@ def canonical_chunk_refs_for_bytes(
 def require_canonical_chunk_refs(
     declared_refs: Sequence[tuple[bytes, int]],
     data: bytes,
-    profile: "ExtensionChunkingProfile",
+    profile: ExtensionChunkingProfileLike,
 ) -> None:
     """Reject chunk refs that do not match the locked extension chunking profile."""
 

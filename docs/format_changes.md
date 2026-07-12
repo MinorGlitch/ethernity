@@ -142,14 +142,34 @@ Use this template for each change entry:
     extension-like stale top-level entries under `extensions/`.
   - Root-only and selected-prefix recovery are explicit selection modes. Default recovery replays
     the latest supplied authenticated extension and reports freshness as supplied-carriers-only.
-  - Extension recovery documents are human fallback documents. Append readiness requires the
-    required recovery-document PDF to be present and loadable, but visible fallback text in PDF or
-    image files is not parsed or bound as authoritative content-import, discovery, or replay data.
+  - Independently appended branches can form valid offline forks. Conflicting supplied branches fail
+    as ambiguous; no global ledger or online head registry is required by this profile.
+  - Root and extension recovery documents are human fallback documents. Immediate publish and later
+    append readiness extract every fallback-bearing canonical root or extension PDF's designated text
+    sections, canonical-decode them in order, and require an exact one-to-one match with the expected
+    MAIN/AUTH or KEY frames. PDF text remains non-authoritative for content import and replay, and this
+    per-carrier text-layer check is not a signed global publication manifest or proof of physical
+    legibility. Without such a manifest, an entirely absent root shard role remains unknowable rather
+    than provably incomplete.
   - Extension publish and mint paths fail closed when carriers, shard sets, chain ancestry, or
     authenticated replay cannot be validated.
+  - Root-plus-extension recovery is bounded to 128 documents, 64 MiB aggregate ciphertext,
+    256 MiB cumulative decoded inline chunks, and extension indexes `1..127`. Append fails with
+    rebuild guidance before crossing a limit.
+  - Version 2 integers are restricted to the JavaScript exact-integer range, with smaller
+    field-specific bounds taking precedence.
+  - Append/discovery validates the signed machine-readable contents of every published extension
+    shard carrier, not only filename/count completeness; shard filename counts are capped at 255.
+  - Append deduplication retains current-state chunk bytes plus historical chunk identities, which
+    preserves A-to-B-to-A reuse without retaining cumulative decoded history.
   - Compaction shard policy inheritance is content-first and authenticated. Filename prefixes and
     unsigned shard metadata cannot select checkpoint policy; compaction preserves root shard policy,
     sealed/unsealed state, and any unsealed root signing seed without mutating the original carriers.
+  - The extension ownership contract is explicit: root carriers plus successful unlock grant append
+    authority, signing-key sheets provide redundancy rather than dual control, and compaction
+    preserves that authority instead of rotating it.
+  - Add Files is add-or-replace only. Deletes, true renames, credential rotation, and compromise
+    recovery require a separately created New Backup and retirement of the superseded carriers.
 - Related branch hardening consolidated with this release entry:
   - Selected input bounds are preflighted before reading so oversized file counts, source bytes,
     symlinks, and non-regular inputs cannot bypass existing resource limits.

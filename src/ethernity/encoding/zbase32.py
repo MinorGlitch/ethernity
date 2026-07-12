@@ -68,6 +68,8 @@ def decode_zbase32(text: str) -> bytes:
     for char in text:
         if char.isspace() or char == "-":
             continue
+        if not char.isascii():
+            raise ValueError(f"invalid z-base-32 character: {char!r}")
         normalized_char = char.lower()
         value = ZBASE32_LOOKUP.get(normalized_char)
         if value is None:

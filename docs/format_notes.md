@@ -38,6 +38,9 @@ Threat-model sketches:
 - Group A holds passphrase shards (decryption capability).
 - Group B holds signing-seed shards (ability to mint new signed AUTH/shard artifacts for a given
   `doc_hash` without decrypting).
+- This separation applies to re-minting auxiliary artifacts for an existing document identity. It
+  does not make Group B an additional approver for an extension append; the extension authority
+  contract below is different.
 
 Operational guidance:
 - Avoid revealing whether decryption failed due to a wrong passphrase vs corrupted data (prefer a
@@ -57,6 +60,49 @@ Operational implications:
   is only absence detection for material that was not supplied.
 - Absolute freshness requires an additional signed head marker, external registry, or other
   out-of-band freshness source. That is outside the current content-import profile.
+- Two operators can append independently from the same head and create valid forks. Supplying both
+  conflicting branches is an ambiguity and fails closed, but either branch can validate in isolation.
+  `Latest` therefore always means latest among the carriers supplied to that operation. The current
+  release deliberately has no global ledger or online coordination requirement.
+
+## Extension Authority and Lifecycle
+
+An appendable root is unsealed: its encrypted manifest contains the chain signing seed. Anyone who
+has the root carriers and can unlock that manifest can both recover data and sign a valid extension.
+Signing-key recovery sheets are redundant custody copies of the signing seed, not a second factor or
+an independent approval step.
+
+Rebuild/compaction preserves the passphrase and signing seed. It shortens the recovery chain into a
+new standalone checkpoint, but it does not rotate credentials, revoke older authority, or create a
+new security boundary. After credential compromise, or when intentional rotation is needed, recover
+the desired files and create a New Backup with new credentials, then retire the old carrier set.
+
+Add Files is add-or-replace rather than filesystem synchronization. A matching path is replaced and
+an omitted path remains in logical state. A rename adds the new path without removing the old one.
+To remove or truly rename content, recover the desired state, create a New Backup that omits the old
+path, and retire every old paper and digital carrier whose historical copy must no longer be usable.
+
+## Published Fallback Assurance
+
+Machine-readable ciphertext, AUTH frames, and signed shard payloads remain authoritative. The
+extractable fallback text layer in each fallback-bearing canonical root or extension PDF is
+nevertheless checked immediately after rendering, before publish, and again during later
+append/discovery validation of a canonical published head. Designated sections must canonical-decode
+in order and match the exact expected MAIN/AUTH or KEY frame bytes one-to-one.
+
+This binds one extractable fallback encoding to one authenticated carrier identity. PDF text
+extraction cannot prove that text is physically visible, on-page, unclipped, or comfortably legible,
+so print inspection remains separate. The check is not a signed publication manifest and does not
+prove that every carrier ever produced, or a globally latest head, is present.
+
+Canonical root creation/publish and later append apply the audit to `recovery_document.pdf` and to
+every canonical-named root shard PDF. A present canonical shard role is filename-enumerable, so its
+declared `1..share_count` set can fail closed on gaps or inconsistent signed payloads. An entirely
+absent shard role is different: the root has no signed publication manifest recording that such a
+set was created, so absence is unknowable rather than proof of completeness. Renamed matching-root
+PDF shards can be audited individually, but their names cannot establish a complete custody set.
+Images and unrelated or foreign-root carriers under non-canonical names are ignored by the PDF
+fallback audit; canonical-pattern names remain fail-closed.
 
 ## Shard Set Identifier Rationale
 
@@ -118,6 +164,23 @@ Operational implications:
   z-base-32 character count so malformed or adversarial text fails early.
 - Input-admission policy is ciphertext-based: implementations may accept inputs larger than 1 MiB
   when pre-encryption compression allows the final ciphertext to stay within `MAX_CIPHERTEXT_BYTES`.
+
+The extension profile adds chain-wide limits because otherwise individually valid documents can
+accumulate unbounded recovery work. A chain stops at 128 total documents, 64 MiB aggregate
+ciphertext, and 256 MiB cumulative decoded inline chunks. Rebuild/compaction creates a fresh
+standalone root when a chain is near any limit. Browser KDF admission is a runtime safety policy,
+not a stable-v1 format restriction; desktop recovery retains age's full legacy compatibility.
+The browser parses every public scrypt stanza before starting a KDF, rejects factors above its
+supported ceiling. A separate explicit action is required before either a profile above
+`log_n = 18` or cumulative work above eight `log_n = 18` documents is attempted. Approved KDF work
+runs one document at a time in a cancellable Worker. This keeps `log_n = 19` and `20` recovery
+available without letting scanned input silently start a 512 MiB or 1 GiB allocation, or a long
+sequence of otherwise individually acceptable KDFs.
+
+Append deduplication does not require retaining every historical decoded chunk. Writers can retain
+the latest logical state's chunk bytes plus the set of all earlier chunk identifiers. If new input
+returns to old content (for example A to B to A), its bytes establish the matching identifier and the
+new extension references the historical chunk instead of emitting it again.
 
 ## Payload Compression Metadata (Manifest v1)
 

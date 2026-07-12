@@ -41,6 +41,8 @@ def _is_valid_zbase32_line(line: str) -> bool:
     for ch in stripped:
         if ch.isspace() or ch == "-":
             continue
+        if not ch.isascii():
+            return False
         if ch.lower() not in ZBASE32_ALPHABET:
             return False
         has_payload_char = True
@@ -107,6 +109,8 @@ def format_fallback_error(exc: Exception, *, context: str) -> str:
 
 def detect_fallback_section(line: str) -> str | None:
     normalized = line.strip()
+    if not normalized.isascii():
+        return None
     for section, pattern in _FALLBACK_SECTION_PATTERNS.items():
         if pattern.fullmatch(normalized):
             return section

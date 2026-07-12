@@ -40,6 +40,7 @@ class TestIsValidZbase32Line(unittest.TestCase):
     def test_invalid_characters(self) -> None:
         self.assertFalse(_is_valid_zbase32_line("ybndr 0123"))  # digits
         self.assertFalse(_is_valid_zbase32_line("ybndr @#$%"))  # special chars
+        self.assertFalse(_is_valid_zbase32_line("\N{KELVIN SIGN}"))
 
 
 class TestFilterFallbackLines(unittest.TestCase):
@@ -149,6 +150,7 @@ class TestFilterFallbackLines(unittest.TestCase):
         self.assertEqual(detect_fallback_section("Shard Frame"), "key")
         self.assertEqual(detect_fallback_section("Key Frame"), "key")
         self.assertIsNone(detect_fallback_section("zzmain framezz"))
+        self.assertIsNone(detect_fallback_section("\N{KELVIN SIGN}ey Frame"))
 
     def test_split_fallback_sections_rejects_non_empty_content_before_first_header(self) -> None:
         with self.assertRaisesRegex(ValueError, "before the first marked fallback section"):

@@ -24,7 +24,13 @@ import zlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_CBOR_BYTES
+from ethernity.core.bounds import (
+    MAX_DECOMPRESSED_PAYLOAD_BYTES,
+    MAX_EXTENSION_INDEX,
+    MAX_JS_SAFE_INTEGER,
+    MAX_MANIFEST_CBOR_BYTES,
+    MAX_RECOVERY_DECODED_CHUNK_BYTES,
+)
 from ethernity.core.validation import (
     normalize_manifest_path,
     require_bytes,
@@ -79,6 +85,10 @@ _BODY_CHUNKS = 2
 MIN_EXTENSION_CHUNK_SIZE = 4 * 1024
 
 
+class ExtensionDecodedChunkBudgetError(ValueError):
+    """The chain-level decoded inline-chunk work budget is exhausted."""
+
+
 def _require_exact_int_keys(
     mapping: dict[object, object],
     *,
@@ -91,6 +101,16 @@ def _require_exact_int_keys(
     unknown_keys = [key for key in mapping if key not in allowed_keys]
     if unknown_keys:
         raise ValueError(f"{label} contains unknown keys")
+
+
+def _require_js_safe_int(value: object, *, label: str) -> int:
+    integer = require_int(value, label=label)
+    if integer < -MAX_JS_SAFE_INTEGER or integer > MAX_JS_SAFE_INTEGER:
+        raise ValueError(
+            f"{label} must be within the JavaScript safe integer range "
+            f"(-{MAX_JS_SAFE_INTEGER}..{MAX_JS_SAFE_INTEGER})"
+        )
+    return integer
 
 
 def derive_chain_id(root_doc_hash: bytes) -> bytes:
@@ -175,6 +195,10 @@ class ExtensionChunkRef:
                 label="extension chunk_ref uncompressed_len",
             ),
         )
+        if self.uncompressed_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+            raise ValueError(
+                "extension chunk_ref uncompressed_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES"
+            )
 
     def to_cbor(self) -> list[object]:
         return [self.chunk_id, self.uncompressed_len]
@@ -203,9 +227,11 @@ class ExtensionFile:
     def __post_init__(self) -> None:
         path = normalize_manifest_path(self.path, label="extension file path")
         size = require_non_negative_int(self.size, label="extension file size")
+        if size > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+            raise ValueError("extension file size exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES")
         sha256 = require_bytes(self.sha256, 32, label="extension file sha256")
         if self.mtime is not None:
-            mtime = require_int(self.mtime, label="extension file mtime")
+            mtime = _require_js_safe_int(self.mtime, label="extension file mtime")
         else:
             mtime = None
         chunk_refs = tuple(self.chunk_refs)
@@ -323,6 +349,11 @@ class ExtensionEnvelopeHeader:
         if version != EXTENSION_SCHEMA_VERSION:
             raise ValueError(f"unsupported extension header version: {version}")
         index = require_positive_int(self.index, label="extension header index")
+        if index > MAX_EXTENSION_INDEX:
+            raise ValueError(
+                f"extension header index exceeds MAX_EXTENSION_INDEX ({MAX_EXTENSION_INDEX}); "
+                "rebuild the chain as a fresh standalone backup before appending"
+            )
         parent_doc_hash = require_bytes(
             self.parent_doc_hash, 32, label="extension header parent_doc_hash"
         )
@@ -331,7 +362,10 @@ class ExtensionEnvelopeHeader:
             32,
             label="extension header root_doc_hash",
         )
-        created_at = require_int(self.created_at, label="extension header created_at")
+        created_at = _require_js_safe_int(
+            self.created_at,
+            label="extension header created_at",
+        )
         chunking = self.chunking
         if not isinstance(chunking, ExtensionChunkingProfile):
             raise ValueError("extension header chunking must be an ExtensionChunkingProfile")
@@ -454,6 +488,10 @@ class ExtensionEnvelope:
         }
         return header, body
 
+    @property
+    def inline_chunk_raw_bytes(self) -> int:
+        return sum(chunk.raw_len for chunk in self.chunks)
+
     def encode(self) -> bytes:
         for chunk_record in self.chunks:
             chunk_record.decode_data()
@@ -526,7 +564,18 @@ class ExtensionEnvelope:
         return reconstructed
 
     @classmethod
-    def decode(cls, data: bytes) -> "ExtensionEnvelope":
+    def decode(
+        cls,
+        data: bytes,
+        *,
+        max_inline_chunk_bytes: int = MAX_RECOVERY_DECODED_CHUNK_BYTES,
+    ) -> "ExtensionEnvelope":
+        if (
+            isinstance(max_inline_chunk_bytes, bool)
+            or not isinstance(max_inline_chunk_bytes, int)
+            or max_inline_chunk_bytes < 0
+        ):
+            raise ValueError("max_inline_chunk_bytes must be a non-negative integer")
         idx = 0
         if len(data) < len(MAGIC) + 1:
             raise ValueError("extension envelope too short")
@@ -571,7 +620,10 @@ class ExtensionEnvelope:
         require_keys(body, (_BODY_FILES, _BODY_CHUNKS), label="extension body")
         files_raw = require_list(body[_BODY_FILES], 1, label="extension body files")
         chunks_raw = require_list(body[_BODY_CHUNKS], 0, label="extension body chunks")
-        _require_inline_chunk_raw_len_bounds(chunks_raw)
+        _require_inline_chunk_raw_len_bounds(
+            chunks_raw,
+            max_inline_chunk_bytes=max_inline_chunk_bytes,
+        )
         return cls(
             header=header,
             files=tuple(ExtensionFile.from_cbor(item) for item in files_raw),
@@ -648,7 +700,11 @@ def _normalize_available_chunks(
     return normalized
 
 
-def _require_inline_chunk_raw_len_bounds(chunks_raw: Sequence[object]) -> None:
+def _require_inline_chunk_raw_len_bounds(
+    chunks_raw: Sequence[object],
+    *,
+    max_inline_chunk_bytes: int,
+) -> None:
     total_raw_len = 0
     for item in chunks_raw:
         fields = require_list(item, 4, label="extension chunk")
@@ -663,6 +719,13 @@ def _require_inline_chunk_raw_len_bounds(chunks_raw: Sequence[object]) -> None:
         total_raw_len += raw_len
         if total_raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
             raise ValueError("extension inline chunk bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES")
+        if total_raw_len > max_inline_chunk_bytes:
+            raise ExtensionDecodedChunkBudgetError(
+                "extension inline chunk bytes exceed the remaining chain decoded-chunk budget "
+                f"({max_inline_chunk_bytes} bytes; "
+                f"MAX_RECOVERY_DECODED_CHUNK_BYTES={MAX_RECOVERY_DECODED_CHUNK_BYTES}); rebuild "
+                "the latest logical state as a fresh standalone backup"
+            )
 
 
 def _normalize_root_label(value: object) -> str:
@@ -686,6 +749,7 @@ def _validate_input_origin_roots(input_origin: str, input_roots: tuple[str, ...]
 __all__ = [
     "ExtensionEnvelope",
     "ExtensionEnvelopeHeader",
+    "ExtensionDecodedChunkBudgetError",
     "ExtensionChunkingProfile",
     "ExtensionChunkRecord",
     "ExtensionChunkRef",
