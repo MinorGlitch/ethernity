@@ -15,8 +15,8 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { bytesEqual, bytesToHex } from "../lib/encoding.js";
-import { decodeAuthPayload } from "./frames_protocol.js";
+import { bytesEqual, bytesToHex } from "../../lib/bytes.js";
+import { decodeAuthPayload } from "../frames_protocol.js";
 
 function createDocumentRecord(docId) {
   return {

@@ -16,6 +16,7 @@
  */
 
 import { MAX_QR_PAYLOAD_CHARS } from "../app/constants.js";
+import { bytesEqual } from "./bytes.js";
 
 const ZBASE32_ALPHABET = "ybndrfg8ejkmcpqxot1uwisza345h769";
 const BASE64_ALPHABET = /^[A-Za-z0-9+/]+$/;
@@ -191,33 +192,4 @@ function encodeUvarint(value) {
     }
   }
   return Uint8Array.from(out);
-}
-
-export function bytesEqual(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-export function bytesToHex(bytes) {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-export function hexToBytes(hex) {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = Number.parseInt(hex.slice(i, i + 2), 16);
-  }
-  return bytes;
-}
-
-export function concatBytes(a, b) {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
 }

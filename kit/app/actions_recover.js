@@ -16,11 +16,11 @@
  */
 
 import { decryptAgePassphrase, INTENSIVE_SCRYPT_APPROVAL_PREFIX } from "../lib/age_scrypt.js";
-import { recoverLatestFromEncryptedDocuments } from "./extension_recovery.js";
+import { recoverLatestFromEncryptedDocuments } from "./extensions/recovery.js";
 import { extractFiles } from "./envelope.js";
 import { collectedRecoveryDocuments, reassembleCiphertext } from "./frames_cipher.js";
 import { formatBytes } from "./format.js";
-import { authOnlyDocumentRecords, incompleteDocumentRecords } from "./document_store.js";
+import { authOnlyDocumentRecords, incompleteDocumentRecords } from "./documents/store.js";
 import { cloneState } from "./state/initial.js";
 import {
   applyExtractResult,
@@ -35,6 +35,9 @@ import {
 
 let activeDecryptController = null;
 
+const MNEMONIC_WORD_COUNTS = new Set([12, 15, 18, 21, 24]);
+const MNEMONIC_WORD_SHAPE = /^[a-z]{3,8}$/u;
+
 export function cancelActiveDecryptWork() {
   activeDecryptController?.abort();
   activeDecryptController = null;
@@ -43,7 +46,7 @@ export function cancelActiveDecryptWork() {
 export async function decryptCiphertext(dispatch, getState, options = {}) {
   const { decrypt = decryptAgePassphrase, verifySignature } = options;
   const base = cloneState(getState());
-  if (!base.agePassphrase.trim()) {
+  if (base.agePassphrase.length === 0) {
     setLineStatus(base, "decryptStatus", "Passphrase required.", "warn");
     dispatchState(dispatch, base);
     return;
@@ -92,7 +95,7 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     decryptController = new AbortController();
     activeDecryptController = decryptController;
 
-    const result = await recoverLatestFromEncryptedDocuments(
+    const result = await recoverWithMnemonicWhitespaceFallback(
       documents,
       prep.agePassphrase,
       decrypt,
@@ -150,6 +153,46 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     }
   }
   dispatchState(dispatch, finalState);
+}
+
+async function recoverWithMnemonicWhitespaceFallback(
+  documents,
+  passphrase,
+  decrypt,
+  recoveryOptions,
+) {
+  try {
+    return await recoverLatestFromEncryptedDocuments(
+      documents,
+      passphrase,
+      decrypt,
+      recoveryOptions,
+    );
+  } catch (error) {
+    const fallback = mnemonicWhitespaceFallback(passphrase);
+    if (fallback === null || !isPassphraseAuthenticationFailure(error)) {
+      throw error;
+    }
+    return recoverLatestFromEncryptedDocuments(documents, fallback, decrypt, recoveryOptions);
+  }
+}
+
+function mnemonicWhitespaceFallback(passphrase) {
+  // Custom secrets stay exact. This mnemonic-shaped candidate is only tried after the exact
+  // value fails authenticated decryption, so no checksum or word-list guess can rewrite a key.
+  const words = passphrase.trim().split(/\s+/u);
+  if (
+    !MNEMONIC_WORD_COUNTS.has(words.length) ||
+    words.some((word) => !MNEMONIC_WORD_SHAPE.test(word))
+  ) {
+    return null;
+  }
+  const canonical = words.join(" ");
+  return canonical === passphrase ? null : canonical;
+}
+
+function isPassphraseAuthenticationFailure(error) {
+  return String(error).toLowerCase().includes("invalid passphrase");
 }
 
 function isCurrentDecryptRequest(state, requestId) {

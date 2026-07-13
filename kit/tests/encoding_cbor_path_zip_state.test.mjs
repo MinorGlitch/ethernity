@@ -11,14 +11,12 @@ import {
 } from "../app/state/initial.js";
 import { reducer } from "../app/state/reducer.js";
 import { decodeCanonicalCbor, decodeCbor, encodeCbor } from "../lib/cbor.js";
+import { bytesEqual, concatBytes, hexToBytes } from "../lib/bytes.js";
 import {
-  bytesEqual,
   bytesToUnpaddedBase64,
-  concatBytes,
   decodePayloadString,
   decodeZBase32,
   filterZBase32Lines,
-  hexToBytes,
   readUvarint,
 } from "../lib/encoding.js";
 import { validateManifestPath } from "../lib/path_validation.js";

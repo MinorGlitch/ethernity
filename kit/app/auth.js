@@ -15,11 +15,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { bytesEqual, bytesToHex, concatBytes } from "../lib/encoding.js";
+import { bytesEqual, bytesToHex, concatBytes } from "../lib/bytes.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { getSigningPublicKey, verifySigningSignature } from "../lib/ed25519.js";
 import { AUTH_DOMAIN, AUTH_VERSION, textEncoder } from "./constants.js";
-import { syncLegacyDocumentFields } from "./document_store.js";
+import { syncLegacyDocumentFields } from "./documents/store.js";
 import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 
 let authStatusQueue = Promise.resolve();

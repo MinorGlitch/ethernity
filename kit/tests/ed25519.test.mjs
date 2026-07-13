@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { getSigningPublicKey, signSigningMessage, verifySigningSignature } from "../lib/ed25519.js";
-import { bytesToHex, hexToBytes } from "../lib/encoding.js";
+import { bytesToHex, hexToBytes } from "../lib/bytes.js";
 
 test("Ed25519 adapter matches the RFC8032 empty-message test vector", () => {
   const seed = hexToBytes("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");

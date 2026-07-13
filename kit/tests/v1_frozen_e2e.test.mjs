@@ -15,7 +15,7 @@ import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
 import { initialState, reducer } from "../app/state/reducer.js";
 import { decryptAgePassphrase } from "../lib/age_scrypt.js";
-import { bytesToHex } from "../lib/encoding.js";
+import { bytesToHex } from "../lib/bytes.js";
 import { ensureAtob } from "./test_helpers.mjs";
 
 ensureAtob();

@@ -6,14 +6,14 @@ import { fileURLToPath } from "node:url";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { recoverLatestFromEncryptedDocuments } from "../app/extension_recovery.js";
+import { recoverLatestFromEncryptedDocuments } from "../app/extensions/recovery.js";
 import { collectedRecoveryDocuments } from "../app/frames_cipher.js";
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { verifyCollectedShardSignatures } from "../app/shard_auth.js";
 import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
 import { decryptAgePassphrase } from "../lib/age_scrypt.js";
-import { bytesToHex } from "../lib/encoding.js";
+import { bytesToHex } from "../lib/bytes.js";
 import { ensureAtob } from "./test_helpers.mjs";
 
 ensureAtob();

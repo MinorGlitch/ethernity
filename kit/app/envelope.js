@@ -18,9 +18,10 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { decodeCanonicalCbor } from "../lib/cbor.js";
-import { bytesEqual, readUvarint } from "../lib/encoding.js";
+import { bytesEqual } from "../lib/bytes.js";
+import { readUvarint } from "../lib/encoding.js";
+import { gunzipBytesBounded } from "../lib/gzip.js";
 import { validateManifestPath } from "../lib/path_validation.js";
-import { gunzipBytesBounded } from "./extension_envelope.js";
 import {
   ENVELOPE_MAGIC,
   ENVELOPE_VERSION,

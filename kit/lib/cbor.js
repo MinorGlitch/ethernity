@@ -15,6 +15,8 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { bytesEqual } from "./bytes.js";
+
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 const CBOR_FLOAT_BOX = Symbol("cborFloatBox");
@@ -327,18 +329,6 @@ function decodeHalfFloat(bits) {
     return NaN;
   }
   return sign * (1 + mantissa / 1024) * 2 ** (exp - 15);
-}
-
-function bytesEqual(left, right) {
-  if (left.length !== right.length) {
-    return false;
-  }
-  for (let idx = 0; idx < left.length; idx += 1) {
-    if (left[idx] !== right[idx]) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function decodeCborWithOptions(bytes, options = {}) {

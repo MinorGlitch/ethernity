@@ -16,16 +16,13 @@
  */
 
 import { sha256 } from "@noble/hashes/sha2.js";
-import { blake2b256 } from "../lib/blake2b.js";
-import { bytesEqual, bytesToHex } from "../lib/encoding.js";
-import { DOC_ID_LEN, EXTENSION_ENVELOPE_VERSION, ENVELOPE_VERSION } from "./constants.js";
-import { extractFiles, readEnvelopeVersion } from "./envelope.js";
-import {
-  decodeExtensionEnvelopeHeader,
-  reconstructLatestFilesFromEnvelopes,
-} from "./extension_envelope.js";
-import { deriveSigningPublicKey, verifyAuthSignature } from "./auth.js";
-import { enforceRecoveryDocumentBudget } from "./frames_cipher.js";
+import { bytesEqual, bytesToHex } from "../../lib/bytes.js";
+import { EXTENSION_ENVELOPE_VERSION, ENVELOPE_VERSION } from "../constants.js";
+import { documentIdentityFromCiphertext } from "../documents/identity.js";
+import { extractFiles, readEnvelopeVersion } from "../envelope.js";
+import { decodeExtensionEnvelopeHeader, reconstructLatestFilesFromEnvelopes } from "./envelope.js";
+import { deriveSigningPublicKey, verifyAuthSignature } from "../auth.js";
+import { enforceRecoveryDocumentBudget } from "../frames_cipher.js";
 
 export async function recoverLatestFromPlaintextDocuments(
   documents,
@@ -311,7 +308,7 @@ async function preflightEncryptedDocumentAuth(documents, verifySignature) {
     let identifiedDocument = document;
     let error = null;
     try {
-      const identity = deriveDocumentIdentityFromCiphertext(document);
+      const identity = documentIdentityFromCiphertext(document.ciphertext);
       identifiedDocument = {
         ...document,
         ...identity,
@@ -339,21 +336,6 @@ async function preflightEncryptedDocumentAuth(documents, verifySignature) {
     documents: identifiedDocuments,
     errors,
     hasMultipleSigningAuthorities: signingAuthorities.size > 1,
-  };
-}
-
-function deriveDocumentIdentityFromCiphertext(document) {
-  if (!(document.ciphertext instanceof Uint8Array)) {
-    throw new Error("document ciphertext must be bytes");
-  }
-  const docHash = blake2b256(document.ciphertext);
-  const docHashHex = bytesToHex(docHash);
-  const docId = docHash.slice(0, DOC_ID_LEN);
-  return {
-    docHash,
-    docHashHex,
-    docId,
-    docIdHex: bytesToHex(docId),
   };
 }
 

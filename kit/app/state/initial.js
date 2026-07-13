@@ -16,6 +16,7 @@
  */
 
 import { cloneShardFrames, cloneShardSets } from "../shard_store.js";
+import { cloneDocuments } from "../documents/store.js";
 
 export function createBaseState() {
   return {
@@ -107,16 +108,7 @@ export function cloneState(state) {
   const activeShardSet = state.activeShardSetKey ? shardSets.get(state.activeShardSetKey) : null;
   return {
     ...state,
-    documents: new Map(
-      Array.from(state.documents.entries(), ([docIdHex, record]) => [
-        docIdHex,
-        {
-          ...record,
-          docId: record.docId.slice(),
-          mainFrames: new Map(record.mainFrames),
-        },
-      ]),
-    ),
+    documents: cloneDocuments(state.documents),
     shardSets,
     mainFrames: new Map(state.mainFrames),
     shardFrames: activeShardSet ? activeShardSet.shardFrames : cloneShardFrames(state.shardFrames),

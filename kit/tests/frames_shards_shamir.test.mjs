@@ -35,8 +35,8 @@ import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { blake2b256 } from "../lib/blake2b.js";
+import { bytesToHex, hexToBytes } from "../lib/bytes.js";
 import { getSigningPublicKey, signSigningMessage } from "../lib/ed25519.js";
-import { bytesToHex, hexToBytes } from "../lib/encoding.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import {
   buildFrame,

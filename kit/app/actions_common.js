@@ -16,7 +16,7 @@
  */
 
 import { bumpError, cloneState, setStatus } from "./state/initial.js";
-import { cloneDocuments } from "./document_store.js";
+import { cloneDocuments } from "./documents/store.js";
 import { cloneShardFrames, cloneShardSets } from "./shard_store.js";
 
 export function dispatchState(dispatch, state) {

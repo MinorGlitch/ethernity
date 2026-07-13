@@ -44,9 +44,10 @@ export function DecryptSection({
       label: isDecrypting ? "Unlocking..." : "Unlock & extract",
       onClick: onDecrypt,
       disabled: !canDecrypt || isDecrypting,
-      disabledReason: passphrase.trim()
-        ? "Add backup data first (Step 1)."
-        : "Enter your passphrase to unlock.",
+      disabledReason:
+        passphrase.length > 0
+          ? "Add backup data first (Step 1)."
+          : "Enter your passphrase to unlock.",
     },
   ];
   if (onDecryptIntensive) {
@@ -63,9 +64,10 @@ export function DecryptSection({
       className: "secondary",
       onClick: onDecryptRootOnly,
       disabled: !canDecryptRootOnly || isDecrypting,
-      disabledReason: passphrase.trim()
-        ? "Add backup data first (Step 1)."
-        : "Enter your passphrase to unlock.",
+      disabledReason:
+        passphrase.length > 0
+          ? "Add backup data first (Step 1)."
+          : "Enter your passphrase to unlock.",
     });
   }
   const envelopeActions = [
@@ -86,7 +88,9 @@ export function DecryptSection({
   return (
     <div class="step-layout">
       <div
-        class={isComplete && !passphrase.trim() ? "step-section input-collapsed" : "step-section"}
+        class={
+          isComplete && passphrase.length === 0 ? "step-section input-collapsed" : "step-section"
+        }
       >
         <Field
           id="passphrase-input"

@@ -26,14 +26,14 @@ import { decryptCiphertext, extractEnvelope } from "../app/actions_recover.js";
 import {
   decodeExtensionEnvelope,
   decodeExtensionEnvelopeHeader,
-  defaultExtensionChunker,
   reconstructLatestFiles,
   reconstructLatestFilesFromEnvelopes,
-} from "../app/extension_envelope.js";
+} from "../app/extensions/envelope.js";
+import { defaultExtensionChunker } from "../app/extensions/chunking.js";
 import {
   recoverLatestFromEncryptedDocuments,
   recoverLatestFromPlaintextDocuments,
-} from "../app/extension_recovery.js";
+} from "../app/extensions/recovery.js";
 import { addFrame } from "../app/frames_apply.js";
 import { collectedRecoveryDocuments } from "../app/frames_cipher.js";
 import { decodeFrame } from "../app/frames_protocol.js";
@@ -49,7 +49,7 @@ import { encodeCbor } from "../lib/cbor.js";
 import { blake2b256 } from "../lib/blake2b.js";
 import { INTENSIVE_SCRYPT_APPROVAL_PREFIX } from "../lib/age_scrypt.js";
 import { signSigningMessage } from "../lib/ed25519.js";
-import { bytesToHex } from "../lib/encoding.js";
+import { bytesToHex } from "../lib/bytes.js";
 import { buildFrame, concatBytes, encodeUvarint } from "./test_helpers.mjs";
 
 const CHUNKING = {
@@ -1799,6 +1799,131 @@ test("browser decrypt action recovers latest supplied extension status", async (
     finalState.decryptStatus.lines.includes("Freshness scope: supplied carriers only."),
     true,
   );
+});
+
+test("browser decrypt action attempts a whitespace-only passphrase exactly", async () => {
+  const store = createStore();
+  const state = store.getState();
+  const exactPassphrase = " \t ";
+  state.agePassphrase = exactPassphrase;
+  const rootCiphertext = Uint8Array.of(0x5a);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  const attemptedPassphrases = [];
+
+  assert.equal(selectActionState(state).canDecryptCiphertext, true);
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(_ciphertext, passphrase) {
+      attemptedPassphrases.push(passphrase);
+      assert.equal(passphrase, exactPassphrase);
+      return rootPlaintext;
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  assert.deepEqual(attemptedPassphrases, [exactPassphrase]);
+  assert.equal(store.getState().recoveryComplete, true);
+});
+
+test("browser decrypt action retries canonical mnemonic whitespace after exact auth failure", async () => {
+  const store = createStore();
+  const state = store.getState();
+  const words = [...Array(11).fill("abandon"), "about"];
+  const canonicalPassphrase = words.join(" ");
+  const enteredPassphrase = `  ${words.slice(0, 6).join("   ")}\n${words.slice(6).join("\t")}  `;
+  state.agePassphrase = enteredPassphrase;
+  const rootCiphertext = Uint8Array.of(0x5b);
+  const extensionCiphertext = Uint8Array.of(0x6b);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const rootDocHash = blake2b256(rootCiphertext);
+  const extensionPlaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: rootDocHash,
+    rootDocHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("extension") }],
+  });
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addSingleFrameDocument(state, { ciphertext: extensionCiphertext });
+  const attemptedPassphrases = [];
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(ciphertext, passphrase) {
+      attemptedPassphrases.push(passphrase);
+      if (passphrase === enteredPassphrase) {
+        throw new Error("invalid passphrase");
+      }
+      assert.equal(passphrase, canonicalPassphrase);
+      if (bytesToHex(ciphertext) === bytesToHex(rootCiphertext)) return rootPlaintext;
+      if (bytesToHex(ciphertext) === bytesToHex(extensionCiphertext)) {
+        return extensionPlaintext;
+      }
+      throw new Error("unexpected ciphertext");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  assert.deepEqual(attemptedPassphrases, [
+    enteredPassphrase,
+    enteredPassphrase,
+    canonicalPassphrase,
+    canonicalPassphrase,
+  ]);
+  assert.equal(store.getState().recoveryComplete, true);
+});
+
+test("browser decrypt action accepts an invalid-checksum wordlist phrase exactly", async () => {
+  const store = createStore();
+  const state = store.getState();
+  const exactPassphrase = [...Array(11).fill("abandon"), "above"].join(" ");
+  state.agePassphrase = exactPassphrase;
+  const rootCiphertext = Uint8Array.of(0x5c);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  const attemptedPassphrases = [];
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(_ciphertext, passphrase) {
+      attemptedPassphrases.push(passphrase);
+      assert.equal(passphrase, exactPassphrase);
+      return rootPlaintext;
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  assert.deepEqual(attemptedPassphrases, [exactPassphrase]);
+  assert.equal(store.getState().recoveryComplete, true);
+});
+
+test("browser decrypt action does not rewrite an exact mnemonic-shaped secret", async () => {
+  const store = createStore();
+  const state = store.getState();
+  const words = [...Array(11).fill("abandon"), "about"];
+  const exactPassphrase = words.join("  ");
+  state.agePassphrase = exactPassphrase;
+  const rootCiphertext = Uint8Array.of(0x5d);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  const attemptedPassphrases = [];
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(_ciphertext, passphrase) {
+      attemptedPassphrases.push(passphrase);
+      assert.equal(passphrase, exactPassphrase);
+      return rootPlaintext;
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  assert.deepEqual(attemptedPassphrases, [exactPassphrase]);
+  assert.equal(store.getState().recoveryComplete, true);
 });
 
 test("browser decrypt action requires a second explicit action before intensive KDF work", async () => {

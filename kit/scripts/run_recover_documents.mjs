@@ -2,9 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-import { recoverLatestFromEncryptedDocuments } from "../app/extension_recovery.js";
+import { recoverLatestFromEncryptedDocuments } from "../app/extensions/recovery.js";
 import { decryptAgePassphrase } from "../lib/age_scrypt.js";
-import { bytesToHex } from "../lib/encoding.js";
+import { bytesToHex } from "../lib/bytes.js";
 
 if (typeof globalThis.atob !== "function") {
   globalThis.atob = (value) => Buffer.from(value, "base64").toString("binary");

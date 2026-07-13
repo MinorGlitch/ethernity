@@ -269,11 +269,9 @@ export function selectActionState(state) {
     downloadCipherDisabledReason: hasMultipleDocuments
       ? "Encrypted file download is only available for one backup document."
       : "Add all backup data first.",
-    canDecryptCiphertext: state.agePassphrase.trim().length > 0 && ciphertextSource.available,
+    canDecryptCiphertext: state.agePassphrase.length > 0 && ciphertextSource.available,
     canDecryptRootOnly:
-      state.agePassphrase.trim().length > 0 &&
-      hasMultipleDocuments &&
-      rootOnlyCiphertextSource.available,
+      state.agePassphrase.length > 0 && hasMultipleDocuments && rootOnlyCiphertextSource.available,
     canExtractEnvelope: hasEnvelope,
     canDownloadEnvelope: hasEnvelope,
     canCopyResult: Boolean(state.recoveredShardSecret),
