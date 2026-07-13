@@ -22,7 +22,14 @@ from ethernity.app.widgets.collapsible import (
     collapsible_panel,
     sync_collapsible_panel,
 )
+from ethernity.app.widgets.static_text import update_static_text
 from ethernity.crypto.passphrases import MNEMONIC_WORD_COUNTS
+from ethernity.page_sizes import (
+    is_registered_paper_size,
+    paper_size_display_name,
+    paper_size_names,
+)
+from ethernity.tasks.presentation.common import status_label
 from ethernity.tasks.presentation.models import (
     TaskPresentation,
     WorkspaceAction,
@@ -31,7 +38,7 @@ from ethernity.tasks.presentation.models import (
 )
 
 DESIGN_OPTIONS = ("archive", "forge", "ledger", "maritime", "sentinel")
-PAPER_OPTIONS = ("A4", "LETTER")
+PAPER_OPTIONS = paper_size_names()
 KIT_VARIANTS = ("lean", "scanner")
 BACKUP_PASSPHRASE_WORD_OPTIONS = (
     ("From settings", "default"),
@@ -279,20 +286,6 @@ def field_row(
     )
 
 
-def value_row(
-    label: str,
-    value_id: str,
-    *,
-    row_id: str | None = None,
-) -> Widget:
-    return HorizontalGroup(
-        Label(label, classes="workspace-field-label"),
-        Static("", id=value_id, classes="workspace-field-value", markup=False),
-        id=row_id,
-        classes="workspace-field-row",
-    )
-
-
 def select_row(
     label: str,
     select_id: str,
@@ -316,8 +309,8 @@ def select_row(
 
 def _enum_display_label(value: str) -> str:
     """Turn stable enum keys into labels without changing their submitted values."""
-    if value == "A4":
-        return value
+    if is_registered_paper_size(value):
+        return paper_size_display_name(value)
     return value.replace("_", " ").replace("-", " ").title()
 
 
@@ -448,11 +441,6 @@ def update_status_note(widget: Widget, note_id: str, group: WorkspaceGroup) -> N
         note.set_class(group.status == status, f"workspace-status-{status}")
 
 
-def update_static_text(static: Static, content: str) -> None:
-    if str(static.content) != content:
-        static.update(content)
-
-
 def _status_note_text(group: WorkspaceGroup) -> str:
     label = status_label(group.status)
     summary = group.status_summary or group.empty_label
@@ -461,18 +449,6 @@ def _status_note_text(group: WorkspaceGroup) -> str:
     if group.status == "optional":
         return summary if group.kind in {"paths", "checklist"} else "Optional"
     return f"{label}: {summary}" if summary else label
-
-
-def status_label(status: str) -> str:
-    if status == "ready":
-        return "Ready"
-    if status == "optional":
-        return "Optional"
-    if status == "warning":
-        return "Warning"
-    if status == "blocked":
-        return "Needs input"
-    return "Required"
 
 
 def _empty_state_for_path_list(path_list: WorkspacePathList) -> Static | None:

@@ -10,6 +10,7 @@ from textual.worker import WorkerState
 
 from ethernity.app.app_types import ActiveTask, TaskState
 from ethernity.config import get_api_config_snapshot, resolve_config_snapshot_path
+from ethernity.page_sizes import paper_size_display_name
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.file_summary import display_path
@@ -424,7 +425,7 @@ def _destination_summary(plan: TaskExecutionPlan) -> str:
 
 
 def _layout_summary(paper_size: str, design: str) -> str:
-    return f"{paper_size.title()}, {design.title()}"
+    return f"{paper_size_display_name(paper_size)}, {design.title()}"
 
 
 def _counted(count: int, singular: str) -> str:

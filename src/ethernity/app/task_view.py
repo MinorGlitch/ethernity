@@ -41,8 +41,8 @@ from ethernity.app.task_catalog import (
     execute_label,
     review_label,
 )
-from ethernity.app.widgets.guided_workflow import WorkflowStepStack
 from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.workflow_presenter import (
     active_step_is_complete,
     build_guided_workflow,

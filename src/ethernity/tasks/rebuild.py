@@ -18,10 +18,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from ethernity.cli.features.compact.service import run_compact
 from ethernity.cli.shared.types import CompactArgs
+from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
@@ -38,10 +39,17 @@ from ethernity.tasks.output_checks import (
     existing_output_warning,
     selected_output_status,
 )
+from ethernity.tasks.page_layout import (
+    BACKUP_RENDER_DOC_TYPES,
+    require_workflow_page_size,
+)
+from ethernity.tasks.presentation.recovery import auth_material_summary, unlock_material_summary
+from ethernity.tasks.recovery_material import has_unlock_material
 from ethernity.tasks.source_assessment import (
     SourceAssessableTaskState,
     SourceAssessmentRequest,
     folder_or_scans_source_request,
+    source_freshness_status,
 )
 
 
@@ -61,12 +69,22 @@ class RebuildTaskState(SourceAssessableTaskState):
     auth_payloads_file: Path | None = None
     expected_head_doc_hash: str | None = None
     allow_stale_head: bool = False
-    paper_size: str = "A4"
+    paper_size: PaperSizeName = DEFAULT_PAPER_SIZE_NAME
     design: str = "sentinel"
     qr_chunk_size: int | None = None
 
+    @field_validator("paper_size")
+    @classmethod
+    def _validate_paper_size(cls, value: str) -> PaperSizeName:
+        return resolve_paper_size(value).name
+
     @model_validator(mode="after")
     def _validate_qr_chunk_size(self) -> RebuildTaskState:
+        require_workflow_page_size(
+            self.design,
+            self.paper_size,
+            candidate_doc_types=BACKUP_RENDER_DOC_TYPES,
+        )
         if self.qr_chunk_size is not None and self.qr_chunk_size < 1:
             raise ValueError("QR chunk size must be positive")
         return self
@@ -83,14 +101,18 @@ class RebuildTaskState(SourceAssessableTaskState):
             TaskSection(
                 key="unlock",
                 title="Unlock backup",
-                status="ready" if self._has_unlock() else "missing",
-                summary=self._unlock_summary(),
+                status="ready" if has_unlock_material(self) else "missing",
+                summary=unlock_material_summary(self),
                 action_label="Set unlock method...",
             ),
             TaskSection(
                 key="freshness",
                 title="Scan version",
-                status=self._freshness_status(),
+                status=source_freshness_status(
+                    self.source_paths,
+                    expected_head_doc_hash=self.expected_head_doc_hash,
+                    allow_stale_head=self.allow_stale_head,
+                ),
                 summary=self._freshness_summary(),
                 action_label="Confirm source",
             ),
@@ -124,7 +146,7 @@ class RebuildTaskState(SourceAssessableTaskState):
                     section="source",
                 )
             )
-        if not self._has_unlock():
+        if not has_unlock_material(self):
             issues.append(
                 TaskIssue(
                     code="REBUILD_UNLOCK_REQUIRED",
@@ -179,9 +201,12 @@ class RebuildTaskState(SourceAssessableTaskState):
         )
         items = [
             PreviewItem(label="Existing backup", detail=self._source_summary()),
-            PreviewItem(label="Unlock", detail=self._unlock_summary()),
+            PreviewItem(label="Unlock", detail=unlock_material_summary(self)),
             PreviewItem(label="Scan version", detail=self._freshness_summary()),
-            PreviewItem(label="Verification source", detail=self._auth_material_summary()),
+            PreviewItem(
+                label="Verification source",
+                detail=auth_material_summary(self.auth_text_file, self.auth_payloads_file),
+            ),
             PreviewItem(
                 label="Destination",
                 detail=(
@@ -223,10 +248,11 @@ class RebuildTaskState(SourceAssessableTaskState):
             trust_notes=(
                 f"Scan version: {self._freshness_summary()}",
                 "Latest means the newest valid version in the material you loaded.",
-                f"Verification source: {self._auth_material_summary()}",
+                "Verification source: "
+                f"{auth_material_summary(self.auth_text_file, self.auth_payloads_file)}",
             ),
             recovery_notes=(
-                f"Unlock: {self._unlock_summary()}",
+                f"Unlock: {unlock_material_summary(self)}",
                 "The rebuilt backup gets a new set of recovery sheets.",
                 "The passphrase and signing key stay the same.",
                 "Use Create backup when you need a new passphrase or signing key.",
@@ -288,9 +314,6 @@ class RebuildTaskState(SourceAssessableTaskState):
     def _has_exactly_one_source(self) -> bool:
         return (self.backup_folder is not None) != bool(self.source_paths)
 
-    def _has_unlock(self) -> bool:
-        return bool(self.passphrase or self.recovery_documents or self.recovery_payload_files)
-
     def _read_paths(self) -> tuple[Path, ...]:
         paths = [
             *self.source_paths,
@@ -313,26 +336,10 @@ class RebuildTaskState(SourceAssessableTaskState):
             return format_count(len(self.source_paths), "scanned page")
         return "Choose a backup folder or scanned pages."
 
-    def _unlock_summary(self) -> str:
-        if self.passphrase:
-            return "Passphrase"
-        if self.recovery_documents:
-            return format_count(len(self.recovery_documents), "recovery sheet")
-        if self.recovery_payload_files:
-            return format_count(len(self.recovery_payload_files), "recovery payload file")
-        return "Choose an unlock method"
-
-    def _auth_material_summary(self) -> str:
-        if self.auth_text_file is not None:
-            return f"Signature text: {display_path(self.auth_text_file)}"
-        if self.auth_payloads_file is not None:
-            return f"Signature payload: {display_path(self.auth_payloads_file)}"
-        return "Loaded backup"
-
     def _advanced_summary(self) -> str:
         has_source = self.backup_folder is not None or bool(self.source_paths)
         parts = [
-            self._auth_material_summary()
+            auth_material_summary(self.auth_text_file, self.auth_payloads_file)
             if has_source or self.auth_text_file is not None or self.auth_payloads_file is not None
             else "Verification available after loading a backup"
         ]
@@ -371,15 +378,6 @@ class RebuildTaskState(SourceAssessableTaskState):
                 ),
             )
         return ()
-
-    def _freshness_status(self) -> TaskSectionStatus:
-        if not self.source_paths:
-            return "ready"
-        if self.expected_head_doc_hash is not None:
-            return "ready"
-        if self.allow_stale_head:
-            return "warning"
-        return "missing"
 
     def _freshness_summary(self) -> str:
         if not self.source_paths:

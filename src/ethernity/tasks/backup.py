@@ -24,8 +24,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from ethernity.cli.features.backup.service import execute_prepared_backup, prepare_backup_run
 from ethernity.cli.shared.types import BackupArgs
 from ethernity.crypto.passphrases import MNEMONIC_WORD_COUNTS
+from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
 from ethernity.tasks.backup_debug import build_backup_internals_diagnostics
 from ethernity.tasks.file_summary import display_path, selected_paths_summary
+from ethernity.tasks.input_material import has_selected_inputs
 from ethernity.tasks.models import (
     PreviewItem,
     TaskDiagnosticBlock,
@@ -43,10 +45,13 @@ from ethernity.tasks.output_checks import (
     existing_output_warning,
     selected_output_status,
 )
+from ethernity.tasks.page_layout import (
+    BACKUP_RENDER_DOC_TYPES,
+    require_workflow_page_size,
+)
 from ethernity.tasks.quorum import validate_optional_shard_count, validate_required_shard_count
 
 RecoveryMethod = Literal["recommended_shards", "single_phrase", "custom_shards"]
-PaperSize = Literal["A4", "LETTER"]
 SigningKeyMode = Literal["embedded", "sharded"]
 AUTO_BACKUP_OUTPUT_LABEL = "Automatic folder named for backup ID"
 AUTO_BACKUP_OUTPUT_PATH = Path("backup-<backup id>")
@@ -67,12 +72,17 @@ class BackupTaskState(BaseModel):
     shard_count: int = 3
     passphrase: str | None = None
     passphrase_words: int | None = None
-    paper_size: PaperSize = "A4"
+    paper_size: PaperSizeName = DEFAULT_PAPER_SIZE_NAME
     design: str = "sentinel"
     qr_chunk_size: int | None = None
     signing_key_mode: SigningKeyMode | None = "embedded"
     signing_key_shard_threshold: int | None = None
     signing_key_shard_count: int | None = None
+
+    @field_validator("paper_size")
+    @classmethod
+    def _validate_paper_size(cls, value: str) -> PaperSizeName:
+        return resolve_paper_size(value).name
 
     @field_validator("shard_threshold")
     @classmethod
@@ -93,8 +103,21 @@ class BackupTaskState(BaseModel):
 
     @model_validator(mode="after")
     def _validate_shards(self) -> BackupTaskState:
+        require_workflow_page_size(
+            self.design,
+            self.paper_size,
+            candidate_doc_types=BACKUP_RENDER_DOC_TYPES,
+        )
         if self.passphrase == "":
             raise ValueError("passphrase cannot be empty")
+        if (
+            self.passphrase is not None
+            and self.recovery_method == "single_phrase"
+            and not self.passphrase.isprintable()
+        ):
+            raise ValueError(
+                "directly printed passphrase must contain only manually enterable printable text"
+            )
         if self.passphrase_words is not None and self.passphrase_words not in MNEMONIC_WORD_COUNTS:
             allowed = ", ".join(str(count) for count in MNEMONIC_WORD_COUNTS)
             raise ValueError(f"generated passphrase word count must be one of {allowed}")
@@ -123,7 +146,9 @@ class BackupTaskState(BaseModel):
             TaskSection(
                 key="files",
                 title="Files to back up",
-                status="ready" if self._has_inputs() else "missing",
+                status=(
+                    "ready" if has_selected_inputs(self.input_paths, self.input_dirs) else "missing"
+                ),
                 summary=selected_paths_summary(
                     input_paths=self.input_paths,
                     input_dirs=self.input_dirs,
@@ -157,7 +182,7 @@ class BackupTaskState(BaseModel):
 
     def validate_task(self) -> TaskValidation:
         issues: list[TaskIssue] = []
-        if not self._has_inputs():
+        if not has_selected_inputs(self.input_paths, self.input_dirs):
             issues.append(
                 TaskIssue(
                     code="BACKUP_FILES_REQUIRED",
@@ -254,10 +279,10 @@ class BackupTaskState(BaseModel):
         return self.validate_task().issues
 
     def diagnostics_available(self) -> bool:
-        return self._has_inputs()
+        return has_selected_inputs(self.input_paths, self.input_dirs)
 
     def diagnostics(self) -> TaskDiagnostics:
-        if not self._has_inputs():
+        if not has_selected_inputs(self.input_paths, self.input_dirs):
             return TaskDiagnostics(title="Backup diagnostics")
 
         try:
@@ -302,9 +327,6 @@ class BackupTaskState(BaseModel):
         if self.recovery_method == "single_phrase":
             return None, None
         return self.shard_threshold, self.shard_count
-
-    def _has_inputs(self) -> bool:
-        return bool(self.input_paths or self.input_dirs)
 
     def _execution_summary(self) -> str:
         output = (

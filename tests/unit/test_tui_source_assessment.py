@@ -19,7 +19,28 @@ from ethernity.tasks.source_assessment import (
     SourceAssessment,
     assess_source_request,
     recovery_source_request,
+    source_freshness_status,
 )
+
+
+def test_source_freshness_status_preserves_scan_policy() -> None:
+    scans = [Path("backup.pdf")]
+
+    assert (
+        source_freshness_status([], expected_head_doc_hash=None, allow_stale_head=False) == "ready"
+    )
+    assert (
+        source_freshness_status(scans, expected_head_doc_hash="ab" * 32, allow_stale_head=False)
+        == "ready"
+    )
+    assert (
+        source_freshness_status(scans, expected_head_doc_hash=None, allow_stale_head=True)
+        == "warning"
+    )
+    assert (
+        source_freshness_status(scans, expected_head_doc_hash=None, allow_stale_head=False)
+        == "missing"
+    )
 
 
 def test_recovery_source_assessment_exposes_identity_and_document_count(monkeypatch) -> None:

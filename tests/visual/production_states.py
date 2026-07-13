@@ -11,6 +11,7 @@ from ethernity.app.app_types import ActiveTask, TaskState
 from ethernity.app.application import EthernityApp
 from ethernity.app.workflow_presenter import is_guided_task
 from ethernity.app.workflow_registry import workflow_definition
+from ethernity.page_sizes import paper_size_names
 from ethernity.tasks.models import TaskExecutionResult, TaskIssue, TaskResultDetail
 from ethernity.tasks.settings import SettingsTaskState
 
@@ -339,7 +340,7 @@ def visual_settings_state() -> SettingsTaskState:
         values={},
         options={
             "render_styles": ("sentinel", "forge"),
-            "page_sizes": ("A4", "LETTER"),
+            "page_sizes": paper_size_names(),
             "qr_error_correction": ("L", "M", "Q", "H"),
             "signing_key_modes": ("embedded", "sharded"),
             "payload_codecs": ("auto", "raw", "gzip"),

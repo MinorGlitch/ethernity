@@ -23,6 +23,7 @@ from textual.widgets import ProgressBar, Static
 
 from ethernity.app.widgets.action_bar import TaskActionBar
 from ethernity.app.widgets.settings_form import SettingsForm
+from ethernity.app.widgets.static_text import update_static_text
 from ethernity.app.workspaces.shell import TaskWorkspaces
 from ethernity.tasks.models import TaskValidation
 from ethernity.tasks.presentation.models import TaskPresentation
@@ -77,7 +78,7 @@ class TaskCanvas(Widget):
             running=running,
             running_label=running_label,
         )
-        _update_static(self.query_one("#canvas-title", Static), "" if is_settings else title)
+        update_static_text(self.query_one("#canvas-title", Static), "" if is_settings else title)
         self.query_one("#canvas-task-workspaces", Vertical).display = not is_settings
         self.query_one("#canvas-settings-workspace", Vertical).display = is_settings
         self.query_one("#canvas-readiness", Vertical).display = not is_settings
@@ -92,7 +93,7 @@ class TaskCanvas(Widget):
             progress_label = presentation.workflow.progress_label
             progress_total = len(presentation.workflow.steps)
             progress_value = presentation.workflow.active_step_number
-        _update_static(self.query_one("#canvas-progress-label", Static), progress_label)
+        update_static_text(self.query_one("#canvas-progress-label", Static), progress_label)
         self.query_one("#canvas-progress", ProgressBar).update(
             total=progress_total,
             progress=progress_value,
@@ -107,8 +108,3 @@ class TaskCanvas(Widget):
             settings,
             write_locked=getattr(self, "_settings_write_locked", False),
         )
-
-
-def _update_static(static: Static, content: str) -> None:
-    if str(static.content) != content:
-        static.update(content)

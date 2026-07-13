@@ -7,7 +7,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Button, Select, Static
 
 from ethernity.app.application import EthernityApp
-from ethernity.app.widgets.guided_workflow import InlineNotice
+from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.restore import RestoreTaskState
 

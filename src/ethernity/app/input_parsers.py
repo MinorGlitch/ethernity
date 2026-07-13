@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ethernity.page_sizes import is_registered_paper_size, resolve_paper_size
 from ethernity.tasks.quorum import MAX_SHARDS
 
 
@@ -66,8 +67,8 @@ def parse_layout(value: str, *, fallback: tuple[str, str]) -> tuple[str, str]:
     paper_size, design = fallback
     for token in value.split():
         normalized = token.strip()
-        if normalized.upper() in {"A4", "LETTER"}:
-            paper_size = normalized.upper()
+        if is_registered_paper_size(normalized):
+            paper_size = resolve_paper_size(normalized).name
         elif normalized:
             design = normalized.lower()
     return paper_size, design

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -22,7 +23,8 @@ from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs, RecoverArgs
 from ethernity.encoding.framing import FrameType
 from ethernity.tasks.file_summary import display_path
-from ethernity.tasks.models import TaskIssue
+from ethernity.tasks.models import TaskIssue, TaskSectionStatus
+from ethernity.tasks.presentation.recovery import pasted_text_summary
 
 SourceKind = Literal["backup_folder", "scanned_pages", "recovery_text", "payload_files"]
 
@@ -32,6 +34,19 @@ _UNLOCK_ONLY_BLOCKERS = frozenset(
         api_codes.PASSPHRASE_SHARDS_UNDER_QUORUM,
     }
 )
+
+
+def source_freshness_status(
+    source_paths: Sequence[Path],
+    *,
+    expected_head_doc_hash: str | None,
+    allow_stale_head: bool,
+) -> TaskSectionStatus:
+    if not source_paths or expected_head_doc_hash is not None:
+        return "ready"
+    if allow_stale_head:
+        return "warning"
+    return "missing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +197,7 @@ def recovery_source_request(
         )
     if recovery_text or recovery_text_file is not None:
         material_summary = (
-            _pasted_text_summary(recovery_text)
+            pasted_text_summary(recovery_text)
             if recovery_text
             else display_path(recovery_text_file or "")
         )
@@ -386,12 +401,6 @@ def _paths_material_summary(paths: tuple[Path, ...]) -> str:
     if len(paths) == 1:
         return first_path
     return f"{len(paths)} items: {first_path} and {len(paths) - 1} more"
-
-
-def _pasted_text_summary(value: str | None) -> str:
-    line_count = len([line for line in (value or "").splitlines() if line.strip()])
-    noun = "line" if line_count == 1 else "lines"
-    return f"Pasted text, {line_count} non-empty {noun}"
 
 
 def _path_text(path: Path | None) -> str | None:

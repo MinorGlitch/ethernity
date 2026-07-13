@@ -8,7 +8,8 @@ from textual.widgets import RadioSet
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.file_picker import FilePickerScreen
-from ethernity.app.widgets.guided_workflow import InlineNotice, WorkflowStepStack
+from ethernity.app.widgets.workflow.controls import InlineNotice
+from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.workflow_presenter import build_guided_workflow
 from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.tasks.presentation.models import SummaryPresentation

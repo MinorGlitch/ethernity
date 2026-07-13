@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from ethernity.tasks.models import TaskSection
 from ethernity.tasks.presentation.common import (
-    auth_material_summary,
     qr_chunk_size_control_value,
     qr_chunk_size_summary,
 )
@@ -10,6 +9,10 @@ from ethernity.tasks.presentation.models import (
     WorkspaceAction,
     WorkspaceGroup,
     WorkspaceValue,
+)
+from ethernity.tasks.presentation.recovery import (
+    auth_material_control_value,
+    auth_material_summary,
 )
 from ethernity.tasks.rebuild import RebuildTaskState
 
@@ -37,7 +40,7 @@ def rebuild_auxiliary_groups(
                         or state.auth_payloads_file is not None
                         else "Choose a backup first"
                     ),
-                    control_value=_auth_material_control_value(
+                    control_value=auth_material_control_value(
                         state.auth_text_file,
                         state.auth_payloads_file,
                     ),
@@ -60,13 +63,3 @@ def rebuild_auxiliary_groups(
             status_summary=advanced_section.summary,
         ),
     )
-
-
-def _auth_material_control_value(
-    auth_text_file: object | None, auth_payloads_file: object | None
-) -> str:
-    if auth_text_file is not None:
-        return "text"
-    if auth_payloads_file is not None:
-        return "payloads"
-    return "auto"

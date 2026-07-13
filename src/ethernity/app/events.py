@@ -10,15 +10,11 @@ from ethernity.app.app_context import EthernityAppContext
 from ethernity.app.app_types import ActiveTask
 from ethernity.app.help_content import build_help_content
 from ethernity.app.screens.help import HelpScreen
-from ethernity.app.widgets.guided_workflow import (
-    DestinationEditor,
-    OptionsEditor,
-    PathSelectionEditor,
-    QuorumEditor,
-    SourceChooser,
-    UnlockEditor,
-    WorkflowStepStack,
-)
+from ethernity.app.widgets.workflow.options import OptionsEditor, QuorumEditor
+from ethernity.app.widgets.workflow.paths import DestinationEditor, PathSelectionEditor
+from ethernity.app.widgets.workflow.source import SourceChooser
+from ethernity.app.widgets.workflow.steps import WorkflowStepStack
+from ethernity.app.widgets.workflow.unlock import UnlockEditor
 from ethernity.app.workspaces.common import WorkspaceRadioSet
 
 

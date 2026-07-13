@@ -5,6 +5,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Select, Static
 
 from ethernity.app.widgets.collapsible import panel_title
+from ethernity.app.widgets.static_text import update_static_text
 from ethernity.app.workspaces.common import (
     BACKUP_PASSPHRASE_WORD_OPTIONS,
     BACKUP_SIGNING_KEY_OPTIONS,
@@ -26,7 +27,6 @@ from ethernity.app.workspaces.common import (
     update_buttons,
     update_choice_list,
     update_path_selection_list,
-    update_static_text,
     update_status_note,
     value,
 )

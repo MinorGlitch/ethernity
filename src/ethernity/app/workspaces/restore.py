@@ -5,7 +5,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Select, Static
 
 from ethernity.app.widgets.collapsible import panel_title
-from ethernity.app.widgets.guided_workflow import WorkflowStepStack
+from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.workflow_presenter import restore_workflow_placeholder
 from ethernity.app.workspaces.common import (
     AUTH_MATERIAL_OPTIONS,

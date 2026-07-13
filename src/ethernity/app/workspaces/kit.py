@@ -5,7 +5,8 @@ from textual.containers import VerticalScroll
 from textual.widgets import Collapsible, Select, Static
 
 from ethernity.app.widgets.collapsible import panel_title
-from ethernity.app.widgets.guided_workflow import InlineNotice
+from ethernity.app.widgets.static_text import update_static_text
+from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.app.workspaces.common import (
     DESIGN_OPTIONS,
     KIT_VARIANTS,
@@ -19,9 +20,14 @@ from ethernity.app.workspaces.common import (
     section,
     select_row,
     set_select,
-    update_static_text,
     value,
 )
+from ethernity.page_sizes import paper_size_display_name
+from ethernity.render.designs import (
+    load_design_manifest_by_name,
+    supported_paper_size_names,
+)
+from ethernity.tasks.page_layout import KIT_RENDER_DOC_TYPES
 from ethernity.tasks.presentation.models import (
     InlineNoticePresentation,
     TaskPresentation,
@@ -67,7 +73,18 @@ class KitWorkspace(BaseWorkspace):
             value(variant, "variant"),
         )
         layout = group(presentation, "layout")
-        set_select(self.query_one("#workspace-kit-paper", Select), value(layout, "paper"))
+        paper_select = self.query_one("#workspace-kit-paper", Select)
+        design_name = value(layout, "design")
+        manifest = load_design_manifest_by_name(design_name)
+        supported_names = supported_paper_size_names(
+            design_name,
+            doc_types=manifest.documents & KIT_RENDER_DOC_TYPES,
+        )
+        with paper_select.prevent(Select.Changed):
+            paper_select.set_options(
+                [(paper_size_display_name(name), name) for name in supported_names]
+            )
+        set_select(paper_select, value(layout, "paper"))
         set_select(self.query_one("#workspace-kit-design", Select), value(layout, "design"))
 
         output = group(presentation, "output")

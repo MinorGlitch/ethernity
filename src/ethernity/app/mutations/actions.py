@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, cast
 
 from ethernity.app.input_parsers import (
     parse_layout,
@@ -11,6 +10,7 @@ from ethernity.app.input_parsers import (
 )
 from ethernity.app.mutations.paths import TaskPathMutationActions
 from ethernity.app.path_utils import split_file_dir_paths
+from ethernity.page_sizes import resolve_paper_size
 from ethernity.tasks.quorum import MAX_SHARDS
 
 QUORUM_INPUT_HELP = f"Use required/total sheets from 1 to {MAX_SHARDS}, such as 2/3."
@@ -332,15 +332,15 @@ class TaskMutationActions(TaskPathMutationActions):
         if value is None:
             return
         paper_size, design = parse_layout(value, fallback=self._current_layout())
-        paper = cast(Literal["A4", "LETTER"], paper_size)
+        paper = resolve_paper_size(paper_size).name
         if self.active_task == "backup":
             self.backup_state.paper_size = paper
             self.backup_state.design = design
         elif self.active_task == "rebuild":
-            self.rebuild_state.paper_size = paper_size
+            self.rebuild_state.paper_size = paper
             self.rebuild_state.design = design
         elif self.active_task == "replace_recovery_docs":
-            self.replace_recovery_docs_state.paper_size = paper_size
+            self.replace_recovery_docs_state.paper_size = paper
             self.replace_recovery_docs_state.design = design
         elif self.active_task == "kit":
             self.kit_state.paper_size = paper

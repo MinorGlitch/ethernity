@@ -10,7 +10,7 @@ from ethernity.app.editing.base import BaseEditingActions
 from ethernity.app.path_utils import save_picker_parts
 from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.file_picker import FilePickerMode
-from ethernity.app.widgets.guided_workflow import UnlockEditor
+from ethernity.app.widgets.workflow.unlock import UnlockEditor
 
 
 class PrimaryEditingActions(BaseEditingActions):

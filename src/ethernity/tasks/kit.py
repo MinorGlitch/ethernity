@@ -19,9 +19,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ethernity.cli.features.kit.workflow import DEFAULT_KIT_OUTPUT, render_kit_qr_document
+from ethernity.page_sizes import (
+    DEFAULT_PAPER_SIZE_NAME,
+    PaperSizeName,
+    paper_size_display_name,
+    resolve_paper_size,
+)
 from ethernity.tasks.file_summary import format_count
 from ethernity.tasks.models import (
     PreviewItem,
@@ -37,9 +43,9 @@ from ethernity.tasks.output_checks import (
     existing_output_warning,
     selected_output_status,
 )
+from ethernity.tasks.page_layout import KIT_RENDER_DOC_TYPES, require_workflow_page_size
 
 KitVariant = Literal["lean", "scanner"]
-PaperSize = Literal["A4", "LETTER"]
 
 
 class PrintKitTaskState(BaseModel):
@@ -50,12 +56,22 @@ class PrintKitTaskState(BaseModel):
     output_path: Path = Field(default_factory=lambda: Path(DEFAULT_KIT_OUTPUT))
     config_path: Path | None = None
     variant: KitVariant = "lean"
-    paper_size: PaperSize = "A4"
+    paper_size: PaperSizeName = DEFAULT_PAPER_SIZE_NAME
     design: str = "sentinel"
     chunk_size: int | None = None
 
+    @field_validator("paper_size")
+    @classmethod
+    def _validate_paper_size(cls, value: str) -> PaperSizeName:
+        return resolve_paper_size(value).name
+
     @model_validator(mode="after")
     def _validate_chunk_size(self) -> PrintKitTaskState:
+        require_workflow_page_size(
+            self.design,
+            self.paper_size,
+            candidate_doc_types=KIT_RENDER_DOC_TYPES,
+        )
         if self.chunk_size is not None and self.chunk_size <= 0:
             raise ValueError("QR sizing value must be positive")
         return self
@@ -73,7 +89,7 @@ class PrintKitTaskState(BaseModel):
                 key="layout",
                 title="Print setup",
                 status="ready",
-                summary=f"{self.paper_size.title()}, {self.design.title()}",
+                summary=f"{paper_size_display_name(self.paper_size)}, {self.design.title()}",
                 action_label="Change layout",
             ),
             TaskSection(

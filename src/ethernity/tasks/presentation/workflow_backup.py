@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.file_summary import display_path
+from ethernity.tasks.input_material import has_selected_inputs
 from ethernity.tasks.models import TaskSection
 from ethernity.tasks.presentation.common import (
     path_values,
@@ -32,7 +33,7 @@ def backup_groups(
                 WorkspaceAction(
                     "workspace-backup-clear-files",
                     "Clear files",
-                    visible=bool(state.input_paths or state.input_dirs),
+                    visible=has_selected_inputs(state.input_paths, state.input_dirs),
                 ),
             ),
             empty_label="No files selected.",

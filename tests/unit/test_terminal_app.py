@@ -41,15 +41,11 @@ from ethernity.app.screens.file_picker import FilePickerScreen
 from ethernity.app.screens.help import HelpScreen
 from ethernity.app.screens.paste_text import PasteTextScreen
 from ethernity.app.task_catalog import NAV_OPTION_INDEX, TASK_TITLES, review_label
-from ethernity.app.widgets.guided_workflow import (
-    OptionsEditor,
-    PathSelectionEditor,
-    QuorumEditor,
-    SourceChooser,
-    UnlockEditor,
-    WorkflowStepHeader,
-    WorkflowStepStack,
-)
+from ethernity.app.widgets.workflow.options import OptionsEditor, QuorumEditor
+from ethernity.app.widgets.workflow.paths import PathSelectionEditor
+from ethernity.app.widgets.workflow.source import SourceChooser
+from ethernity.app.widgets.workflow.steps import WorkflowStepHeader, WorkflowStepStack
+from ethernity.app.widgets.workflow.unlock import UnlockEditor
 from ethernity.app.workspaces.common import WorkspacePathList, WorkspaceRadioSet
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.add_files import AddFilesTaskState

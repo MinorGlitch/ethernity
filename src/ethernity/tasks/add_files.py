@@ -41,7 +41,13 @@ from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config import load_cli_defaults, resolve_config_snapshot_path
 from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
 from ethernity.extensions.layout import canonical_extension_dir_name, loose_extension_dir_name
-from ethernity.tasks.file_summary import display_path, format_count, selected_paths_summary
+from ethernity.page_sizes import PaperSizeName, resolve_paper_size
+from ethernity.tasks.file_summary import (
+    display_path,
+    format_count,
+    selected_paths_summary,
+)
+from ethernity.tasks.input_material import has_selected_inputs
 from ethernity.tasks.models import (
     PreviewItem,
     TaskExecutionPlan,
@@ -53,11 +59,18 @@ from ethernity.tasks.models import (
     TaskSectionStatus,
     TaskValidation,
 )
+from ethernity.tasks.page_layout import (
+    BACKUP_RENDER_DOC_TYPES,
+    require_workflow_page_size,
+)
+from ethernity.tasks.presentation.recovery import unlock_material_summary
 from ethernity.tasks.quorum import validate_optional_shard_count
+from ethernity.tasks.recovery_material import has_unlock_material
 from ethernity.tasks.source_assessment import (
     SourceAssessableTaskState,
     SourceAssessmentRequest,
     folder_or_scans_source_request,
+    source_freshness_status,
 )
 
 AddFilesUnlockPolicy = Literal["self-contained", "reuse-root"]
@@ -94,11 +107,16 @@ class AddFilesTaskState(SourceAssessableTaskState):
     signing_key_mode: AddFilesSigningKeyMode | None = None
     signing_key_recovery_threshold: int | None = None
     signing_key_recovery_count: int | None = None
-    paper_size: str | None = None
+    paper_size: PaperSizeName | None = None
     design: str | None = None
     qr_chunk_size: int | None = None
 
     _assessment_cache: _AssessmentCache | None = PrivateAttr(default=None)
+
+    @field_validator("paper_size")
+    @classmethod
+    def _validate_paper_size(cls, value: str | None) -> PaperSizeName | None:
+        return resolve_paper_size(value).name if value is not None else None
 
     @field_validator("recovery_document_threshold")
     @classmethod
@@ -126,6 +144,12 @@ class AddFilesTaskState(SourceAssessableTaskState):
 
     @model_validator(mode="after")
     def _validate_qr_chunk_size(self) -> AddFilesTaskState:
+        if self.design is not None and self.paper_size is not None:
+            require_workflow_page_size(
+                self.design,
+                self.paper_size,
+                candidate_doc_types=BACKUP_RENDER_DOC_TYPES,
+            )
         if self.qr_chunk_size is not None and self.qr_chunk_size < 1:
             raise ValueError("QR chunk size must be positive")
         return self
@@ -142,22 +166,28 @@ class AddFilesTaskState(SourceAssessableTaskState):
             TaskSection(
                 key="source",
                 title="Scan version",
-                status=self._source_status(),
+                status=source_freshness_status(
+                    self.source_paths,
+                    expected_head_doc_hash=self.expected_head_doc_hash,
+                    allow_stale_head=self.allow_stale_head,
+                ),
                 summary=self._source_summary(),
                 action_label="Load scanned pages...",
             ),
             TaskSection(
                 key="files",
                 title="Files to add or replace",
-                status="ready" if self._has_inputs() else "missing",
+                status=(
+                    "ready" if has_selected_inputs(self.input_paths, self.input_dirs) else "missing"
+                ),
                 summary=self._input_summary(),
                 action_label="Choose files...",
             ),
             TaskSection(
                 key="unlock",
                 title="Unlock backup",
-                status="ready" if self._has_unlock() else "missing",
-                summary=self._unlock_summary(),
+                status="ready" if has_unlock_material(self) else "missing",
+                summary=unlock_material_summary(self),
                 action_label="Set unlock method...",
             ),
             TaskSection(
@@ -260,7 +290,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
                     section="backup",
                 )
             )
-        if not self._has_inputs():
+        if not has_selected_inputs(self.input_paths, self.input_dirs):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_INPUT_REQUIRED",
@@ -268,7 +298,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
                     section="files",
                 )
             )
-        if not self._has_unlock():
+        if not has_unlock_material(self):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_UNLOCK_REQUIRED",
@@ -329,7 +359,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
         items = [
             PreviewItem(label="Backup source", detail=self._backup_source_summary()),
             PreviewItem(label="Files", detail=self._input_summary()),
-            PreviewItem(label="Unlock", detail=self._unlock_summary()),
+            PreviewItem(label="Unlock", detail=unlock_material_summary(self)),
             PreviewItem(label="Destination", detail=self._output_summary()),
             PreviewItem(label="Recovery sheets", detail=recovery_summary),
             PreviewItem(label="Signing-key recovery", detail=signing_summary),
@@ -425,7 +455,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
                 "Latest means the newest valid version in the material you loaded.",
             ),
             recovery_notes=(
-                f"Unlock: {self._unlock_summary()}",
+                f"Unlock: {unlock_material_summary(self)}",
                 "Recovery sheets: "
                 + (
                     _resolved_recovery_summary(assessed)
@@ -605,12 +635,6 @@ class AddFilesTaskState(SourceAssessableTaskState):
             quiet=quiet,
         )
 
-    def _has_inputs(self) -> bool:
-        return bool(self.input_paths or self.input_dirs)
-
-    def _has_unlock(self) -> bool:
-        return bool(self.passphrase or self.recovery_documents or self.recovery_payload_files)
-
     def _assessment_key(self) -> bytes:
         state_payload = self.model_dump_json(exclude={"config_path"}).encode("utf-8")
         try:
@@ -676,15 +700,6 @@ class AddFilesTaskState(SourceAssessableTaskState):
             paths.insert(0, self.backup_folder)
         return tuple(paths)
 
-    def _source_status(self) -> TaskSectionStatus:
-        if not self.source_paths:
-            return "ready"
-        if self.expected_head_doc_hash is not None:
-            return "ready"
-        if self.allow_stale_head:
-            return "warning"
-        return "missing"
-
     def _source_summary(self) -> str:
         if self.source_paths:
             if self.expected_head_doc_hash is not None:
@@ -710,15 +725,6 @@ class AddFilesTaskState(SourceAssessableTaskState):
             base_dir=base_dir,
             empty_label="No files selected.",
         )
-
-    def _unlock_summary(self) -> str:
-        if self.passphrase:
-            return "Passphrase"
-        if self.recovery_documents:
-            return format_count(len(self.recovery_documents), "recovery sheet")
-        if self.recovery_payload_files:
-            return format_count(len(self.recovery_payload_files), "recovery payload file")
-        return "Choose an unlock method"
 
     def _output_summary(self) -> str:
         output_folder = self._output_folder()

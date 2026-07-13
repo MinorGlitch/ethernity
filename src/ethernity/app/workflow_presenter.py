@@ -5,9 +5,12 @@ from pathlib import Path
 
 from ethernity.app.app_types import ActiveTask, UnlockTaskState
 from ethernity.app.workflow_state import WorkflowUiState
+from ethernity.page_sizes import paper_size_display_name
+from ethernity.render.designs import supported_paper_size_names
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import TaskSection, TaskValidation
+from ethernity.tasks.page_layout import BACKUP_RENDER_DOC_TYPES
 from ethernity.tasks.presentation.models import (
     ChoicePresentation,
     CompositeBodyPartPresentation,
@@ -32,6 +35,7 @@ from ethernity.tasks.presentation.models import (
     WorkspaceAction,
     WorkspaceValue,
 )
+from ethernity.tasks.presentation.recovery import pasted_text_summary
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
@@ -901,10 +905,7 @@ def _rebuild_output_body(state: RebuildTaskState) -> CompositeBodyPresentation:
                         SelectFieldPresentation(
                             key="workspace-rebuild-paper",
                             label="Paper size",
-                            options=(
-                                SelectOptionPresentation("A4", "A4"),
-                                SelectOptionPresentation("LETTER", "Letter"),
-                            ),
+                            options=_paper_size_options(state.design),
                             value=state.paper_size,
                             allow_blank=False,
                         ),
@@ -1015,7 +1016,7 @@ def _replace_source_assessment(
         )
     if method == "recovery_text":
         material = (
-            _pasted_text_summary(state.recovery_text)
+            pasted_text_summary(state.recovery_text)
             if state.recovery_text
             else display_path(state.recovery_text_file or "")
         )
@@ -1141,10 +1142,7 @@ def _replacement_output_body(
                         SelectFieldPresentation(
                             key="workspace-replace-paper",
                             label="Paper size",
-                            options=(
-                                SelectOptionPresentation("A4", "A4"),
-                                SelectOptionPresentation("LETTER", "Letter"),
-                            ),
+                            options=_paper_size_options(state.design),
                             value=state.paper_size,
                             allow_blank=False,
                         ),
@@ -1173,10 +1171,14 @@ def _passphrase_recovery_policy(state: ReplaceRecoveryDocsTaskState) -> str:
     return "create"
 
 
-def _pasted_text_summary(value: str | None) -> str:
-    line_count = len([line for line in (value or "").splitlines() if line.strip()])
-    noun = "line" if line_count == 1 else "lines"
-    return f"Pasted text, {line_count} non-empty {noun}"
+def _paper_size_options(design_name: str = "sentinel") -> tuple[SelectOptionPresentation, ...]:
+    return tuple(
+        SelectOptionPresentation(paper_size, paper_size_display_name(paper_size))
+        for paper_size in supported_paper_size_names(
+            design_name,
+            doc_types=BACKUP_RENDER_DOC_TYPES,
+        )
+    )
 
 
 def _resolved_source_assessment(

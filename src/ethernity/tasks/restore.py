@@ -22,9 +22,7 @@ from typing import Literal
 from pydantic import ConfigDict, Field
 
 from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
-from ethernity.cli.shared.io.frames import frames_from_fallback_text
 from ethernity.cli.shared.types import RecoverArgs
-from ethernity.encoding.framing import Frame
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
@@ -34,6 +32,17 @@ from ethernity.tasks.models import (
     TaskPreview,
     TaskSection,
     TaskValidation,
+)
+from ethernity.tasks.presentation.recovery import (
+    auth_material_summary,
+    recovery_text_summary,
+    unlock_material_summary,
+)
+from ethernity.tasks.recovery_material import (
+    has_recovery_source,
+    has_unlock_material,
+    recovery_text_error,
+    recovery_text_frames,
 )
 from ethernity.tasks.source_assessment import (
     SourceAssessableTaskState,
@@ -72,7 +81,10 @@ class RestoreTaskState(SourceAssessableTaskState):
 
     def sections(self) -> tuple[TaskSection, ...]:
         destination_warning = self._destination_warning()
-        source_error = self._recovery_text_error()
+        source_error = recovery_text_error(
+            self.recovery_text,
+            allow_invalid_auth=self.allow_unsigned,
+        )
         return (
             TaskSection(
                 key="source",
@@ -81,14 +93,14 @@ class RestoreTaskState(SourceAssessableTaskState):
                     "blocked"
                     if source_error is not None
                     else "ready"
-                    if self._has_source()
+                    if has_recovery_source(self)
                     else "missing"
                 ),
                 summary=(
                     "Pasted recovery text is not valid recovery text."
                     if source_error is not None
                     else self._source_summary()
-                    if self._has_source()
+                    if has_recovery_source(self)
                     else "Choose backup material."
                 ),
                 action_label="Load backup...",
@@ -96,8 +108,8 @@ class RestoreTaskState(SourceAssessableTaskState):
             TaskSection(
                 key="unlock",
                 title="Unlock",
-                status="ready" if self._has_unlock() else "missing",
-                summary=self._unlock_summary(),
+                status="ready" if has_unlock_material(self) else "missing",
+                summary=unlock_material_summary(self),
                 action_label="Set unlock method...",
             ),
             TaskSection(
@@ -128,7 +140,7 @@ class RestoreTaskState(SourceAssessableTaskState):
 
     def validate_task(self) -> TaskValidation:
         issues: list[TaskIssue] = []
-        if not self._has_source():
+        if not has_recovery_source(self):
             issues.append(
                 TaskIssue(
                     code="RESTORE_SOURCE_REQUIRED",
@@ -136,7 +148,14 @@ class RestoreTaskState(SourceAssessableTaskState):
                     section="source",
                 )
             )
-        if self.recovery_text and self._recovery_text_error() is not None:
+        if (
+            self.recovery_text
+            and recovery_text_error(
+                self.recovery_text,
+                allow_invalid_auth=self.allow_unsigned,
+            )
+            is not None
+        ):
             issues.append(
                 TaskIssue(
                     code="RESTORE_RECOVERY_TEXT_INVALID",
@@ -144,7 +163,7 @@ class RestoreTaskState(SourceAssessableTaskState):
                     section="source",
                 )
             )
-        if not self._has_unlock():
+        if not has_unlock_material(self):
             issues.append(
                 TaskIssue(
                     code="RESTORE_UNLOCK_REQUIRED",
@@ -224,10 +243,13 @@ class RestoreTaskState(SourceAssessableTaskState):
             items=(
                 PreviewItem(label="Backup source", detail=self._source_summary()),
                 PreviewItem(label="Latest fingerprint", detail=self._expected_head_summary()),
-                PreviewItem(label="Unlock", detail=self._unlock_summary()),
+                PreviewItem(label="Unlock", detail=unlock_material_summary(self)),
                 PreviewItem(label="Version", detail=self._target_summary()),
                 PreviewItem(label="Signature check", detail=self._authentication_summary()),
-                PreviewItem(label="Verification source", detail=self._auth_material_summary()),
+                PreviewItem(
+                    label="Verification source",
+                    detail=auth_material_summary(self.auth_text_file, self.auth_payloads_file),
+                ),
             ),
             warnings=tuple(warnings),
         )
@@ -242,10 +264,11 @@ class RestoreTaskState(SourceAssessableTaskState):
             safety_notes=self._destination_safety_notes(),
             trust_notes=(
                 f"Signature check: {self._authentication_summary()}",
-                f"Verification source: {self._auth_material_summary()}",
+                "Verification source: "
+                f"{auth_material_summary(self.auth_text_file, self.auth_payloads_file)}",
                 f"Latest fingerprint: {self._expected_head_summary()}",
             ),
-            recovery_notes=(f"Unlock: {self._unlock_summary()}",),
+            recovery_notes=(f"Unlock: {unlock_material_summary(self)}",),
         )
 
     def execute(self) -> TaskExecutionResult:
@@ -299,7 +322,11 @@ class RestoreTaskState(SourceAssessableTaskState):
     def to_recover_args(self, *, assume_yes: bool = False, quiet: bool = False) -> RecoverArgs:
         return RecoverArgs(
             config=str(self.config_path) if self.config_path is not None else None,
-            frames=self._recovery_text_frames(quiet=quiet),
+            frames=recovery_text_frames(
+                self.recovery_text,
+                allow_invalid_auth=self.allow_unsigned,
+                quiet=quiet,
+            ),
             fallback_file=(
                 str(self.recovery_text_file)
                 if self.recovery_text_file is not None and not self.recovery_text
@@ -325,14 +352,6 @@ class RestoreTaskState(SourceAssessableTaskState):
             quiet=quiet,
         )
 
-    def _has_source(self) -> bool:
-        return bool(
-            self.source_paths or self.recovery_text or self.recovery_text_file or self.payloads_file
-        )
-
-    def _has_unlock(self) -> bool:
-        return bool(self.passphrase or self.recovery_documents or self.recovery_payload_files)
-
     def _read_paths(self) -> tuple[Path, ...]:
         paths = [
             *self.source_paths,
@@ -353,7 +372,7 @@ class RestoreTaskState(SourceAssessableTaskState):
         if self.source_paths:
             return format_count(len(self.source_paths), "scanned page")
         if self.recovery_text:
-            return self._recovery_text_summary()
+            return recovery_text_summary(self.recovery_text)
         if self.recovery_text_file is not None:
             return f"Recovery text: {display_path(self.recovery_text_file)}"
         if self.payloads_file is not None:
@@ -364,15 +383,6 @@ class RestoreTaskState(SourceAssessableTaskState):
         if self.expected_head_doc_hash is None:
             return "Not provided"
         return "Provided"
-
-    def _unlock_summary(self) -> str:
-        if self.passphrase:
-            return "Passphrase"
-        if self.recovery_documents:
-            return format_count(len(self.recovery_documents), "recovery sheet")
-        if self.recovery_payload_files:
-            return format_count(len(self.recovery_payload_files), "recovery payload file")
-        return "Choose an unlock method"
 
     def _target_summary(self) -> str:
         if self.target == "original":
@@ -389,37 +399,6 @@ class RestoreTaskState(SourceAssessableTaskState):
         if self.allow_unsigned:
             return "Unsigned legacy backups allowed"
         return "Trusted signatures required"
-
-    def _auth_material_summary(self) -> str:
-        if self.auth_text_file is not None:
-            return f"Signature text: {display_path(self.auth_text_file)}"
-        if self.auth_payloads_file is not None:
-            return f"Signature payload: {display_path(self.auth_payloads_file)}"
-        return "Loaded backup"
-
-    def _recovery_text_summary(self) -> str:
-        if not self.recovery_text:
-            return "Pasted recovery text"
-        line_count = len([line for line in self.recovery_text.splitlines() if line.strip()])
-        if line_count == 1:
-            return "Pasted recovery text: 1 line"
-        return f"Pasted recovery text: {line_count} lines"
-
-    def _recovery_text_frames(self, *, quiet: bool) -> list[Frame] | None:
-        if not self.recovery_text:
-            return None
-        return frames_from_fallback_text(
-            self.recovery_text,
-            allow_invalid_auth=self.allow_unsigned,
-            quiet=quiet,
-        )
-
-    def _recovery_text_error(self) -> str | None:
-        try:
-            self._recovery_text_frames(quiet=True)
-        except ValueError as exc:
-            return str(exc)
-        return None
 
     def _recover_extension_index(self) -> int | None:
         if self.target == "original":

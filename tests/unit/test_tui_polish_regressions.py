@@ -11,8 +11,9 @@ from ethernity.app.help_content import build_help_content
 from ethernity.app.navigation import sync_nav_active
 from ethernity.app.screens.confirm_action import ConfirmActionScreen
 from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
-from ethernity.app.widgets.guided_workflow import InlineNotice
+from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.app.workspaces.common import SIGNING_KEY_RECOVERY_OPTIONS
+from ethernity.page_sizes import paper_size_display_name, paper_size_names
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.presentation.workflow_replace_recovery import (
     replace_signing_key_recovery_summary,
@@ -198,7 +199,7 @@ def test_simple_enum_selects_render_human_labels_without_changing_values(
                 },
                 options={
                     "render_styles": ("sentinel", "forge"),
-                    "page_sizes": ("A4", "LETTER"),
+                    "page_sizes": paper_size_names(),
                 },
             ),
         )
@@ -210,7 +211,10 @@ def test_simple_enum_selects_render_human_labels_without_changing_values(
             paper = app.query_one("#workspace-kit-paper", Select)
             design = app.query_one("#workspace-kit-design", Select)
             assert tuple(str(label) for label, _value in variant._options) == ("Lean", "Scanner")
-            assert tuple(str(label) for label, _value in paper._options) == ("A4", "Letter")
+            expected_paper_labels = tuple(
+                paper_size_display_name(paper_size) for paper_size in paper_size_names()
+            )
+            assert tuple(str(label) for label, _value in paper._options) == expected_paper_labels
             assert tuple(str(label) for label, _value in design._options) == (
                 "Archive",
                 "Forge",
@@ -219,7 +223,7 @@ def test_simple_enum_selects_render_human_labels_without_changing_values(
                 "Sentinel",
             )
             assert variant.value == "lean"
-            assert paper.value in {"A4", "LETTER"}
+            assert paper.value in set(paper_size_names())
 
             await pilot.press("7")
             await pilot.pause()
@@ -229,9 +233,8 @@ def test_simple_enum_selects_render_human_labels_without_changing_values(
                 "Sentinel",
                 "Forge",
             )
-            assert tuple(str(label) for label, _value in page_size._options) == (
-                "A4",
-                "Letter",
+            assert (
+                tuple(str(label) for label, _value in page_size._options) == expected_paper_labels
             )
             assert render_style.value == "sentinel"
             assert page_size.value == "LETTER"

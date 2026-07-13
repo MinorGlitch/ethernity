@@ -61,15 +61,6 @@ class TaskPreview(BaseModel):
     writes_files: bool = True
 
 
-class TaskAction(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    key: str
-    label: str
-    enabled: bool = True
-    disabled_reason: str | None = None
-
-
 class TaskValidation(BaseModel):
     model_config = ConfigDict(frozen=True)
 

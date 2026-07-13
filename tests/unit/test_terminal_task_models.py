@@ -303,6 +303,15 @@ def test_backup_task_rejects_unsupported_generated_passphrase_word_count() -> No
         BackupTaskState(passphrase_words=8)
 
 
+def test_backup_task_rejects_nonprintable_direct_passphrase_but_allows_sharding() -> None:
+    with pytest.raises(ValueError, match="manually enterable printable text"):
+        BackupTaskState(recovery_method="single_phrase", passphrase="alpha\nbeta")
+
+    state = BackupTaskState(recovery_method="recommended_shards", passphrase="alpha\nbeta")
+
+    assert state.passphrase == "alpha\nbeta"
+
+
 def test_task_models_reject_quorum_counts_above_shamir_limit() -> None:
     with pytest.raises(ValidationError):
         BackupTaskState(shard_count=256)

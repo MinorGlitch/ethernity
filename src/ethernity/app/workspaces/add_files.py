@@ -5,7 +5,8 @@ from textual.containers import VerticalScroll
 from textual.widgets import Select, Static
 
 from ethernity.app.widgets.collapsible import panel_title
-from ethernity.app.widgets.guided_workflow import WorkflowStepStack
+from ethernity.app.widgets.static_text import update_static_text
+from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.workflow_presenter import add_files_workflow_placeholder
 from ethernity.app.workspaces.common import (
     ADD_FILES_RECOVERY_OPTIONS,
@@ -22,7 +23,6 @@ from ethernity.app.workspaces.common import (
     set_select,
     status_note,
     update_buttons,
-    update_static_text,
     update_status_note,
     value,
 )

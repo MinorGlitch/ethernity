@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal, cast
 
 from ethernity.app.editing.specific import TaskSpecificEditingActions
+from ethernity.page_sizes import resolve_paper_size
 from ethernity.tasks.add_files import AddFilesSigningKeyMode, AddFilesUnlockPolicy
 
 
@@ -188,15 +189,15 @@ class TaskEditingActions(TaskSpecificEditingActions):
 
     async def _apply_workspace_select(self, select_id: str, value: str) -> None:
         if select_id.endswith("-paper"):
-            paper = cast(Literal["A4", "LETTER"], value)
+            paper = resolve_paper_size(value).name
             if self.active_task == "backup":
                 self.backup_state.paper_size = paper
             elif self.active_task == "add_files":
-                self.add_files_state.paper_size = value
+                self.add_files_state.paper_size = paper
             elif self.active_task == "rebuild":
-                self.rebuild_state.paper_size = value
+                self.rebuild_state.paper_size = paper
             elif self.active_task == "replace_recovery_docs":
-                self.replace_recovery_docs_state.paper_size = value
+                self.replace_recovery_docs_state.paper_size = paper
             elif self.active_task == "kit":
                 self.kit_state.paper_size = paper
         elif select_id.endswith("-design"):

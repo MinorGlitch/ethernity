@@ -2,7 +2,7 @@
 style = "sentinel"
 
 [page]
-size = "A4" # Supported: A4, Letter
+size = "A4" # Supported sizes are listed by the application.
 
 [qr]
 error = "M"

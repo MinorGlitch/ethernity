@@ -6,7 +6,8 @@ from pathlib import Path
 from textual.widgets import Button, Input, RadioSet
 
 from ethernity.app.application import EthernityApp
-from ethernity.app.widgets.guided_workflow import InlineNotice, QuorumEditor
+from ethernity.app.widgets.workflow.controls import InlineNotice
+from ethernity.app.widgets.workflow.options import QuorumEditor
 from ethernity.app.workflow_presenter import build_guided_workflow
 from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.tasks.presentation.models import (

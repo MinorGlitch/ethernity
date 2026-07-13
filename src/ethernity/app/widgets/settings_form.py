@@ -38,6 +38,9 @@ from textual.widgets import (
 
 from ethernity.app.app_context import EthernityAppContext
 from ethernity.app.widgets.actions import ActionButton, inline_action_group
+from ethernity.app.widgets.static_text import update_static_text
+from ethernity.page_sizes import paper_size_display_name
+from ethernity.render.designs import supported_paper_size_names
 from ethernity.tasks.models import TaskIssue, TaskValidation
 from ethernity.tasks.presentation.common import middle_truncate_path
 from ethernity.tasks.settings import SETTING_DESCRIPTORS, SettingDescriptor, SettingsTaskState
@@ -176,7 +179,7 @@ class SettingsForm(Widget):
             row.set_class(error is None and section.status == "warning", "settings-row-warning")
             row.set_class(error is not None or section.status == "blocked", "settings-row-blocked")
             if section.key == "config":
-                _update_static(
+                update_static_text(
                     self.query_one("#setting-value-config", Static),
                     middle_truncate_path(section.summary),
                 )
@@ -193,7 +196,7 @@ class SettingsForm(Widget):
             elif warning is not None:
                 help_text = warning.message
             help_widget = self.query_one(f"#setting-help-{section.key}", Static)
-            _update_static(help_widget, help_text)
+            update_static_text(help_widget, help_text)
             help_widget.set_class(error is not None, "setting-help-error")
             help_widget.set_class(warning is not None, "setting-help-warning")
 
@@ -218,7 +221,7 @@ class SettingsForm(Widget):
                     switch.value = bool(settings.setting_value(descriptor.key))
             elif descriptor.kind in {"path", "save_path"}:
                 self.query_one(control_id, Button).label = descriptor.action_label
-                _update_static(
+                update_static_text(
                     self.query_one(f"#setting-value-{descriptor.key}", Static),
                     settings.display_value(descriptor.key),
                 )
@@ -232,19 +235,19 @@ class SettingsForm(Widget):
                 marker_text = "Warning"
             else:
                 marker_text = "Custom"
-            _update_static(marker, marker_text)
+            update_static_text(marker, marker_text)
             marker.set_class(
                 not settings.setting_is_default(descriptor.key),
                 "setting-marker-changed",
             )
         self._config_full_path = str(settings.execution_plan().output_paths[0])
-        _update_static(
+        update_static_text(
             self.query_one("#setting-value-config", Static),
             middle_truncate_path(self._config_full_path),
         )
         save_status = "Locked while task runs" if write_locked else settings.save_status
         status = self.query_one("#settings-save-status", Static)
-        _update_static(status, save_status)
+        update_static_text(status, save_status)
         status.set_class(settings.save_pending or write_locked, "settings-status-pending")
         status.set_class(
             save_status
@@ -257,7 +260,7 @@ class SettingsForm(Widget):
         retry = self.query_one("#settings-retry-save", Button)
         retry.display = settings.save_pending and not write_locked
         retry.disabled = write_locked
-        _update_static(
+        update_static_text(
             self.query_one("#settings-recovery-summary", Static),
             _recovery_summary(settings),
         )
@@ -453,10 +456,11 @@ def _select_options(
     settings: SettingsTaskState,
     descriptor: SettingDescriptor,
 ) -> list[tuple[str, str]]:
-    options = [
-        (_setting_option_label(descriptor, option), option)
-        for option in settings.options.get(descriptor.option_key or "", ())
-    ]
+    configured_options = settings.options.get(descriptor.option_key or "", ())
+    if descriptor.option_key == "page_sizes":
+        supported = frozenset(supported_paper_size_names(settings.design))
+        configured_options = tuple(option for option in configured_options if option in supported)
+    options = [(_setting_option_label(descriptor, option), option) for option in configured_options]
     if descriptor.default is None:
         options.insert(0, (descriptor.empty_label, "__none__"))
     current = settings.setting_value(descriptor.key)
@@ -489,11 +493,13 @@ def _setting_option_label(descriptor: SettingDescriptor, option: str) -> str:
             "sharded": "Separate recovery sheets",
         },
     }
+    if descriptor.option_key == "page_sizes":
+        return paper_size_display_name(option)
     return labels.get(descriptor.option_key or "", {}).get(option, _enum_option_label(option))
 
 
 def _enum_option_label(option: str) -> str:
-    if option in {"A4", "L", "M", "Q", "H"}:
+    if option in {"L", "M", "Q", "H"}:
         return option
     return option.replace("_", " ").replace("-", " ").title()
 
@@ -524,8 +530,3 @@ def _recovery_summary(settings: SettingsTaskState) -> str:
 
 def _positive_int_or_default(value: object, default: int) -> int:
     return value if isinstance(value, int) and value > 0 else default
-
-
-def _update_static(static: Static, content: str) -> None:
-    if str(static.content) != content:
-        static.update(content)

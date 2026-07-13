@@ -7,7 +7,7 @@ from textual.widgets import Select, SelectionList
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
-from ethernity.app.widgets.guided_workflow import WorkflowStepStack
+from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.workflow_presenter import build_guided_workflow
 from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.tasks.add_files import AddFilesTaskState

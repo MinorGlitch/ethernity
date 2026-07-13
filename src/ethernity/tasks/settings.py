@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ethernity.config import apply_api_config_patch, get_api_config_snapshot
 from ethernity.core.app_paths import DEFAULT_CONFIG_FILENAME, user_config_file_path
+from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
 from ethernity.tasks.models import (
     PreviewItem,
     TaskExecutionPlan,
@@ -35,7 +36,6 @@ from ethernity.tasks.models import (
     TaskValidation,
 )
 
-PaperSize = Literal["A4", "LETTER"]
 SettingKind = Literal["enum", "int", "optional_int", "path", "save_path", "bool", "render_jobs"]
 
 
@@ -75,9 +75,9 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
         "enum",
         "Change",
         "Page size for new backup and recovery PDFs.",
-        "A4",
+        DEFAULT_PAPER_SIZE_NAME,
         "page_sizes",
-        "A4",
+        DEFAULT_PAPER_SIZE_NAME,
     ),
     SettingDescriptor(
         "qr_error",
@@ -449,8 +449,10 @@ class SettingsTaskState(BaseModel):
         return str(self.setting_value("render_style") or "sentinel")
 
     @property
-    def paper_size(self) -> PaperSize:
-        return "LETTER" if str(self.setting_value("page_size")).upper() == "LETTER" else "A4"
+    def paper_size(self) -> PaperSizeName:
+        return resolve_paper_size(
+            str(self.setting_value("page_size") or DEFAULT_PAPER_SIZE_NAME)
+        ).name
 
     @property
     def backup_output_dir(self) -> Path | None:

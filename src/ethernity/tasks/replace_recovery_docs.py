@@ -21,9 +21,8 @@ from pathlib import Path
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from ethernity.cli.features.mint.workflow import execute_mint
-from ethernity.cli.shared.io.frames import frames_from_fallback_text
 from ethernity.cli.shared.types import MintArgs
-from ethernity.encoding.framing import Frame
+from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
@@ -40,11 +39,23 @@ from ethernity.tasks.output_checks import (
     existing_output_warning,
     selected_output_status,
 )
+from ethernity.tasks.page_layout import (
+    BACKUP_RENDER_DOC_TYPES,
+    require_workflow_page_size,
+)
+from ethernity.tasks.presentation.recovery import recovery_text_summary, unlock_material_summary
 from ethernity.tasks.quorum import validate_optional_shard_count, validate_required_shard_count
+from ethernity.tasks.recovery_material import (
+    has_recovery_source,
+    has_unlock_material,
+    recovery_text_error,
+    recovery_text_frames,
+)
 from ethernity.tasks.source_assessment import (
     SourceAssessableTaskState,
     SourceAssessmentRequest,
     recovery_source_request,
+    source_freshness_status,
 )
 
 SIGNING_KEY_RECOVERY_OFF_WARNING = (
@@ -78,8 +89,13 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
     signing_key_recovery_count: int | None = None
     passphrase_replacement_count: int | None = None
     signing_key_replacement_count: int | None = None
-    paper_size: str = "A4"
+    paper_size: PaperSizeName = DEFAULT_PAPER_SIZE_NAME
     design: str = "sentinel"
+
+    @field_validator("paper_size")
+    @classmethod
+    def _validate_paper_size(cls, value: str) -> PaperSizeName:
+        return resolve_paper_size(value).name
 
     @field_validator("recovery_threshold", "recovery_document_count")
     @classmethod
@@ -93,6 +109,11 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
 
     @model_validator(mode="after")
     def _validate_recovery_document_counts(self) -> ReplaceRecoveryDocsTaskState:
+        require_workflow_page_size(
+            self.design,
+            self.paper_size,
+            candidate_doc_types=BACKUP_RENDER_DOC_TYPES,
+        )
         if self.recovery_threshold < 1:
             raise ValueError("recovery document threshold must be at least 1")
         if self.recovery_document_count < self.recovery_threshold:
@@ -113,7 +134,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
         return self
 
     def sections(self) -> tuple[TaskSection, ...]:
-        source_error = self._recovery_text_error()
+        source_error = recovery_text_error(self.recovery_text)
         return (
             TaskSection(
                 key="source",
@@ -122,7 +143,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                     "blocked"
                     if source_error is not None
                     else "ready"
-                    if self._has_source()
+                    if has_recovery_source(self)
                     else "missing"
                 ),
                 summary=(
@@ -135,14 +156,18 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             TaskSection(
                 key="unlock",
                 title="Unlock existing backup",
-                status="ready" if self._has_unlock() else "missing",
-                summary=self._unlock_summary(),
+                status="ready" if has_unlock_material(self) else "missing",
+                summary=unlock_material_summary(self),
                 action_label="Set unlock method...",
             ),
             TaskSection(
                 key="freshness",
                 title="Scan version",
-                status=self._freshness_status(),
+                status=source_freshness_status(
+                    self.source_paths,
+                    expected_head_doc_hash=self.expected_head_doc_hash,
+                    allow_stale_head=self.allow_stale_head,
+                ),
                 summary=self._freshness_summary(),
                 action_label="Confirm source",
             ),
@@ -192,7 +217,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
 
     def validate_task(self) -> TaskValidation:
         issues: list[TaskIssue] = []
-        if not self._has_source():
+        if not has_recovery_source(self):
             issues.append(
                 TaskIssue(
                     code="REPLACE_RECOVERY_SOURCE_REQUIRED",
@@ -200,7 +225,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                     section="source",
                 )
             )
-        if self.recovery_text and self._recovery_text_error() is not None:
+        if self.recovery_text and recovery_text_error(self.recovery_text) is not None:
             issues.append(
                 TaskIssue(
                     code="REPLACE_RECOVERY_TEXT_INVALID",
@@ -208,7 +233,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                     section="source",
                 )
             )
-        if not self._has_unlock():
+        if not has_unlock_material(self):
             issues.append(
                 TaskIssue(
                     code="REPLACE_RECOVERY_UNLOCK_REQUIRED",
@@ -305,7 +330,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
     def preview(self) -> TaskPreview:
         items = [
             PreviewItem(label="Existing backup", detail=self._source_summary()),
-            PreviewItem(label="Unlock", detail=self._unlock_summary()),
+            PreviewItem(label="Unlock", detail=unlock_material_summary(self)),
             PreviewItem(
                 label="Destination",
                 detail=(
@@ -430,9 +455,9 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                 else None
             ),
             payloads_file=str(self.payloads_file) if self.payloads_file else None,
-            frames=self._recovery_text_frames(quiet=quiet),
+            frames=recovery_text_frames(self.recovery_text, quiet=quiet),
             input_label="Pasted recovery text" if self.recovery_text else None,
-            input_detail=self._recovery_text_summary() if self.recovery_text else None,
+            input_detail=recovery_text_summary(self.recovery_text) if self.recovery_text else None,
             scan=[str(path) for path in self.source_paths],
             passphrase=self.passphrase,
             shard_scan=[str(path) for path in self.recovery_documents],
@@ -454,14 +479,6 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             mint_signing_key_shards=self._creates_signing_key_recovery(),
             quiet=quiet,
         )
-
-    def _has_source(self) -> bool:
-        return bool(
-            self.source_paths or self.recovery_text or self.recovery_text_file or self.payloads_file
-        )
-
-    def _has_unlock(self) -> bool:
-        return bool(self.passphrase or self.recovery_documents or self.recovery_payload_files)
 
     def _read_paths(self) -> tuple[Path, ...]:
         paths = [
@@ -532,30 +549,12 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
         if sources:
             return format_count(sources, "scanned page")
         if self.recovery_text:
-            return self._recovery_text_summary()
+            return recovery_text_summary(self.recovery_text)
         if self.recovery_text_file is not None:
             return display_path(self.recovery_text_file)
         if self.payloads_file is not None:
             return display_path(self.payloads_file)
         return "Choose backup material."
-
-    def _unlock_summary(self) -> str:
-        if self.passphrase:
-            return "Passphrase"
-        if self.recovery_documents:
-            return format_count(len(self.recovery_documents), "recovery sheet")
-        if self.recovery_payload_files:
-            return format_count(len(self.recovery_payload_files), "recovery payload file")
-        return "Choose an unlock method"
-
-    def _freshness_status(self) -> TaskSectionStatus:
-        if not self.source_paths:
-            return "ready"
-        if self.expected_head_doc_hash is not None:
-            return "ready"
-        if self.allow_stale_head:
-            return "warning"
-        return "missing"
 
     def _freshness_summary(self) -> str:
         if not self.source_paths:
@@ -565,26 +564,6 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
         if self.allow_stale_head:
             return "Latest loaded version accepted"
         return "Confirm the scans contain the latest version"
-
-    def _recovery_text_summary(self) -> str:
-        if not self.recovery_text:
-            return "Pasted recovery text"
-        line_count = len([line for line in self.recovery_text.splitlines() if line.strip()])
-        if line_count == 1:
-            return "Pasted recovery text: 1 line"
-        return f"Pasted recovery text: {line_count} lines"
-
-    def _recovery_text_frames(self, *, quiet: bool) -> list[Frame] | None:
-        if not self.recovery_text:
-            return None
-        return frames_from_fallback_text(self.recovery_text, quiet=quiet)
-
-    def _recovery_text_error(self) -> str | None:
-        try:
-            self._recovery_text_frames(quiet=True)
-        except ValueError as exc:
-            return str(exc)
-        return None
 
     def _freshness_warnings(self) -> tuple[TaskIssue, ...]:
         if not self.source_paths or not self.allow_stale_head:

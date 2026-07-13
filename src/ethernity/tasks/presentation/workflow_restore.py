@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from ethernity.tasks.presentation.common import (
-    auth_material_summary,
-)
 from ethernity.tasks.presentation.models import (
     WorkspaceAction,
     WorkspaceGroup,
     WorkspaceValue,
+)
+from ethernity.tasks.presentation.recovery import (
+    auth_material_control_value,
+    auth_material_summary,
 )
 from ethernity.tasks.restore import RestoreTaskState
 
@@ -32,7 +33,7 @@ def restore_auxiliary_groups(state: RestoreTaskState) -> tuple[WorkspaceGroup, .
                     "auth-material",
                     "Verification source",
                     auth_material_summary(state.auth_text_file, state.auth_payloads_file),
-                    control_value=_auth_material_control_value(
+                    control_value=auth_material_control_value(
                         state.auth_text_file,
                         state.auth_payloads_file,
                     ),
@@ -52,13 +53,3 @@ def restore_auxiliary_groups(state: RestoreTaskState) -> tuple[WorkspaceGroup, .
             ),
         ),
     )
-
-
-def _auth_material_control_value(
-    auth_text_file: object | None, auth_payloads_file: object | None
-) -> str:
-    if auth_text_file is not None:
-        return "text"
-    if auth_payloads_file is not None:
-        return "payloads"
-    return "auto"
