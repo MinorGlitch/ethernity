@@ -38,6 +38,7 @@ from ethernity.config.paths import (
     SUPPORTED_RENDER_STYLES,
     TEMPLATES_RESOURCE_ROOT,
     ConfigPaths,
+    build_config_paths,
 )
 from ethernity.config.types import (
     PageSize,
@@ -46,11 +47,9 @@ from ethernity.config.types import (
     QrPayloadCodec,
     SigningKeyMode,
 )
-from ethernity.core.app_paths import (
-    DEFAULT_CONFIG_FILENAME,
-    user_config_dir_path,
-    user_config_file_path,
-)
+from ethernity.config.value_constraints import QR_ERROR_LEVELS
+from ethernity.core.app_paths import user_config_dir_path
+from ethernity.page_sizes import resolve_paper_size
 
 _DOTTED_BACKUP_KEY_RE = re.compile(r"^\s*defaults\.backup\.[A-Za-z0-9_-]+\s*=", re.MULTILINE)
 _FIRST_RUN_ONBOARDING_MARKER_FILENAME = ".first_run_onboarding_v1.done"
@@ -78,19 +77,6 @@ ONBOARDING_FIELDS = (
 
 def _missing_config_error(path: Path) -> FileNotFoundError:
     return FileNotFoundError(errno.ENOENT, "config file not found", str(path))
-
-
-def _build_paths() -> ConfigPaths:
-    """Construct the derived config path set."""
-
-    user_config_dir = user_config_dir_path()
-    user_config_path = user_config_file_path(DEFAULT_CONFIG_FILENAME)
-    user_required_files = (user_config_path,)
-    return ConfigPaths(
-        user_config_dir=user_config_dir,
-        user_config_path=user_config_path,
-        user_required_files=user_required_files,
-    )
 
 
 ConfigMigration = Callable[[str], str | None]
@@ -147,7 +133,7 @@ def _is_render_style_dir(path: Path) -> bool:
 def init_user_config() -> Path:
     """Ensure user config exists and return the user config directory."""
 
-    paths = _build_paths()
+    paths = build_config_paths()
     if not _ensure_user_config(paths):
         raise OSError(f"unable to create config dir at {paths.user_config_dir}")
     return paths.user_config_dir
@@ -156,7 +142,7 @@ def init_user_config() -> Path:
 def user_config_needs_init() -> bool:
     """Return whether any required user config files are missing."""
 
-    paths = _build_paths()
+    paths = build_config_paths()
     return any(not path.exists() for path in paths.user_required_files)
 
 
@@ -165,7 +151,7 @@ def resolve_config_path(path: str | Path | None = None) -> Path:
     if path:
         return Path(path).expanduser()
 
-    paths = _build_paths()
+    paths = build_config_paths()
     if _ensure_user_config(paths) and paths.user_config_path.exists():
         return paths.user_config_path
     return DEFAULT_CONFIG_PATH
@@ -180,7 +166,7 @@ def resolve_writable_config_path(path: str | Path | None = None) -> Path:
             raise _missing_config_error(resolved)
         return resolved
 
-    paths = _build_paths()
+    paths = build_config_paths()
     if not _ensure_user_config(paths) or not paths.user_config_path.exists():
         raise OSError(f"unable to initialize user config at {paths.user_config_path}")
     return paths.user_config_path
@@ -195,7 +181,7 @@ def resolve_config_snapshot_path(path: str | Path | None = None) -> Path:
             raise _missing_config_error(resolved)
         return resolved
 
-    paths = _build_paths()
+    paths = build_config_paths()
     if paths.user_config_path.exists():
         return paths.user_config_path
     return DEFAULT_CONFIG_PATH
@@ -204,7 +190,7 @@ def resolve_config_snapshot_path(path: str | Path | None = None) -> Path:
 def resolve_api_defaults_config_path() -> Path:
     """Resolve the config path API commands should use for default CLI settings."""
 
-    paths = _build_paths()
+    paths = build_config_paths()
     if paths.user_config_path.exists():
         if not _ensure_user_config(paths):
             raise OSError(f"unable to refresh user config at {paths.user_config_path}")
@@ -317,10 +303,9 @@ def apply_first_run_defaults(
         raise ValueError("payload_codec must be 'auto', 'raw', or 'gzip'")
     if qr_payload_codec not in {"raw", "base64"}:
         raise ValueError("qr_payload_codec must be 'raw' or 'base64'")
-    if qr_error_correction not in {"L", "M", "Q", "H"}:
+    if qr_error_correction not in QR_ERROR_LEVELS:
         raise ValueError("qr_error_correction must be one of 'L', 'M', 'Q', or 'H'")
-    if page_size not in {"A4", "LETTER"}:
-        raise ValueError("page_size must be 'A4' or 'LETTER'")
+    resolved_page_size = resolve_paper_size(page_size).name
     if qr_chunk_size <= 0:
         raise ValueError("qr_chunk_size must be a positive integer")
 
@@ -375,7 +360,12 @@ def apply_first_run_defaults(
         value=f'"{qr_payload_codec}"',
     )
     updated = _upsert_table_key(updated, table="qr", key="error", value=f'"{qr_error_correction}"')
-    updated = _upsert_table_key(updated, table="page", key="size", value=f'"{page_size}"')
+    updated = _upsert_table_key(
+        updated,
+        table="page",
+        key="size",
+        value=f'"{resolved_page_size}"',
+    )
     updated = _upsert_table_key(
         updated,
         table="defaults.backup",

@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, TypeAlias
 
+from ethernity.page_sizes import PaperSizeName
 from ethernity.qr.codec import QrConfig
 
 PayloadCodec = Literal["auto", "raw", "gzip"]
 QrPayloadCodec = Literal["raw", "base64"]
 QrErrorCorrection = Literal["L", "M", "Q", "H"]
-PageSize = Literal["A4", "LETTER"]
+PageSize: TypeAlias = PaperSizeName
 SigningKeyMode = Literal["embedded", "sharded"]
 ExtensionUnlockPolicy = Literal["self-contained", "reuse-root"]
 ExtensionSigningKeyMode = Literal["not-stored", "sharded"]
@@ -102,7 +103,7 @@ class AppConfig:
     """Resolved application configuration used by runtime services."""
 
     design_name: str
-    paper_size: str
+    paper_size: PaperSizeName
     qr_config: QrConfig
     qr_chunk_size: int
     extension_chunking: ExtensionChunkingDefaults = field(default_factory=ExtensionChunkingDefaults)

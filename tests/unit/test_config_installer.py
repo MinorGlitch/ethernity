@@ -24,16 +24,9 @@ from pathlib import Path
 from unittest import mock
 
 import ethernity.config.install as installer
+import ethernity.config.paths as config_paths
 from ethernity.core import app_paths
-
-
-def _home_env(home: Path) -> dict[str, str]:
-    env = {"HOME": str(home), "USERPROFILE": str(home)}
-    drive, tail = os.path.splitdrive(str(home))
-    if drive:
-        env["HOMEDRIVE"] = drive
-        env["HOMEPATH"] = tail or "\\"
-    return env
+from tests.support.environment import home_environment
 
 
 def _create_design(root: Path, name: str) -> Path:
@@ -137,7 +130,7 @@ class TestConfigInstaller(unittest.TestCase):
             paths.user_config_path.parent.mkdir(parents=True, exist_ok=True)
             paths.user_config_path.write_text("[ui]\nquiet = false\n", encoding="utf-8")
             with (
-                mock.patch.object(installer, "_build_paths", return_value=paths),
+                mock.patch.object(installer, "build_config_paths", return_value=paths),
                 mock.patch.object(
                     installer, "_ensure_user_config", return_value=True
                 ) as ensure_user,
@@ -173,7 +166,7 @@ qr_payload_codec = "raw"
                     payload_codec="gzip",
                     qr_payload_codec="base64",
                     qr_error_correction="Q",
-                    page_size="LETTER",
+                    page_size=" letter ",
                     backup_output_dir="/tmp/backups",
                     qr_chunk_size=384,
                     shard_threshold=2,
@@ -260,13 +253,13 @@ qr_payload_codec = "raw"
 
     def test_build_paths_contains_expected_required_files(self) -> None:
         user_cfg = Path("/tmp/usercfg")
-        with mock.patch.object(installer, "user_config_dir_path", return_value=user_cfg):
+        with mock.patch.object(config_paths, "user_config_dir_path", return_value=user_cfg):
             with mock.patch.object(
-                installer,
+                config_paths,
                 "user_config_file_path",
                 return_value=user_cfg / "config.toml",
             ):
-                paths = installer._build_paths()
+                paths = config_paths.build_config_paths()
 
         self.assertEqual(paths.user_config_dir, Path("/tmp/usercfg"))
         self.assertEqual(paths.user_config_path, Path("/tmp/usercfg/config.toml"))
@@ -319,7 +312,7 @@ qr_payload_codec = "raw"
             user_config_path=Path("/tmp/config/config.toml"),
             user_required_files=(),
         )
-        with mock.patch.object(installer, "_build_paths", return_value=paths):
+        with mock.patch.object(installer, "build_config_paths", return_value=paths):
             with mock.patch.object(installer, "_ensure_user_config", return_value=True):
                 self.assertEqual(installer.init_user_config(), Path("/tmp/config"))
             with mock.patch.object(installer, "_ensure_user_config", return_value=False):
@@ -337,10 +330,10 @@ qr_payload_codec = "raw"
                 user_config_path=root / "config.toml",
                 user_required_files=(existing, missing),
             )
-            with mock.patch.object(installer, "_build_paths", return_value=paths):
+            with mock.patch.object(installer, "build_config_paths", return_value=paths):
                 self.assertTrue(installer.user_config_needs_init())
             missing.write_text("ok", encoding="utf-8")
-            with mock.patch.object(installer, "_build_paths", return_value=paths):
+            with mock.patch.object(installer, "build_config_paths", return_value=paths):
                 self.assertFalse(installer.user_config_needs_init())
 
     def test_resolve_config_path_paths(self) -> None:
@@ -349,7 +342,7 @@ qr_payload_codec = "raw"
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict(os.environ, _home_env(home), clear=False):
+            with mock.patch.dict(os.environ, home_environment(home), clear=False):
                 self.assertEqual(
                     installer.resolve_config_path("~/custom.toml"),
                     home / "custom.toml",
@@ -364,10 +357,10 @@ qr_payload_codec = "raw"
                 user_config_path=config_path,
                 user_required_files=(),
             )
-            with mock.patch.object(installer, "_build_paths", return_value=paths):
+            with mock.patch.object(installer, "build_config_paths", return_value=paths):
                 with mock.patch.object(installer, "_ensure_user_config", return_value=True):
                     self.assertEqual(installer.resolve_config_path(), config_path)
-            with mock.patch.object(installer, "_build_paths", return_value=paths):
+            with mock.patch.object(installer, "build_config_paths", return_value=paths):
                 with mock.patch.object(installer, "_ensure_user_config", return_value=False):
                     self.assertEqual(installer.resolve_config_path(), installer.DEFAULT_CONFIG_PATH)
 

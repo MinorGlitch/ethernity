@@ -15,9 +15,11 @@
 
 """Config loaders, path resolution, and installer helpers."""
 
-from ethernity.config.api_patch import (
+from ethernity.config.api.contracts import (
     ApiConfigSnapshot,
     ConfigPatchError,
+)
+from ethernity.config.api.service import (
     apply_api_config_patch,
     get_api_config_snapshot,
 )

@@ -11,6 +11,7 @@ from ethernity.core.app_paths import (
     user_config_dir_path,
     user_config_file_path,
 )
+from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME
 
 
 def _resources_root() -> Path:
@@ -42,7 +43,7 @@ RENDER_STYLE_FILENAMES = (
     DESIGN_MANIFEST_FILENAME,
     DESIGN_STYLE_FILENAME,
 )
-DEFAULT_PAPER_SIZE = "A4"
+DEFAULT_PAPER_SIZE = DEFAULT_PAPER_SIZE_NAME
 DEFAULT_CONFIG_PATH = CONFIG_RESOURCE_ROOT / "config.toml"
 
 

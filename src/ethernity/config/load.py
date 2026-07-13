@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal, cast
@@ -32,6 +31,7 @@ from pydantic import (
     model_validator,
 )
 
+from ethernity.config._toml_support import load_toml
 from ethernity.config.install import resolve_config_path, resolve_render_style_path
 from ethernity.config.paths import (
     DEFAULT_PAPER_SIZE,
@@ -48,13 +48,15 @@ from ethernity.config.types import (
     RuntimeDefaults,
     UiDefaults,
 )
+from ethernity.config.value_constraints import PAGE_SIZES, QR_ERROR_LEVELS
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
 from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
 from ethernity.formats.extension_envelope import MIN_EXTENSION_CHUNK_SIZE
+from ethernity.page_sizes import normalize_paper_size_name
 from ethernity.qr.codec import QrConfig
 
-_QR_ERROR_LEVELS = frozenset({"L", "M", "Q", "H"})
-_PAGE_SIZES = frozenset({"A4", "LETTER"})
+_QR_ERROR_LEVELS = frozenset(QR_ERROR_LEVELS)
+_PAGE_SIZES = frozenset(PAGE_SIZES)
 
 
 class _QrSectionData(BaseModel):
@@ -62,7 +64,7 @@ class _QrSectionData(BaseModel):
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
-    error: str = "Q"
+    error: str = "M"
     scale: int = 4
     border: int = 4
     kind: str = "png"
@@ -216,7 +218,7 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
     """Load app configuration and apply defaults and render-style resolution."""
 
     config_path = resolve_config_path(path)
-    data = _load_toml(config_path)
+    data = load_toml(config_path)
     cli_defaults = _parse_cli_defaults(data)
     design_name = _resolve_render_style(_get_dict(data, "render"))
     page_cfg = _get_dict(data, "page")
@@ -245,7 +247,7 @@ def load_cli_defaults(path: str | Path | None = None) -> CliDefaults:
     """Load only CLI defaults from the configured TOML file."""
 
     config_path = resolve_config_path(path)
-    data = _load_toml(config_path)
+    data = load_toml(config_path)
     return _parse_cli_defaults(data)
 
 
@@ -274,11 +276,12 @@ def _resolve_page_size(*, override: str | None, configured: object) -> str:
 
 
 def _parse_page_size(value: object, *, field: str) -> str:
+    choices = ", ".join(PAGE_SIZES)
     if not isinstance(value, str):
-        raise ValueError(f"{field} must be one of: A4, LETTER")
-    normalized = value.strip().upper()
+        raise ValueError(f"{field} must be one of: {choices}")
+    normalized = normalize_paper_size_name(value)
     if normalized not in _PAGE_SIZES:
-        raise ValueError(f"{field} must be one of: A4, LETTER")
+        raise ValueError(f"{field} must be one of: {choices}")
     return normalized
 
 
@@ -516,13 +519,6 @@ def _parse_optional_style_name(value: object, *, field: str) -> str | None:
     if not name:
         raise ValueError(f"{field} must be a non-empty string")
     return name
-
-
-def _load_toml(path: Path) -> dict[str, object]:
-    """Load a TOML file into a raw dictionary."""
-
-    with path.open("rb") as handle:
-        return tomllib.load(handle)
 
 
 def _get_dict(data: dict[str, object], key: str) -> dict[str, object]:

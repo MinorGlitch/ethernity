@@ -25,6 +25,7 @@ from ethernity.config import (
     load_cli_defaults,
 )
 from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
+from ethernity.page_sizes import paper_size_names
 
 
 class TestConfig(unittest.TestCase):
@@ -116,7 +117,11 @@ size = "Letter"
 
     def test_load_app_config_various_paper_sizes(self) -> None:
         """Test loading config with supported paper sizes."""
-        cases = (("A4", "A4"), ("Letter", "LETTER"), ("LETTER", "LETTER"))
+        cases = tuple(
+            (candidate, registered)
+            for registered in paper_size_names()
+            for candidate in (registered, registered.title())
+        )
         for paper_size, expected in cases:
             toml = f"""
 [page]
@@ -129,16 +134,18 @@ size = "{paper_size}"
             self.assertEqual(config.paper_size, expected)
 
     def test_load_app_config_rejects_unsupported_paper_sizes(self) -> None:
-        for paper_size in ["Legal", "A3", "A5"]:
-            toml = f"""
+        paper_size = "NOT_A_REGISTERED_PAPER_SIZE"
+        toml = f"""
 [page]
 size = "{paper_size}"
 """
-            with self.subTest(paper_size=paper_size), tempfile.TemporaryDirectory() as tmpdir:
-                path = Path(tmpdir) / "config.toml"
-                path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
-                with self.assertRaisesRegex(ValueError, "page.size must be one of: A4, LETTER"):
-                    load_app_config(path=path)
+        expected_choices = ", ".join(paper_size_names())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
+            expected_error = f"page.size must be one of: {expected_choices}"
+            with self.assertRaisesRegex(ValueError, expected_error):
+                load_app_config(path=path)
 
     def test_load_app_config_qr_boundary_values(self) -> None:
         """Test QR config with boundary values."""
