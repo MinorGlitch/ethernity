@@ -1,0 +1,3 @@
+recursive-exclude src/ethernity/resources/kit *.html
+include src/ethernity/resources/kit/recovery_kit.bundle.html
+include src/ethernity/resources/kit/recovery_kit.scanner.bundle.html

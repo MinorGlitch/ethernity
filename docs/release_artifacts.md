@@ -30,6 +30,9 @@ Optional Brotli builds use suffixed `*.brotli.bundle.html` names and never repla
 gzip artifacts. Deterministic gzip builds require the `libdeflate-gzip` executable (provided by the
 `libdeflate-tools` package on Ubuntu).
 
+Python wheels and PyInstaller distributions embed only the two canonical gzip bundles. Optional
+Brotli files remain standalone build outputs under `kit/dist/`.
+
 The generated canonical bundles must decode to an extension-capable UI and pass the real-Chrome
 boot and scrypt Worker smoke before release. Recovery kit bundles are release artifacts, not
 committed source files.

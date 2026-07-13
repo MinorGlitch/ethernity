@@ -6,6 +6,13 @@ import tarfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
+_CANONICAL_KIT_BUNDLE_ENTRIES = frozenset(
+    {
+        "resources/kit/recovery_kit.bundle.html",
+        "resources/kit/recovery_kit.scanner.bundle.html",
+    }
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -31,7 +38,15 @@ def expected_source_entries(package_root: Path) -> set[str]:
         and "__pycache__" not in path.parts
         and not any(part.startswith(".") for part in path.relative_to(package_root).parts)
         and path.suffix not in {".pyc", ".pyo"}
+        and _is_packaged_source_entry(path.relative_to(package_root))
     }
+
+
+def _is_packaged_source_entry(relative_path: Path) -> bool:
+    entry = relative_path.as_posix()
+    if relative_path.parent.as_posix() != "resources/kit" or relative_path.suffix != ".html":
+        return True
+    return entry in _CANONICAL_KIT_BUNDLE_ENTRIES
 
 
 def wheel_package_entries(wheel_path: Path) -> set[str]:

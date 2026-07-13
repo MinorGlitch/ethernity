@@ -113,6 +113,22 @@ jobs:
         working-directory: kit
         run: npm run format:check
 
+  render-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Install Poppler
+        run: sudo apt-get update && sudo apt-get install --yes poppler-utils
+      - name: Verify responsive PDF matrix
+        run: |
+          uv run python scripts/render_visual_baselines.py \
+            --output-dir "${RUNNER_TEMP}/render-visual-baselines" \
+            --rasterize never
+
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
