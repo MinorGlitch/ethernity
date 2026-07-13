@@ -241,12 +241,13 @@ Missing, empty, or unknown values are rejected by config loading.
 The project commonly defaults to 24-word BIP-39 mnemonics in interactive flows. This is not a format
 requirement.
 
-Implementations often verify the BIP-39 checksum before attempting decryption; checksum failure is a
-strong indicator of transcription error in the mnemonic.
+Producers canonicalize whitespace only when the text is a checksum-valid BIP-39 mnemonic. Recovery
+tries the supplied string exactly first, then may retry its distinct canonical single-space BIP-39
+form. Word-list-shaped custom strings with an invalid checksum remain exact non-BIP-39 passphrases.
 
 Example (12 words):
 ```
-abandon ability able about above absent absorb abstract absurd abuse access accident
+abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about
 ```
 
 ## Shamir Operational Guidance

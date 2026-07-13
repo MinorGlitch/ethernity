@@ -94,8 +94,8 @@ Use this template for each change entry:
   - `src/ethernity/cli/features/recover/`
   - `src/ethernity/cli/features/mint/`
   - `src/ethernity/cli/features/compact/`
-  - `kit/app/extension_envelope.js`
-  - `kit/app/extension_recovery.js`
+  - `kit/app/extensions/envelope.js`
+  - `kit/app/extensions/recovery.js`
 - Test refs:
   - `tests/unit/test_extension_envelope.py`
   - `tests/unit/test_extension_build.py`
