@@ -26,27 +26,28 @@ from pathlib import Path
 from typing import Iterator
 
 from rich.console import Console
-from rich.live import Live
 from rich.progress import Progress
-from rich.spinner import Spinner
-from rich.text import Text
 
 from ethernity import render as render_module
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.events import active_event_sink, emit_phase, emit_progress
 from ethernity.cli.shared.io.outputs import (
-    _commit_prepared_output_dir,
-    _discard_prepared_output_dir,
-    _prepare_output_dir,
+    commit_prepared_output_dir,
+    discard_prepared_output_dir,
+    prepare_output_dir,
 )
-from ethernity.cli.shared.log import _warn
+from ethernity.cli.shared.log import warn
 from ethernity.cli.shared.recovery_kit_index import (
     build_recovery_kit_index_inventory_rows,
     resolve_recovery_kit_index_style,
 )
+from ethernity.cli.shared.render_validation import validate_rendered_pdf_artifact
+from ethernity.cli.shared.shard_rendering import render_shard_document
 from ethernity.cli.shared.types import BackupResult, InputFile
+from ethernity.cli.shared.ui.debug import normalize_debug_max_bytes, print_backup_debug
+from ethernity.cli.shared.ui.runtime import plain_status
+from ethernity.cli.shared.ui.state import isatty
 from ethernity.config import AppConfig
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan, SigningSeedMode
@@ -55,11 +56,13 @@ from ethernity.crypto import (
     sharding as sharding_module,
     signing as signing_module,
 )
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
+from ethernity.crypto.passphrases import canonicalize_valid_bip39_mnemonic
 from ethernity.crypto.sharding import ShardPayload
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType
-from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_RAW, QrPayloadCodec
+from ethernity.encoding.qr_payloads import QrPayloadCodec
 from ethernity.formats import (
     envelope_codec as envelope_codec_module,
     payload_codec as payload_codec_module,
@@ -71,45 +74,13 @@ from ethernity.render.layout_debug import (
     layout_debug_json_path,
     resolve_layout_debug_dir,
 )
-from ethernity.render.proofs import (
-    RenderProofError,
-    validate_fallback_render_proof,
-    validate_fallback_text_in_pdf,
-    validate_pdf_has_pages,
-    validate_render_artifact_proof,
-    validate_render_layout_proof,
-    validate_text_in_pdf,
-)
+from ethernity.render.proofs import RenderProofError
 from ethernity.render.recovery_lines import append_signing_key_lines
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
 from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
 
-
-def _isatty(raw: object, fallback: object) -> bool:
-    if raw is not None:
-        try:
-            return bool(raw.isatty())  # type: ignore[attr-defined]
-        except (OSError, ValueError, AttributeError):
-            return False
-    return bool(getattr(fallback, "isatty", lambda: False)())
-
-
-console = Console(force_terminal=_isatty(sys.__stdout__, sys.stdout))
-
-
-@contextmanager
-def status(message: str, *, quiet: bool = False) -> Iterator[Live | None]:
-    if quiet:
-        yield None
-        return
-    if not _isatty(sys.__stdout__, sys.stdout):
-        console.print(message)
-        yield None
-        return
-    spinner = Spinner("dots", text=Text(message))
-    with Live(spinner, console=console, transient=False, refresh_per_second=12) as live:
-        yield live
+console = Console(force_terminal=isatty(sys.__stdout__, sys.stdout))
 
 
 @contextmanager
@@ -120,20 +91,10 @@ def progress(*, quiet: bool = False) -> Iterator[Progress | None]:
     progress_bar = Progress(
         console=console,
         transient=True,
-        disable=not _isatty(sys.__stdout__, sys.stdout),
+        disable=not isatty(sys.__stdout__, sys.stdout),
     )
     with progress_bar:
         yield progress_bar
-
-
-def _normalize_debug_max_bytes(value: int | None) -> int | None:
-    if value is None or value <= 0:
-        return None
-    return value
-
-
-def _layout_debug_json_path(layout_debug_dir: str | None, stem: str) -> str | None:
-    return layout_debug_json_path(layout_debug_dir, stem)
 
 
 def _expected_kit_index_component_ids(inputs: RenderInputs) -> tuple[str, ...]:
@@ -157,101 +118,6 @@ def _update_kit_index_qr_page_count(
         raise RenderProofError("rendered QR document is missing render artifact proof")
     if render_result.artifact_proof.page_count > 0:
         kit_index_inputs.context["kit_qr_page_count"] = render_result.artifact_proof.page_count
-
-
-def _validate_rendered_pdf_artifact(
-    *,
-    inputs: RenderInputs,
-    result: object,
-    artifact_label: str,
-    expected_text: tuple[str, ...] = (),
-) -> None:
-    if not isinstance(result, RenderResult):
-        raise RenderProofError(
-            f"{artifact_label} renderer did not return RenderResult",
-            details={"result_type": type(result).__name__},
-        )
-    artifact_proof = result.artifact_proof
-    if artifact_proof is None:
-        raise RenderProofError(f"{artifact_label} is missing render artifact proof")
-    validate_render_artifact_proof(
-        artifact_label=artifact_label,
-        inputs=inputs,
-        artifact_proof=artifact_proof,
-    )
-    reader = validate_pdf_has_pages(inputs.output_path, artifact_label=artifact_label)
-    if inputs.render_fallback:
-        fallback_sections = tuple(inputs.fallback_sections or ())
-        fallback_proof = artifact_proof.fallback_proof or result.fallback_proof
-        validate_fallback_render_proof(
-            artifact_label=artifact_label,
-            frames=tuple(section.frame for section in fallback_sections),
-            fallback_proof=fallback_proof,
-        )
-        validate_render_layout_proof(
-            artifact_label=artifact_label,
-            layout_proof=result.layout_proof,
-            expected_page_count=len(reader.pages),
-        )
-        validate_fallback_text_in_pdf(
-            artifact_label=artifact_label,
-            reader=reader,
-            fallback_sections=fallback_sections,
-            fallback_proof=fallback_proof,
-        )
-    if expected_text:
-        validate_text_in_pdf(
-            artifact_label=artifact_label,
-            reader=reader,
-            expected_text=expected_text,
-            details_key="missing_component_ids",
-            missing_message=f"{artifact_label} is missing expected inventory rows",
-        )
-
-
-def _render_shard(
-    shard: ShardPayload,
-    *,
-    doc_id: bytes,
-    output_dir: str,
-    render_service: RenderService,
-    filename_prefix: str,
-    doc_type: str | None = None,
-    layout_debug_json_path: str | None = None,
-    qr_payload_codec: QrPayloadCodec = QR_PAYLOAD_CODEC_RAW,
-    lineage: RenderLineage,
-) -> str:
-    """Render a single shard document to PDF and return the output path."""
-    shard_frame = Frame(
-        version=VERSION,
-        frame_type=FrameType.KEY_DOCUMENT,
-        doc_id=doc_id,
-        index=0,
-        total=1,
-        data=sharding_module.encode_shard_payload(shard),
-    )
-    shard_path = str(
-        Path(output_dir)
-        / f"{filename_prefix}-{doc_id.hex()}-{shard.share_index}-of-{shard.share_count}.pdf"
-    )
-    shard_inputs = render_service.shard_inputs(
-        shard_frame,
-        shard_path,
-        shard_index=shard.share_index,
-        shard_total=shard.share_count,
-        shard_threshold=shard.threshold,
-        qr_payloads=render_service.build_qr_payloads([shard_frame], codec=qr_payload_codec),
-        doc_type=doc_type,
-        layout_debug_json_path=layout_debug_json_path,
-        lineage=lineage,
-    )
-    render_result = render_module.render_frames_to_pdf(shard_inputs)
-    _validate_rendered_pdf_artifact(
-        inputs=shard_inputs,
-        result=render_result,
-        artifact_label=f"rendered {filename_prefix} artifact",
-    )
-    return shard_path
 
 
 def _prepare_envelope(
@@ -333,7 +199,7 @@ def _create_shard_payloads(
     signing_key_shard_payloads: list[ShardPayload] = []
 
     if plan_sharding is not None:
-        with status("Creating shard payloads...", quiet=status_quiet):
+        with plain_status("Creating shard payloads...", quiet=status_quiet, console=console):
             shard_payloads = sharding_module.split_passphrase(
                 passphrase,
                 threshold=plan_sharding.threshold,
@@ -345,7 +211,11 @@ def _create_shard_payloads(
         if shard_signing_key:
             if signing_key_sharding is None:
                 raise ValueError("signing key sharding requires a shard quorum")
-            with status("Creating signing key shard payloads...", quiet=status_quiet):
+            with plain_status(
+                "Creating signing key shard payloads...",
+                quiet=status_quiet,
+                console=console,
+            ):
                 signing_key_shard_payloads = sharding_module.split_signing_seed(
                     sign_priv,
                     threshold=signing_key_sharding.threshold,
@@ -464,7 +334,7 @@ def _render_with_progress(
 
     progress_bar.update(task_id, description="Rendering QR document...")
     qr_result = render_module.render_frames_to_pdf(qr_inputs)
-    _validate_rendered_pdf_artifact(
+    validate_rendered_pdf_artifact(
         inputs=qr_inputs,
         result=qr_result,
         artifact_label="rendered QR document",
@@ -475,7 +345,7 @@ def _render_with_progress(
 
     progress_bar.update(task_id, description="Rendering recovery document...")
     recovery_result = render_module.render_frames_to_pdf(recovery_inputs)
-    _validate_rendered_pdf_artifact(
+    validate_rendered_pdf_artifact(
         inputs=recovery_inputs,
         result=recovery_result,
         artifact_label="rendered recovery document",
@@ -490,7 +360,7 @@ def _render_with_progress(
     if kit_index_inputs is not None:
         progress_bar.update(task_id, description="Rendering recovery kit index...")
         kit_index_result = render_module.render_frames_to_pdf(kit_index_inputs)
-        _validate_rendered_pdf_artifact(
+        validate_rendered_pdf_artifact(
             inputs=kit_index_inputs,
             result=kit_index_result,
             artifact_label="rendered recovery kit index",
@@ -510,13 +380,13 @@ def _render_with_progress(
             progress_bar.update(
                 task_id, description=f"Rendering shard documents... ({idx}/{total_shards})"
             )
-            shard_path = _render_shard(
+            shard_path = render_shard_document(
                 shard,
                 doc_id=doc_id,
                 output_dir=output_dir,
                 render_service=render_service,
                 filename_prefix="shard",
-                layout_debug_json_path=_layout_debug_json_path(
+                layout_debug_json_path=layout_debug_json_path(
                     layout_debug_dir,
                     f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                 ),
@@ -538,14 +408,14 @@ def _render_with_progress(
             progress_bar.update(
                 task_id, description=f"Rendering signing key shards... ({idx}/{total_shards})"
             )
-            shard_path = _render_shard(
+            shard_path = render_shard_document(
                 shard,
                 doc_id=doc_id,
                 output_dir=output_dir,
                 render_service=render_service,
                 filename_prefix="signing-key-shard",
                 doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
-                layout_debug_json_path=_layout_debug_json_path(
+                layout_debug_json_path=layout_debug_json_path(
                     layout_debug_dir,
                     f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                 ),
@@ -604,9 +474,9 @@ def _render_without_progress(
             details=details,
         )
 
-    with status("Rendering QR document...", quiet=status_quiet):
+    with plain_status("Rendering QR document...", quiet=status_quiet, console=console):
         qr_result = render_module.render_frames_to_pdf(qr_inputs)
-        _validate_rendered_pdf_artifact(
+        validate_rendered_pdf_artifact(
             inputs=qr_inputs,
             result=qr_result,
             artifact_label="rendered QR document",
@@ -614,9 +484,9 @@ def _render_without_progress(
         _update_kit_index_qr_page_count(kit_index_inputs, qr_result)
     _advance_render("Rendered QR document", kind="qr_document", path=qr_inputs.output_path)
 
-    with status("Rendering recovery document...", quiet=status_quiet):
+    with plain_status("Rendering recovery document...", quiet=status_quiet, console=console):
         recovery_result = render_module.render_frames_to_pdf(recovery_inputs)
-        _validate_rendered_pdf_artifact(
+        validate_rendered_pdf_artifact(
             inputs=recovery_inputs,
             result=recovery_result,
             artifact_label="rendered recovery document",
@@ -628,9 +498,13 @@ def _render_without_progress(
     )
 
     if kit_index_inputs is not None:
-        with status("Rendering recovery kit index...", quiet=status_quiet):
+        with plain_status(
+            "Rendering recovery kit index...",
+            quiet=status_quiet,
+            console=console,
+        ):
             kit_index_result = render_module.render_frames_to_pdf(kit_index_inputs)
-            _validate_rendered_pdf_artifact(
+            validate_rendered_pdf_artifact(
                 inputs=kit_index_inputs,
                 result=kit_index_result,
                 artifact_label="rendered recovery kit index",
@@ -643,16 +517,16 @@ def _render_without_progress(
         )
 
     if shard_payloads:
-        with status("Rendering shard documents...", quiet=status_quiet):
+        with plain_status("Rendering shard documents...", quiet=status_quiet, console=console):
             sorted_shards = sorted(shard_payloads, key=lambda shard: shard.share_index)
             for shard in sorted_shards:
-                shard_path = _render_shard(
+                shard_path = render_shard_document(
                     shard,
                     doc_id=doc_id,
                     output_dir=output_dir,
                     render_service=render_service,
                     filename_prefix="shard",
-                    layout_debug_json_path=_layout_debug_json_path(
+                    layout_debug_json_path=layout_debug_json_path(
                         layout_debug_dir,
                         f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
@@ -667,17 +541,21 @@ def _render_without_progress(
                 )
 
     if signing_key_shard_payloads:
-        with status("Rendering signing key shards...", quiet=status_quiet):
+        with plain_status(
+            "Rendering signing key shards...",
+            quiet=status_quiet,
+            console=console,
+        ):
             sorted_shards = sorted(signing_key_shard_payloads, key=lambda shard: shard.share_index)
             for shard in sorted_shards:
-                shard_path = _render_shard(
+                shard_path = render_shard_document(
                     shard,
                     doc_id=doc_id,
                     output_dir=output_dir,
                     render_service=render_service,
                     filename_prefix="signing-key-shard",
                     doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
-                    layout_debug_json_path=_layout_debug_json_path(
+                    layout_debug_json_path=layout_debug_json_path(
                         layout_debug_dir,
                         f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
@@ -721,8 +599,12 @@ def run_backup(
     status_quiet = quiet or debug
     if not input_files:
         raise ValueError("at least one input file is required")
+    if passphrase is not None and plan.sharding is None and not passphrase.isprintable():
+        raise ValueError(
+            "directly printed passphrase must contain only manually enterable printable text"
+        )
 
-    with status("Starting backup...", quiet=status_quiet):
+    with plain_status("Starting backup...", quiet=status_quiet, console=console):
         pass
 
     # Generate signing keypair and determine key storage modes
@@ -737,9 +619,12 @@ def run_backup(
         and not plan.sealed
         and plan.signing_seed_mode == SigningSeedMode.SHARDED
     )
+    producer_passphrase = (
+        canonicalize_valid_bip39_mnemonic(passphrase) if passphrase is not None else None
+    )
 
     # Prepare envelope and handle debug output
-    with status("Preparing payload...", quiet=status_quiet):
+    with plain_status("Preparing payload...", quiet=status_quiet, console=console):
         emit_phase(phase="prepare", label="Preparing payload")
         payload_codec_mode = config.cli_defaults.backup.payload_codec
         qr_payload_codec_mode = config.cli_defaults.backup.qr_payload_codec
@@ -765,8 +650,6 @@ def run_backup(
         )
 
     if debug:
-        from ethernity.cli.shared.ui.debug import print_backup_debug
-
         print_backup_debug(
             payload=payload,
             input_files=input_files,
@@ -774,20 +657,22 @@ def run_backup(
             manifest=manifest,
             envelope=envelope,
             plan=plan,
-            passphrase=passphrase,
+            passphrase=producer_passphrase,
             signing_seed=sign_priv,
             signing_pub=sign_pub,
             signing_seed_stored=store_signing_key,
-            debug_max_bytes=_normalize_debug_max_bytes(debug_max_bytes),
+            debug_max_bytes=normalize_debug_max_bytes(debug_max_bytes),
             reveal_secrets=debug_reveal_secrets,
             stderr=active_event_sink() is not None,
         )
 
     # Encrypt payload
-    with status("Encrypting payload...", quiet=status_quiet):
+    with plain_status("Encrypting payload...", quiet=status_quiet, console=console):
         emit_phase(phase="encrypt", label="Encrypting payload")
         ciphertext, passphrase_used = encrypt_bytes_with_passphrase(
-            envelope, passphrase=passphrase, passphrase_words=passphrase_words
+            envelope,
+            passphrase=producer_passphrase,
+            passphrase_words=passphrase_words,
         )
     emit_progress(
         phase="encrypt",
@@ -803,7 +688,7 @@ def run_backup(
         )
     if passphrase_used is None:
         raise ValueError("passphrase generation failed")
-    passphrase_final = passphrase if passphrase is not None else passphrase_used
+    passphrase_final = passphrase_used
 
     # Build key lines for recovery document
     plan_sharding = plan.sharding
@@ -861,7 +746,7 @@ def run_backup(
         payload_codec=qr_payload_codec_mode,
     )
     if main_chunk_size < config.qr_chunk_size:
-        _warn(
+        warn(
             (
                 f"Requested QR chunk size ({config.qr_chunk_size} bytes) was reduced to "
                 f"{main_chunk_size} bytes to fit current QR settings."
@@ -880,7 +765,7 @@ def run_backup(
         chunk_size=main_chunk_size,
     )
     qr_frames = [*frames, auth_frame]
-    output_dir, staging_output_dir = _prepare_output_dir(
+    output_dir, staging_output_dir = prepare_output_dir(
         output_dir,
         doc_id.hex(),
         prefix="backup",
@@ -910,7 +795,7 @@ def run_backup(
         qr_frames,
         qr_path,
         qr_payloads=qr_payloads,
-        layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "qr_document"),
+        layout_debug_json_path=layout_debug_json_path(layout_debug_dir, "qr_document"),
         lineage=lineage,
     )
     kit_index_context = render_service.base_context(
@@ -928,7 +813,7 @@ def run_backup(
             context=kit_index_context,
             design_name=kit_index_style,
             qr_chunk_count=len(qr_frames),
-            layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_kit_index"),
+            layout_debug_json_path=layout_debug_json_path(layout_debug_dir, "recovery_kit_index"),
             lineage=lineage,
         )
         if kit_index_style is not None and kit_index_path is not None
@@ -953,7 +838,7 @@ def run_backup(
         key_lines=key_lines,
         recovery_meta=recovery_meta,
         fallback_sections=fallback_sections,
-        layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_document"),
+        layout_debug_json_path=layout_debug_json_path(layout_debug_dir, "recovery_document"),
         lineage=lineage,
     )
 
@@ -976,14 +861,14 @@ def run_backup(
         )
         if prepare_promotion is not None:
             prepare_promotion()
-        _commit_prepared_output_dir(
+        commit_prepared_output_dir(
             staging_output_dir,
             output_dir,
             validate_promotion=validate_promotion,
             lock_dir=promote_lock_dir,
         )
     except BaseException:
-        _discard_prepared_output_dir(staging_output_dir)
+        discard_prepared_output_dir(staging_output_dir)
         raise
 
     final_output_dir = Path(output_dir)

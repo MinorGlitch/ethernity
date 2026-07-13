@@ -14,7 +14,6 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import contextlib
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,17 +22,9 @@ from unittest import mock
 
 from ethernity.cli.features.kit import workflow as kit_module
 from ethernity.qr.codec import QrConfig
+from tests.support.environment import home_environment
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _home_env(home: Path) -> dict[str, str]:
-    env = {"HOME": str(home), "USERPROFILE": str(home)}
-    drive, tail = os.path.splitdrive(str(home))
-    if drive:
-        env["HOMEDRIVE"] = drive
-        env["HOMEPATH"] = tail or "\\"
-    return env
 
 
 class TestKitFlowHelpers(unittest.TestCase):
@@ -62,14 +53,6 @@ class TestKitFlowHelpers(unittest.TestCase):
             msg="payload chunk count should change with chunk_size",
         )
 
-    @mock.patch("ethernity.cli.features.kit.workflow.make_qr", return_value=object())
-    def test_fits_qr_payload_true(self, _make_qr: mock.MagicMock) -> None:
-        self.assertTrue(kit_module._fits_qr_payload(b"abc", QrConfig()))
-
-    @mock.patch("ethernity.cli.features.kit.workflow.make_qr", side_effect=ValueError("too big"))
-    def test_fits_qr_payload_false_on_error(self, _make_qr: mock.MagicMock) -> None:
-        self.assertFalse(kit_module._fits_qr_payload(b"abc", QrConfig()))
-
     def test_build_kit_qr_payloads_validates_each_payload_qr(self) -> None:
         with (
             mock.patch(
@@ -84,7 +67,7 @@ class TestKitFlowHelpers(unittest.TestCase):
                 "ethernity.cli.features.kit.workflow._kit_shell_payload", return_value=b"shell"
             ),
             mock.patch(
-                "ethernity.cli.features.kit.workflow._fits_qr_payload", return_value=True
+                "ethernity.cli.features.kit.workflow.fits_qr_payload", return_value=True
             ) as fits,
         ):
             payloads = kit_module._build_kit_qr_payloads(b"bundle", 120, QrConfig())
@@ -106,7 +89,7 @@ class TestKitFlowHelpers(unittest.TestCase):
                 "ethernity.cli.features.kit.workflow._kit_shell_payload", return_value=b"shell"
             ),
             mock.patch(
-                "ethernity.cli.features.kit.workflow._fits_qr_payload",
+                "ethernity.cli.features.kit.workflow.fits_qr_payload",
                 side_effect=[True, True, False],
             ),
         ):
@@ -119,11 +102,11 @@ class TestKitFlowHelpers(unittest.TestCase):
         def _fits(payload: bytes, _cfg: QrConfig) -> bool:
             return len(payload) <= 10
 
-        with mock.patch("ethernity.cli.features.kit.workflow._fits_qr_payload", side_effect=_fits):
+        with mock.patch("ethernity.cli.features.kit.workflow.fits_qr_payload", side_effect=_fits):
             self.assertEqual(kit_module._max_qr_payload_bytes(b"x" * 100, cfg), 10)
 
     def test_max_qr_payload_bytes_rejects_no_capacity(self) -> None:
-        with mock.patch("ethernity.cli.features.kit.workflow._fits_qr_payload", return_value=False):
+        with mock.patch("ethernity.cli.features.kit.workflow.fits_qr_payload", return_value=False):
             with self.assertRaisesRegex(ValueError, "cannot encode any payload bytes"):
                 kit_module._max_qr_payload_bytes(b"x", QrConfig())
 
@@ -234,7 +217,8 @@ class TestRenderKitDocument(unittest.TestCase):
     @mock.patch("ethernity.cli.features.kit.workflow.render_frames_to_pdf")
     @mock.patch("ethernity.cli.features.kit.workflow.RenderService")
     @mock.patch(
-        "ethernity.cli.features.kit.workflow.status", return_value=contextlib.nullcontext(None)
+        "ethernity.cli.features.kit.workflow.plain_status",
+        return_value=contextlib.nullcontext(None),
     )
     @mock.patch(
         "ethernity.cli.features.kit.workflow._build_kit_qr_payloads",
@@ -285,7 +269,8 @@ class TestRenderKitDocument(unittest.TestCase):
     @mock.patch("ethernity.cli.features.kit.workflow.render_frames_to_pdf")
     @mock.patch("ethernity.cli.features.kit.workflow.RenderService")
     @mock.patch(
-        "ethernity.cli.features.kit.workflow.status", return_value=contextlib.nullcontext(None)
+        "ethernity.cli.features.kit.workflow.plain_status",
+        return_value=contextlib.nullcontext(None),
     )
     @mock.patch(
         "ethernity.cli.features.kit.workflow._build_kit_qr_payloads",
@@ -333,7 +318,8 @@ class TestRenderKitDocument(unittest.TestCase):
     @mock.patch("ethernity.cli.features.kit.workflow.render_frames_to_pdf")
     @mock.patch("ethernity.cli.features.kit.workflow.RenderService")
     @mock.patch(
-        "ethernity.cli.features.kit.workflow.status", return_value=contextlib.nullcontext(None)
+        "ethernity.cli.features.kit.workflow.plain_status",
+        return_value=contextlib.nullcontext(None),
     )
     @mock.patch(
         "ethernity.cli.features.kit.workflow._build_kit_qr_payloads",
@@ -364,7 +350,7 @@ class TestRenderKitDocument(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+            with mock.patch.dict("os.environ", home_environment(home), clear=False):
                 result = kit_module.render_kit_qr_document(
                     output_path="~/kit.pdf",
                     config_path=None,
@@ -379,7 +365,8 @@ class TestRenderKitDocument(unittest.TestCase):
     @mock.patch("ethernity.cli.features.kit.workflow.render_frames_to_pdf")
     @mock.patch("ethernity.cli.features.kit.workflow.RenderService")
     @mock.patch(
-        "ethernity.cli.features.kit.workflow.status", return_value=contextlib.nullcontext(None)
+        "ethernity.cli.features.kit.workflow.plain_status",
+        return_value=contextlib.nullcontext(None),
     )
     @mock.patch(
         "ethernity.cli.features.kit.workflow._build_kit_qr_payloads",

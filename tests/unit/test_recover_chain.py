@@ -15,12 +15,14 @@
 
 import dataclasses
 import unittest
+from collections.abc import Callable
 from unittest import mock
 
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.types import InputFile
+from ethernity.crypto import AgeError, age_runtime
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import AuthPayload, derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.extensions.build import build_extension_document
@@ -170,6 +172,43 @@ def _recovery_plan(
     )
 
 
+def _candidate_locked_chain_plan(
+    *,
+    passphrase: str,
+) -> tuple[RecoveryPlan, bytes, bytes, bytes]:
+    root_plaintext = _root_ciphertext()[0]
+    root_ciphertext = b"candidate-locked-root-ciphertext"
+    root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
+    extension_plaintext = _extension_ciphertext(root_doc_hash)
+    extension_ciphertext = b"candidate-locked-extension-ciphertext"
+    extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
+    plan = dataclasses.replace(
+        _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
+        passphrase=passphrase,
+        import_documents=(
+            _imported_document(root_ciphertext, source_label="root.pdf"),
+            _imported_document(
+                extension_ciphertext,
+                auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                source_label="extension.pdf",
+            ),
+        ),
+    )
+    return plan, root_plaintext, extension_plaintext, extension_doc_hash
+
+
+def _candidate_decrypt_side_effect(
+    plaintext_by_candidate: dict[tuple[bytes, str], bytes],
+) -> Callable[[bytes, str], bytes]:
+    def decrypt(ciphertext: bytes, passphrase: str) -> bytes:
+        plaintext = plaintext_by_candidate.get((ciphertext, passphrase))
+        if plaintext is None:
+            raise AgeError(backend="pyrage", detail="Decryption failed")
+        return plaintext
+
+    return decrypt
+
+
 class TestRecoverChain(unittest.TestCase):
     def test_import_rejects_more_than_128_documents_before_reassembly(self) -> None:
         frames = [
@@ -217,6 +256,98 @@ class TestRecoverChain(unittest.TestCase):
         )
         self.assertEqual(result.manifest.input_origin, "directory")
         self.assertEqual(result.manifest.input_roots, ("reconstructed-state",))
+
+    def test_multi_document_recovery_locks_exact_passphrase_for_complete_chain(self) -> None:
+        exact = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
+        plan, root_plaintext, extension_plaintext, extension_doc_hash = (
+            _candidate_locked_chain_plan(passphrase=exact)
+        )
+        root_document, extension_document = plan.import_documents
+
+        with mock.patch.object(
+            age_runtime,
+            "_decrypt_with_pyrage",
+            side_effect=_candidate_decrypt_side_effect(
+                {
+                    (root_document.ciphertext, exact): root_plaintext,
+                    (extension_document.ciphertext, exact): extension_plaintext,
+                }
+            ),
+        ) as decrypt_candidate:
+            result = recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(result.selected_extension_doc_hash, extension_doc_hash.hex())
+        self.assertEqual(
+            [(call.args[0], call.args[1]) for call in decrypt_candidate.call_args_list],
+            [
+                (root_document.ciphertext, exact),
+                (extension_document.ciphertext, exact),
+            ],
+        )
+
+    def test_multi_document_recovery_retries_complete_chain_with_canonical_bip39(self) -> None:
+        exact = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
+        canonical = " ".join(["abandon"] * 11 + ["about"])
+        plan, root_plaintext, extension_plaintext, extension_doc_hash = (
+            _candidate_locked_chain_plan(passphrase=exact)
+        )
+        root_document, extension_document = plan.import_documents
+
+        with mock.patch.object(
+            age_runtime,
+            "_decrypt_with_pyrage",
+            side_effect=_candidate_decrypt_side_effect(
+                {
+                    (root_document.ciphertext, canonical): root_plaintext,
+                    (extension_document.ciphertext, canonical): extension_plaintext,
+                }
+            ),
+        ) as decrypt_candidate:
+            result = recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(result.selected_extension_doc_hash, extension_doc_hash.hex())
+        self.assertEqual(
+            [(call.args[0], call.args[1]) for call in decrypt_candidate.call_args_list],
+            [
+                (root_document.ciphertext, exact),
+                (extension_document.ciphertext, exact),
+                (root_document.ciphertext, canonical),
+                (extension_document.ciphertext, canonical),
+            ],
+        )
+
+    def test_multi_document_recovery_rejects_mixed_exact_and_canonical_chain(self) -> None:
+        exact = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
+        canonical = " ".join(["abandon"] * 11 + ["about"])
+        plan, root_plaintext, extension_plaintext, _extension_doc_hash = (
+            _candidate_locked_chain_plan(passphrase=exact)
+        )
+        root_document, extension_document = plan.import_documents
+
+        with (
+            mock.patch.object(
+                age_runtime,
+                "_decrypt_with_pyrage",
+                side_effect=_candidate_decrypt_side_effect(
+                    {
+                        (root_document.ciphertext, exact): root_plaintext,
+                        (extension_document.ciphertext, canonical): extension_plaintext,
+                    }
+                ),
+            ) as decrypt_candidate,
+            self.assertRaisesRegex(ValueError, "one consistent passphrase candidate"),
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(
+            [(call.args[0], call.args[1]) for call in decrypt_candidate.call_args_list],
+            [
+                (root_document.ciphertext, exact),
+                (extension_document.ciphertext, exact),
+                (root_document.ciphertext, canonical),
+                (extension_document.ciphertext, canonical),
+            ],
+        )
 
     def test_recover_chain_entries_reuses_root_selection_decrypt_session(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()

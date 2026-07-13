@@ -34,13 +34,14 @@ from ethernity.cli.features.extend.root_shards import published_root_passphrase_
 from ethernity.cli.features.recover.key_recovery import InsufficientShardError
 from ethernity.cli.features.recover.planning import RecoveryInspection, RecoveryUnlockStatus
 from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.io.frames import NoQrFramesError
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.crypto import sharding as sharding_module
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import LogicalFileState
-from ethernity.extensions.identity import doc_id_and_hash_from_ciphertext
 from ethernity.extensions.recovery import (
     ImportedRecoveryDocument,
     RecoveryChainInspection,
@@ -1479,7 +1480,7 @@ class TestExtendInspection(unittest.TestCase):
             if paths == [str(qr_path)]:
                 return [root_frame]
             if paths == [str(recovery_path)]:
-                raise ValueError(
+                raise NoQrFramesError(
                     f"scan failed: explicit scan input contains no QR codes: {recovery_path}"
                 )
             raise AssertionError(f"unexpected scan paths: {paths!r}")

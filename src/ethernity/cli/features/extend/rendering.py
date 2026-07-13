@@ -21,14 +21,8 @@ from __future__ import annotations
 from typing import Callable
 
 from ethernity.cli.shared.ndjson import ApiCommandError
+from ethernity.cli.shared.render_validation import validate_rendered_fallback_artifact
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
-from ethernity.render.proofs import (
-    validate_fallback_render_proof,
-    validate_fallback_text_in_pdf,
-    validate_pdf_has_pages,
-    validate_render_artifact_proof,
-    validate_render_layout_proof,
-)
 from ethernity.render.service import RenderService
 from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
 
@@ -121,7 +115,7 @@ def render_extension_artifacts(
     qr_render_result = render_frames_to_pdf(qr_inputs)
     _update_kit_index_qr_page_count(kit_index_inputs, qr_render_result)
     recovery_render_result = render_frames_to_pdf(recovery_inputs)
-    _validate_rendered_extension_fallback(
+    validate_rendered_fallback_artifact(
         inputs=recovery_inputs,
         result=recovery_render_result,
         artifact_label="rendered extension recovery document",
@@ -167,38 +161,4 @@ def render_extension_artifacts(
             section.frame for section in recovery_inputs.fallback_sections or ()
         ),
         recovery_document_fallback_proof=recovery_render_result.fallback_proof,
-    )
-
-
-def _validate_rendered_extension_fallback(
-    *,
-    inputs: RenderInputs,
-    result: RenderResult,
-    artifact_label: str,
-) -> None:
-    fallback_sections = tuple(inputs.fallback_sections or ())
-    validate_render_artifact_proof(
-        artifact_label=artifact_label,
-        inputs=inputs,
-        artifact_proof=result.artifact_proof,
-    )
-    reader = validate_pdf_has_pages(inputs.output_path, artifact_label=artifact_label)
-    validate_render_layout_proof(
-        artifact_label=artifact_label,
-        layout_proof=result.layout_proof,
-        expected_page_count=len(reader.pages),
-    )
-    fallback_proof = (
-        result.artifact_proof.fallback_proof if result.artifact_proof is not None else None
-    ) or result.fallback_proof
-    validate_fallback_render_proof(
-        artifact_label=artifact_label,
-        frames=tuple(section.frame for section in fallback_sections),
-        fallback_proof=fallback_proof,
-    )
-    validate_fallback_text_in_pdf(
-        artifact_label=artifact_label,
-        reader=reader,
-        fallback_sections=fallback_sections,
-        fallback_proof=fallback_proof,
     )

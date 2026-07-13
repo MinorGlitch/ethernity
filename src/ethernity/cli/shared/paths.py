@@ -22,6 +22,8 @@ import ntpath
 import posixpath
 from pathlib import Path
 
+from ethernity.core.validation import has_windows_drive_prefix
+
 
 def expanduser_cli_path(path: str | Path | None, *, preserve_stdin: bool = True) -> str | None:
     """Normalize a user-provided CLI path while preserving stdin sentinels when requested."""
@@ -48,14 +50,10 @@ def display_parent_path(path: str | Path) -> str:
     if isinstance(path, Path):
         return str(path.parent)
     text = str(path)
-    if "\\" in text or _has_windows_drive(text):
+    if "\\" in text or has_windows_drive_prefix(text):
         parent = ntpath.dirname(text)
     elif "/" in text:
         parent = posixpath.dirname(text)
     else:
         parent = str(Path(text).parent)
     return parent or "."
-
-
-def _has_windows_drive(path: str) -> bool:
-    return len(path) >= 2 and path[1] == ":" and path[0].isalpha()

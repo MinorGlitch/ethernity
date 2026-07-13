@@ -21,10 +21,20 @@ from ethernity.crypto import MNEMONIC_WORD_COUNTS
 
 MAX_SHARDS = 255
 
+__all__ = ["validate_backup_args"]
 
-def _validate_backup_args(args: BackupArgs) -> None:
+
+def validate_backup_args(args: BackupArgs) -> None:
     if args.passphrase == "":
         raise ValueError("passphrase cannot be empty")
+    if (
+        args.passphrase is not None
+        and args.shard_count is None
+        and not args.passphrase.isprintable()
+    ):
+        raise ValueError(
+            "directly printed passphrase must contain only manually enterable printable text"
+        )
     if args.passphrase and args.passphrase_generate:
         raise ValueError("use either --passphrase or --generate-passphrase, not both")
     if args.qr_chunk_size is not None and args.qr_chunk_size <= 0:

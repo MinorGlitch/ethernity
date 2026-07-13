@@ -32,7 +32,7 @@ from ethernity.cli.shared.io.fallback_parser import (
     parse_fallback_frame as _parse_fallback_frame,
     split_fallback_sections as _split_fallback_sections,
 )
-from ethernity.cli.shared.log import _warn
+from ethernity.cli.shared.log import warn
 from ethernity.cli.shared.paths import expanduser_cli_path, expanduser_cli_paths
 from ethernity.cli.shared.text import format_qr_input_error
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS, MAX_RECOVERY_TEXT_BYTES
@@ -40,15 +40,29 @@ from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType, decode_frame
 from ethernity.encoding.qr_payloads import decode_qr_payload
 from ethernity.qr.scan import (
+    NoQrPayloadsError,
     QrScanError,
     is_published_extension_payload_carrier,
     scan_qr_payloads_with_sources,
 )
 
+
+class NoQrFramesError(ValueError):
+    """Raised when scan inputs contain no usable recovery frames."""
+
+    pass
+
+
 __all__ = [
+    "NoQrFramesError",
+    "auth_frames_from_fallback",
+    "auth_frames_from_payloads",
+    "frame_from_fallback",
     "format_recovery_input_error",
     "format_shard_input_error",
+    "frames_from_fallback",
     "frames_from_fallback_text",
+    "frames_from_payloads",
     "frames_from_scan",
     "recovery_frames_from_scan",
     "shard_frames_from_scan",
@@ -215,7 +229,7 @@ def _read_stdin_text_with_limit() -> str:
     return "".join(chunks_text)
 
 
-def _frame_from_fallback(path: str) -> Frame:
+def frame_from_fallback(path: str) -> Frame:
     """Decode a single fallback file into one frame."""
 
     lines = _read_text_lines(path)
@@ -255,7 +269,7 @@ def _parse_fallback_section(
         return _frame_from_fallback_lines(section_lines, label=section_key)
     except ValueError as exc:
         if allow_invalid:
-            _warn(
+            warn(
                 f"invalid {section_key} fallback ignored: {exc}",
                 quiet=quiet,
                 code=api_codes.FALLBACK_SECTION_INVALID,
@@ -286,7 +300,7 @@ def _frames_from_fallback_lines(
             frames.append(_frame_from_fallback_lines(sections["auth"], label="auth"))
         except ValueError as exc:
             if allow_invalid_auth:
-                _warn(
+                warn(
                     f"invalid auth fallback ignored: {exc}",
                     quiet=quiet,
                     code=api_codes.AUTH_FALLBACK_INVALID,
@@ -297,7 +311,7 @@ def _frames_from_fallback_lines(
     return frames
 
 
-def _frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
+def frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
     """Read fallback text from a path and decode frames."""
 
     lines = _read_text_lines(path)
@@ -387,7 +401,7 @@ def _auth_frames_from_fallback_lines(
     return [frame] if frame else []
 
 
-def _auth_frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
+def auth_frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
     """Read and decode AUTH fallback frames from a file."""
 
     lines = _read_text_lines(path)
@@ -426,17 +440,17 @@ def _frames_from_payload_lines(
     return frames
 
 
-def _frames_from_payloads(path: str, *, label: str = "QR payloads") -> list[Frame]:
+def frames_from_payloads(path: str, *, label: str = "QR payloads") -> list[Frame]:
     """Read and decode QR payload lines from a text file."""
 
     lines = _read_text_lines(path)
     return _frames_from_payload_lines(lines, label=label, source=path)
 
 
-def _auth_frames_from_payloads(path: str) -> list[Frame]:
+def auth_frames_from_payloads(path: str) -> list[Frame]:
     """Read and validate AUTH-only payload files."""
 
-    frames = _frames_from_payloads(path, label="auth QR payloads")
+    frames = frames_from_payloads(path, label="auth QR payloads")
     for frame in frames:
         if frame.frame_type != FrameType.AUTH:
             raise ValueError("auth QR payloads file must contain AUTH payloads only")
@@ -451,9 +465,9 @@ def _frames_from_shard_inputs(
 
     frames: list[Frame] = []
     for path in fallback_files:
-        frames.append(_frame_from_fallback(path))
+        frames.append(frame_from_fallback(path))
     for path in frame_files:
-        frames.extend(_frames_from_payloads(path, label="shard QR payloads"))
+        frames.extend(frames_from_payloads(path, label="shard QR payloads"))
     return frames
 
 
@@ -471,10 +485,12 @@ def frames_from_scan(
             include_extension_carriers=include_extension_carriers,
             extension_carrier_max_index=extension_carrier_max_index,
         )
+    except NoQrPayloadsError as exc:
+        raise NoQrFramesError(f"scan failed: {exc}") from exc
     except QrScanError as exc:
         raise ValueError(f"scan failed: {exc}") from exc
     if not payloads:
-        raise ValueError("no QR payloads found; check the scan path and image quality")
+        raise NoQrFramesError("no QR payloads found; check the scan path and image quality")
     frames: list[Frame] = []
     errors: list[str] = []
     explicit_sources: set[Path] = set()
@@ -520,7 +536,7 @@ def frames_from_scan(
         if errors:
             detail = "; ".join(errors[:3])
             raise ValueError(f"invalid QR payloads ({len(errors)}): {detail}")
-        raise ValueError("no QR payloads found; check the scan path and image quality")
+        raise NoQrFramesError("no QR payloads found; check the scan path and image quality")
     return frames
 
 
@@ -541,7 +557,7 @@ def _require_valid_explicit_scan_sources(
                 f"explicit scan input yielded invalid QR payloads: {source_path}{details}"
             )
         if not frames:
-            raise ValueError(f"explicit scan input yielded no valid QR frames: {source_path}")
+            raise NoQrFramesError(f"explicit scan input yielded no valid QR frames: {source_path}")
 
 
 def _require_valid_published_extension_carriers(
@@ -623,7 +639,7 @@ def recovery_frames_from_scan(
             "for recovery input and shard documents separately"
         )
     if ignored_shards:
-        _warn(
+        warn(
             f"ignored {ignored_shards} shard QR payload(s) while reading recovery input; "
             "provide shard documents separately",
             quiet=quiet,
@@ -645,60 +661,12 @@ def shard_frames_from_scan(paths: list[str], *, quiet: bool = False) -> list[Fra
             "shard payload files, or shard recovery text"
         )
     if ignored_non_shards:
-        _warn(
+        warn(
             f"ignored {ignored_non_shards} non-shard QR payload(s) while reading shard input",
             quiet=quiet,
             details={"ignored_frames": ignored_non_shards},
         )
     return shard_frames
-
-
-def _dedupe_frames(frames: list[Frame]) -> list[Frame]:
-    """Deduplicate frames by type/index/doc_id, rejecting conflicts."""
-
-    seen: dict[tuple[int, int, bytes], Frame] = {}
-    deduped: list[Frame] = []
-    for frame in frames:
-        key = (int(frame.frame_type), int(frame.index), frame.doc_id)
-        existing = seen.get(key)
-        if existing:
-            if existing.data != frame.data or existing.total != frame.total:
-                raise ValueError("conflicting duplicate frames detected")
-            continue
-        seen[key] = frame
-        deduped.append(frame)
-    return deduped
-
-
-def _dedupe_auth_frames(frames: list[Frame]) -> list[Frame]:
-    """Deduplicate and validate AUTH frames."""
-
-    if not frames:
-        return []
-    deduped = _dedupe_frames(frames)
-    for frame in deduped:
-        if frame.frame_type != FrameType.AUTH:
-            raise ValueError("auth payloads must be AUTH type")
-    return deduped
-
-
-def _split_main_and_auth_frames(frames: list[Frame]) -> tuple[list[Frame], list[Frame]]:
-    """Split decoded frames into MAIN and AUTH lists."""
-
-    main_frames: list[Frame] = []
-    auth_frames: list[Frame] = []
-    for frame in frames:
-        if frame.frame_type == FrameType.MAIN_DOCUMENT:
-            main_frames.append(frame)
-        elif frame.frame_type == FrameType.AUTH:
-            auth_frames.append(frame)
-        else:
-            raise ValueError("unexpected frame type in main document QR payloads")
-    if not main_frames:
-        raise ValueError(
-            "no main document payloads provided; check the MAIN QR payloads or recovery text"
-        )
-    return main_frames, auth_frames
 
 
 def _decode_payload(text: bytes | str) -> bytes:

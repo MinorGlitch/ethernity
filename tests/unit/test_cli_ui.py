@@ -139,6 +139,29 @@ class TestStatusOutput(unittest.TestCase):
         self.assertIn("Preparing payload...", output)
         self.assertNotIn("Preparing payload... \u2713", output)
 
+    def test_plain_status_preserves_unstyled_non_tty_output(self) -> None:
+        out = io.StringIO()
+        console = Console(file=out, force_terminal=False)
+
+        with mock.patch("ethernity.cli.shared.ui.runtime.isatty", return_value=False):
+            with ui_runtime.plain_status(
+                "Rendering document...",
+                console=console,
+            ) as live:
+                self.assertIsNone(live)
+
+        self.assertEqual(out.getvalue().strip(), "Rendering document...")
+
+    def test_plain_status_quiet_has_no_output(self) -> None:
+        out = io.StringIO()
+        with ui_runtime.plain_status(
+            "Rendering document...",
+            quiet=True,
+            console=Console(file=out, force_terminal=False),
+        ) as live:
+            self.assertIsNone(live)
+        self.assertEqual(out.getvalue(), "")
+
 
 class TestUIHelpers(unittest.TestCase):
     def _context(self, *, force_terminal: bool = False) -> UIContext:

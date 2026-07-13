@@ -24,8 +24,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.crypto import encrypt_bytes_with_passphrase
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import derive_public_key, sign_auth
 from ethernity.extensions.build import build_extension_document
 from ethernity.extensions.chain import build_chain_available_chunks, extract_root_logical_state

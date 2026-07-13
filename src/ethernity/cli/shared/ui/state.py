@@ -23,10 +23,10 @@ from rich.console import Console
 from rich.theme import Theme
 
 
-def isatty(stream, fallback) -> bool:
+def isatty(stream: object, fallback: object) -> bool:
     if stream is not None:
         try:
-            return bool(stream.isatty())
+            return bool(stream.isatty())  # type: ignore[attr-defined]
         except (OSError, ValueError, AttributeError):
             return False
     return bool(getattr(fallback, "isatty", lambda: False)())

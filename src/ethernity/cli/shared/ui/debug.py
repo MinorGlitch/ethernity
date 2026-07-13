@@ -47,6 +47,13 @@ from ethernity.render.recovery_lines import (
 
 RenderMode = Literal["rich_tty", "plain"]
 
+__all__ = [
+    "DebugRenderOptions",
+    "normalize_debug_max_bytes",
+    "print_backup_debug",
+    "print_recover_debug",
+]
+
 
 @dataclass(frozen=True)
 class DebugRenderOptions:
@@ -54,7 +61,9 @@ class DebugRenderOptions:
     reveal_secrets: bool
 
 
-def _normalize_debug_max_bytes(value: int | None) -> int | None:
+def normalize_debug_max_bytes(value: int | None) -> int | None:
+    """Convert non-positive debug limits to the unlimited sentinel."""
+
     if value is None or value <= 0:
         return None
     return value
@@ -62,7 +71,7 @@ def _normalize_debug_max_bytes(value: int | None) -> int | None:
 
 def _resolve_render_options(*, max_bytes: int | None, reveal_secrets: bool) -> DebugRenderOptions:
     return DebugRenderOptions(
-        max_bytes=_normalize_debug_max_bytes(max_bytes),
+        max_bytes=normalize_debug_max_bytes(max_bytes),
         reveal_secrets=reveal_secrets,
     )
 

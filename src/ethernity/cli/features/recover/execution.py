@@ -20,21 +20,15 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
-from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Iterator
 
 from rich.console import Console
-from rich.live import Live
-from rich.spinner import Spinner
-from rich.text import Text
 
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared.events import CommandError
-from ethernity.cli.shared.io.outputs import (
-    _single_entry_uses_directory_output,
-    _write_recovered_outputs,
-)
+from ethernity.cli.shared.io import outputs
+from ethernity.cli.shared.ui.runtime import plain_status
+from ethernity.cli.shared.ui.state import isatty
 from ethernity.crypto import decrypt_bytes
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
@@ -45,32 +39,8 @@ from ethernity.extensions.recovery import (
 from ethernity.formats.envelope_codec import decode_envelope, extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 
-
-def _isatty(raw: object, fallback: object) -> bool:
-    if raw is not None:
-        try:
-            return bool(raw.isatty())  # type: ignore[attr-defined]
-        except (OSError, ValueError, AttributeError):
-            return False
-    return bool(getattr(fallback, "isatty", lambda: False)())
-
-
-_CONSOLE = Console(force_terminal=_isatty(sys.__stdout__, sys.stdout))
-_CONSOLE_ERR = Console(stderr=True, force_terminal=_isatty(sys.__stderr__, sys.stderr))
-
-
-@contextmanager
-def status(message: str, *, quiet: bool = False) -> Iterator[Live | None]:
-    if quiet:
-        yield None
-        return
-    if not _isatty(sys.__stdout__, sys.stdout):
-        _CONSOLE.print(message)
-        yield None
-        return
-    spinner = Spinner("dots", text=Text(message))
-    with Live(spinner, console=_CONSOLE, transient=False, refresh_per_second=12) as live:
-        yield live
+_CONSOLE = Console(force_terminal=isatty(sys.__stdout__, sys.stdout))
+_CONSOLE_ERR = Console(stderr=True, force_terminal=isatty(sys.__stderr__, sys.stderr))
 
 
 def format_auth_status(status_value: str, *, allow_unsigned: bool) -> str:
@@ -121,10 +91,6 @@ def print_completion_panel(
         console.print(f"- {action}")
 
 
-def print_recover_debug(**_: object) -> None:
-    return
-
-
 @dataclass(frozen=True)
 class RecoverDecryptResult:
     manifest: EnvelopeManifest
@@ -151,7 +117,11 @@ def decrypt_manifest_extract_selection(
                 selected_extension_doc_hash=chain.selected_extension_doc_hash,
             )
 
-        with status("Decrypting and unpacking payload...", quiet=quiet):
+        with plain_status(
+            "Decrypting and unpacking payload...",
+            quiet=quiet,
+            console=_CONSOLE,
+        ):
             plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
             manifest, payload = decode_envelope(plaintext)
             extracted = extract_payloads(manifest, payload)
@@ -207,7 +177,7 @@ def write_recovered_outputs(
 ) -> list[str]:
     """Write recovered outputs and print the post-recovery summary."""
 
-    written_paths = _write_recovered_outputs(
+    written_paths = outputs.write_recovered_outputs(
         output_path,
         extracted,
         single_entry_output_is_directory=single_entry_output_is_directory,
@@ -235,52 +205,3 @@ def write_recovered_outputs(
             actions.append("Save stdout output if you need to keep the recovered data.")
         print_completion_panel("Recovery complete", actions, quiet=quiet, use_err=True)
     return written_paths
-
-
-def run_recover_plan(
-    plan: RecoveryPlan,
-    *,
-    quiet: bool,
-    debug: bool = False,
-    debug_max_bytes: int = 0,
-    debug_reveal_secrets: bool = False,
-) -> int:
-    """Execute a prepared recovery plan end to end."""
-    decrypted = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
-    manifest = decrypted.manifest
-    extracted = decrypted.extracted
-    if debug:
-        print_recover_debug(
-            manifest=manifest,
-            extracted=extracted,
-            ciphertext=plan.ciphertext,
-            passphrase=plan.passphrase,
-            auth_status=plan.auth_status,
-            allow_unsigned=plan.allow_unsigned,
-            output_path=plan.output_path,
-            debug_max_bytes=debug_max_bytes,
-            reveal_secrets=debug_reveal_secrets,
-        )
-    single_entry_output_is_directory = (
-        plan.output_path is not None
-        and len(extracted) == 1
-        and manifest.input_origin in {"directory", "mixed"}
-    )
-    single_entry_output_is_directory = _single_entry_uses_directory_output(
-        plan.output_path,
-        single_entry_output_is_directory=single_entry_output_is_directory,
-    )
-    write_recovered_outputs(
-        extracted,
-        output_path=plan.output_path,
-        auth_status=plan.auth_status,
-        allow_unsigned=plan.allow_unsigned,
-        quiet=quiet,
-        single_entry_output_is_directory=single_entry_output_is_directory,
-        requested_extension_index=getattr(plan, "extension_index", None),
-        requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
-        expected_head_doc_hash=getattr(plan, "expected_head_doc_hash", None),
-        selected_extension_index=decrypted.selected_extension_index,
-        selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
-    )
-    return 0

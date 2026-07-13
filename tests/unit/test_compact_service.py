@@ -25,9 +25,10 @@ from ethernity.cli.features.compact.service import (
     run_compact,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_from_doc_hash
+from ethernity.cli.shared.io.frames import NoQrFramesError
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import BackupResult, CompactArgs, RecoverArgs
+from ethernity.crypto.document_identity import doc_id_from_doc_hash
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase, split_signing_seed
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType
@@ -398,7 +399,7 @@ class TestCompactService(unittest.TestCase):
             def _scan_one(paths: list[str]) -> list[Frame]:
                 path = Path(paths[0])
                 if path == recovery_document:
-                    raise ValueError(
+                    raise NoQrFramesError(
                         f"scan failed: explicit scan input contains no QR codes: {path}"
                     )
                 if path == shard_document:

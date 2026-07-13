@@ -45,10 +45,10 @@ class TestUIDebugHelpers(unittest.TestCase):
         self.assertEqual(debug_module._resolve_render_mode(), "plain")
 
     def test_normalize_debug_max_bytes(self) -> None:
-        self.assertIsNone(debug_module._normalize_debug_max_bytes(None))
-        self.assertIsNone(debug_module._normalize_debug_max_bytes(0))
-        self.assertIsNone(debug_module._normalize_debug_max_bytes(-5))
-        self.assertEqual(debug_module._normalize_debug_max_bytes(16), 16)
+        self.assertIsNone(debug_module.normalize_debug_max_bytes(None))
+        self.assertIsNone(debug_module.normalize_debug_max_bytes(0))
+        self.assertIsNone(debug_module.normalize_debug_max_bytes(-5))
+        self.assertEqual(debug_module.normalize_debug_max_bytes(16), 16)
 
     def test_format_grouped_lines_empty_and_wrapped(self) -> None:
         self.assertEqual(

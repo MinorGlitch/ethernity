@@ -5,6 +5,7 @@ from typing import cast
 
 import click
 
+from ethernity.page_sizes import paper_size_names, resolve_paper_size
 from ethernity.run.context import current_config_path
 from ethernity.run.execution import run_task
 from ethernity.tasks.add_files import (
@@ -109,7 +110,7 @@ from ethernity.tasks.quorum import MAX_SHARDS
     help="How many signing-key recovery documents to create.",
 )
 @click.option("--qr-chunk-size", type=click.IntRange(min=1), help="Payload bytes per QR chunk.")
-@click.option("--paper", "paper_size", type=click.Choice(["A4", "LETTER"]))
+@click.option("--paper", "paper_size", type=click.Choice(paper_size_names()))
 @click.option("--design", help="Built-in render style; otherwise use the saved style.")
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")
@@ -163,7 +164,7 @@ def add_files(
         signing_key_recovery_threshold=signing_key_recovery_threshold,
         signing_key_recovery_count=signing_key_recovery_count,
         qr_chunk_size=qr_chunk_size,
-        paper_size=paper_size,
+        paper_size=(resolve_paper_size(paper_size).name if paper_size is not None else None),
         design=design,
     )
     run_task(

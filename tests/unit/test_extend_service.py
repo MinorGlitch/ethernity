@@ -72,10 +72,10 @@ from ethernity.cli.features.extend.shard_validation import (
 )
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError, ndjson_session
 from ethernity.cli.shared.types import ExtendArgs, InputFile
 from ethernity.config import ExtendDefaults
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.sharding import ShardPayload, encode_shard_payload
 from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
@@ -1243,11 +1243,11 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                    "ethernity.cli.features.extend.rendering.validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.shard_rendering."
-                    "_validate_rendered_extension_shard"
+                    "validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.execution.validate_staged_main_carrier"
@@ -1328,11 +1328,11 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                    "ethernity.cli.features.extend.rendering.validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.shard_rendering."
-                    "_validate_rendered_extension_shard"
+                    "validate_rendered_fallback_artifact"
                 ),
                 mock.patch("ethernity.cli.features.extend.execution.validate_staged_main_carrier"),
                 mock.patch(
@@ -1405,11 +1405,11 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                    "ethernity.cli.features.extend.rendering.validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.shard_rendering."
-                    "_validate_rendered_extension_shard"
+                    "validate_rendered_fallback_artifact"
                 ),
                 mock.patch("ethernity.cli.features.extend.execution.validate_staged_main_carrier"),
                 mock.patch(
@@ -2352,7 +2352,7 @@ class TestExtendService(unittest.TestCase):
                     "ethernity.cli.features.extend.execution._replace_layout_debug_sidecars",
                     side_effect=OSError("debug move failed"),
                 ),
-                mock.patch("ethernity.cli.features.extend.execution._warn") as warn,
+                mock.patch("ethernity.cli.features.extend.execution.warn") as warn,
             ):
                 executed = execute_prepared_extend(
                     prepared,
@@ -2386,7 +2386,7 @@ class TestExtendService(unittest.TestCase):
             final_dir.rename(moved_dir)
             final_dir.mkdir()
 
-            with mock.patch("ethernity.cli.features.extend.execution._warn") as warn:
+            with mock.patch("ethernity.cli.features.extend.execution.warn") as warn:
                 extend_execution._publish_staged_layout_debug(
                     staging_dir,
                     str(final_dir),
@@ -2491,11 +2491,11 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                    "ethernity.cli.features.extend.rendering.validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.shard_rendering."
-                    "_validate_rendered_extension_shard"
+                    "validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
@@ -2611,11 +2611,11 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                    "ethernity.cli.features.extend.rendering.validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.shard_rendering."
-                    "_validate_rendered_extension_shard"
+                    "validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
@@ -2830,11 +2830,11 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                    "ethernity.cli.features.extend.rendering.validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.shard_rendering."
-                    "_validate_rendered_extension_shard"
+                    "validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
@@ -3026,11 +3026,11 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                    "ethernity.cli.features.extend.rendering.validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.shard_rendering."
-                    "_validate_rendered_extension_shard"
+                    "validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
@@ -3511,11 +3511,11 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                    "ethernity.cli.features.extend.rendering.validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.shard_rendering."
-                    "_validate_rendered_extension_shard"
+                    "validate_rendered_fallback_artifact"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",

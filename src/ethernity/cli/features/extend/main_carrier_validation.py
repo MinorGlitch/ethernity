@@ -24,15 +24,15 @@ from pypdf import PdfReader
 
 from ethernity.cli.features.recover.key_recovery import resolve_auth_payload
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
-from ethernity.cli.shared.io.frames import (
-    _dedupe_frames,
-    _split_main_and_auth_frames,
-    recovery_frames_from_scan,
-)
+from ethernity.cli.shared.io.frames import recovery_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.chunking import reassemble_payload
+from ethernity.encoding.frame_sets import (
+    deduplicate_frame_slots,
+    split_main_and_auth_frames,
+)
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.render.proofs import (
     RenderProofError,
@@ -205,8 +205,8 @@ def _validate_main_carrier_frames(
     require_auth: bool,
     quiet: bool,
 ) -> None:
-    deduped = _dedupe_frames(list(frames))
-    main_frames, auth_frames = _split_main_and_auth_frames(deduped)
+    deduped = deduplicate_frame_slots(list(frames))
+    main_frames, auth_frames = split_main_and_auth_frames(deduped)
     ciphertext = reassemble_payload(
         main_frames,
         expected_frame_type=FrameType.MAIN_DOCUMENT,

@@ -25,8 +25,10 @@ from ethernity.cli.shared.events import active_event_sink, emit_warning
 
 console_err = Console(stderr=True)
 
+__all__ = ["warn"]
 
-def _warn(
+
+def warn(
     message: str,
     *,
     quiet: bool,

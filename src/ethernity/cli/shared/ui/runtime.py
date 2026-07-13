@@ -20,6 +20,7 @@ import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 
+from rich.console import Console
 from rich.live import Live
 from rich.progress import (
     BarColumn,
@@ -129,3 +130,24 @@ def status(
                 live.update(Text(f"{message} ✓", style="success"), refresh=True)
             except (OSError, ValueError):
                 pass
+
+
+@contextmanager
+def plain_status(
+    message: str,
+    *,
+    quiet: bool = False,
+    console: Console,
+) -> Generator[Live | None, None, None]:
+    """Render the legacy unstyled spinner used by document workflows."""
+
+    if quiet:
+        yield None
+        return
+    if not isatty(sys.__stdout__, sys.stdout):
+        console.print(message)
+        yield None
+        return
+    spinner = Spinner("dots", text=Text(message))
+    with Live(spinner, console=console, transient=False, refresh_per_second=12) as live:
+        yield live

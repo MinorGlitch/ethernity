@@ -29,10 +29,10 @@ from ethernity.cli.features.extend.models import (
 )
 from ethernity.cli.features.extend.planning import ResolvedExtendState, resolve_extend_state
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.crypto import encrypt_bytes_with_passphrase
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.extensions.build import Chunker, build_extension_document
 from ethernity.extensions.resources import (
     require_chain_resource_limits,

@@ -24,7 +24,7 @@ from ethernity.cli.shared.io.frames import shard_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import verify_shard
-from ethernity.encoding.framing import Frame
+from ethernity.encoding.frame_sets import deduplicate_identical_frames
 from ethernity.render.proofs import (
     RenderProofError,
     validate_fallback_text_in_pdf,
@@ -76,7 +76,7 @@ def validate_rendered_shard_carrier(
     quiet: bool,
     secret_label: str,
 ) -> None:
-    frames = _dedupe_identical_frames(shard_frames_from_scan([str(path)], quiet=quiet))
+    frames = deduplicate_identical_frames(shard_frames_from_scan([str(path)], quiet=quiet))
     if len(frames) != 1:
         raise ApiCommandError(
             code=EXTENSION_SHARD_CARRIER_INVALID,
@@ -142,15 +142,3 @@ def validate_rendered_shard_carrier(
             message=str(exc),
             details={"path": str(path), **exc.details},
         ) from exc
-
-
-def _dedupe_identical_frames(frames: list[Frame]) -> list[Frame]:
-    deduped: list[Frame] = []
-    seen: set[tuple[int, object, bytes, int, int, bytes]] = set()
-    for frame in frames:
-        key = (frame.version, frame.frame_type, frame.doc_id, frame.index, frame.total, frame.data)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(frame)
-    return deduped

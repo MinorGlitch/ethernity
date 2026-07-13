@@ -6,9 +6,10 @@ from typing import cast
 import click
 
 from ethernity.crypto import MNEMONIC_WORD_COUNTS
+from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, paper_size_names, resolve_paper_size
 from ethernity.run.context import current_config_path
 from ethernity.run.execution import run_task
-from ethernity.tasks.backup import BackupTaskState, PaperSize, SigningKeyMode
+from ethernity.tasks.backup import BackupTaskState, SigningKeyMode
 from ethernity.tasks.quorum import MAX_SHARDS
 
 PASSPHRASE_WORD_CHOICES = tuple(str(count) for count in MNEMONIC_WORD_COUNTS)
@@ -73,7 +74,12 @@ PASSPHRASE_WORD_CHOICES = tuple(str(count) for count in MNEMONIC_WORD_COUNTS)
     help="How many signing-key recovery documents to create.",
 )
 @click.option("--qr-chunk-size", type=click.IntRange(min=1), help="Payload bytes per QR chunk.")
-@click.option("--paper", "paper_size", type=click.Choice(["A4", "LETTER"]), default="A4")
+@click.option(
+    "--paper",
+    "paper_size",
+    type=click.Choice(paper_size_names()),
+    default=DEFAULT_PAPER_SIZE_NAME,
+)
 @click.option("--design", default="sentinel", show_default=True, help="Built-in render style.")
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")
@@ -119,7 +125,7 @@ def backup(
         shard_count=recovery_count,
         passphrase=passphrase,
         passphrase_words=generated_words,
-        paper_size=cast(PaperSize, paper_size),
+        paper_size=resolve_paper_size(paper_size).name,
         design=design,
         signing_key_mode=cast(SigningKeyMode, signing_key_mode),
         signing_key_shard_threshold=signing_key_shard_threshold,

@@ -18,10 +18,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ethernity.cli.shared.types import BackupResult, MintResult
+from ethernity.cli.shared.types import BackupResult
 from ethernity.cli.shared.ui import (
     build_kv_table,
-    build_mint_outputs_tree,
     build_outputs_tree,
     build_recovered_tree,
     console,
@@ -71,15 +70,6 @@ def _recover_target_rows(
     if expected_head_doc_hash is not None:
         rows.append(("Expected head", expected_head_doc_hash))
     rows.append(("Freshness scope", "supplied carriers only"))
-    return rows
-
-
-def _mint_target_rows(result: MintResult) -> list[tuple[str, str]]:
-    if result.selected_extension_index is None:
-        return [("Mint target", "root backup")]
-    rows = [("Mint target", f"extension {result.selected_extension_index}")]
-    if result.selected_extension_doc_hash is not None:
-        rows.append(("Target doc hash", result.selected_extension_doc_hash))
     return rows
 
 
@@ -149,32 +139,6 @@ def print_recover_summary(
     )
     if tree is not None:
         console_err.print(panel("Recovered files", tree))
-
-
-def print_mint_summary(result: MintResult, *, quiet: bool) -> None:
-    if quiet:
-        return
-    console.print()
-    console.print(
-        panel(
-            "Outputs",
-            build_mint_outputs_tree(result.shard_paths, result.signing_key_shard_paths),
-        )
-    )
-    console.print(
-        panel(
-            "Mint summary",
-            build_kv_table(
-                [
-                    ("Output", result.output_dir),
-                    ("Signing authority", result.signing_key_source),
-                    *_mint_target_rows(result),
-                ]
-            ),
-        )
-    )
-    if result.notes:
-        console.print(panel("Advisory", "\n".join(f"- {note}" for note in result.notes)))
 
 
 def format_auth_status(status: str, *, allow_unsigned: bool) -> str:

@@ -40,12 +40,13 @@ from ethernity.cli.features.recover.planning import (
     select_root_import_document_from_passphrase_shards,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import normalize_doc_hash_hex
+from ethernity.cli.shared.inspection import blocking_issue, manifest_summary_payload
 from ethernity.cli.shared.io.fallback_parser import format_fallback_error
 from ethernity.cli.shared.io.frames import (
-    _frame_from_fallback,
-    _frames_from_payloads,
+    NoQrFramesError,
     format_shard_input_error,
+    frame_from_fallback,
+    frames_from_payloads,
     recovery_frames_from_scan,
     shard_frames_from_scan,
 )
@@ -56,10 +57,7 @@ from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config.load import load_app_config
 from ethernity.core.bounds import MAX_RECOVERY_DECODED_CHUNK_BYTES
 from ethernity.crypto import sharding as sharding_module
-from ethernity.crypto.passphrases import (
-    normalize_bip39_mnemonic,
-    validate_mnemonic_checksum_if_bip39,
-)
+from ethernity.crypto.document_identity import normalize_doc_hash_hex
 from ethernity.crypto.signing import verify_shard
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType, encode_frame
@@ -391,7 +389,7 @@ def _resolve_extend_state_after_root_inspection(
                 )
         except ValueError as exc:
             blocking_issues.append(
-                _blocking_issue(
+                blocking_issue(
                     "UNLOCK_FAILED",
                     str(exc),
                     details={"stage": "decrypt"},
@@ -400,11 +398,11 @@ def _resolve_extend_state_after_root_inspection(
         else:
             root_decrypt_succeeded = True
             try:
-                source_summary = _manifest_summary_payload(manifest)
+                source_summary = manifest_summary_payload(manifest)
                 current_state = extract_root_logical_state(manifest, payload)
                 if manifest.sealed:
                     blocking_issues.append(
-                        _blocking_issue(
+                        blocking_issue(
                             "SEALED_ROOT_NOT_EXTENDABLE",
                             "sealed roots are terminal in v1 and cannot be extended",
                         )
@@ -418,7 +416,7 @@ def _resolve_extend_state_after_root_inspection(
                         raise ValueError("root backup manifest is missing an embedded signing seed")
                     if authority.mismatch:
                         blocking_issues.append(
-                            _blocking_issue(
+                            blocking_issue(
                                 "ROOT_AUTHORITY_MISMATCH",
                                 (
                                     "embedded signing seed does not match the verified "
@@ -454,7 +452,7 @@ def _resolve_extend_state_after_root_inspection(
                             )
                             if chain_inventory.failure is not None:
                                 blocking_issues.append(
-                                    _blocking_issue(
+                                    blocking_issue(
                                         api_codes.RECOVERY_HEAD_UNTRUSTED,
                                         (
                                             "scanned extension chain could not be trusted: "
@@ -535,7 +533,7 @@ def _resolve_extend_state_after_root_inspection(
                     diff_summary = diff.to_payload()
                     if diff.ambiguous_path_aliases:
                         blocking_issues.append(
-                            _blocking_issue(
+                            blocking_issue(
                                 api_codes.INVALID_INPUT,
                                 (
                                     "selected input paths would create new logical paths that "
@@ -557,7 +555,7 @@ def _resolve_extend_state_after_root_inspection(
                         )
                     if diff.missing_paths:
                         blocking_issues.append(
-                            _blocking_issue(
+                            blocking_issue(
                                 "DELETE_NOT_SUPPORTED",
                                 (
                                     "selected scope omits previously backed paths; Add Files "
@@ -569,7 +567,7 @@ def _resolve_extend_state_after_root_inspection(
                         )
             except ValueError as exc:
                 blocking_issues.append(
-                    _blocking_issue(
+                    blocking_issue(
                         api_codes.CHAIN_INVALID,
                         str(exc),
                         details={"stage": "chain"},
@@ -648,7 +646,7 @@ def _apply_expected_head_guard(args: ExtendArgs, inspection: ExtendInspection) -
         return inspection
     if inspection.validated_head_doc_hash == expected_head_doc_hash:
         return inspection
-    issue = _blocking_issue(
+    issue = blocking_issue(
         api_codes.RECOVERY_HEAD_UNTRUSTED,
         (
             "validated extension head doc_hash does not match expected head "
@@ -671,7 +669,7 @@ def _apply_scan_freshness_guard(args: ExtendArgs, inspection: ExtendInspection) 
         return inspection
     if args.expected_head_doc_hash is not None or args.allow_stale_head:
         return inspection
-    issue = _blocking_issue(
+    issue = blocking_issue(
         api_codes.RECOVERY_HEAD_UNTRUSTED,
         (
             "scan-mode extend cannot prove the supplied recovery set is the latest chain state; "
@@ -911,9 +909,7 @@ def _inspect_scanned_chain_recovery(args: ExtendArgs) -> _RootRecoveryInspection
 
 
 def _normalize_scan_selection_passphrase(passphrase: str) -> str:
-    normalized = normalize_bip39_mnemonic(passphrase)
-    validate_mnemonic_checksum_if_bip39(normalized)
-    return normalized
+    return passphrase
 
 
 def _inspect_selected_scan_root_document(
@@ -1134,7 +1130,7 @@ def _extension_shard_unlock_failure_inspection(
     message: str,
     details: dict[str, object],
 ) -> RecoveryInspection:
-    issue = _blocking_issue(
+    issue = blocking_issue(
         api_codes.PASSPHRASE_SHARDS_INVALID,
         f"extension passphrase shard inputs could not unlock the published root chain: {message}",
         details=details,
@@ -1160,12 +1156,12 @@ def _shard_frames_from_extend_args(
     shard_frames: list[Frame] = list(args.shard_frames or [])
     for path in shard_fallback_files:
         try:
-            shard_frames.append(_frame_from_fallback(path))
+            shard_frames.append(frame_from_fallback(path))
         except ValueError as exc:
             raise ValueError(format_fallback_error(exc, context="Shard recovery text")) from exc
     for path in shard_payloads_file:
         try:
-            shard_frames.extend(_frames_from_payloads(path, label="shard QR payloads"))
+            shard_frames.extend(frames_from_payloads(path, label="shard QR payloads"))
         except ValueError as exc:
             raise ValueError(format_shard_input_error(exc)) from exc
     if shard_scan:
@@ -1394,23 +1390,11 @@ def _recovery_frames_from_published_root_scan_paths(
     for path in scan_paths:
         try:
             frames.extend(recovery_frames_from_scan([path], quiet=quiet))
-        except ValueError as exc:
-            if _is_no_qr_scan_error(exc):
-                continue
-            raise
+        except NoQrFramesError:
+            continue
     if not frames:
         raise ValueError("published root scan found no QR frames")
     return frames
-
-
-def _is_no_qr_scan_error(exc: ValueError) -> bool:
-    message = str(exc)
-    return (
-        "scan failed: explicit scan input contains no QR codes:" in message
-        or "scan failed: no QR codes found in scan inputs" in message
-        or "explicit scan input yielded no valid QR frames:" in message
-        or "no QR payloads found; check the scan path and image quality" in message
-    )
 
 
 def _inspect_published_extension_inventory(
@@ -1583,7 +1567,7 @@ def _reconstruct_extension_state(
         ]
         blocking_issues.insert(
             0,
-            _blocking_issue(
+            blocking_issue(
                 chain_inspection.refusal.code,
                 chain_inspection.refusal.message,
                 details=refusal_details,
@@ -1660,31 +1644,6 @@ def _reconstruct_extension_state(
         discovered_extension_dirs,
         input_kind,
     )
-
-
-def _manifest_summary_payload(manifest: EnvelopeManifest) -> dict[str, object]:
-    return {
-        "format_version": manifest.format_version,
-        "input_origin": manifest.input_origin,
-        "input_roots": list(manifest.input_roots),
-        "sealed": manifest.sealed,
-        "payload_codec": manifest.payload_codec,
-        "payload_raw_len": manifest.payload_raw_len,
-        "file_count": len(manifest.files),
-    }
-
-
-def _blocking_issue(
-    code: str,
-    message: str,
-    *,
-    details: dict[str, object] | None = None,
-) -> dict[str, object]:
-    return {
-        "code": code,
-        "message": message,
-        "details": details or {},
-    }
 
 
 def _default_chunking_profile(args: ExtendArgs) -> ExtensionChunkingProfile:

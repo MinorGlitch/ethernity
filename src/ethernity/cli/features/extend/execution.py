@@ -55,7 +55,7 @@ from ethernity.cli.features.extend.prepare import (
 from ethernity.cli.features.extend.shard_validation import validate_staged_shard_carriers
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import emit_phase, emit_progress
-from ethernity.cli.shared.log import _warn
+from ethernity.cli.shared.log import warn
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.recovery_kit_index import build_recovery_kit_index_inventory_rows
 from ethernity.cli.shared.types import ExtendArgs
@@ -610,7 +610,7 @@ def _publish_staged_layout_debug(
                 expected_final_dir_identity=expected_final_dir_identity,
             )
         except (OSError, ValueError) as exc:
-            _warn(
+            warn(
                 "Extension published, but layout debug sidecar promotion failed.",
                 quiet=quiet,
                 details={

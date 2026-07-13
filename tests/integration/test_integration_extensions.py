@@ -37,7 +37,7 @@ from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.render import FallbackSection
-from ethernity.render.fallback import fallback_lines_from_sections
+from ethernity.render.fallback_text import fallback_lines_from_sections
 from tests.test_support import suppress_output, temp_env
 
 TEST_PASSPHRASE = "extension-integration-passphrase"
@@ -50,6 +50,48 @@ _V1_0_PASSPHRASE = "stable-v1-baseline-passphrase"
 
 
 class TestIntegrationExtensions(unittest.TestCase):
+    def test_valid_bip39_is_canonical_across_backup_and_exact_first_recovery(self) -> None:
+        spaced = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
+        canonical = " ".join(["abandon"] * 11 + ["about"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup"
+            recovered_dir = tmp_path / "recovered"
+            source_dir.mkdir()
+            (source_dir / "secret.txt").write_text("canonical", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                with suppress_output():
+                    backup_args = BackupArgs(
+                        config=str(DEFAULT_CONFIG_PATH),
+                        input_dir=[str(source_dir)],
+                        base_dir=str(source_dir),
+                        output_dir=str(root_dir),
+                        passphrase=spaced,
+                        design="ledger",
+                        quiet=True,
+                    )
+                    result = execute_prepared_backup(prepare_backup_run(backup_args))
+                    recover_args = RecoverArgs(
+                        config=str(DEFAULT_CONFIG_PATH),
+                        scan=[str(root_dir)],
+                        passphrase=spaced,
+                        output=str(recovered_dir),
+                        assume_yes=True,
+                        quiet=True,
+                    )
+                    execute_recover_plan(
+                        prepare_recover_plan(recover_args),
+                        quiet=True,
+                    )
+
+            self.assertEqual(result.passphrase_used, canonical)
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {"secret.txt": b"canonical"},
+            )
+
     def test_strict_root_fallback_audit_accepts_frozen_v1_profiles(self) -> None:
         cases = (
             ("v1_0", "raw", "stable-v1-baseline-passphrase"),

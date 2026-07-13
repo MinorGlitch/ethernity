@@ -19,7 +19,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from rich import box
-from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -77,17 +76,6 @@ def panel(title: str, renderable, *, style: str = "panel") -> Panel:
     )
 
 
-def hint_box(messages: Sequence[str]) -> Panel:
-    lines = [Text(str(message), style="hint") for message in messages if str(message).strip()]
-    body = Group(*lines) if len(lines) > 1 else (lines[0] if lines else Text(""))
-    return Panel(
-        body,
-        border_style="accent",
-        box=box.ROUNDED,
-        padding=(0, 1),
-    )
-
-
 def print_completion_panel(
     title: str,
     items: Sequence[str],
@@ -113,24 +101,6 @@ def build_outputs_tree(
     tree.add(f"[accent]Recovery document[/accent] {recovery_path}")
     if kit_index_path:
         tree.add(f"[accent]Recovery kit index[/accent] {kit_index_path}")
-    if shard_paths:
-        shards = tree.add(f"[accent]Shard documents[/accent] ({len(shard_paths)})")
-        for path in shard_paths:
-            shards.add(path)
-    if signing_key_shard_paths:
-        shards = tree.add(
-            f"[accent]Signing authority shard documents[/accent] ({len(signing_key_shard_paths)})"
-        )
-        for path in signing_key_shard_paths:
-            shards.add(path)
-    return tree
-
-
-def build_mint_outputs_tree(
-    shard_paths: Sequence[str],
-    signing_key_shard_paths: Sequence[str],
-) -> Tree:
-    tree = Tree("Documents", guide_style="muted")
     if shard_paths:
         shards = tree.add(f"[accent]Shard documents[/accent] ({len(shard_paths)})")
         for path in shard_paths:

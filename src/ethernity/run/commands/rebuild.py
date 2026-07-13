@@ -4,6 +4,7 @@ from pathlib import Path
 
 import click
 
+from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, paper_size_names, resolve_paper_size
 from ethernity.run.context import current_config_path
 from ethernity.run.execution import run_task
 from ethernity.tasks.rebuild import RebuildTaskState
@@ -61,7 +62,12 @@ from ethernity.tasks.rebuild import RebuildTaskState
     help="Expected latest backup fingerprint.",
 )
 @click.option("--allow-stale-head", is_flag=True, help="Accept scan source freshness risk.")
-@click.option("--paper", "paper_size", type=click.Choice(["A4", "LETTER"]), default="A4")
+@click.option(
+    "--paper",
+    "paper_size",
+    type=click.Choice(paper_size_names()),
+    default=DEFAULT_PAPER_SIZE_NAME,
+)
 @click.option("--design", default="sentinel", show_default=True, help="Built-in render style.")
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")
@@ -101,7 +107,7 @@ def rebuild(
         qr_chunk_size=qr_chunk_size,
         expected_head_doc_hash=expected_head_doc_hash,
         allow_stale_head=allow_stale_head,
-        paper_size=paper_size,
+        paper_size=resolve_paper_size(paper_size).name,
         design=design,
     )
     run_task(

@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.shared.io.inputs import _directory_root_label, _load_input_files
+from ethernity.cli.shared.io.inputs import _directory_root_label, load_input_files
 
 
 class _FakeProgress:
@@ -68,7 +68,7 @@ class TestInputFiles(unittest.TestCase):
             (root / "a.txt").write_bytes(b"A")
             (nested / "b.txt").write_bytes(b"B")
 
-            entries, base, input_origin, input_roots = _load_input_files(
+            entries, base, input_origin, input_roots = load_input_files(
                 [], [str(root)], None, allow_stdin=False
             )
 
@@ -85,7 +85,7 @@ class TestInputFiles(unittest.TestCase):
             root.mkdir()
             (root / "a.txt").write_bytes(b"A")
 
-            _entries, _base, _input_origin, input_roots = _load_input_files(
+            _entries, _base, _input_origin, input_roots = load_input_files(
                 [], [str(root)], None, allow_stdin=False
             )
 
@@ -96,7 +96,7 @@ class TestInputFiles(unittest.TestCase):
             path = Path(tmpdir) / "file.txt"
             path.write_bytes(b"data")
             with self.assertRaises(ValueError) as ctx:
-                _load_input_files([str(path), str(path)], [], None, allow_stdin=False)
+                load_input_files([str(path), str(path)], [], None, allow_stdin=False)
             self.assertIn("duplicate relative path", str(ctx.exception))
 
     def test_base_dir_outside_error(self) -> None:
@@ -107,38 +107,38 @@ class TestInputFiles(unittest.TestCase):
             base = root / "other"
             base.mkdir()
             with self.assertRaises(ValueError) as ctx:
-                _load_input_files([str(path)], [], str(base), allow_stdin=False)
+                load_input_files([str(path)], [], str(base), allow_stdin=False)
             self.assertIn("outside base dir", str(ctx.exception))
 
     def test_stdin_not_allowed(self) -> None:
         with self.assertRaisesRegex(ValueError, "stdin input is not supported here"):
-            _load_input_files(["-"], [], None, allow_stdin=False)
+            load_input_files(["-"], [], None, allow_stdin=False)
 
     def test_no_input_files_found(self) -> None:
         with self.assertRaisesRegex(ValueError, "no input files found"):
-            _load_input_files([], [], None, allow_stdin=False)
+            load_input_files([], [], None, allow_stdin=False)
 
     def test_input_dir_not_found(self) -> None:
         with self.assertRaisesRegex(FileNotFoundError, "input dir not found"):
-            _load_input_files([], ["/no/such/dir"], None, allow_stdin=False)
+            load_input_files([], ["/no/such/dir"], None, allow_stdin=False)
 
     def test_input_dir_not_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "file.txt"
             path.write_text("x", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "input dir is not a directory"):
-                _load_input_files([], [str(path)], None, allow_stdin=False)
+                load_input_files([], [str(path)], None, allow_stdin=False)
 
     def test_input_file_not_found(self) -> None:
         with self.assertRaisesRegex(FileNotFoundError, "input file not found"):
-            _load_input_files(["/no/such/file"], [], None, allow_stdin=False)
+            load_input_files(["/no/such/file"], [], None, allow_stdin=False)
 
     def test_input_path_not_a_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir)
             with mock.patch("pathlib.Path.is_dir", return_value=False):
                 with self.assertRaisesRegex(ValueError, "input path is not a file"):
-                    _load_input_files([str(path)], [], None, allow_stdin=False)
+                    load_input_files([str(path)], [], None, allow_stdin=False)
 
     def test_rejects_symlinked_input_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -152,7 +152,7 @@ class TestInputFiles(unittest.TestCase):
                 self.skipTest(f"symlinks unavailable: {exc}")
 
             with self.assertRaisesRegex(ValueError, "input path must not be a symlink"):
-                _load_input_files([str(link)], [], None, allow_stdin=False)
+                load_input_files([str(link)], [], None, allow_stdin=False)
 
     def test_rejects_symlinked_input_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -166,7 +166,7 @@ class TestInputFiles(unittest.TestCase):
                 self.skipTest(f"symlinks unavailable: {exc}")
 
             with self.assertRaisesRegex(ValueError, "input dir must not be a symlink"):
-                _load_input_files([], [str(link)], None, allow_stdin=False)
+                load_input_files([], [str(link)], None, allow_stdin=False)
 
     def test_rejects_symlinked_file_inside_input_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -182,7 +182,7 @@ class TestInputFiles(unittest.TestCase):
                 self.skipTest(f"symlinks unavailable: {exc}")
 
             with self.assertRaisesRegex(ValueError, "input file must not be a symlink"):
-                _load_input_files([], [str(input_dir)], None, allow_stdin=False)
+                load_input_files([], [str(input_dir)], None, allow_stdin=False)
 
     def test_rejects_symlinked_base_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -198,12 +198,12 @@ class TestInputFiles(unittest.TestCase):
                 self.skipTest(f"symlinks unavailable: {exc}")
 
             with self.assertRaisesRegex(ValueError, "base dir must not be a symlink"):
-                _load_input_files([str(file_path)], [], str(base_link), allow_stdin=False)
+                load_input_files([str(file_path)], [], str(base_link), allow_stdin=False)
 
     def test_empty_stdin_rejected(self) -> None:
         with mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("")):
             with self.assertRaisesRegex(ValueError, "stdin input is empty"):
-                _load_input_files(["-"], [], None, allow_stdin=True)
+                load_input_files(["-"], [], None, allow_stdin=True)
 
     def test_duplicate_relative_path_from_stdin(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -213,13 +213,13 @@ class TestInputFiles(unittest.TestCase):
                 "ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("stdin-data")
             ):
                 with self.assertRaisesRegex(ValueError, "duplicate relative path 'data.txt'"):
-                    _load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
+                    load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
 
     def test_input_file_accepts_size_previously_over_early_limit(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / "big.bin"
             file_path.write_bytes(b"abcde")
-            entries, _, _, _ = _load_input_files([str(file_path)], [], None, allow_stdin=False)
+            entries, _, _, _ = load_input_files([str(file_path)], [], None, allow_stdin=False)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].relative_path, "big.bin")
         self.assertEqual(entries[0].data, b"abcde")
@@ -230,7 +230,7 @@ class TestInputFiles(unittest.TestCase):
             second = Path(tmpdir) / "two.bin"
             first.write_bytes(b"abc")
             second.write_bytes(b"def")
-            entries, _, _, _ = _load_input_files(
+            entries, _, _, _ = load_input_files(
                 [str(first), str(second)],
                 [],
                 None,
@@ -244,7 +244,7 @@ class TestInputFiles(unittest.TestCase):
             second = Path(tmpdir) / "two.bin"
             first.write_bytes(b"abc")
             second.write_bytes(b"de")
-            entries, _, _, _ = _load_input_files(
+            entries, _, _, _ = load_input_files(
                 [str(first), str(second)],
                 [],
                 None,
@@ -264,7 +264,7 @@ class TestInputFiles(unittest.TestCase):
                 ),
             ):
                 with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
-                    _load_input_files([str(file_path)], [], None, allow_stdin=False)
+                    load_input_files([str(file_path)], [], None, allow_stdin=False)
 
     def test_input_files_reject_cumulative_size_over_payload_bound_before_read(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -280,7 +280,7 @@ class TestInputFiles(unittest.TestCase):
                 ),
             ):
                 with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
-                    _load_input_files(
+                    load_input_files(
                         [str(first), str(second)],
                         [],
                         None,
@@ -301,7 +301,7 @@ class TestInputFiles(unittest.TestCase):
                 ),
             ):
                 with self.assertRaisesRegex(ValueError, "MAX_MANIFEST_FILES"):
-                    _load_input_files(
+                    load_input_files(
                         [str(first), str(second)],
                         [],
                         None,
@@ -330,7 +330,7 @@ class TestInputFiles(unittest.TestCase):
                     ValueError,
                     "input file must not be a symlink|input file changed while opening",
                 ):
-                    _load_input_files([str(file_path)], [], None, allow_stdin=False)
+                    load_input_files([str(file_path)], [], None, allow_stdin=False)
 
     def test_stdin_rejects_cumulative_size_over_payload_bound(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -341,7 +341,7 @@ class TestInputFiles(unittest.TestCase):
                 mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("def")),
             ):
                 with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
-                    _load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
+                    load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
 
     def test_stdin_counts_toward_manifest_file_bound(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -352,7 +352,7 @@ class TestInputFiles(unittest.TestCase):
                 mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("def")),
             ):
                 with self.assertRaisesRegex(ValueError, "MAX_MANIFEST_FILES"):
-                    _load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
+                    load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
 
     def test_commonpath_error_reports_different_roots(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -365,7 +365,7 @@ class TestInputFiles(unittest.TestCase):
                 side_effect=ValueError("different drives"),
             ):
                 with self.assertRaisesRegex(ValueError, "different roots"):
-                    _load_input_files([str(left), str(right)], [], None, allow_stdin=False)
+                    load_input_files([str(left), str(right)], [], None, allow_stdin=False)
 
     def test_invalid_utf8_relative_path_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -376,7 +376,7 @@ class TestInputFiles(unittest.TestCase):
                 side_effect=ValueError("invalid utf8"),
             ):
                 with self.assertRaisesRegex(ValueError, "not valid UTF-8"):
-                    _load_input_files([str(path)], [], None, allow_stdin=False)
+                    load_input_files([str(path)], [], None, allow_stdin=False)
 
     def test_progress_updates_are_emitted(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -386,7 +386,7 @@ class TestInputFiles(unittest.TestCase):
                 (root / f"file-{idx}.txt").write_text(f"payload-{idx}", encoding="utf-8")
 
             progress = _FakeProgress()
-            entries, _, input_origin, input_roots = _load_input_files(
+            entries, _, input_origin, input_roots = load_input_files(
                 [],
                 [str(root)],
                 None,
@@ -407,7 +407,7 @@ class TestInputFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / "file.txt"
             file_path.write_text("x", encoding="utf-8")
-            _entries, _base, input_origin, input_roots = _load_input_files(
+            _entries, _base, input_origin, input_roots = load_input_files(
                 [str(file_path)],
                 [],
                 None,
@@ -425,7 +425,7 @@ class TestInputFiles(unittest.TestCase):
             folder.mkdir()
             (folder / "nested.txt").write_text("nested", encoding="utf-8")
 
-            _entries, _base, input_origin, input_roots = _load_input_files(
+            _entries, _base, input_origin, input_roots = load_input_files(
                 [str(single)],
                 [str(folder)],
                 None,
@@ -445,7 +445,7 @@ class TestInputFiles(unittest.TestCase):
             (first / "one.txt").write_text("one", encoding="utf-8")
             (second / "two.txt").write_text("two", encoding="utf-8")
 
-            _entries, _base, input_origin, input_roots = _load_input_files(
+            _entries, _base, input_origin, input_roots = load_input_files(
                 [],
                 [str(first), str(second)],
                 None,

@@ -35,6 +35,15 @@ from ethernity.artifacts.publish import (
 from ethernity.cli.shared.paths import expanduser_cli_path
 from ethernity.core.validation import normalize_path
 
+__all__ = [
+    "commit_prepared_output_dir",
+    "discard_prepared_output_dir",
+    "ensure_directory",
+    "prepare_output_dir",
+    "single_entry_uses_directory_output",
+    "write_recovered_outputs",
+]
+
 
 def _is_posix() -> bool:
     return os.name == "posix"
@@ -62,7 +71,7 @@ def _harden_file_permissions(path: Path) -> None:
         return
 
 
-def _ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
+def ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
     """Create an output directory and harden its permissions."""
 
     directory = Path(expanduser_cli_path(path, preserve_stdin=False) or "")
@@ -86,7 +95,7 @@ def _ensure_output_dir(
     if existing_directory_is_parent and normalized.is_dir():
         directory = str(normalized / f"backup-{doc_id_hex}")
     try:
-        _ensure_directory(directory, exist_ok=False)
+        ensure_directory(directory, exist_ok=False)
     except FileExistsError as exc:
         raise ValueError(
             f"output directory already exists: {directory}; "
@@ -95,7 +104,7 @@ def _ensure_output_dir(
     return directory
 
 
-def _prepare_output_dir(
+def prepare_output_dir(
     output_dir: str | None,
     doc_id_hex: str,
     *,
@@ -114,13 +123,13 @@ def _prepare_output_dir(
             f"output directory already exists: {final_dir}; "
             "use a different --output-dir path or remove the existing directory"
         )
-    _ensure_directory(normalized.parent, exist_ok=True)
+    ensure_directory(normalized.parent, exist_ok=True)
     staging_dir = create_sibling_staging_dir(normalized)
     _harden_dir_permissions(staging_dir)
     return str(normalized), str(staging_dir)
 
 
-def _commit_prepared_output_dir(
+def commit_prepared_output_dir(
     staging_dir: str | Path,
     final_dir: str | Path,
     *,
@@ -139,7 +148,7 @@ def _commit_prepared_output_dir(
     )
 
 
-def _discard_prepared_output_dir(staging_dir: str | Path | None) -> None:
+def discard_prepared_output_dir(staging_dir: str | Path | None) -> None:
     """Remove a staged output directory when a render fails."""
 
     discard_staged_artifact_dir(staging_dir)
@@ -153,7 +162,7 @@ def _safe_join(base: Path, relative: str) -> Path:
     if rel.is_absolute() or ".." in rel.parts:
         raise ValueError(f"unsafe output path: {relative}")
     path = base / rel
-    _ensure_directory(path.parent, exist_ok=True)
+    ensure_directory(path.parent, exist_ok=True)
     return path
 
 
@@ -162,7 +171,7 @@ def _write_output(path: str | None, data: bytes) -> str | None:
 
     if path:
         normalized = Path(expanduser_cli_path(path, preserve_stdin=False) or "")
-        _ensure_directory(normalized.parent, exist_ok=True)
+        ensure_directory(normalized.parent, exist_ok=True)
         _write_atomic_file(normalized, data)
         return str(normalized)
 
@@ -170,7 +179,7 @@ def _write_output(path: str | None, data: bytes) -> str | None:
     return None
 
 
-def _single_entry_uses_directory_output(
+def single_entry_uses_directory_output(
     output_path: str | None,
     *,
     single_entry_output_is_directory: bool = False,
@@ -188,7 +197,7 @@ def _single_entry_uses_directory_output(
         return False
 
 
-def _write_recovered_outputs(
+def write_recovered_outputs(
     output_path: str | None,
     entries: Sequence[tuple[object, bytes]],
     *,
@@ -200,7 +209,7 @@ def _write_recovered_outputs(
     if not entries:
         raise ValueError("no payloads to write")
     if output_path:
-        directory_mode = _single_entry_uses_directory_output(
+        directory_mode = single_entry_uses_directory_output(
             output_path,
             single_entry_output_is_directory=single_entry_output_is_directory,
         )
@@ -258,7 +267,7 @@ def _write_recovered_directory_outputs(
             f"output directory already exists and is not empty: {base_dir}; "
             "use a new or empty --output directory"
         )
-    _ensure_directory(base_dir.parent, exist_ok=True)
+    ensure_directory(base_dir.parent, exist_ok=True)
     staging_dir = Path(
         tempfile.mkdtemp(prefix=f".{base_dir.name or 'recover'}.tmp-", dir=str(base_dir.parent))
     )

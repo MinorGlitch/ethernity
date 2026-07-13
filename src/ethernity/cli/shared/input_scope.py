@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from ethernity.cli.shared.io.inputs import _load_input_files
+from ethernity.cli.shared.io.inputs import load_input_files
 from ethernity.cli.shared.paths import expanduser_cli_path
 from ethernity.cli.shared.types import InputFile
 from ethernity.core.validation import normalize_path
@@ -114,7 +114,7 @@ def load_input_scope(
     if not files and not directories:
         return None
 
-    input_files, base_dir, input_origin, input_roots = _load_input_files(
+    input_files, base_dir, input_origin, input_roots = load_input_files(
         list(files),
         list(directories),
         base_dir_arg,

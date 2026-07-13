@@ -23,10 +23,10 @@ from ethernity.cli.features.backup.execution import (
 )
 from ethernity.cli.features.recover.execution import decrypt_and_extract
 from ethernity.cli.features.recover.planning import RecoveryPlan
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan
 from ethernity.crypto import decrypt_bytes, encrypt_bytes_with_passphrase
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import (
     decode_auth_payload,
     generate_signing_keypair,

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import click
 
+from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, paper_size_names, resolve_paper_size
 from ethernity.run.context import current_config_path
 from ethernity.run.execution import run_task
 from ethernity.tasks.quorum import MAX_SHARDS
@@ -111,7 +112,12 @@ from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
     type=click.IntRange(min=1),
     help="How many signing-key recovery documents to replace.",
 )
-@click.option("--paper", "paper_size", type=click.Choice(["A4", "LETTER"]), default="A4")
+@click.option(
+    "--paper",
+    "paper_size",
+    type=click.Choice(paper_size_names()),
+    default=DEFAULT_PAPER_SIZE_NAME,
+)
 @click.option("--design", default="sentinel", show_default=True, help="Built-in render style.")
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")
@@ -165,7 +171,7 @@ def replace_recovery_docs(
         signing_key_recovery_count=signing_key_recovery_count,
         passphrase_replacement_count=passphrase_replacement_count,
         signing_key_replacement_count=signing_key_replacement_count,
-        paper_size=paper_size,
+        paper_size=resolve_paper_size(paper_size).name,
         design=design,
     )
     run_task(

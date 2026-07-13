@@ -21,16 +21,10 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ethernity.cli.shared.ndjson import ApiCommandError
+from ethernity.cli.shared.render_validation import validate_rendered_fallback_artifact
 from ethernity.crypto import sharding as sharding_module
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
-from ethernity.render.proofs import (
-    validate_fallback_render_proof,
-    validate_fallback_text_in_pdf,
-    validate_pdf_has_pages,
-    validate_render_artifact_proof,
-    validate_render_layout_proof,
-)
 from ethernity.render.service import RenderService
 from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
 
@@ -186,44 +180,10 @@ def render_extension_shard(
         lineage=lineage,
     )
     render_result = render_frames_to_pdf(shard_inputs)
-    _validate_rendered_extension_shard(
+    validate_rendered_fallback_artifact(
         inputs=shard_inputs,
         result=render_result,
         artifact_label=f"rendered extension {stem} artifact",
-    )
-
-
-def _validate_rendered_extension_shard(
-    *,
-    inputs: RenderInputs,
-    result: RenderResult,
-    artifact_label: str,
-) -> None:
-    fallback_sections = tuple(inputs.fallback_sections or ())
-    validate_render_artifact_proof(
-        artifact_label=artifact_label,
-        inputs=inputs,
-        artifact_proof=result.artifact_proof,
-    )
-    reader = validate_pdf_has_pages(inputs.output_path, artifact_label=artifact_label)
-    validate_render_layout_proof(
-        artifact_label=artifact_label,
-        layout_proof=result.layout_proof,
-        expected_page_count=len(reader.pages),
-    )
-    fallback_proof = (
-        result.artifact_proof.fallback_proof if result.artifact_proof is not None else None
-    ) or result.fallback_proof
-    validate_fallback_render_proof(
-        artifact_label=artifact_label,
-        frames=tuple(section.frame for section in fallback_sections),
-        fallback_proof=fallback_proof,
-    )
-    validate_fallback_text_in_pdf(
-        artifact_label=artifact_label,
-        reader=reader,
-        fallback_sections=fallback_sections,
-        fallback_proof=fallback_proof,
     )
 
 

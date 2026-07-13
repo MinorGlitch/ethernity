@@ -21,21 +21,19 @@ import hashlib
 import json
 import re
 import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
 from rich.console import Console
-from rich.live import Live
-from rich.spinner import Spinner
-from rich.text import Text
 
 from ethernity.cli.shared.paths import expanduser_cli_path
+from ethernity.cli.shared.ui.runtime import plain_status
+from ethernity.cli.shared.ui.state import isatty
 from ethernity.config import apply_render_style, load_app_config
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
-from ethernity.qr.codec import QrConfig, make_qr
+from ethernity.qr.capacity import fits_qr_payload
+from ethernity.qr.codec import QrConfig
 from ethernity.render import render_frames_to_pdf
 from ethernity.render.service import RenderService
 from ethernity.render.types import RenderLineage
@@ -54,30 +52,7 @@ _SUPPORTED_KIT_BUNDLE_COMPRESSIONS = {"gzip", "brotli"}
 _DEV_KIT_DIST_ROOT = Path(__file__).resolve().parents[5] / "kit" / "dist"
 
 
-def _isatty(raw: object, fallback: object) -> bool:
-    if raw is not None:
-        try:
-            return bool(raw.isatty())  # type: ignore[attr-defined]
-        except (OSError, ValueError, AttributeError):
-            return False
-    return bool(getattr(fallback, "isatty", lambda: False)())
-
-
-_CONSOLE = Console(force_terminal=_isatty(sys.__stdout__, sys.stdout))
-
-
-@contextmanager
-def status(message: str, *, quiet: bool = False) -> Iterator[Live | None]:
-    if quiet:
-        yield None
-        return
-    if not _isatty(sys.__stdout__, sys.stdout):
-        _CONSOLE.print(message)
-        yield None
-        return
-    spinner = Spinner("dots", text=Text(message))
-    with Live(spinner, console=_CONSOLE, transient=False, refresh_per_second=12) as live:
-        yield live
+_CONSOLE = Console(force_terminal=isatty(sys.__stdout__, sys.stdout))
 
 
 @dataclass(frozen=True)
@@ -142,7 +117,11 @@ def render_kit_qr_document(
         lineage=RenderLineage(kind="recovery_kit"),
     )
 
-    with status("Rendering recovery kit QR document...", quiet=quiet):
+    with plain_status(
+        "Rendering recovery kit QR document...",
+        quiet=quiet,
+        console=_CONSOLE,
+    ):
         render_frames_to_pdf(inputs)
 
     return KitResult(
@@ -358,14 +337,14 @@ def _build_kit_qr_payloads(bundle_bytes: bytes, chunk_size: int, config: QrConfi
     metadata = _extract_kit_bundle_loader_metadata(bundle_bytes)
     payload_chunks = _split_kit_payload_chunks(metadata.payload, chunk_size)
     shell = _kit_shell_payload(chunk_count=len(payload_chunks), compression=metadata.compression)
-    if not _fits_qr_payload(shell, config):
+    if not fits_qr_payload(shell, config):
         raise ValueError(
             "QR settings cannot encode the recovery kit shell QR. "
             "Increase QR version / lower error level. "
             "--qr-chunk-size only affects payload QRs after the first shell QR."
         )
     for payload_chunk in payload_chunks:
-        if not _fits_qr_payload(payload_chunk, config):
+        if not fits_qr_payload(payload_chunk, config):
             raise ValueError(
                 "chunk_size is too large for the current QR settings; "
                 "lower --qr-chunk-size or increase the QR version / error level."
@@ -375,31 +354,16 @@ def _build_kit_qr_payloads(bundle_bytes: bytes, chunk_size: int, config: QrConfi
 
 def _max_qr_payload_bytes(data: bytes, config: QrConfig) -> int:
     max_probe = max(1, min(len(data), _MAX_QR_PROBE_BYTES))
-    if not _fits_qr_payload(data[:1], config):
+    if not fits_qr_payload(data[:1], config):
         raise ValueError("QR settings cannot encode any payload bytes")
-    if _fits_qr_payload(data[:max_probe], config):
+    if fits_qr_payload(data[:max_probe], config):
         return max_probe
     lower = 1
     upper = max_probe
     while lower + 1 < upper:
         mid = (lower + upper) // 2
-        if _fits_qr_payload(data[:mid], config):
+        if fits_qr_payload(data[:mid], config):
             lower = mid
         else:
             upper = mid
     return lower
-
-
-def _fits_qr_payload(payload: bytes, config: QrConfig) -> bool:
-    try:
-        make_qr(
-            payload,
-            error=config.error,
-            version=config.version,
-            mask=config.mask,
-            micro=config.micro,
-            boost_error=config.boost_error,
-        )
-    except (ValueError, TypeError):
-        return False
-    return True

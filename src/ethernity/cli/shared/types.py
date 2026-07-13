@@ -16,11 +16,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from ethernity.config import BackupDefaults, ExtendDefaults, RecoverDefaults
 from ethernity.encoding.framing import Frame
 
 
@@ -214,37 +213,3 @@ class CompactArgs:
     expected_head_doc_hash: str | None = None
     allow_stale_head: bool = False
     quiet: bool = False
-
-
-@dataclass
-class ConfigGetArgs:
-    """Typed container for API config get arguments."""
-
-    config: str | None = None
-
-
-@dataclass
-class ConfigSetArgs:
-    """Typed container for API config set arguments."""
-
-    config: str | None = None
-    input_json: str | None = None
-
-
-@dataclass
-class CliContextState:
-    """Typed shared CLI state for legacy service adapters."""
-
-    config: str | None = None
-    config_explicit: bool = False
-    paper: str | None = None
-    design: str | None = None
-    debug: bool = False
-    debug_max_bytes: int = 0
-    debug_reveal_secrets: bool = False
-    quiet: bool = False
-    no_color: bool = False
-    no_animations: bool = False
-    backup_defaults: BackupDefaults = field(default_factory=BackupDefaults)
-    recover_defaults: RecoverDefaults = field(default_factory=RecoverDefaults)
-    extend_defaults: ExtendDefaults = field(default_factory=ExtendDefaults)

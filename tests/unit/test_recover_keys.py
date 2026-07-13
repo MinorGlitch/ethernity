@@ -61,7 +61,7 @@ class TestResolveAuthPayload(unittest.TestCase):
             )
 
     def test_missing_auth_returns_skipped_when_allow_unsigned(self) -> None:
-        with mock.patch("ethernity.cli.features.recover.key_recovery._warn") as warn_mock:
+        with mock.patch("ethernity.cli.features.recover.key_recovery.warn") as warn_mock:
             payload, status = resolve_auth_payload(
                 [],
                 doc_id=b"\x10" * DOC_ID_LEN,
@@ -112,7 +112,7 @@ class TestResolveAuthPayload(unittest.TestCase):
 
     def test_auth_doc_id_mismatch_ignored_in_allow_unsigned_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x11" * DOC_ID_LEN)
-        with mock.patch("ethernity.cli.features.recover.key_recovery._warn") as warn_mock:
+        with mock.patch("ethernity.cli.features.recover.key_recovery.warn") as warn_mock:
             payload, status = resolve_auth_payload(
                 [frame],
                 doc_id=b"\x12" * DOC_ID_LEN,
@@ -143,7 +143,7 @@ class TestResolveAuthPayload(unittest.TestCase):
             "ethernity.cli.features.recover.key_recovery.decode_auth_payload",
             side_effect=ValueError("invalid cbor"),
         ):
-            with mock.patch("ethernity.cli.features.recover.key_recovery._warn") as warn_mock:
+            with mock.patch("ethernity.cli.features.recover.key_recovery.warn") as warn_mock:
                 payload, status = resolve_auth_payload(
                     [frame],
                     doc_id=b"\x10" * DOC_ID_LEN,
@@ -181,7 +181,7 @@ class TestResolveAuthPayload(unittest.TestCase):
             "ethernity.cli.features.recover.key_recovery.decode_auth_payload",
             return_value=payload_obj,
         ):
-            with mock.patch("ethernity.cli.features.recover.key_recovery._warn") as warn_mock:
+            with mock.patch("ethernity.cli.features.recover.key_recovery.warn") as warn_mock:
                 payload, status = resolve_auth_payload(
                     [frame],
                     doc_id=b"\x10" * DOC_ID_LEN,
@@ -252,7 +252,7 @@ class TestResolveAuthPayload(unittest.TestCase):
             with mock.patch(
                 "ethernity.cli.features.recover.key_recovery.verify_auth", return_value=False
             ):
-                with mock.patch("ethernity.cli.features.recover.key_recovery._warn") as warn_mock:
+                with mock.patch("ethernity.cli.features.recover.key_recovery.warn") as warn_mock:
                     payload, status = resolve_auth_payload(
                         [frame],
                         doc_id=b"\x10" * DOC_ID_LEN,

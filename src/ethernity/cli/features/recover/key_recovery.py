@@ -19,7 +19,7 @@ from __future__ import annotations
 import hmac
 
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.log import _warn
+from ethernity.cli.shared.log import warn
 from ethernity.cli.shared.types import RecoverArgs
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
@@ -37,6 +37,7 @@ __all__ = [
     "InsufficientShardError",
     "passphrase_from_shard_frames",
     "resolve_auth_payload",
+    "resolve_recovery_keys",
     "signing_seed_from_shard_frames",
     "validated_shard_payloads_from_frames",
 ]
@@ -62,7 +63,7 @@ class InsufficientShardError(ValueError):
         super().__init__(f"need at least {threshold} shard(s) to recover {secret_label}")
 
 
-def _resolve_recovery_keys(args: RecoverArgs) -> str:
+def resolve_recovery_keys(args: RecoverArgs) -> str:
     if args.passphrase:
         return args.passphrase
     raise ValueError("passphrase is required for recovery")
@@ -81,7 +82,7 @@ def resolve_auth_payload(
         if require_auth:
             raise ValueError("missing auth payload; provide AUTH input to verify recovery")
         if allow_unsigned:
-            _warn(
+            warn(
                 "no auth payload provided; skipping auth verification",
                 quiet=quiet,
                 code=api_codes.AUTH_PAYLOAD_MISSING,
@@ -93,7 +94,7 @@ def resolve_auth_payload(
     frame = auth_frames[0]
     if frame.doc_id != doc_id:
         if allow_unsigned:
-            _warn(
+            warn(
                 "auth payload doc_id mismatch; verification skipped",
                 quiet=quiet,
                 code=api_codes.AUTH_PAYLOAD_INVALID,
@@ -107,7 +108,7 @@ def resolve_auth_payload(
         payload = decode_auth_payload(frame.data)
     except ValueError as exc:
         if allow_unsigned:
-            _warn(
+            warn(
                 f"invalid auth payload; verification skipped: {exc}",
                 quiet=quiet,
                 code=api_codes.AUTH_PAYLOAD_INVALID,
@@ -117,7 +118,7 @@ def resolve_auth_payload(
         raise
     if not hmac.compare_digest(payload.doc_hash, doc_hash):
         if allow_unsigned:
-            _warn(
+            warn(
                 "auth doc_hash mismatch; verification skipped",
                 quiet=quiet,
                 code=api_codes.AUTH_DOC_HASH_MISMATCH,
@@ -126,7 +127,7 @@ def resolve_auth_payload(
         raise ValueError("auth doc_hash does not match ciphertext")
     if not verify_auth(doc_hash, sign_pub=payload.sign_pub, signature=payload.signature):
         if allow_unsigned:
-            _warn(
+            warn(
                 "auth signature verification failed; verification skipped",
                 quiet=quiet,
                 code=api_codes.AUTH_SIGNATURE_INVALID,

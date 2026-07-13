@@ -26,9 +26,9 @@ from ethernity.cli.features.backup.execution import run_backup as _run_backup
 from ethernity.cli.features.backup.planning import plan_from_args
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import EventSink, emit_phase, emit_progress, event_session
-from ethernity.cli.shared.io.inputs import _load_input_files
-from ethernity.cli.shared.log import _warn
-from ethernity.cli.shared.plan import _validate_backup_args
+from ethernity.cli.shared.io.inputs import load_input_files
+from ethernity.cli.shared.log import warn
+from ethernity.cli.shared.plan import validate_backup_args
 from ethernity.cli.shared.types import BackupArgs, BackupResult, InputFile
 from ethernity.config import AppConfig, apply_render_style, load_app_config
 from ethernity.core.models import DocumentPlan, SigningSeedMode
@@ -65,17 +65,17 @@ def prepare_backup_run(
         config = load_app_config(args.config, paper_size=args.paper)
         config = apply_render_style(config, args.design)
         config = apply_qr_chunk_size_override(config, args.qr_chunk_size)
-        _validate_backup_args(args)
+        validate_backup_args(args)
         plan = plan_from_args(args)
         if plan.sealed and plan.signing_seed_mode == SigningSeedMode.SHARDED:
-            _warn(
+            warn(
                 "Signing-key sharding is disabled for sealed backups.",
                 quiet=args.quiet,
                 code=api_codes.BACKUP_SIGNING_KEY_SHARDING_DISABLED,
             )
 
         emit_phase(phase="input", label="Loading backup inputs")
-        input_files, resolved_base, input_origin, input_roots = _load_input_files(
+        input_files, resolved_base, input_origin, input_roots = load_input_files(
             list(args.input or []),
             list(args.input_dir or []),
             args.base_dir,

@@ -23,16 +23,12 @@ from pathlib import Path
 from unittest import mock
 
 from ethernity.cli.shared.io.frames import (
+    NoQrFramesError,
     _all_lines_match_fallback_text,
     _all_payload_lines_decode,
-    _auth_frames_from_fallback,
     _auth_frames_from_fallback_lines,
-    _auth_frames_from_payloads,
     _decode_payload,
-    _dedupe_auth_frames,
-    _dedupe_frames,
     _detect_recovery_input_mode,
-    _frame_from_fallback,
     _frame_from_fallback_lines,
     _frame_from_payload_text,
     _frames_from_fallback_lines,
@@ -40,14 +36,16 @@ from ethernity.cli.shared.io.frames import (
     _frames_from_shard_inputs,
     _parse_fallback_section,
     _read_text_lines,
-    _split_main_and_auth_frames,
+    auth_frames_from_fallback,
+    auth_frames_from_payloads,
+    frame_from_fallback,
     frames_from_scan,
     recovery_frames_from_scan,
 )
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.encoding.zbase32 import encode_zbase32
-from ethernity.qr.scan import QrScanError, ScannedQrPayload
+from ethernity.qr.scan import NoQrPayloadsError, QrScanError, ScannedQrPayload
 
 
 class TestFramesIo(unittest.TestCase):
@@ -131,7 +129,7 @@ class TestFramesIo(unittest.TestCase):
                 "ethernity.cli.shared.io.frames._frame_from_fallback_lines",
                 return_value=frame,
             ) as parse_mock:
-                parsed = _frame_from_fallback("fallback.txt")
+                parsed = frame_from_fallback("fallback.txt")
         self.assertEqual(parsed, frame)
         parse_mock.assert_called_once_with(["line"], label="fallback")
 
@@ -145,7 +143,7 @@ class TestFramesIo(unittest.TestCase):
                 "ethernity.cli.shared.io.frames._frame_from_fallback_lines",
                 return_value=frame,
             ) as parse_mock:
-                parsed = _frame_from_fallback("fallback.txt")
+                parsed = frame_from_fallback("fallback.txt")
         self.assertEqual(parsed, frame)
         parse_mock.assert_called_once_with(["line"], label="key")
 
@@ -155,7 +153,7 @@ class TestFramesIo(unittest.TestCase):
             return_value=["MAIN FRAME", "aaa", "SHARD FRAME", "bbb"],
         ):
             with self.assertRaisesRegex(ValueError, "exactly one marked fallback section"):
-                _frame_from_fallback("fallback.txt")
+                frame_from_fallback("fallback.txt")
 
     def test_parse_fallback_section_without_markers_passes_through_lines(self) -> None:
         frame = self._frame()
@@ -205,7 +203,7 @@ class TestFramesIo(unittest.TestCase):
                     "ethernity.cli.shared.io.frames._frame_from_fallback_lines",
                     side_effect=ValueError("invalid"),
                 ):
-                    with mock.patch("ethernity.cli.shared.io.frames._warn") as warn_mock:
+                    with mock.patch("ethernity.cli.shared.io.frames.warn") as warn_mock:
                         parsed = _parse_fallback_section(
                             ["AUTH FRAME", "bad"],
                             "auth",
@@ -320,7 +318,7 @@ class TestFramesIo(unittest.TestCase):
                 "ethernity.cli.shared.io.frames._auth_frames_from_fallback_lines",
                 return_value=[frame],
             ) as parse_mock:
-                frames = _auth_frames_from_fallback(
+                frames = auth_frames_from_fallback(
                     "auth.txt",
                     allow_invalid_auth=False,
                     quiet=True,
@@ -343,7 +341,7 @@ class TestFramesIo(unittest.TestCase):
             path = Path(tmpdir) / "payloads.txt"
             path.write_text(payload + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "AUTH payloads only"):
-                _auth_frames_from_payloads(str(path))
+                auth_frames_from_payloads(str(path))
 
     def test_auth_frames_from_payloads_accepts_auth_only_payloads(self) -> None:
         auth_payload = encode_qr_payload(
@@ -352,7 +350,7 @@ class TestFramesIo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "auth_payloads.txt"
             path.write_text(auth_payload + "\n", encoding="utf-8")
-            frames = _auth_frames_from_payloads(str(path))
+            frames = auth_frames_from_payloads(str(path))
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0].frame_type, FrameType.AUTH)
 
@@ -360,11 +358,11 @@ class TestFramesIo(unittest.TestCase):
         fallback_frame = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x34" * DOC_ID_LEN)
         payload_frame = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x35" * DOC_ID_LEN)
         with mock.patch(
-            "ethernity.cli.shared.io.frames._frame_from_fallback",
+            "ethernity.cli.shared.io.frames.frame_from_fallback",
             return_value=fallback_frame,
         ) as fallback_mock:
             with mock.patch(
-                "ethernity.cli.shared.io.frames._frames_from_payloads",
+                "ethernity.cli.shared.io.frames.frames_from_payloads",
                 return_value=[payload_frame],
             ) as payload_mock:
                 frames = _frames_from_shard_inputs(
@@ -388,7 +386,15 @@ class TestFramesIo(unittest.TestCase):
             "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
             return_value=[],
         ):
-            with self.assertRaisesRegex(ValueError, "no QR payloads found"):
+            with self.assertRaisesRegex(NoQrFramesError, "no QR payloads found"):
+                frames_from_scan(["scan.png"])
+
+    def test_frames_from_scan_preserves_no_qr_classification(self) -> None:
+        with mock.patch(
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            side_effect=NoQrPayloadsError("no QR codes found in scan inputs"),
+        ):
+            with self.assertRaisesRegex(NoQrFramesError, "scan failed: no QR codes found"):
                 frames_from_scan(["scan.png"])
 
     def test_frames_from_scan_reports_all_invalid_payloads(self) -> None:
@@ -536,7 +542,7 @@ class TestFramesIo(unittest.TestCase):
         with mock.patch(
             "ethernity.cli.shared.io.frames.frames_from_scan", return_value=[main, auth, shard]
         ):
-            with mock.patch("ethernity.cli.shared.io.frames._warn") as warn_mock:
+            with mock.patch("ethernity.cli.shared.io.frames.warn") as warn_mock:
                 frames = recovery_frames_from_scan(["backup-dir"], quiet=False)
         self.assertEqual(frames, [main, auth])
         warn_mock.assert_called_once()
@@ -584,37 +590,6 @@ class TestFramesIo(unittest.TestCase):
         with mock.patch("ethernity.cli.shared.io.frames.frames_from_scan", return_value=[shard]):
             with self.assertRaisesRegex(ValueError, "did not contain recovery QR payloads"):
                 recovery_frames_from_scan(["backup-dir"], quiet=True)
-
-    def test_dedupe_frames_accepts_identical_duplicates(self) -> None:
-        frame = self._frame()
-        deduped = _dedupe_frames([frame, frame])
-        self.assertEqual(deduped, [frame])
-
-    def test_dedupe_frames_rejects_conflicting_duplicates(self) -> None:
-        frame_a = self._frame(data=b"A")
-        frame_b = self._frame(data=b"B")
-        with self.assertRaisesRegex(ValueError, "conflicting duplicate"):
-            _dedupe_frames([frame_a, frame_b])
-
-    def test_dedupe_auth_frames_rejects_non_auth(self) -> None:
-        with self.assertRaisesRegex(ValueError, "AUTH type"):
-            _dedupe_auth_frames([self._frame(frame_type=FrameType.MAIN_DOCUMENT)])
-
-    def test_dedupe_auth_frames_handles_empty_and_valid_auth_lists(self) -> None:
-        self.assertEqual(_dedupe_auth_frames([]), [])
-        auth = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x36" * DOC_ID_LEN, data=b"auth")
-        self.assertEqual(_dedupe_auth_frames([auth]), [auth])
-
-    def test_split_main_and_auth_requires_main(self) -> None:
-        auth = self._frame(frame_type=FrameType.AUTH)
-        with self.assertRaisesRegex(ValueError, "no main document payloads"):
-            _split_main_and_auth_frames([auth])
-
-    def test_split_main_and_auth_rejects_unexpected_frame_type(self) -> None:
-        main = self._frame(frame_type=FrameType.MAIN_DOCUMENT)
-        shard = self._frame(frame_type=FrameType.KEY_DOCUMENT)
-        with self.assertRaisesRegex(ValueError, "unexpected frame type"):
-            _split_main_and_auth_frames([main, shard])
 
     def test_decode_payload_rejects_non_ascii_bytes(self) -> None:
         with self.assertRaisesRegex(ValueError, "must be ASCII"):

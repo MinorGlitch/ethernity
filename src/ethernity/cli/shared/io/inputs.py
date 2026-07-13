@@ -32,6 +32,8 @@ from ethernity.cli.shared.types import InputFile
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ethernity.core.validation import normalize_path
 
+__all__ = ["load_input_files"]
+
 # Progress reporting intervals
 SCAN_UPDATE_INTERVAL = 1
 READ_PROGRESS_UPDATE_INTERVAL = 10  # Update more frequently for better UX
@@ -68,7 +70,7 @@ class _PlannedInputFile:
     file_stat: os.stat_result
 
 
-def _load_input_files(
+def load_input_files(
     input_paths: list[str],
     input_dirs: list[str],
     base_dir: str | None,

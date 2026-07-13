@@ -31,7 +31,6 @@ from ethernity.cli.features.recover.key_recovery import (
 )
 from ethernity.cli.features.recover.planning import plan_from_args as plan_recover_from_args
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_from_doc_hash
 from ethernity.cli.shared.io.frames import frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.root_shard_policy import (
@@ -42,6 +41,7 @@ from ethernity.cli.shared.root_shard_policy import (
 from ethernity.cli.shared.types import BackupArgs, BackupResult, CompactArgs, InputFile, RecoverArgs
 from ethernity.config import apply_render_style, load_app_config
 from ethernity.crypto import sharding as sharding_module
+from ethernity.crypto.document_identity import doc_id_from_doc_hash
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
