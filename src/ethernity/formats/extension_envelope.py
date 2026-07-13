@@ -32,6 +32,7 @@ from ethernity.core.bounds import (
     MAX_RECOVERY_DECODED_CHUNK_BYTES,
 )
 from ethernity.core.validation import (
+    normalize_input_root_label,
     normalize_manifest_path,
     require_bytes,
     require_dict,
@@ -43,6 +44,7 @@ from ethernity.core.validation import (
     require_non_negative_int,
     require_positive_int,
     require_str,
+    validate_input_origin_roots,
 )
 from ethernity.encoding.cbor import dumps_canonical, loads_canonical
 from ethernity.encoding.varint import decode_uvarint, encode_uvarint
@@ -372,8 +374,15 @@ class ExtensionEnvelopeHeader:
         input_origin = require_str(self.input_origin, label="extension header input_origin")
         if input_origin not in {"file", "directory", "mixed"}:
             raise ValueError("extension header input_origin must be one of: file, directory, mixed")
-        normalized_roots = tuple(_normalize_root_label(root) for root in self.input_roots)
-        _validate_input_origin_roots(input_origin, normalized_roots)
+        normalized_roots = tuple(
+            normalize_input_root_label(root, label="extension header input_root")
+            for root in self.input_roots
+        )
+        validate_input_origin_roots(
+            input_origin,
+            normalized_roots,
+            label="extension header input_roots",
+        )
         object.__setattr__(self, "version", version)
         object.__setattr__(self, "index", index)
         object.__setattr__(self, "parent_doc_hash", parent_doc_hash)
@@ -424,7 +433,10 @@ class ExtensionEnvelopeHeader:
             input_origin=require_str(
                 header[_HEADER_INPUT_ORIGIN], label="extension header input_origin"
             ),
-            input_roots=tuple(_normalize_root_label(root) for root in roots),
+            input_roots=tuple(
+                normalize_input_root_label(root, label="extension header input_root")
+                for root in roots
+            ),
         )
 
 
@@ -726,24 +738,6 @@ def _require_inline_chunk_raw_len_bounds(
                 f"MAX_RECOVERY_DECODED_CHUNK_BYTES={MAX_RECOVERY_DECODED_CHUNK_BYTES}); rebuild "
                 "the latest logical state as a fresh standalone backup"
             )
-
-
-def _normalize_root_label(value: object) -> str:
-    root = normalize_manifest_path(value, label="extension header input_root")
-    if "/" in root or "\\" in root:
-        raise ValueError("extension header input_root must be a leaf label without path separators")
-    return root
-
-
-def _validate_input_origin_roots(input_origin: str, input_roots: tuple[str, ...]) -> None:
-    if input_origin == "file":
-        if input_roots:
-            raise ValueError("extension header input_roots must be empty when input_origin is file")
-        return
-    if not input_roots:
-        raise ValueError(
-            "extension header input_roots must be non-empty for directory or mixed input"
-        )
 
 
 __all__ = [

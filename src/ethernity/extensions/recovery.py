@@ -31,7 +31,16 @@ from ethernity.core.bounds import (
     MAX_EXTENSION_INDEX,
     MAX_RECOVERY_DECODED_CHUNK_BYTES,
 )
-from ethernity.crypto import decrypt_bytes
+from ethernity.crypto import canonicalize_valid_bip39_mnemonic, decrypt_bytes
+from ethernity.crypto.age_runtime import (
+    AgeError,
+    PassphraseAuthenticationError,
+    decrypt_bytes_with_exact_passphrase,
+)
+from ethernity.crypto.document_identity import (
+    doc_id_and_hash_from_ciphertext,
+    parse_doc_hash_hex,
+)
 from ethernity.crypto.signing import (
     AuthPayload,
     decode_auth_payload,
@@ -39,6 +48,10 @@ from ethernity.crypto.signing import (
     verify_auth,
 )
 from ethernity.encoding.chunking import reassemble_payload
+from ethernity.encoding.frame_sets import (
+    deduplicate_frame_slots,
+    split_main_and_auth_frames,
+)
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import errors as extension_errors
 from ethernity.extensions.chain import (
@@ -46,7 +59,6 @@ from ethernity.extensions.chain import (
     LogicalFileState,
     reconstruct_authenticated_latest_logical_state,
 )
-from ethernity.extensions.identity import doc_id_and_hash_from_ciphertext
 from ethernity.extensions.resources import require_chain_resource_limits
 from ethernity.formats.envelope_codec import (
     decode_any_envelope,
@@ -157,6 +169,7 @@ class _DecodedImportEntry:
     doc_hash: bytes
     plaintext: bytes | None
     error: str | None
+    passphrase_auth_failed: bool = False
 
 
 @dataclass(frozen=True)
@@ -165,6 +178,7 @@ class DecodedImportSession:
 
     root_document: ImportedRecoveryDocument
     entries: tuple[_DecodedImportEntry, ...]
+    locked_passphrase: str
 
     def plaintext_for(self, document: ImportedRecoveryDocument) -> bytes:
         """Return cached plaintext, or replay the cached decrypt failure without more KDF work."""
@@ -174,8 +188,20 @@ class DecodedImportSession:
                 continue
             if entry.plaintext is not None:
                 return entry.plaintext
+            if entry.passphrase_auth_failed:
+                raise PassphraseAuthenticationError(
+                    AgeError(backend="pyrage", detail="Decryption failed")
+                )
             raise ValueError(entry.error or "cached import decryption failed")
         raise ValueError("import document is not part of the decoded import session")
+
+
+class _ImportSessionSelectionError(ValueError):
+    """Root classification failed for one locked passphrase candidate."""
+
+    def __init__(self, message: str, *, canonical_retry_allowed: bool) -> None:
+        super().__init__(message)
+        self.canonical_retry_allowed = canonical_retry_allowed
 
 
 @dataclass(frozen=True)
@@ -290,42 +316,6 @@ class _DecodedExtensionCandidate:
     auth_status: str
 
 
-def _dedupe_frames(frames: list[Frame]) -> list[Frame]:
-    """Deduplicate frames by type/index/doc_id, rejecting conflicts."""
-
-    seen: dict[tuple[int, int, bytes], Frame] = {}
-    deduped: list[Frame] = []
-    for frame in frames:
-        key = (int(frame.frame_type), int(frame.index), frame.doc_id)
-        existing = seen.get(key)
-        if existing:
-            if existing.data != frame.data or existing.total != frame.total:
-                raise ValueError("conflicting duplicate frames detected")
-            continue
-        seen[key] = frame
-        deduped.append(frame)
-    return deduped
-
-
-def _split_main_and_auth_frames(frames: list[Frame]) -> tuple[list[Frame], list[Frame]]:
-    """Split decoded frames into MAIN and AUTH lists."""
-
-    main_frames: list[Frame] = []
-    auth_frames: list[Frame] = []
-    for frame in frames:
-        if frame.frame_type == FrameType.MAIN_DOCUMENT:
-            main_frames.append(frame)
-        elif frame.frame_type == FrameType.AUTH:
-            auth_frames.append(frame)
-        else:
-            raise ValueError("unexpected frame type in main document QR payloads")
-    if not main_frames:
-        raise ValueError(
-            "no main document payloads provided; check the MAIN QR payloads or recovery text"
-        )
-    return main_frames, auth_frames
-
-
 def imported_documents_from_recovery_frames(
     frames: list[Frame],
     *,
@@ -333,7 +323,7 @@ def imported_documents_from_recovery_frames(
 ) -> tuple[ImportedRecoveryDocument, ...]:
     """Group MAIN/AUTH recovery frames into independently recoverable documents."""
 
-    deduped = _dedupe_frames(frames)
+    deduped = deduplicate_frame_slots(frames)
     pre_main_doc_ids = {
         frame.doc_id for frame in deduped if frame.frame_type == FrameType.MAIN_DOCUMENT
     }
@@ -342,7 +332,7 @@ def imported_documents_from_recovery_frames(
     if pre_orphan_auth_doc_ids:
         preview = ", ".join(doc_id.hex() for doc_id in pre_orphan_auth_doc_ids[:3])
         raise ValueError(f"{source_label} contains AUTH frame(s) without matching MAIN: {preview}")
-    main_frames, auth_frames = _split_main_and_auth_frames(deduped)
+    main_frames, auth_frames = split_main_and_auth_frames(deduped)
     require_chain_resource_limits(
         document_count=len({frame.doc_id for frame in main_frames}),
         total_ciphertext_bytes=sum(len(frame.data) for frame in main_frames),
@@ -410,7 +400,7 @@ def select_root_import_session(
     passphrase: str,
     debug: bool,
 ) -> DecodedImportSession:
-    """Classify imports and retain the single bounded decrypt pass for later replay."""
+    """Classify imports with one passphrase candidate locked across the whole session."""
 
     require_chain_resource_limits(
         document_count=len(documents),
@@ -418,13 +408,60 @@ def select_root_import_session(
         operation="content import",
     )
 
+    try:
+        return _select_root_import_session_candidate(
+            documents,
+            passphrase=passphrase,
+            debug=debug,
+        )
+    except _ImportSessionSelectionError as exact_error:
+        canonical = canonicalize_valid_bip39_mnemonic(passphrase)
+        if canonical == passphrase or not exact_error.canonical_retry_allowed:
+            raise ValueError(str(exact_error)) from exact_error
+        try:
+            return _select_root_import_session_candidate(
+                documents,
+                passphrase=canonical,
+                debug=debug,
+            )
+        except _ImportSessionSelectionError as canonical_error:
+            raise ValueError(str(canonical_error)) from canonical_error
+
+
+def _select_root_import_session_candidate(
+    documents: tuple[ImportedRecoveryDocument, ...],
+    *,
+    passphrase: str,
+    debug: bool,
+) -> DecodedImportSession:
+    """Classify all imports using exactly one already-selected passphrase candidate."""
+
     roots: list[ImportedRecoveryDocument] = []
     decoded_entries: list[_DecodedImportEntry] = []
     extension_count = 0
     decode_errors: list[str] = []
+    passphrase_auth_failures = 0
+    non_passphrase_failures = 0
     for document in documents:
         try:
-            plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
+            plaintext = _decrypt_import_session_candidate(
+                document.ciphertext,
+                passphrase=passphrase,
+                debug=debug,
+            )
+        except PassphraseAuthenticationError as exc:
+            error = str(exc)
+            decoded_entries.append(
+                _DecodedImportEntry(
+                    doc_hash=document.doc_hash,
+                    plaintext=None,
+                    error=error,
+                    passphrase_auth_failed=True,
+                )
+            )
+            passphrase_auth_failures += 1
+            decode_errors.append(f"{document.doc_id.hex()}: {error}")
+            continue
         except Exception as exc:
             error = str(exc)
             decoded_entries.append(
@@ -434,6 +471,7 @@ def select_root_import_session(
                     error=error,
                 )
             )
+            non_passphrase_failures += 1
             decode_errors.append(f"{document.doc_id.hex()}: {error}")
             continue
         decoded_entries.append(
@@ -449,6 +487,7 @@ def select_root_import_session(
         except ExtensionDecodedChunkBudgetError:
             raise
         except Exception as exc:
+            non_passphrase_failures += 1
             decode_errors.append(f"{document.doc_id.hex()}: {exc}")
             continue
         if version == 1 and isinstance(decoded, tuple) and len(decoded) == 2:
@@ -464,16 +503,38 @@ def select_root_import_session(
         return DecodedImportSession(
             root_document=roots[0],
             entries=tuple(decoded_entries),
+            locked_passphrase=passphrase,
         )
     if not roots:
         detail = "; ".join(decode_errors[:3])
         suffix = f" ({detail})" if detail else ""
-        raise ValueError(f"content import did not contain a decryptable root backup{suffix}")
-    raise ValueError(
+        raise _ImportSessionSelectionError(
+            f"content import did not contain a decryptable root backup{suffix}",
+            canonical_retry_allowed=(passphrase_auth_failures > 0 and non_passphrase_failures == 0),
+        )
+    raise _ImportSessionSelectionError(
         "content import contains multiple root backups; provide one root backup per "
-        "recovery session "
-        f"({len(roots)} roots, {extension_count} extensions)"
+        f"recovery session ({len(roots)} roots, {extension_count} extensions)",
+        canonical_retry_allowed=False,
     )
+
+
+def _decrypt_import_session_candidate(
+    ciphertext: bytes,
+    *,
+    passphrase: str,
+    debug: bool,
+) -> bytes:
+    """Decrypt one session member without allowing an implicit second candidate."""
+
+    if canonicalize_valid_bip39_mnemonic(passphrase) == passphrase:
+        return decrypt_bytes(ciphertext, passphrase=passphrase, debug=debug)
+    try:
+        return decrypt_bytes_with_exact_passphrase(ciphertext, passphrase=passphrase)
+    except AgeError:
+        if debug:
+            raise
+        raise ValueError("decryption failed") from None
 
 
 def recover_chain_entries(
@@ -507,6 +568,58 @@ def recover_chain_entries(
 def recover_imported_chain_entries(
     plan: RecoveryPlanLike, *, quiet: bool, debug: bool = False
 ) -> ChainRecoveryResult:
+    decoded_import_session = getattr(plan, "decoded_import_session", None)
+    canonical = canonicalize_valid_bip39_mnemonic(plan.passphrase)
+    if (
+        decoded_import_session is None
+        and len(plan.import_documents) > 1
+        and canonical != plan.passphrase
+    ):
+        decoded_import_session = select_root_import_session(
+            tuple(plan.import_documents),
+            passphrase=plan.passphrase,
+            debug=debug,
+        )
+
+    try:
+        return _recover_imported_chain_entries_with_session(
+            plan,
+            quiet=quiet,
+            debug=debug,
+            decoded_import_session=decoded_import_session,
+        )
+    except PassphraseAuthenticationError as exact_error:
+        if (
+            decoded_import_session is None
+            or decoded_import_session.locked_passphrase != plan.passphrase
+            or canonical == plan.passphrase
+        ):
+            raise ValueError("content import decryption failed") from exact_error
+        try:
+            canonical_session = _select_root_import_session_candidate(
+                tuple(plan.import_documents),
+                passphrase=canonical,
+                debug=debug,
+            )
+            return _recover_imported_chain_entries_with_session(
+                plan,
+                quiet=quiet,
+                debug=debug,
+                decoded_import_session=canonical_session,
+            )
+        except (PassphraseAuthenticationError, _ImportSessionSelectionError) as canonical_error:
+            raise ValueError(
+                "content import cannot be decrypted with one consistent passphrase candidate"
+            ) from canonical_error
+
+
+def _recover_imported_chain_entries_with_session(
+    plan: RecoveryPlanLike,
+    *,
+    quiet: bool,
+    debug: bool,
+    decoded_import_session: DecodedImportSession | None,
+) -> ChainRecoveryResult:
     _ = quiet
     require_chain_resource_limits(
         document_count=len(plan.import_documents),
@@ -516,7 +629,6 @@ def recover_imported_chain_entries(
     if plan.extension_index is not None and plan.extension_doc_hash is not None:
         raise ValueError("use either --extension-index or --extension-doc-hash, not both")
 
-    decoded_import_session = getattr(plan, "decoded_import_session", None)
     if decoded_import_session is None:
         root_manifest, payload = decode_root_manifest(
             ciphertext=plan.ciphertext,
@@ -682,7 +794,10 @@ def _ensure_expected_head_satisfied(
     expected_head_doc_hash = getattr(plan, "expected_head_doc_hash", None)
     if expected_head_doc_hash is None:
         return
-    expected = _parse_extension_doc_hash(expected_head_doc_hash).hex()
+    expected = parse_doc_hash_hex(
+        expected_head_doc_hash,
+        option="--extension-doc-hash",
+    ).hex()
     validated_head_index = selected_extension_index if selected_extension_index is not None else 0
     validated_head_doc_hash = selected_extension_doc_hash or plan.doc_hash.hex()
     if hmac.compare_digest(expected, validated_head_doc_hash):
@@ -733,7 +848,7 @@ def _chain_replay_head_untrusted_error(
         expected_sign_pub=expected_sign_pub,
         selected_links=selected_links,
     )
-    head_index, head_hash, head_auth, head_verified = _validated_head_details(
+    head_index, head_hash, head_auth, head_verified = validated_head_details(
         plan.doc_hash,
         validated_links,
     )
@@ -789,9 +904,9 @@ def locate_replay_failure(
     return selected_links[-1], selected_links[:-1]
 
 
-def _validated_head_details(
+def validated_head_details(
     root_doc_hash: bytes,
-    links: tuple[DecodedExtensionLink, ...],
+    links: list[DecodedExtensionLink] | tuple[DecodedExtensionLink, ...],
 ) -> tuple[int, str, str | None, bool | None]:
     if not links:
         return 0, root_doc_hash.hex(), None, None
@@ -945,6 +1060,8 @@ def _decode_imported_extension_candidates(
                 plaintext,
                 max_extension_inline_chunk_bytes=remaining_inline_chunk_bytes,
             )
+        except PassphraseAuthenticationError:
+            raise
         except ExtensionDecodedChunkBudgetError:
             raise
         except Exception as exc:
@@ -1014,7 +1131,7 @@ def _decode_imported_extension_candidates(
 def _requested_extension_doc_hash_bytes(requested_doc_hash: str | None) -> bytes | None:
     if requested_doc_hash is None:
         return None
-    return _parse_extension_doc_hash(requested_doc_hash)
+    return parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
 
 
 def _select_extension_candidates_for_auth(
@@ -1045,7 +1162,7 @@ def _select_extension_candidates_for_auth(
             if candidate.decoded.header.index <= requested_index
         )
     if requested_doc_hash is not None:
-        requested = _parse_extension_doc_hash(requested_doc_hash)
+        requested = parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
         target_index = next(
             (
                 candidate.decoded.header.index
@@ -1298,7 +1415,7 @@ def _select_imported_chain_links(
             )
         return tuple(link for link in links if link.link.document.header.index <= requested_index)
     if requested_doc_hash is not None:
-        requested = _parse_extension_doc_hash(requested_doc_hash)
+        requested = parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
         selected: list[DecodedExtensionLink] = []
         matched = False
         for link in links:
@@ -1340,7 +1457,7 @@ def _ensure_root_selector_satisfied(
                 requested_doc_hash=None,
             )
     if requested_doc_hash is not None:
-        _parse_extension_doc_hash(requested_doc_hash)
+        parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
         requested_doc_hash_value = requested_doc_hash.strip().lower()
         raise _missing_requested_extension_error(
             f"extension doc_hash {requested_doc_hash_value} was not found",
@@ -1472,17 +1589,6 @@ def _import_document_plaintext(
     return decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
 
 
-def _parse_extension_doc_hash(value: str) -> bytes:
-    normalized = value.strip().lower()
-    try:
-        requested_bytes = bytes.fromhex(normalized)
-    except ValueError as exc:
-        raise ValueError("--extension-doc-hash must be lowercase hex") from exc
-    if len(requested_bytes) != 32:
-        raise ValueError("--extension-doc-hash must be a 32-byte hex value")
-    return requested_bytes
-
-
 def _synthetic_manifest_from_state(
     root_manifest: EnvelopeManifest,
     state: tuple[LogicalFileState, ...],
@@ -1533,4 +1639,5 @@ __all__ = [
     "select_root_import_session",
     "validate_expected_recovery_head",
     "validate_root_manifest_authority",
+    "validated_head_details",
 ]

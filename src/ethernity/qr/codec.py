@@ -25,7 +25,7 @@ import segno
 
 @dataclass(frozen=True)
 class QrConfig:
-    error: str = "Q"
+    error: str = "M"
     scale: int = 4
     border: int = 4
     kind: str = "png"
@@ -40,26 +40,37 @@ class QrConfig:
 def make_qr(
     data: bytes | str,
     *,
-    error: str = "Q",
+    error: str = "M",
     version: int | None = None,
     mask: int | None = None,
     micro: bool | None = None,
     boost_error: bool = True,
 ) -> Any:
-    return segno.make(
-        data,
-        error=error,
-        version=version,
-        mask=mask,
-        micro=micro,
-        boost_error=boost_error,
-    )
+    try:
+        return segno.make(
+            data,
+            error=error,
+            version=version,
+            mask=mask,
+            micro=micro,
+            boost_error=boost_error,
+        )
+    except segno.DataOverflowError as exc:
+        payload_size = len(data if isinstance(data, bytes) else data.encode("utf-8"))
+        version_label = "auto" if version is None else str(version)
+        micro_label = "auto" if micro is None else str(micro).lower()
+        raise ValueError(
+            "QR payload does not fit the configured symbol capacity: "
+            f"payload_bytes={payload_size}, error={error}, version={version_label}, "
+            f"micro={micro_label}; reduce the payload/chunk size or choose a lower QR error "
+            "correction level"
+        ) from exc
 
 
 def qr_bytes(
     data: bytes | str,
     *,
-    error: str = "Q",
+    error: str = "M",
     scale: int = 4,
     border: int = 4,
     kind: str = "png",

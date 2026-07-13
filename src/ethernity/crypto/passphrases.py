@@ -99,3 +99,16 @@ def validate_mnemonic_checksum_if_bip39(passphrase: str) -> None:
     expected_checksum = h[0] >> (8 - checksum_bits)
     if checksum != expected_checksum:
         raise ValueError("invalid BIP-39 mnemonic checksum")
+
+
+def canonicalize_valid_bip39_mnemonic(passphrase: str) -> str:
+    """Canonicalize only checksum-valid BIP-39 text; preserve every other exact string."""
+
+    normalized = normalize_bip39_mnemonic(passphrase)
+    if not looks_like_bip39_mnemonic(normalized):
+        return passphrase
+    try:
+        validate_mnemonic_checksum_if_bip39(normalized)
+    except ValueError:
+        return passphrase
+    return normalized

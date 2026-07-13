@@ -23,11 +23,11 @@ from typing import Any
 
 from ethernity.core.bounds import MAX_RECOVERY_DECODED_CHUNK_BYTES
 from ethernity.crypto import sharding as sharding_module
+from ethernity.crypto.document_identity import doc_id_from_doc_hash
+from ethernity.encoding.frame_sets import deduplicate_identical_frames
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import errors as extension_errors
 from ethernity.extensions.chain import (
-    LogicalFileState,
-    build_chain_available_chunks,
     extract_root_logical_state,
     reconstruct_authenticated_latest_logical_state,
     validate_authenticated_extension_chain,
@@ -38,7 +38,6 @@ from ethernity.extensions.discovery import (
     discover_validated_extension_directories,
     payload_main_carriers,
 )
-from ethernity.extensions.identity import doc_id_from_doc_hash
 from ethernity.extensions.recovery import (
     DecodedExtensionLink,
     ImportedRecoveryDocument,
@@ -49,9 +48,9 @@ from ethernity.extensions.recovery import (
     decode_authenticated_extension_link,
     locate_replay_failure,
     resolve_required_auth_payload,
+    validated_head_details,
 )
 from ethernity.formats import EnvelopeManifest
-from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 
 PublishedCarrierReader = Callable[[DiscoveredExtensionMainCarrier], ImportedRecoveryDocument]
 PublishedShardFramesReader = Callable[[DiscoveredExtensionShardCarrier], list[Frame]]
@@ -185,7 +184,7 @@ def _validate_published_extension_shard_carriers(
     payloads_by_type: dict[str, list[sharding_module.ShardPayload]] = {}
     for carrier in shard_carriers:
         try:
-            frames = _dedupe_identical_frames(read_shard_frames(carrier))
+            frames = deduplicate_identical_frames(read_shard_frames(carrier))
             if len(frames) != 1:
                 raise ValueError("carrier must contain exactly one shard payload")
             frame = frames[0]
@@ -225,18 +224,6 @@ def _validate_published_extension_shard_carriers(
             raise ValueError(
                 f"extension {item_dir_name} {doc_type} carrier set could not be validated: {exc}"
             ) from exc
-
-
-def _dedupe_identical_frames(frames: list[Frame]) -> list[Frame]:
-    deduped: list[Frame] = []
-    seen: set[tuple[int, object, bytes, int, int, bytes]] = set()
-    for frame in frames:
-        key = (frame.version, frame.frame_type, frame.doc_id, frame.index, frame.total, frame.data)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(frame)
-    return deduped
 
 
 def _required_published_extension_main_carrier(
@@ -298,22 +285,6 @@ def discovered_extension_indices(inventory: RecoveryExtensionInventory) -> tuple
         if inventory.failure.head_index not in indices:
             indices.append(inventory.failure.head_index)
     return tuple(indices)
-
-
-def available_extensions_from_inventory(
-    inventory: RecoveryExtensionInventory,
-) -> tuple[dict[str, object], ...]:
-    if inventory.failure is not None:
-        return ()
-    return tuple(
-        {
-            "index": item.index,
-            "dir_name": item.dir_name,
-            "doc_id": item.doc_id_hex,
-            "doc_hash": item.doc_hash.hex(),
-        }
-        for item in inventory.extensions
-    )
 
 
 def inspect_published_extension_chain(
@@ -485,21 +456,6 @@ def inspect_published_extension_chain(
     )
 
 
-def validated_head_details(
-    root_doc_hash: bytes,
-    links: list[DecodedExtensionLink] | tuple[DecodedExtensionLink, ...],
-) -> tuple[int, str, str | None, bool | None]:
-    if not links:
-        return 0, root_doc_hash.hex(), None, None
-    latest = links[-1]
-    return (
-        latest.link.document.header.index,
-        latest.link.doc_hash.hex(),
-        latest.auth_status,
-        latest.root_authority_verified,
-    )
-
-
 def root_head_root_authority_verified(
     *,
     root_auth_status: str | None,
@@ -538,19 +494,10 @@ def sorted_chunk_items(chunk_map: dict[bytes, bytes]) -> tuple[tuple[bytes, byte
     return tuple((chunk_id, chunk_map[chunk_id]) for chunk_id in sorted(chunk_map))
 
 
-def chain_available_chunks_for_root(
-    root_state: tuple[LogicalFileState, ...],
-    chunking: ExtensionChunkingProfile,
-) -> tuple[tuple[bytes, bytes], ...]:
-    return sorted_chunk_items(build_chain_available_chunks(root_state, chunking))
-
-
 __all__ = [
     "PublishedCarrierReader",
     "PublishedShardFramesReader",
-    "available_extensions_from_inventory",
     "available_extensions_from_recovery_chain",
-    "chain_available_chunks_for_root",
     "discovered_extension_indices",
     "extension_carrier_scan_failure",
     "extension_chain_present",
@@ -558,5 +505,4 @@ __all__ = [
     "inspect_published_extension_inventory",
     "root_head_root_authority_verified",
     "sorted_chunk_items",
-    "validated_head_details",
 ]

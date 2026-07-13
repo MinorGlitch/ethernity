@@ -17,6 +17,8 @@ import unittest
 
 from ethernity.core.bounds import MAX_PATH_BYTES
 from ethernity.core.validation import (
+    has_windows_drive_prefix,
+    normalize_input_root_label,
     normalize_manifest_path,
     normalize_path,
     require_bytes,
@@ -30,7 +32,15 @@ from ethernity.core.validation import (
     require_non_negative_int,
     require_positive_int,
     require_version,
+    validate_input_origin_roots,
 )
+
+
+def test_has_windows_drive_prefix_requires_letter_colon_prefix() -> None:
+    assert has_windows_drive_prefix("C:\\backup")
+    assert has_windows_drive_prefix("z:/backup")
+    assert not has_windows_drive_prefix("1:/backup")
+    assert not has_windows_drive_prefix("/backup")
 
 
 class TestValidation(unittest.TestCase):
@@ -142,6 +152,31 @@ class TestValidation(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             normalize_manifest_path(too_long, label="manifest file path")
         self.assertIn("MAX_PATH_BYTES", str(ctx.exception))
+
+    def test_normalize_input_root_label_preserves_leaf_and_label(self) -> None:
+        self.assertEqual(
+            normalize_input_root_label(" vault ", label="manifest input_root"),
+            " vault ",
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "manifest input_root must be a leaf label without path separators",
+        ):
+            normalize_input_root_label("vault/archive", label="manifest input_root")
+
+    def test_validate_input_origin_roots_preserves_context_label(self) -> None:
+        validate_input_origin_roots("file", (), label="manifest input_roots")
+        validate_input_origin_roots("directory", ("vault",), label="manifest input_roots")
+        with self.assertRaisesRegex(
+            ValueError,
+            "manifest input_roots must be empty when input_origin is file",
+        ):
+            validate_input_origin_roots("file", ("vault",), label="manifest input_roots")
+        with self.assertRaisesRegex(
+            ValueError,
+            "extension header input_roots must be non-empty for directory or mixed input",
+        ):
+            validate_input_origin_roots("mixed", (), label="extension header input_roots")
 
     def test_require_positive_int_validation(self) -> None:
         self.assertEqual(require_positive_int(2, label="count"), 2)

@@ -58,6 +58,12 @@ class QrScanError(RuntimeError):
     pass
 
 
+class NoQrPayloadsError(QrScanError):
+    """Raised when readable scan inputs contain no QR payloads."""
+
+    pass
+
+
 @dataclass(frozen=True)
 class QrDecoder:
     """Decoder adapter used to scan QR payloads from paths and image bytes."""
@@ -85,6 +91,7 @@ class _ScanInput:
 
 
 __all__ = [
+    "NoQrPayloadsError",
     "QrDecoder",
     "QrScanError",
     "ScannedQrPayload",
@@ -198,7 +205,7 @@ def scan_qr_payloads_with_sources(
         ):
             raise QrScanError(f"published extension carrier contains no QR codes: {path}")
         if scan_input.explicit and not source_payloads:
-            raise QrScanError(f"explicit scan input contains no QR codes: {path}")
+            raise NoQrPayloadsError(f"explicit scan input contains no QR codes: {path}")
         if len(payloads) + len(source_payloads) > MAX_SCAN_QR_PAYLOADS:
             raise QrScanError(
                 f"decoded QR payloads exceed MAX_SCAN_QR_PAYLOADS ({MAX_SCAN_QR_PAYLOADS})"
@@ -213,7 +220,7 @@ def scan_qr_payloads_with_sources(
         )
 
     if not payloads:
-        raise QrScanError("no QR codes found in scan inputs")
+        raise NoQrPayloadsError("no QR codes found in scan inputs")
     return payloads
 
 

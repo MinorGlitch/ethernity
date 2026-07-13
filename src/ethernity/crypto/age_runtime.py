@@ -24,7 +24,11 @@ from typing import cast
 import pyrage
 from pyrage import passphrase as pyrage_passphrase
 
-from ethernity.crypto.passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
+from ethernity.crypto.passphrases import (
+    DEFAULT_PASSPHRASE_WORDS,
+    canonicalize_valid_bip39_mnemonic,
+    generate_passphrase,
+)
 
 _PYRAGE_DECRYPT_ERROR = cast(type[Exception], getattr(pyrage, "DecryptError", RuntimeError))
 
@@ -39,6 +43,14 @@ class AgeError(RuntimeError):
     def __str__(self) -> str:
         message = self.detail.strip() or "unknown error"
         return f"age ({self.backend}) failed: {message}"
+
+
+class PassphraseAuthenticationError(ValueError):
+    """The supplied passphrase candidate did not authenticate the ciphertext."""
+
+    def __init__(self, backend_error: AgeError) -> None:
+        super().__init__("decryption failed")
+        self.backend_error = backend_error
 
 
 def _wrap_pyrage_error(exc: Exception) -> AgeError:
@@ -68,6 +80,27 @@ def _decrypt_with_pyrage(data: bytes, passphrase: str) -> bytes:
         raise _wrap_pyrage_error(exc) from exc
 
 
+def _is_passphrase_authentication_error(exc: AgeError) -> bool:
+    """Distinguish a wrong passphrase from malformed/truncated age input."""
+
+    return exc.detail.strip().casefold() == "decryption failed"
+
+
+def decrypt_bytes_with_exact_passphrase(
+    data: bytes,
+    *,
+    passphrase: str,
+) -> bytes:
+    """Decrypt with exactly one candidate and preserve passphrase-auth failure identity."""
+
+    try:
+        return _decrypt_with_pyrage(data, passphrase)
+    except AgeError as exc:
+        if _is_passphrase_authentication_error(exc):
+            raise PassphraseAuthenticationError(exc) from exc
+        raise
+
+
 def encrypt_bytes_with_passphrase(
     data: bytes,
     *,
@@ -79,6 +112,8 @@ def encrypt_bytes_with_passphrase(
     if passphrase is None:
         words = DEFAULT_PASSPHRASE_WORDS if passphrase_words is None else passphrase_words
         passphrase = generate_passphrase(words=words)
+    else:
+        passphrase = canonicalize_valid_bip39_mnemonic(passphrase)
     ciphertext = _encrypt_with_pyrage(data, passphrase)
     return ciphertext, passphrase
 
@@ -91,9 +126,20 @@ def decrypt_bytes(
 ) -> bytes:
     """Decrypt bytes and hide backend details unless debug mode is enabled."""
 
-    try:
-        return _decrypt_with_pyrage(data, passphrase)
-    except AgeError:
-        if debug:
-            raise
-        raise ValueError("decryption failed") from None
+    candidates = (passphrase,)
+    canonical = canonicalize_valid_bip39_mnemonic(passphrase)
+    if canonical != passphrase:
+        candidates = (*candidates, canonical)
+    last_error: AgeError | None = None
+    for candidate in candidates:
+        try:
+            return decrypt_bytes_with_exact_passphrase(data, passphrase=candidate)
+        except PassphraseAuthenticationError as exc:
+            last_error = exc.backend_error
+        except AgeError:
+            if debug:
+                raise
+            raise ValueError("decryption failed") from None
+    if debug and last_error is not None:
+        raise last_error
+    raise ValueError("decryption failed") from None

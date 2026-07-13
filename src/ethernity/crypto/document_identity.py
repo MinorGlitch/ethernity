@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Canonical document hash and identifier derivation."""
+
 from __future__ import annotations
 
 import hashlib
@@ -28,29 +30,47 @@ __all__ = [
     "doc_id_and_hash_from_ciphertext",
     "doc_id_from_doc_hash",
     "normalize_doc_hash_hex",
+    "parse_doc_hash_hex",
 ]
 
 
 def doc_hash_from_ciphertext(ciphertext: bytes) -> bytes:
+    """Derive the normative BLAKE2b-256 document hash from ciphertext."""
     return hashlib.blake2b(ciphertext, digest_size=DOC_HASH_LEN).digest()
 
 
 def doc_id_from_doc_hash(doc_hash: bytes) -> bytes:
+    """Derive the document identifier from a validated document hash."""
     if len(doc_hash) != DOC_HASH_LEN:
         raise ValueError(f"doc_hash must be {DOC_HASH_LEN} bytes")
     return doc_hash[:DOC_ID_LEN]
 
 
 def doc_id_and_hash_from_ciphertext(ciphertext: bytes) -> tuple[bytes, bytes]:
+    """Derive a document identifier and its full hash from ciphertext."""
     doc_hash = doc_hash_from_ciphertext(ciphertext)
     doc_id = doc_id_from_doc_hash(doc_hash)
     return doc_id, doc_hash
 
 
 def normalize_doc_hash_hex(value: str, *, option: str = "doc hash") -> str:
+    """Normalize and validate a hexadecimal document hash."""
     normalized = value.strip().lower()
     if len(normalized) != DOC_HASH_LEN * 2 or any(
         char not in "0123456789abcdef" for char in normalized
     ):
         raise ValueError(f"{option} must be a 32-byte lowercase hex value")
     return normalized
+
+
+def parse_doc_hash_hex(value: str, *, option: str) -> bytes:
+    """Parse a 32-byte hexadecimal document hash with option-specific errors."""
+
+    normalized = value.strip().lower()
+    try:
+        doc_hash = bytes.fromhex(normalized)
+    except ValueError as exc:
+        raise ValueError(f"{option} must be lowercase hex") from exc
+    if len(doc_hash) != DOC_HASH_LEN:
+        raise ValueError(f"{option} must be a {DOC_HASH_LEN}-byte hex value")
+    return doc_hash
