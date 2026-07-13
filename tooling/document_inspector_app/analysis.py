@@ -12,13 +12,13 @@ from ethernity.cli.features.recover.key_recovery import (
     validated_shard_payloads_from_frames,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.io.frames import (
     _detect_recovery_input_mode,
     _frames_from_fallback_lines,
     _frames_from_payload_lines,
 )
 from ethernity.crypto import decrypt_bytes
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     decode_shard_payload,

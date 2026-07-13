@@ -7,9 +7,9 @@ from pathlib import Path
 
 import tooling.document_inspector as inspector
 
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.types import InputFile
 from ethernity.crypto import encrypt_bytes_with_passphrase
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame

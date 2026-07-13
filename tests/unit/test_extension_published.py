@@ -19,9 +19,9 @@ from pathlib import Path
 
 from ethernity.cli.shared import api_codes
 from ethernity.crypto import sharding as sharding_module
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import Frame, FrameType
-from ethernity.extensions.identity import doc_id_and_hash_from_ciphertext
 from ethernity.extensions.published import (
     inspect_published_extension_chain,
     inspect_published_extension_inventory,
