@@ -3,7 +3,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ethernity.qr.codec import qr_bytes
-from ethernity.render.direct_pdf import FpdfSurface, PdfColor, PdfRect, TextStyle
+from ethernity.render.direct_pdf.surface import FpdfSurface
+from ethernity.render.direct_pdf.types import PdfColor, PdfRect, TextStyle
 from ethernity.render.proofs import validate_pdf_has_pages
 
 _ICON_FONT = Path("src/ethernity/resources/templates/_shared/assets/material-symbols-outlined.ttf")

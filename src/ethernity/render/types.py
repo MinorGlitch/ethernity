@@ -23,6 +23,12 @@ from pathlib import Path
 from typing import Literal, Sequence
 
 from ethernity.encoding.framing import Frame
+from ethernity.page_sizes import (
+    DEFAULT_PAPER_SIZE_NAME,
+    PaperSize,
+    normalize_paper_size_name,
+    resolve_paper_size,
+)
 from ethernity.qr.codec import QrConfig
 from ethernity.render.recovery_meta import RecoveryMeta
 
@@ -68,12 +74,37 @@ class RenderInputs:
     recovery_meta: RecoveryMeta | None = None
     render_jobs: int | Literal["auto"] | None = None
     layout_debug_json_path: str | Path | None = None
+    page_size: PaperSize | None = None
 
     def __post_init__(self) -> None:
         if self.lineage is None:
             raise ValueError("render lineage is required")
         if self.render_fallback and not self.fallback_sections:
             raise ValueError("fallback_sections are required when render_fallback is enabled")
+        if self.page_size is not None and not isinstance(self.page_size, PaperSize):
+            raise TypeError("page_size must be a PaperSize")
+        configured_name = self.context.get("paper_size")
+        resolved_page_size = self.page_size
+        if resolved_page_size is None:
+            raw_name = (
+                configured_name
+                if isinstance(configured_name, str) and configured_name.strip()
+                else DEFAULT_PAPER_SIZE_NAME
+            )
+            resolved_page_size = resolve_paper_size(raw_name)
+            object.__setattr__(self, "page_size", resolved_page_size)
+        if (
+            isinstance(configured_name, str)
+            and configured_name.strip()
+            and normalize_paper_size_name(configured_name) != resolved_page_size.name
+        ):
+            raise ValueError(
+                "typed page_size conflicts with context paper_size: "
+                f"{resolved_page_size.name!r} != {configured_name!r}"
+            )
+        normalized_context = dict(self.context)
+        normalized_context["paper_size"] = resolved_page_size.name
+        object.__setattr__(self, "context", normalized_context)
 
 
 @dataclass(frozen=True)
@@ -140,6 +171,19 @@ class RenderComponentLayoutProof:
 
 
 @dataclass(frozen=True)
+class RenderSeparationConstraintProof:
+    """Serializable result of one direct-layout separation check."""
+
+    constraint_id: str
+    first_region_id: str
+    second_region_id: str
+    minimum_clearance_mm: float
+    measured_clearance_mm: float
+    checked_pair_count: int
+    satisfied: bool
+
+
+@dataclass(frozen=True)
 class RenderPageLayoutProof:
     """Structured proof for one measured PDF page."""
 
@@ -149,6 +193,7 @@ class RenderPageLayoutProof:
     overflow_component_ids: tuple[str, ...]
     out_of_bounds_component_ids: tuple[str, ...]
     components: tuple[RenderComponentLayoutProof, ...]
+    separation_constraints: tuple[RenderSeparationConstraintProof, ...] = ()
 
     @property
     def overflow(self) -> bool:
@@ -175,34 +220,3 @@ class RenderResult:
     fallback_proof: RenderFallbackProof | None = None
     artifact_proof: RenderArtifactProof | None = None
     layout_proof: RenderLayoutProof | None = None
-
-
-@dataclass(frozen=True)
-class Layout:
-    """Computed page layout values used to build rendered pages."""
-
-    page_w: float
-    page_h: float
-    margin: float
-    header_height: float
-    instructions_y: float
-    content_start_y: float
-    usable_w: float
-    usable_h: float
-    usable_h_grid: float
-    qr_size: float
-    gap: float
-    cols: int
-    rows: int
-    per_page: int
-    gap_y_override: float | None
-    fallback_width: float
-    line_length: int
-    line_height: float
-    fallback_lines_per_page: int
-    fallback_font: str
-    fallback_size: float
-    text_gap: float
-    min_lines: int
-    key_lines: tuple[str, ...]
-    total_pages: int

@@ -11,20 +11,20 @@ from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import Frame, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.qr.codec import QrConfig, qr_bytes
-from ethernity.render.copy_catalog import build_copy_bundle
+from ethernity.render.copy_catalog import build_copy_bundle, build_instruction_copy
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
 from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
-from ethernity.render.direct_pdf.forge_preview import A4_HEIGHT_MM, A4_WIDTH_MM
 from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
 from ethernity.render.direct_pdf.page import DirectPdfPagePlan
+from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
+from ethernity.render.direct_pdf.shard_contract import validate_single_shard_fallback_contract
 from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
-from ethernity.render.direct_pdf.types import PdfRect
+from ethernity.render.direct_pdf.types import PdfRect, TextStyle
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
-from ethernity.render.fallback import fallback_section_title
-from ethernity.render.fallback_text import format_zbase32_lines
+from ethernity.render.fallback_text import fallback_section_title, format_zbase32_lines
 from ethernity.render.proofs import build_render_artifact_proof, frame_digest
 from ethernity.render.recovery_meta import RecoveryMeta
-from ethernity.render.spec import document_spec
+from ethernity.render.template_style import TemplateCapabilities, load_template_style
 from ethernity.render.types import (
     FallbackSection,
     RenderArtifactProof,
@@ -59,6 +59,7 @@ class StructuredContext:
     footer_right: str
     lineage: RenderLineage
     values: dict[str, object]
+    capabilities: TemplateCapabilities
 
 
 @dataclass(frozen=True)
@@ -140,7 +141,8 @@ def render_structured_plan(
 ) -> RenderResult:
     """Render a structured direct-PDF plan and return render proofs."""
 
-    surface = FpdfSurface(page_width_mm=A4_WIDTH_MM, page_height_mm=A4_HEIGHT_MM)
+    page = resolve_page_geometry(inputs)
+    surface = FpdfSurface(page_width_mm=page.width_mm, page_height_mm=page.height_mm)
     packaged_direct_pdf_assets().register_fonts(surface)
     plan = builder(surface, inputs)
     layout_proof = build_direct_layout_proof(plan.page_plans)
@@ -168,23 +170,31 @@ def build_structured_context(inputs: RenderInputs, *, doc_type: str) -> Structur
     doc_id = resolve_doc_id(inputs, base_context)
     base_context["doc_id"] = doc_id
     base_context["lineage"] = lineage_payload(inputs.lineage)
-    spec = document_spec(doc_type, "A4", base_context)
+    page = resolve_page_geometry(inputs)
+    base_context["paper_size"] = page.paper_size
     copy = build_copy_bundle(doc_type=doc_type, context=base_context)
+    instructions = build_instruction_copy(doc_type=doc_type, context=base_context)
     return StructuredContext(
         doc_type=doc_type,
         doc_id=doc_id,
         created_timestamp_utc=created_timestamp_utc,
         copy=copy,
-        instructions_label=spec.instructions.label or "Instructions",
-        instruction_lines=tuple(spec.instructions.lines),
+        instructions_label=instructions.label,
+        instruction_lines=instructions.lines,
         footer_left=generator_label(get_ethernity_version()),
         footer_right=str(copy.get("footer_guidance") or ""),
         lineage=inputs.lineage,
         values=base_context,
+        capabilities=load_template_style(inputs.design_name).capabilities,
     )
 
 
-def validate_qr_inputs(inputs: RenderInputs, *, expected_doc_type: str) -> None:
+def validate_qr_inputs(
+    inputs: RenderInputs,
+    *,
+    expected_doc_type: str,
+    supported_paper_sizes: frozenset[str] | None = None,
+) -> None:
     """Validate structured QR-only document inputs."""
 
     if inputs.doc_type.strip().lower() != expected_doc_type:
@@ -195,10 +205,14 @@ def validate_qr_inputs(inputs: RenderInputs, *, expected_doc_type: str) -> None:
         raise ValueError("direct structured QR renderer does not render fallback text")
     if not inputs.frames:
         raise ValueError("frames cannot be empty for direct structured QR rendering")
-    validate_a4_png(inputs)
+    validate_paper_and_png(inputs, supported_paper_sizes=supported_paper_sizes)
 
 
-def validate_recovery_inputs(inputs: RenderInputs) -> None:
+def validate_recovery_inputs(
+    inputs: RenderInputs,
+    *,
+    supported_paper_sizes: frozenset[str] | None = None,
+) -> None:
     """Validate structured recovery-document inputs."""
 
     if inputs.doc_type.strip().lower() != DOC_TYPE_RECOVERY:
@@ -209,13 +223,14 @@ def validate_recovery_inputs(inputs: RenderInputs) -> None:
         raise ValueError("recovery_meta is required for direct structured recovery rendering")
     if not inputs.fallback_sections:
         raise ValueError("fallback_sections are required for direct structured recovery rendering")
-    validate_a4_png(inputs)
+    validate_paper_and_png(inputs, supported_paper_sizes=supported_paper_sizes)
 
 
 def validate_single_qr_fallback_inputs(
     inputs: RenderInputs,
     *,
     expected_doc_type: str,
+    supported_paper_sizes: frozenset[str] | None = None,
 ) -> None:
     """Validate structured single-QR plus fallback document inputs."""
 
@@ -223,19 +238,21 @@ def validate_single_qr_fallback_inputs(
         raise ValueError(f"direct structured renderer only supports {expected_doc_type} documents")
     if not inputs.render_qr or not inputs.render_fallback:
         raise ValueError("direct structured shard renderer requires QR and fallback rendering")
-    if len(inputs.frames) != 1:
-        raise ValueError("direct structured shard renderer requires exactly one frame")
-    if not inputs.fallback_sections:
-        raise ValueError("fallback_sections are required for direct structured shard rendering")
-    validate_a4_png(inputs)
+    validate_single_shard_fallback_contract(
+        inputs,
+        renderer_label="direct structured shard renderer",
+    )
+    validate_paper_and_png(inputs, supported_paper_sizes=supported_paper_sizes)
 
 
-def validate_a4_png(inputs: RenderInputs) -> None:
+def validate_paper_and_png(
+    inputs: RenderInputs,
+    *,
+    supported_paper_sizes: frozenset[str] | None = None,
+) -> None:
     """Validate common structured-renderer page and QR image constraints."""
 
-    paper_size = str(inputs.context.get("paper_size") or "A4").strip().lower()
-    if paper_size != "a4":
-        raise ValueError("direct structured renderer currently supports A4 paper only")
+    resolve_page_geometry(inputs, supported_paper_sizes=supported_paper_sizes)
     qr_config = inputs.qr_config or QrConfig()
     qr_kind = str(qr_config.kind or "png").strip().lower()
     if qr_kind != "png":
@@ -301,19 +318,33 @@ def qr_image(payload: bytes | str, *, config: QrConfig) -> bytes:
     )
 
 
-def paginate_qr_items(items: Sequence[QrPayloadItem], *, capacity: int) -> tuple[QrPage, ...]:
-    """Paginate QR payload items into fixed-capacity pages."""
+def paginate_qr_items(
+    items: Sequence[QrPayloadItem],
+    *,
+    capacity: int,
+    first_page_capacity: int | None = None,
+) -> tuple[QrPage, ...]:
+    """Paginate QR payload items with an optional smaller first-page capacity."""
 
     if not items:
         raise ValueError("direct structured renderer has no QR payloads to render")
+    if capacity <= 0:
+        raise ValueError("QR page capacity must be positive")
+    if first_page_capacity is not None and first_page_capacity <= 0:
+        raise ValueError("QR first-page capacity must be positive")
+
     pages: list[QrPage] = []
-    for start in range(0, len(items), capacity):
+    cursor = 0
+    while cursor < len(items):
+        page_capacity = first_page_capacity if not pages and first_page_capacity else capacity
+        page_items = tuple(items[cursor : cursor + page_capacity])
         pages.append(
             QrPage(
                 page_number=len(pages) + 1,
-                items=tuple(items[start : start + capacity]),
+                items=page_items,
             )
         )
+        cursor += len(page_items)
     return tuple(pages)
 
 
@@ -369,18 +400,38 @@ def paginate_fallback_entries(
     entries: Sequence[FallbackEntry],
     *,
     capacity: int,
+    continuation_capacity: int | None = None,
 ) -> tuple[FallbackPage, ...]:
-    """Paginate fallback entries into fixed-capacity pages."""
+    """Paginate fallback entries with distinct first/continuation capacities."""
 
     if not entries:
         raise ValueError("direct structured renderer has no fallback entries to render")
+    if capacity <= 0:
+        raise ValueError("fallback first page must fit at least one entry")
+    resolved_continuation_capacity = (
+        capacity if continuation_capacity is None else continuation_capacity
+    )
+    if resolved_continuation_capacity <= 0:
+        raise ValueError("fallback continuation page must fit at least one entry")
     pages: list[FallbackPage] = []
     remaining = tuple(entries)
     page_number = 1
     while remaining:
+        page_capacity = capacity if page_number == 1 else resolved_continuation_capacity
+        consumed = min(page_capacity, len(remaining))
+        if (
+            consumed < len(remaining)
+            and isinstance(remaining[consumed - 1], FallbackTitleEntry)
+            and isinstance(remaining[consumed], FallbackLineEntry)
+        ):
+            consumed -= 1
+        if consumed <= 0:
+            raise ValueError(
+                "fallback page capacity cannot keep a section title with its first data line"
+            )
         page_entries: list[FallbackPageEntry] = []
         display_line_number = 0
-        for row_index, entry in enumerate(remaining[:capacity]):
+        for row_index, entry in enumerate(remaining[:consumed]):
             if isinstance(entry, FallbackTitleEntry):
                 display_line_number = 0
                 displayed = None
@@ -394,10 +445,8 @@ def paginate_fallback_entries(
                     display_line_number=displayed,
                 )
             )
-        if not page_entries:
-            raise ValueError("fallback layout cannot fit even one entry on a page")
         pages.append(FallbackPage(page_number=page_number, entries=tuple(page_entries)))
-        remaining = remaining[len(page_entries) :]
+        remaining = remaining[consumed:]
         page_number += 1
     return tuple(pages)
 
@@ -409,6 +458,31 @@ def fallback_capacity(area: PdfRect, *, row_height_mm: float) -> int:
     if capacity <= 0:
         raise ValueError("fallback area must fit at least one row")
     return capacity
+
+
+def measured_fallback_number_width(
+    surface: PdfSurface,
+    fallback_page: FallbackPage,
+    *,
+    style: TextStyle,
+    minimum_width_mm: float,
+    padding_mm: float,
+) -> float:
+    """Measure a page-local number gutter from its widest displayed fallback label."""
+
+    if not math.isfinite(minimum_width_mm) or minimum_width_mm <= 0:
+        raise ValueError("minimum fallback number width must be finite and positive")
+    if not math.isfinite(padding_mm) or padding_mm < 0:
+        raise ValueError("fallback number padding must be finite and non-negative")
+    maximum_display_number = max(
+        (entry.display_line_number or 0 for entry in fallback_page.entries),
+        default=0,
+    )
+    label = f"{maximum_display_number:02d}."
+    return max(
+        minimum_width_mm,
+        surface.measure_text_width(label, style) + padding_mm,
+    )
 
 
 def build_fallback_proof(
@@ -592,6 +666,7 @@ __all__ = [
     "component_prefix",
     "fallback_capacity",
     "fallback_entries",
+    "measured_fallback_number_width",
     "fallback_sections",
     "generator_label",
     "lineage_payload",
@@ -607,7 +682,6 @@ __all__ = [
     "resolve_created_timestamp",
     "resolve_doc_id",
     "timestamp_from_string",
-    "validate_a4_png",
     "validate_qr_inputs",
     "validate_recovery_inputs",
     "validate_single_qr_fallback_inputs",

@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -18,8 +20,15 @@ from PIL import Image, ImageChops, ImageOps, ImageStat
 from pypdf import PdfReader
 
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
+from ethernity.page_sizes import (
+    DEFAULT_PAPER_SIZE_NAME,
+    PaperSize,
+    normalize_paper_size_name,
+)
+from ethernity.qr.scan import scan_qr_payloads
 from ethernity.render import render_frames_to_pdf
 from ethernity.render.designs import list_design_manifests
+from ethernity.render.direct_pdf.page_geometry import registered_paper_sizes
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_KIT_INDEX,
@@ -28,9 +37,16 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
-from ethernity.render.proofs import extract_pdf_text
+from ethernity.render.proofs import extract_pdf_text, validate_fallback_render_proof
 from ethernity.render.recovery_meta import build_recovery_meta
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage, RenderResult
+from ethernity.render.types import (
+    FallbackSection,
+    RenderComponentLayoutProof,
+    RenderInputs,
+    RenderLineage,
+    RenderRectProof,
+    RenderResult,
+)
 
 RendererName = Literal["direct"]
 RasterizeMode = Literal["auto", "always", "never"]
@@ -98,6 +114,45 @@ VISUAL_REVIEW_NOTE: Final = (
     "criteria. Preserve the existing render style, layout intent, hierarchy, and tone; "
     "document intentional bug-fix deviations."
 )
+_PAGE_LABEL_PATTERN: Final = re.compile(
+    r"(?<![A-Z])PAGE\s+\d+\s*/\s*\d+\b",
+    re.IGNORECASE,
+)
+MINIMUM_TEXT_FONT_SIZE_PT: Final = 6.0
+MINIMUM_MANUAL_FALLBACK_LINE_NUMBER_FONT_SIZE_PT: Final = 6.5
+# This is the smallest intentional QR image in the production templates. Treat reductions as a
+# print/scanner compatibility change that requires an explicit contract update and fresh scans.
+MINIMUM_QR_IMAGE_SIZE_MM: Final = 36.0
+_CONTENT_OVERLAP_EPSILON_MM: Final = 0.05
+_QR_EXPECTED_DOC_TYPES: Final = frozenset(
+    {
+        DOC_TYPE_KIT,
+        DOC_TYPE_MAIN,
+        DOC_TYPE_SHARD,
+        DOC_TYPE_SIGNING_KEY_SHARD,
+    }
+)
+_SINGLE_PAGE_DOC_TYPES: Final = frozenset(
+    {
+        DOC_TYPE_SHARD,
+        DOC_TYPE_SIGNING_KEY_SHARD,
+    }
+)
+_MANUAL_FALLBACK_LINE_NUMBER_CASES: Final = frozenset(
+    {
+        ("archive", DOC_TYPE_RECOVERY),
+        ("archive", DOC_TYPE_SHARD),
+        ("archive", DOC_TYPE_SIGNING_KEY_SHARD),
+        ("forge", DOC_TYPE_RECOVERY),
+        ("ledger", DOC_TYPE_RECOVERY),
+        ("ledger", DOC_TYPE_SHARD),
+        ("ledger", DOC_TYPE_SIGNING_KEY_SHARD),
+        ("maritime", DOC_TYPE_RECOVERY),
+        ("maritime", DOC_TYPE_SHARD),
+        ("maritime", DOC_TYPE_SIGNING_KEY_SHARD),
+        ("sentinel", DOC_TYPE_RECOVERY),
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -106,10 +161,22 @@ class VisualBaselineCase:
 
     design: str
     doc_type: str
+    paper_size: str = DEFAULT_PAPER_SIZE_NAME
+    page_spec: PaperSize | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.page_spec is not None
+            and normalize_paper_size_name(self.paper_size) != self.page_spec.name
+        ):
+            raise ValueError("page_spec name must match paper_size")
 
     @property
     def case_id(self) -> str:
-        return f"{self.design}/{self.doc_type}"
+        base = f"{self.design}/{self.doc_type}"
+        if normalize_paper_size_name(self.paper_size) == DEFAULT_PAPER_SIZE_NAME:
+            return base
+        return f"{base}@{self.paper_size.strip().lower()}"
 
 
 @dataclass(frozen=True)
@@ -134,6 +201,27 @@ class BaselineArtifact:
     png_paths: tuple[str, ...]
     rasterizer: str | None
     raster_skipped_reason: str | None
+    layout_overflow: bool | None
+    layout_component_count: int
+    separation_constraint_count: int
+    separation_constraints_satisfied: bool | None
+    content_overlap_evidence_complete: bool
+    content_overlap_count: int
+    content_overlap_pairs: tuple[str, ...]
+    minimum_font_size_pt: float | None
+    minimum_manual_fallback_line_number_font_size_pt: float | None
+    minimum_qr_image_size_mm: float | None
+    expected_qr_count: int | None
+    decoded_qr_count: int | None
+    qr_scan_succeeded: bool | None
+    numbered_page_count: int | None
+    all_pages_numbered: bool | None
+    poppler_warning_count: int | None
+    poppler_clean: bool | None
+    poppler_skipped_reason: str | None
+    composited_decoded_qr_count: int | None
+    composited_qr_scan_succeeded: bool | None
+    composited_qr_scan_skipped_reason: str | None
 
 
 @dataclass(frozen=True)
@@ -171,6 +259,7 @@ class BaselineCaseReport:
     case_id: str
     design: str
     doc_type: str
+    paper_size: str
     direct_supported: bool
     artifacts: tuple[BaselineArtifact, ...]
     diagnostics: tuple[ImageDeltaDiagnostic, ...]
@@ -189,13 +278,28 @@ class BaselineReport:
 RenderCallable = Callable[[RenderInputs], RenderResult]
 
 
-def discover_design_cases() -> tuple[VisualBaselineCase, ...]:
+def discover_design_cases(
+    *,
+    paper_sizes: Sequence[str] | None = None,
+) -> tuple[VisualBaselineCase, ...]:
     """Discover supported design/document pairs from built-in design manifests."""
 
+    selected_paper_sizes = tuple(
+        paper_sizes
+        if paper_sizes is not None
+        else sorted(name.upper() for name in registered_paper_sizes())
+    )
     cases: list[VisualBaselineCase] = []
     for design, manifest in list_design_manifests().items():
         for doc_type in sorted(manifest.documents):
-            cases.append(VisualBaselineCase(design=design, doc_type=doc_type))
+            for paper_size in selected_paper_sizes:
+                cases.append(
+                    VisualBaselineCase(
+                        design=design,
+                        doc_type=doc_type,
+                        paper_size=paper_size,
+                    )
+                )
     return tuple(cases)
 
 
@@ -204,16 +308,19 @@ def filter_design_cases(
     *,
     designs: Sequence[str] = (),
     doc_types: Sequence[str] = (),
+    paper_sizes: Sequence[str] = (),
 ) -> tuple[VisualBaselineCase, ...]:
     """Filter discovered cases using optional design and document selections."""
 
     selected_designs = frozenset(designs)
     selected_doc_types = frozenset(doc_types)
+    selected_paper_sizes = frozenset(value.strip().upper() for value in paper_sizes)
     return tuple(
         case
         for case in cases
         if (not selected_designs or case.design in selected_designs)
         and (not selected_doc_types or case.doc_type in selected_doc_types)
+        and (not selected_paper_sizes or case.paper_size.strip().upper() in selected_paper_sizes)
     )
 
 
@@ -240,8 +347,15 @@ def render_visual_baselines(
     rasterize: RasterizeMode = "auto",
     raster_dpi: int = 144,
     renderer: RenderCallable = render_frames_to_pdf,
+    require_evidence: bool = True,
+    strict_external_tools: bool = True,
 ) -> BaselineReport:
-    """Render selected visual diagnostic artifacts and return the manifest model."""
+    """Render artifacts and enforce production evidence unless a test opts out explicitly.
+
+    ``require_evidence=False`` is reserved for synthetic renderers that do not implement the
+    production proof contract. Portable unit matrices may disable only missing external-tool
+    evidence with ``strict_external_tools=False``; observed tool failures still fail.
+    """
 
     output_dir.mkdir(parents=True, exist_ok=True)
     selected_cases = tuple(cases if cases is not None else discover_design_cases())
@@ -256,13 +370,30 @@ def render_visual_baselines(
             rasterize=rasterize,
             raster_dpi=raster_dpi,
             renderer=renderer,
+            require_fallback_proof=require_evidence,
         )
+        if require_evidence:
+            validate_layout_evidence(case, artifact)
+            validate_page_count_contract(case, artifact)
+            validate_typography_floor(case, artifact)
+            validate_page_label_evidence(case, artifact)
+            validate_poppler_evidence(
+                case,
+                artifact,
+                strict_external_tools=strict_external_tools,
+            )
+            validate_qr_evidence(
+                case,
+                artifact,
+                strict_external_tools=strict_external_tools,
+            )
 
         case_reports.append(
             BaselineCaseReport(
                 case_id=case.case_id,
                 design=case.design,
                 doc_type=case.doc_type,
+                paper_size=case.paper_size,
                 direct_supported=supports_direct_baseline(case),
                 artifacts=(artifact,),
                 diagnostics=(),
@@ -270,7 +401,7 @@ def render_visual_baselines(
         )
 
     report = BaselineReport(
-        schema_version=3,
+        schema_version=7,
         visual_review_note=VISUAL_REVIEW_NOTE,
         output_dir=str(output_dir),
         cases=tuple(case_reports),
@@ -287,24 +418,80 @@ def render_baseline_artifact(
     rasterize: RasterizeMode,
     raster_dpi: int,
     renderer: RenderCallable,
+    require_fallback_proof: bool = True,
 ) -> BaselineArtifact:
     """Render one case PDF and summarize its artifact evidence."""
 
-    case_dir = output_dir / case.design / case.doc_type
+    case_dir = output_dir / case.design / case.doc_type / case.paper_size.strip().lower()
     case_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = case_dir / f"{renderer_name}.pdf"
     inputs = build_sample_inputs(case, pdf_path)
 
-    renderer(inputs)
+    result = renderer(inputs)
+    if require_fallback_proof:
+        validate_fallback_proof_evidence(case, inputs, result)
 
     reader = PdfReader(str(pdf_path))
     text = extract_pdf_text(reader)
+    poppler_warnings, poppler_skipped_reason = pdf_poppler_warnings(pdf_path)
     raster = rasterize_pdf_pages(
         pdf_path,
         case_dir / renderer_name,
         mode=rasterize,
         dpi=raster_dpi,
     )
+    layout_pages = result.layout_proof.pages if result.layout_proof is not None else ()
+    layout_components = tuple(component for page in layout_pages for component in page.components)
+    separation_constraints = tuple(
+        constraint for page in layout_pages for constraint in page.separation_constraints
+    )
+    content_overlap_evidence_complete, content_overlap_pairs = content_overlap_evidence(
+        layout_components
+    )
+    font_sizes = tuple(
+        component.font_size_pt
+        for component in layout_components
+        if component.font_size_pt is not None
+    )
+    manual_fallback_line_number_font_sizes = tuple(
+        component.font_size_pt
+        for component in layout_components
+        if component.font_size_pt is not None
+        and is_manual_fallback_line_number_component(case, component.component_id)
+    )
+    qr_image_sizes = tuple(
+        min(component.rect.width_mm, component.rect.height_mm)
+        for component in layout_components
+        if component.component_type == "image"
+        and "qr" in component.component_id.lower()
+        and (
+            "image" in component.component_id.lower()
+            or component.component_id.lower().endswith("-qr")
+        )
+    )
+    expected_qr_count = (
+        result.artifact_proof.physical_qr_count if result.artifact_proof is not None else None
+    )
+    decoded_qr_count: int | None = None
+    qr_scan_succeeded: bool | None = None
+    if expected_qr_count is not None:
+        decoded_qr_count = len(scan_qr_payloads((pdf_path,))) if expected_qr_count else 0
+        qr_scan_succeeded = decoded_qr_count == expected_qr_count
+    composited_decoded_qr_count, composited_qr_scan_skipped_reason = (
+        scan_composited_pdf_qr_count(pdf_path) if expected_qr_count else (0, None)
+    )
+    composited_qr_scan_succeeded = (
+        composited_decoded_qr_count == expected_qr_count
+        if composited_decoded_qr_count is not None and expected_qr_count is not None
+        else None
+    )
+    numbered_page_count: int | None = None
+    all_pages_numbered: bool | None = None
+    if result.layout_proof is not None:
+        numbered_page_count = sum(
+            bool(_PAGE_LABEL_PATTERN.search(page.extract_text() or "")) for page in reader.pages
+        )
+        all_pages_numbered = numbered_page_count == len(reader.pages)
     return BaselineArtifact(
         renderer=renderer_name,
         pdf_path=_relative_path(output_dir, pdf_path),
@@ -315,22 +502,347 @@ def render_baseline_artifact(
         png_paths=tuple(_relative_path(output_dir, path) for path in raster.paths),
         rasterizer=raster.rasterizer,
         raster_skipped_reason=raster.skipped_reason,
+        layout_overflow=(result.layout_proof.overflow if result.layout_proof is not None else None),
+        layout_component_count=len(layout_components),
+        separation_constraint_count=len(separation_constraints),
+        separation_constraints_satisfied=(
+            all(constraint.satisfied for constraint in separation_constraints)
+            if result.layout_proof is not None
+            else None
+        ),
+        content_overlap_evidence_complete=content_overlap_evidence_complete,
+        content_overlap_count=len(content_overlap_pairs),
+        content_overlap_pairs=content_overlap_pairs,
+        minimum_font_size_pt=min(font_sizes) if font_sizes else None,
+        minimum_manual_fallback_line_number_font_size_pt=(
+            min(manual_fallback_line_number_font_sizes)
+            if manual_fallback_line_number_font_sizes
+            else None
+        ),
+        minimum_qr_image_size_mm=min(qr_image_sizes) if qr_image_sizes else None,
+        expected_qr_count=expected_qr_count,
+        decoded_qr_count=decoded_qr_count,
+        qr_scan_succeeded=qr_scan_succeeded,
+        numbered_page_count=numbered_page_count,
+        all_pages_numbered=all_pages_numbered,
+        poppler_warning_count=(len(poppler_warnings) if poppler_warnings is not None else None),
+        poppler_clean=(not poppler_warnings if poppler_warnings is not None else None),
+        poppler_skipped_reason=poppler_skipped_reason,
+        composited_decoded_qr_count=composited_decoded_qr_count,
+        composited_qr_scan_succeeded=composited_qr_scan_succeeded,
+        composited_qr_scan_skipped_reason=composited_qr_scan_skipped_reason,
     )
+
+
+def validate_layout_evidence(case: VisualBaselineCase, artifact: BaselineArtifact) -> None:
+    """Fail visual-baseline generation on measured overflow or separation violations."""
+
+    if artifact.layout_overflow is None or artifact.layout_component_count <= 0:
+        raise RuntimeError(f"rendered layout proof is missing for {case.case_id}")
+    if artifact.layout_overflow is True:
+        raise RuntimeError(f"rendered layout overflow detected for {case.case_id}")
+    if (
+        artifact.separation_constraint_count <= 0
+        or artifact.separation_constraints_satisfied is None
+    ):
+        raise RuntimeError(f"rendered separation-constraint proof is missing for {case.case_id}")
+    if artifact.separation_constraints_satisfied is False:
+        raise RuntimeError(f"rendered separation constraint failed for {case.case_id}")
+    if not artifact.content_overlap_evidence_complete:
+        raise RuntimeError(f"rendered content-overlap evidence is incomplete for {case.case_id}")
+    if artifact.content_overlap_count != len(artifact.content_overlap_pairs):
+        raise RuntimeError(f"rendered content-overlap evidence is inconsistent for {case.case_id}")
+    if artifact.content_overlap_count:
+        details = "; ".join(artifact.content_overlap_pairs[:3])
+        raise RuntimeError(f"rendered content overlap detected for {case.case_id}: {details}")
+
+
+def validate_page_count_contract(case: VisualBaselineCase, artifact: BaselineArtifact) -> None:
+    """Require shard sheets to remain one physical page with one physical QR."""
+
+    if case.doc_type not in _SINGLE_PAGE_DOC_TYPES:
+        return
+    if artifact.page_count != 1:
+        raise RuntimeError(
+            f"rendered shard page-count contract failed for {case.case_id}: "
+            f"expected 1 page, rendered {artifact.page_count}"
+        )
+    if artifact.expected_qr_count != 1:
+        raise RuntimeError(
+            f"rendered shard QR-count contract failed for {case.case_id}: "
+            f"expected 1 physical QR, rendered {artifact.expected_qr_count}"
+        )
+
+
+def content_overlap_evidence(
+    components: Sequence[RenderComponentLayoutProof],
+) -> tuple[bool, tuple[str, ...]]:
+    """Find unintended text/text and text/image intersections in measured visible content."""
+
+    visible: list[tuple[str, str, RenderRectProof]] = []
+    evidence_complete = True
+    for component in components:
+        if component.component_type == "text":
+            if component.used_rect is None:
+                evidence_complete = False
+                continue
+            visible.append(("text", component.component_id, component.used_rect))
+        elif component.component_type == "image":
+            visible.append(("image", component.component_id, component.rect))
+
+    overlaps: list[str] = []
+    for index, (first_type, first_id, first_rect) in enumerate(visible):
+        for second_type, second_id, second_rect in visible[index + 1 :]:
+            if first_type == second_type == "image":
+                continue
+            overlap_width_mm = min(first_rect.right_mm, second_rect.right_mm) - max(
+                first_rect.x_mm,
+                second_rect.x_mm,
+            )
+            overlap_height_mm = min(first_rect.bottom_mm, second_rect.bottom_mm) - max(
+                first_rect.y_mm,
+                second_rect.y_mm,
+            )
+            if (
+                overlap_width_mm > _CONTENT_OVERLAP_EPSILON_MM
+                and overlap_height_mm > _CONTENT_OVERLAP_EPSILON_MM
+            ):
+                overlaps.append(f"{first_id} ({first_type}) intersects {second_id} ({second_type})")
+    return evidence_complete, tuple(overlaps)
+
+
+def validate_fallback_proof_evidence(
+    case: VisualBaselineCase,
+    inputs: RenderInputs,
+    result: RenderResult,
+) -> None:
+    """Require complete, internally consistent proof for requested manual fallback output."""
+
+    if not inputs.render_fallback:
+        return
+    artifact_proof = result.artifact_proof
+    if artifact_proof is None:
+        raise RuntimeError(f"render artifact proof is missing for {case.case_id}")
+    fallback_proof = result.fallback_proof
+    if fallback_proof is None or artifact_proof.fallback_proof is None:
+        raise RuntimeError(f"fallback render proof is missing for {case.case_id}")
+    if artifact_proof.fallback_proof != fallback_proof:
+        raise RuntimeError(f"artifact and fallback render proofs disagree for {case.case_id}")
+
+    try:
+        validate_fallback_render_proof(
+            artifact_label=case.case_id,
+            frames=tuple(section.frame for section in inputs.fallback_sections),
+            fallback_proof=fallback_proof,
+        )
+    except ValueError as exc:
+        raise RuntimeError(f"fallback render proof failed for {case.case_id}: {exc}") from exc
+
+
+def validate_typography_floor(case: VisualBaselineCase, artifact: BaselineArtifact) -> None:
+    """Fail visual-baseline generation when text drops below transcription-safe floors."""
+
+    minimum_font_size = artifact.minimum_font_size_pt
+    if minimum_font_size is None:
+        raise RuntimeError(f"rendered typography evidence is missing for {case.case_id}")
+    if minimum_font_size < MINIMUM_TEXT_FONT_SIZE_PT:
+        raise RuntimeError(
+            f"rendered text font floor failed for {case.case_id}: "
+            f"{minimum_font_size:.2f}pt < {MINIMUM_TEXT_FONT_SIZE_PT:.2f}pt"
+        )
+    if artifact.layout_component_count <= 0 or not requires_manual_fallback_line_numbers(case):
+        return
+    minimum_line_number_size = artifact.minimum_manual_fallback_line_number_font_size_pt
+    if minimum_line_number_size is None:
+        raise RuntimeError(f"manual fallback line-number evidence is missing for {case.case_id}")
+    if minimum_line_number_size < MINIMUM_MANUAL_FALLBACK_LINE_NUMBER_FONT_SIZE_PT:
+        raise RuntimeError(
+            f"manual fallback line-number font floor failed for {case.case_id}: "
+            f"{minimum_line_number_size:.2f}pt < "
+            f"{MINIMUM_MANUAL_FALLBACK_LINE_NUMBER_FONT_SIZE_PT:.2f}pt"
+        )
+
+
+def validate_page_label_evidence(
+    case: VisualBaselineCase,
+    artifact: BaselineArtifact,
+) -> None:
+    """Require measured page numbering on every rendered page."""
+
+    if artifact.numbered_page_count is None or artifact.all_pages_numbered is None:
+        raise RuntimeError(f"rendered page-label evidence is missing for {case.case_id}")
+    if artifact.all_pages_numbered is False:
+        raise RuntimeError(
+            f"rendered page-label coverage mismatch for {case.case_id}: "
+            f"numbered {artifact.numbered_page_count} of {artifact.page_count} pages"
+        )
+
+
+def validate_poppler_evidence(
+    case: VisualBaselineCase,
+    artifact: BaselineArtifact,
+    *,
+    strict_external_tools: bool,
+) -> None:
+    """Require a clean Poppler parse when production external-tool evidence is strict."""
+
+    if artifact.poppler_clean is False:
+        raise RuntimeError(
+            f"Poppler reported {artifact.poppler_warning_count} warning(s) for {case.case_id}"
+        )
+    if artifact.poppler_clean is True and artifact.poppler_warning_count is None:
+        raise RuntimeError(f"Poppler warning-count evidence is missing for {case.case_id}")
+    if artifact.poppler_clean is None and strict_external_tools:
+        reason = artifact.poppler_skipped_reason or "Poppler evidence unavailable"
+        raise RuntimeError(f"Poppler evidence is missing for {case.case_id}: {reason}")
+
+
+def validate_qr_evidence(
+    case: VisualBaselineCase,
+    artifact: BaselineArtifact,
+    *,
+    strict_external_tools: bool,
+) -> None:
+    """Require readable embedded and whole-page QRs at the physical print-size floor."""
+
+    if case.doc_type not in _QR_EXPECTED_DOC_TYPES:
+        return
+    if artifact.expected_qr_count is None or artifact.expected_qr_count <= 0:
+        raise RuntimeError(f"rendered QR proof is missing for {case.case_id}")
+    if artifact.qr_scan_succeeded is not True or artifact.decoded_qr_count is None:
+        raise RuntimeError(
+            f"rendered QR scan evidence failed or is missing for {case.case_id}: "
+            f"expected {artifact.expected_qr_count}, decoded {artifact.decoded_qr_count}"
+        )
+
+    minimum_qr_size = artifact.minimum_qr_image_size_mm
+    if minimum_qr_size is None:
+        raise RuntimeError(f"rendered QR-size evidence is missing for {case.case_id}")
+    if minimum_qr_size < MINIMUM_QR_IMAGE_SIZE_MM:
+        raise RuntimeError(
+            f"rendered QR physical-size floor failed for {case.case_id}: "
+            f"{minimum_qr_size:.2f} mm < {MINIMUM_QR_IMAGE_SIZE_MM:.2f} mm"
+        )
+
+    if artifact.composited_qr_scan_succeeded is False:
+        raise RuntimeError(
+            f"composited QR scan count mismatch for {case.case_id}: "
+            f"expected {artifact.expected_qr_count}, "
+            f"decoded {artifact.composited_decoded_qr_count}"
+        )
+    if (
+        artifact.composited_qr_scan_succeeded is True
+        and artifact.composited_decoded_qr_count is None
+    ):
+        raise RuntimeError(f"composited QR scan count evidence is missing for {case.case_id}")
+    if artifact.composited_qr_scan_succeeded is None and strict_external_tools:
+        reason = artifact.composited_qr_scan_skipped_reason or "whole-page QR scan unavailable"
+        raise RuntimeError(f"composited QR scan evidence is missing for {case.case_id}: {reason}")
+
+
+def requires_manual_fallback_line_numbers(case: VisualBaselineCase) -> bool:
+    """Return whether this design/document renders explicitly numbered manual fallback rows."""
+
+    return (case.design, case.doc_type) in _MANUAL_FALLBACK_LINE_NUMBER_CASES
+
+
+def is_manual_fallback_line_number_component(
+    case: VisualBaselineCase,
+    component_id: str,
+) -> bool:
+    """Identify text components that visibly carry manual fallback row numbers."""
+
+    normalized = component_id.lower()
+    if "-fallback-line-number-" in normalized or "-fallback-number-" in normalized:
+        return True
+    return case.design == "archive" and "-fallback-line-" in normalized
+
+
+def pdf_poppler_warnings(pdf_path: Path) -> tuple[tuple[str, ...] | None, str | None]:
+    """Return Poppler parser warnings without treating extracted text as diagnostics."""
+
+    pdftotext = shutil.which("pdftotext")
+    if pdftotext is not None:
+        command = [pdftotext, str(pdf_path), "-"]
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    else:
+        pdftoppm = shutil.which("pdftoppm")
+        if pdftoppm is None:
+            return None, "Poppler tools not found"
+        with tempfile.TemporaryDirectory(prefix="poppler-validate-", dir=pdf_path.parent) as tmp:
+            command = [
+                pdftoppm,
+                "-r",
+                "10",
+                "-png",
+                str(pdf_path),
+                str(Path(tmp) / "page"),
+            ]
+            completed = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or f"exit status {completed.returncode}"
+        raise RuntimeError(f"Poppler could not parse {pdf_path}: {detail}")
+    warnings = tuple(
+        line.strip()
+        for line in completed.stderr.splitlines()
+        if line.strip() and not line.startswith("Fontconfig error: Cannot load default config file")
+    )
+    return warnings, None
+
+
+def scan_composited_pdf_qr_count(
+    pdf_path: Path,
+    *,
+    dpi: int = 200,
+) -> tuple[int | None, str | None]:
+    """Decode QRs from rasterized whole pages, including all paint and scaling effects."""
+
+    pdftoppm = shutil.which("pdftoppm")
+    if pdftoppm is None:
+        return None, "pdftoppm not found"
+    with tempfile.TemporaryDirectory(prefix="composited-qr-", dir=pdf_path.parent) as tmp:
+        completed = subprocess.run(
+            [
+                pdftoppm,
+                "-r",
+                str(dpi),
+                "-png",
+                str(pdf_path),
+                str(Path(tmp) / "page"),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or f"exit status {completed.returncode}"
+            raise RuntimeError(f"could not rasterize {pdf_path} for QR scan: {detail}")
+        return len(scan_qr_payloads((Path(tmp),), include_extension_carriers=False)), None
 
 
 def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderInputs:
     """Build stable synthetic render inputs for a visual baseline case."""
 
-    context = _base_context()
+    context = _base_context(case.page_spec.name if case.page_spec is not None else case.paper_size)
     if case.doc_type == DOC_TYPE_MAIN:
         frames = tuple(
             _frame(
                 FrameType.MAIN_DOCUMENT,
                 index=index,
-                total=4,
+                total=20,
                 data=f"visual-baseline-main-fragment-{index}".encode("ascii"),
             )
-            for index in range(4)
+            for index in range(20)
         )
         return RenderInputs(
             frames=frames,
@@ -341,15 +853,16 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
             lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=False,
+            page_size=case.page_spec,
         )
 
     if case.doc_type == DOC_TYPE_RECOVERY:
-        auth_frame = _frame(FrameType.AUTH, index=0, total=1, data=b"visual-baseline-auth")
+        auth_frame = _frame(FrameType.AUTH, index=0, total=1, data=b"a" * 500)
         main_frame = _frame(
             FrameType.MAIN_DOCUMENT,
             index=0,
             total=1,
-            data=b"visual-baseline-recovery-main-payload",
+            data=b"m" * 4_000,
         )
         frames = (auth_frame, main_frame)
         return RenderInputs(
@@ -363,15 +876,16 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
             render_fallback=True,
             key_lines=_sample_key_lines(),
             recovery_meta=build_recovery_meta(
-                passphrase="alpha bravo charlie delta echo foxtrot",
-                quorum_threshold=2,
-                quorum_shares=3,
+                passphrase=" ".join(f"word{index:02d}" for index in range(1, 25)),
+                quorum_threshold=None,
+                quorum_shares=None,
                 signing_pub=b"\x31" * 32,
             ),
             fallback_sections=(
                 FallbackSection(label="AUTH FRAME", frame=auth_frame),
                 FallbackSection(label="MAIN FRAME", frame=main_frame),
             ),
+            page_size=case.page_spec,
         )
 
     if case.doc_type in {DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD}:
@@ -379,7 +893,7 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
             FrameType.KEY_DOCUMENT,
             index=0,
             total=1,
-            data=f"visual-baseline-{case.doc_type}-payload".encode("ascii"),
+            data=b"s" * 900,
         )
         shard_context = dict(context)
         shard_context.update({"shard_index": 1, "shard_total": 3, "shard_threshold": 2})
@@ -393,6 +907,7 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
             render_qr=True,
             render_fallback=True,
             fallback_sections=(FallbackSection(label="SHARD PAYLOAD", frame=frame),),
+            page_size=case.page_spec,
         )
 
     if case.doc_type == DOC_TYPE_KIT:
@@ -400,10 +915,10 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
             _frame(
                 FrameType.MAIN_DOCUMENT,
                 index=index,
-                total=3,
+                total=14,
                 data=f"visual-baseline-kit-frame-{index}".encode("ascii"),
             )
-            for index in range(3)
+            for index in range(14)
         )
         kit_context = _kit_context(context)
         return RenderInputs(
@@ -413,13 +928,13 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
             doc_type=case.doc_type,
             design_name=case.design,
             lineage=RenderLineage(kind="recovery_kit"),
-            qr_payloads=(
-                "ETK1:kit-shell-html",
-                "ETK1:kit-chunk-0001",
-                "ETK1:kit-chunk-0002",
+            qr_payloads=tuple(
+                "ETK1:kit-shell-html" if index == 0 else f"ETK1:kit-chunk-{index:04d}"
+                for index in range(14)
             ),
             render_qr=True,
             render_fallback=False,
+            page_size=case.page_spec,
         )
 
     if case.doc_type == DOC_TYPE_KIT_INDEX:
@@ -433,6 +948,7 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
             qr_payloads=(),
             render_qr=False,
             render_fallback=False,
+            page_size=case.page_spec,
         )
 
     raise ValueError(f"unsupported visual baseline doc_type: {case.doc_type}")
@@ -620,6 +1136,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=tuple(sorted(DIRECT_SUPPORTED_DOC_TYPES)),
         default=[],
     )
+    parser.add_argument(
+        "--paper-size",
+        action="append",
+        choices=tuple(sorted(name.upper() for name in registered_paper_sizes())),
+        default=[],
+    )
     parser.add_argument("--rasterize", choices=("auto", "always", "never"), default="auto")
     parser.add_argument("--raster-dpi", type=int, default=144)
     return parser.parse_args(argv)
@@ -631,6 +1153,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         discover_design_cases(),
         designs=tuple(args.design),
         doc_types=tuple(args.doc_type),
+        paper_sizes=tuple(args.paper_size),
     )
     if not cases:
         print("no visual baseline cases matched the requested filters", file=sys.stderr)
@@ -654,9 +1177,9 @@ def _ensure_direct_supported(case: VisualBaselineCase) -> None:
         raise ValueError(f"direct renderer does not support visual baseline case {case.case_id}")
 
 
-def _base_context() -> dict[str, object]:
+def _base_context(paper_size: str = DEFAULT_PAPER_SIZE_NAME) -> dict[str, object]:
     return {
-        "paper_size": "A4",
+        "paper_size": paper_size.strip().upper(),
         "doc_id": _DOC_ID.hex(),
         "created_timestamp_utc": _CREATED_TIMESTAMP_UTC,
     }
@@ -666,8 +1189,8 @@ def _kit_context(base_context: dict[str, object]) -> dict[str, object]:
     context = dict(base_context)
     context.update(
         {
-            "kit_qr_page_count": 1,
-            "kit_qr_chunk_count": 3,
+            "kit_qr_page_count": 2,
+            "kit_qr_chunk_count": 14,
             "inventory_rows": (
                 {
                     "component_id": "KIT-SHELL",

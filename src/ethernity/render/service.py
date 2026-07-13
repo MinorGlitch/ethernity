@@ -30,6 +30,7 @@ from ethernity.encoding.qr_payloads import (
     QrPayloadCodec,
     encode_qr_payload,
 )
+from ethernity.page_sizes import normalize_paper_size_name, resolve_paper_size
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_KIT_INDEX,
@@ -50,9 +51,19 @@ class RenderService:
     def base_context(self, extra: dict[str, object] | None = None) -> dict[str, object]:
         """Build a template context base and merge caller-provided fields."""
 
-        context: dict[str, object] = {"paper_size": self.config.paper_size}
-        if extra:
-            context.update(extra)
+        paper_size = resolve_paper_size(self.config.paper_size)
+        context: dict[str, object] = dict(extra or {})
+        extra_paper_size = context.get("paper_size")
+        if (
+            isinstance(extra_paper_size, str)
+            and extra_paper_size.strip()
+            and normalize_paper_size_name(extra_paper_size) != paper_size.name
+        ):
+            raise ValueError(
+                "render context cannot override configured paper size: "
+                f"{extra_paper_size!r} != {paper_size.name!r}"
+            )
+        context["paper_size"] = paper_size.name
         return context
 
     def build_qr_payloads(
@@ -265,4 +276,5 @@ class RenderService:
             render_jobs=self.config.cli_defaults.runtime.render_jobs,
             layout_debug_json_path=layout_debug_json_path,
             lineage=lineage,
+            page_size=resolve_paper_size(self.config.paper_size),
         )

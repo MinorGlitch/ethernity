@@ -16,7 +16,46 @@
 
 from __future__ import annotations
 
-from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
+from collections.abc import Sequence
+
+from ethernity.core.bounds import MAX_FALLBACK_LINES
+from ethernity.encoding.framing import encode_frame
+from ethernity.encoding.zbase32 import ZBASE32_ALPHABET, encode_zbase32
+from ethernity.render.types import FallbackSection
+
+__all__ = ["fallback_lines_from_sections", "fallback_section_title", "format_zbase32_lines"]
+
+
+def fallback_lines_from_sections(
+    sections: Sequence[FallbackSection],
+    *,
+    group_size: int,
+    line_length: int,
+) -> list[str]:
+    """Encode fallback sections into display lines with labels and separators."""
+
+    lines: list[str] = []
+    for index, section in enumerate(sections):
+        if section.label:
+            lines.append(section.label)
+        section_lines = format_zbase32_lines(
+            encode_zbase32(encode_frame(section.frame)),
+            group_size=group_size,
+            line_length=line_length,
+            line_count=MAX_FALLBACK_LINES,
+        )
+        lines.extend(section_lines)
+        if index < len(sections) - 1:
+            lines.append("")
+    return lines
+
+
+def fallback_section_title(label: str | None) -> str | None:
+    """Normalize a fallback section title for display."""
+
+    if isinstance(label, str) and label.strip():
+        return label.strip()
+    return None
 
 
 def format_zbase32_lines(

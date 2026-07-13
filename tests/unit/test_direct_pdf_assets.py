@@ -1,15 +1,17 @@
 import unittest
 from pathlib import Path
 
-from ethernity.render.direct_pdf import (
+from fontTools.ttLib import TTFont
+
+from ethernity.render.direct_pdf.assets import (
     MATERIAL_SYMBOLS_FAMILY,
     PUBLIC_SANS_FAMILY,
     ROBOTO_MONO_FAMILY,
     BundledFont,
     DirectPdfAssets,
-    FpdfSurface,
     packaged_direct_pdf_assets,
 )
+from ethernity.render.direct_pdf.surface import FpdfSurface
 
 
 class TestDirectPdfAssets(unittest.TestCase):
@@ -33,6 +35,18 @@ class TestDirectPdfAssets(unittest.TestCase):
 
         with self.assertRaises(FileNotFoundError):
             assets.register_fonts(surface)
+
+    def test_public_sans_assets_are_true_type_glyf_fonts(self) -> None:
+        public_sans_fonts = tuple(
+            font for font in packaged_direct_pdf_assets().fonts if font.family == PUBLIC_SANS_FAMILY
+        )
+
+        self.assertEqual(len(public_sans_fonts), 2)
+        for bundled_font in public_sans_fonts:
+            with self.subTest(path=bundled_font.path.name):
+                font = TTFont(bundled_font.path)
+                self.assertIn("glyf", font)
+                self.assertNotIn("CFF ", font)
 
 
 if __name__ == "__main__":

@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from ethernity.render.direct_pdf.page import DirectPdfPagePlan, PaintPlan
+from ethernity.render.direct_pdf.page import (
+    DirectPdfPagePlan,
+    PaintPlan,
+    SeparationConstraintProof,
+)
 from ethernity.render.direct_pdf.types import PdfRect
 from ethernity.render.types import (
     RenderComponentLayoutProof,
     RenderLayoutProof,
     RenderPageLayoutProof,
     RenderRectProof,
+    RenderSeparationConstraintProof,
 )
 
 DIRECT_PDF_BACKEND_NAME = "direct_pdf"
@@ -41,6 +46,9 @@ def _page_layout_proof(page_plan: DirectPdfPagePlan) -> RenderPageLayoutProof:
         overflow_component_ids=proof.overflow_component_ids,
         out_of_bounds_component_ids=proof.out_of_bounds_component_ids,
         components=tuple(_component_layout_proof(plan) for plan in page_plan.plans),
+        separation_constraints=tuple(
+            _separation_constraint_proof(constraint) for constraint in proof.separation_constraints
+        ),
     )
 
 
@@ -57,6 +65,20 @@ def _component_layout_proof(plan: PaintPlan) -> RenderComponentLayoutProof:
         line_count=_optional_int(getattr(proof, "line_count", None)),
         overflow_line_count=_optional_int(getattr(proof, "overflow_line_count", None)),
         font_size_pt=_optional_float(getattr(proof, "font_size_pt", None)),
+    )
+
+
+def _separation_constraint_proof(
+    proof: SeparationConstraintProof,
+) -> RenderSeparationConstraintProof:
+    return RenderSeparationConstraintProof(
+        constraint_id=proof.constraint_id,
+        first_region_id=proof.first_region_id,
+        second_region_id=proof.second_region_id,
+        minimum_clearance_mm=proof.minimum_clearance_mm,
+        measured_clearance_mm=proof.measured_clearance_mm,
+        checked_pair_count=proof.checked_pair_count,
+        satisfied=proof.satisfied,
     )
 
 

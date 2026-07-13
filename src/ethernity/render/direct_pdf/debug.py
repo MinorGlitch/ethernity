@@ -14,6 +14,7 @@ from ethernity.render.types import (
     RenderLayoutProof,
     RenderPageLayoutProof,
     RenderRectProof,
+    RenderSeparationConstraintProof,
 )
 
 
@@ -48,7 +49,9 @@ def write_direct_layout_debug_json(
 
 def _page_payload(page: RenderPageLayoutProof) -> dict[str, object]:
     qr_count = sum(
-        1 for component_id in page.component_ids if _looks_like_qr_component(component_id)
+        1
+        for component in page.components
+        if component.component_type == "image" and _looks_like_qr_component(component.component_id)
     )
     return {
         "page_num": page.page_number,
@@ -59,13 +62,16 @@ def _page_payload(page: RenderPageLayoutProof) -> dict[str, object]:
         "overflow": page.overflow,
         "overflow_component_ids": page.overflow_component_ids,
         "out_of_bounds_component_ids": page.out_of_bounds_component_ids,
+        "separation_constraints": [
+            _separation_constraint_payload(constraint) for constraint in page.separation_constraints
+        ],
         "components": [_component_payload(component) for component in page.components],
     }
 
 
 def _looks_like_qr_component(component_id: str) -> bool:
     lowered = component_id.lower()
-    return "qr-image" in lowered or lowered.endswith("-primary-qr-image")
+    return "qr" in lowered and ("image" in lowered or lowered.endswith("-qr"))
 
 
 def _component_payload(component: RenderComponentLayoutProof) -> dict[str, object]:
@@ -87,6 +93,20 @@ def _component_payload(component: RenderComponentLayoutProof) -> dict[str, objec
         if value is not None:
             payload[field_name] = value
     return payload
+
+
+def _separation_constraint_payload(
+    constraint: RenderSeparationConstraintProof,
+) -> dict[str, object]:
+    return {
+        "constraint_id": constraint.constraint_id,
+        "first_region_id": constraint.first_region_id,
+        "second_region_id": constraint.second_region_id,
+        "minimum_clearance_mm": constraint.minimum_clearance_mm,
+        "measured_clearance_mm": constraint.measured_clearance_mm,
+        "checked_pair_count": constraint.checked_pair_count,
+        "satisfied": constraint.satisfied,
+    }
 
 
 def _rect_payload(rect: RenderRectProof) -> dict[str, float]:

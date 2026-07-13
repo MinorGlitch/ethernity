@@ -1,8 +1,12 @@
 import unittest
 
+import ethernity.render.direct_pdf.archive as archive
+import ethernity.render.direct_pdf.forge.recovery as forge_recovery
+import ethernity.render.direct_pdf.ledger as ledger
+import ethernity.render.direct_pdf.maritime as maritime
+import ethernity.render.direct_pdf.sentinel.recovery as sentinel_recovery
 from ethernity.core.bounds import MAX_FALLBACK_LINES, MAX_MAIN_FRAME_DATA_BYTES
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
-from ethernity.render.direct_pdf import archive, forge_recovery, ledger, maritime, sentinel_recovery
 from ethernity.render.direct_pdf.structured_common import (
     FallbackSectionLines,
     fallback_entries,
@@ -88,6 +92,31 @@ class TestFallbackRenderBounds(unittest.TestCase):
             tuple(entry.display_line_number for entry in pages[2].entries),
             (1,),
         )
+
+    def test_structured_continuation_capacity_keeps_title_with_first_line(self) -> None:
+        frame = _maximum_main_frame()
+        sections = (
+            FallbackSectionLines(0, "AUTH", ("a", "b", "c"), frame),
+            FallbackSectionLines(1, "MAIN", ("d", "e"), frame),
+        )
+
+        pages = paginate_fallback_entries(
+            fallback_entries(sections),
+            capacity=3,
+            continuation_capacity=2,
+        )
+
+        self.assertEqual(len(pages), 4)
+        for page in pages:
+            if page.entries and page.entries[-1].display_line_number is None:
+                self.fail("fallback page ended with an orphan section title")
+
+    def test_structured_title_page_with_one_row_capacity_fails_fast(self) -> None:
+        frame = _maximum_main_frame()
+        sections = (FallbackSectionLines(0, "AUTH", ("a",), frame),)
+
+        with self.assertRaisesRegex(ValueError, "keep a section title"):
+            paginate_fallback_entries(fallback_entries(sections), capacity=1)
 
 
 if __name__ == "__main__":

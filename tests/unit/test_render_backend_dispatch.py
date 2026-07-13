@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
+from ethernity.page_sizes import PaperSize
 from ethernity.render import render_frames_to_pdf
 from ethernity.render.backend_dispatch import DIRECT_PDF_DESIGN_REGISTRY
 from ethernity.render.doc_types import (
@@ -445,6 +446,23 @@ class TestRenderBackendDispatch(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "does not support"):
                 render_frames_to_pdf(inputs)
+
+    def test_direct_renderer_preflights_unproven_custom_geometry(self) -> None:
+        frame = _frame(FrameType.MAIN_DOCUMENT, data=b"main")
+        inputs = RenderInputs(
+            frames=(frame,),
+            output_path="ignored.pdf",
+            context={"paper_size": "A5"},
+            page_size=PaperSize("A5", "A5", 148.0, 210.0),
+            doc_type=DOC_TYPE_MAIN,
+            design_name="sentinel",
+            lineage=RenderLineage(kind="root_backup"),
+            render_qr=True,
+            render_fallback=False,
+        )
+
+        with self.assertRaisesRegex(ValueError, "outside the proven responsive envelope"):
+            render_frames_to_pdf(inputs)
 
     def test_render_frames_to_pdf_routes_supported_direct_render(self) -> None:
         with TemporaryDirectory() as tmp:

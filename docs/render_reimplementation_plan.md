@@ -148,12 +148,12 @@ Its role should stay behind the PDF surface adapter rather than leaking into lay
   and explicit `doc_type`; unsupported design/document/input shapes fail explicitly.
 - [x] Added direct Forge main-document rendering with measured QR card placement, multipage QR
   pagination, physical QR payload indexes, PDF output, and extractable segment labels.
-- [x] Added direct Forge shard rendering with measured QR placement, fallback text pagination,
-  repeated QR thumbnails on continuation pages, physical QR proof indexes, and fallback proof
-  validation.
+- [x] Added direct Forge shard rendering with measured QR placement, a single-page fallback zone,
+  one physical QR, physical QR proof indexes, and fallback proof validation.
 - [x] Added a dedicated direct Forge signing-key shard renderer instead of reusing the regular
   shard layout. It preserves the template's dashed warning panel, blueprint key-material zone,
-  public reference block, specifications table, QR repeat behavior, and fallback proof contract.
+  public reference block, specifications table, one-page/one-QR behavior, and fallback proof
+  contract.
 - [x] Added direct Forge kit and kit-index rendering with measured QR chunk pagination,
   instruction/inventory pages, artifact proof coverage, dispatch tests, and extractable PDF text.
 - [x] Added `scripts/render_visual_baselines.py`, a typed developer harness that discovers the
@@ -226,12 +226,12 @@ Its role should stay behind the PDF surface adapter rather than leaking into lay
   filled numbered markers, security notice, primary QR frame, secondary segment cards,
   continuation QR grid, render proof, dispatch, and visual harness support for `sentinel/main`.
 - [x] Added direct Sentinel shard rendering with the template's warning panel, shard heading,
-  orange QR corner marks, patterned manual-transcription panel, repeated QR behavior for
-  continuation pages, fallback proof, artifact proof, backend dispatch, and visual harness support
-  for `sentinel/shard`.
-- [x] Added direct Sentinel signing-key shard rendering with the dashed security panel, QR/text
-  key-material layout, master-fingerprint and schema cards, continuation QR repeat behavior,
+  orange QR corner marks, patterned manual-transcription panel, single-page fallback layout,
   fallback proof, artifact proof, backend dispatch, and visual harness support for
+  `sentinel/shard`.
+- [x] Added direct Sentinel signing-key shard rendering with the dashed security panel, QR/text
+  key-material layout, master-fingerprint and schema cards, one-page/one-QR behavior, fallback
+  proof, artifact proof, backend dispatch, and visual harness support for
   `sentinel/signing_key_shard`. The decorative rotated "Restricted Access" watermark remains an
   intentional omission for now, consistent with the no-watermark direction already taken for Forge
   shard output.
@@ -275,6 +275,9 @@ Its role should stay behind the PDF surface adapter rather than leaking into lay
   browser-render tests.
 - [x] Removed the remaining backend selection compatibility surface. `render_frames_to_pdf(inputs)`
   now calls the direct-PDF registry without an environment-variable selector or legacy fallback path.
+- [x] Deleted the closed pre-direct geometry, layout-policy, page-model, template-model, and text
+  pipeline with its legacy-only tests. The public entry point now lives directly with registry
+  dispatch, and live fallback text helpers have one owner in `render/fallback_text.py`.
 - [x] Generated a final all-design direct manifest at
   `/tmp/ethernity-direct-migration-final-check/manifest.json`; it covers all 27 discovered
   design-document cases with no unsupported direct renders.
@@ -312,6 +315,39 @@ renderers backed by explicit per-style manifests:
 - Recovery-kit index support is declared by manifest document support plus the
   `recovery_kit_index_document` style capability.
 - Visual baseline discovery enumerates manifest-backed design/document cases.
+
+### Responsive Page Contract
+
+Paper handling is a physical-layout contract, not an `A4`/`LETTER` conditional:
+
+- `src/ethernity/page_sizes.py` owns normalized names, display labels, portrait dimensions, and
+  the default paper size.
+- `RenderInputs.page_size` carries one typed physical page value. Template display context is
+  derived from that value and cannot override it.
+- Each schema-v2 `design.json` declares a minimum proven width and height for every advertised
+  document type in `page_support`.
+- Direct dispatch and task models preflight the selected design/document/page combination before
+  rendering. Geometry below the proven envelope is rejected explicitly instead of being clipped
+  or silently scaled to unreadable output.
+- Layout implementations consume measured safe regions, responsive grids, physical QR/text
+  minimums, and semantic separation constraints. Page height changes pagination capacity rather
+  than moving content through a fixed footer.
+- Shard and signing-key-shard sheets are a single-page contract. Their measured fallback regions
+  must consume the complete bounded payload on that page and emit exactly one physical QR. One
+  canonical `KEY_DOCUMENT` frame must drive both carriers; ambiguous, mismatched, or unrelated QR
+  and fallback sources are rejected before layout. Shard sheets do not create or repeat content on
+  continuation pages.
+- Production visual proof is fail-closed: it requires page/used-rectangle bounds, declared
+  separation constraints, zero text-to-text or text-to-image intersections, typography and QR
+  floors, complete fallback consumption, page labels, Poppler parsing, and embedded plus
+  whole-page QR decoding.
+- The boundary matrix renders every design/document pair at its declared minimum. Design-aware UI
+  choices filter through the manifest contract, and no new registered size is considered supported
+  until boundary, proof, raster, and scan verification pass.
+
+The built-in renderers currently support portrait output. A future landscape mode must be modeled
+as an explicit orientation contract with corresponding layout policies; swapping width and height
+without that contract is intentionally rejected.
 
 Completed migration checklist:
 

@@ -1,12 +1,12 @@
 import unittest
 
-from ethernity.render.direct_pdf import (
-    FpdfSurface,
+from ethernity.render.direct_pdf.surface import FpdfSurface
+from ethernity.render.direct_pdf.text_fit import (
     TextFitError,
     TextFitPolicy,
-    TextStyle,
     fit_text_to_width,
 )
+from ethernity.render.direct_pdf.types import TextStyle
 
 
 class TestDirectPdfTextFit(unittest.TestCase):

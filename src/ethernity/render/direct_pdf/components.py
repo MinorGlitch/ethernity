@@ -17,6 +17,7 @@ from ethernity.render.direct_pdf.text_fit import (
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect, TextStyle
 
 _POINT_TO_MM = 25.4 / 72.0
+MINIMUM_TEXT_SIZE_PT = 6.0
 
 
 class TextAlign(str, Enum):
@@ -397,6 +398,16 @@ class TextBox:
         _validate_component_id(self.component_id)
         if self.line_height_multiplier <= 0:
             raise ValueError("line_height_multiplier must be positive")
+        if self.style.size_pt < MINIMUM_TEXT_SIZE_PT:
+            raise ValueError(
+                f"style size must be at least {MINIMUM_TEXT_SIZE_PT:.1f} points: "
+                f"{self.component_id} uses {self.style.size_pt:.2f} points"
+            )
+        if self.min_size_pt is not None and self.min_size_pt < MINIMUM_TEXT_SIZE_PT:
+            raise ValueError(
+                f"minimum size must be at least {MINIMUM_TEXT_SIZE_PT:.1f} points: "
+                f"{self.component_id} uses {self.min_size_pt:.2f} points"
+            )
 
     def plan(self, surface: PdfSurface, rect: PdfRect) -> TextBoxPlan:
         """Measure text into the provided rectangle before painting."""
@@ -420,7 +431,9 @@ class TextBox:
                 max_width_mm=rect.width_mm,
                 max_lines=max_lines,
                 policy=self.policy,
-                min_size_pt=self.min_size_pt,
+                min_size_pt=(
+                    self.min_size_pt if self.min_size_pt is not None else MINIMUM_TEXT_SIZE_PT
+                ),
                 line_height_multiplier=self.line_height_multiplier,
             )
         except TextFitError as exc:
@@ -434,9 +447,28 @@ class TextBox:
                     "box_height_mm": rect.height_mm,
                 },
             )
+        if fit.style.size_pt < MINIMUM_TEXT_SIZE_PT:
+            raise TextFitError(
+                "planned text is below the minimum readable size",
+                {
+                    "component_id": self.component_id,
+                    "font_size_pt": fit.style.size_pt,
+                    "minimum_font_size_pt": MINIMUM_TEXT_SIZE_PT,
+                },
+            )
 
         lines = _place_lines(surface, rect, fit, align=self.align)
-        used_rect = PdfRect(rect.x_mm, rect.y_mm, fit.width_mm, fit.height_mm)
+        used_x_mm = min((line.x_mm for line in lines), default=rect.x_mm)
+        used_right_mm = max(
+            (line.x_mm + line.width_mm for line in lines),
+            default=used_x_mm,
+        )
+        used_rect = PdfRect(
+            used_x_mm,
+            rect.y_mm,
+            used_right_mm - used_x_mm,
+            fit.height_mm,
+        )
         proof = TextPlacementProof(
             component_id=self.component_id,
             rect=rect,
@@ -550,6 +582,7 @@ __all__ = [
     "ImageBoxPlan",
     "Line",
     "LinePlan",
+    "MINIMUM_TEXT_SIZE_PT",
     "Panel",
     "PanelPlan",
     "PdfComponent",

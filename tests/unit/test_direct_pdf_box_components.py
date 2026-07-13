@@ -3,16 +3,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ethernity.qr.codec import qr_bytes
-from ethernity.render.direct_pdf import (
+from ethernity.render.direct_pdf.components import (
     Ellipse,
-    FpdfSurface,
     ImageBox,
     Line,
     Panel,
-    PdfColor,
-    PdfRect,
     Rule,
 )
+from ethernity.render.direct_pdf.surface import FpdfSurface
+from ethernity.render.direct_pdf.types import PdfColor, PdfRect
 from ethernity.render.proofs import validate_pdf_has_pages
 
 

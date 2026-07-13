@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
@@ -26,7 +27,16 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
-from ethernity.render.utils import int_value as _int_value
+
+__all__ = ["InstructionCopy", "build_copy_bundle", "build_instruction_copy"]
+
+
+@dataclass(frozen=True)
+class InstructionCopy:
+    """Canonical instruction heading and lines for one rendered document type."""
+
+    label: str
+    lines: tuple[str, ...]
 
 
 def build_copy_bundle(*, doc_type: str, context: Mapping[str, object]) -> dict[str, object]:
@@ -44,6 +54,74 @@ def build_copy_bundle(*, doc_type: str, context: Mapping[str, object]) -> dict[s
     if normalized_doc_type == DOC_TYPE_KIT_INDEX:
         return _kit_index_document_copy(context=context)
     raise ValueError(f"unsupported render doc_type for copy bundle: {doc_type!r}")
+
+
+def build_instruction_copy(
+    *,
+    doc_type: str,
+    context: Mapping[str, object],
+) -> InstructionCopy:
+    """Build the canonical instructions rendered for a document type."""
+
+    normalized_doc_type = doc_type.strip().lower()
+    if normalized_doc_type == DOC_TYPE_MAIN:
+        lines = (
+            "Record all segment labels for this document set.",
+            "Scan segments in any order; capture each label once.",
+            "Use Recovery Document text fallback only if scanning fails.",
+        )
+    elif normalized_doc_type == DOC_TYPE_RECOVERY:
+        lines = (
+            "This document contains recovery keys and full text fallback.",
+            "Keep it separate from the main document.",
+            "Fallback includes AUTH + MAIN sections; keep the labels when transcribing.",
+        )
+    elif normalized_doc_type in {DOC_TYPE_KIT, DOC_TYPE_KIT_INDEX}:
+        lines = (
+            "Scan every QR code left to right, top to bottom.",
+            (
+                "QR #1 is the shell. Paste it first, then paste every remaining QR in "
+                "order (no separators)."
+            ),
+            "Save the result as recovery_kit.bundle.html.",
+            "Open that file in a browser (offline) to run the kit.",
+        )
+    elif normalized_doc_type in {DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD}:
+        shard_index = _int_value(context.get("shard_index"), default=1)
+        shard_total = _int_value(context.get("shard_total"), default=1)
+        shard_threshold = _int_value(context.get("shard_threshold"), default=shard_total)
+        lines = (
+            (
+                f"This document contains shard {shard_index} of {shard_total}. "
+                "Possession of this shard alone is insufficient for recovery."
+            ),
+            (
+                f"Recovery requires {shard_threshold}/{shard_total} shards. "
+                "Store separately from other shards to prevent"
+            ),
+            "unauthorized reassembly.",
+        )
+    else:
+        raise ValueError(f"unsupported render doc_type for instruction copy: {doc_type!r}")
+
+    return InstructionCopy(label="Instructions", lines=lines)
+
+
+def _int_value(value: object, *, default: int) -> int:
+    """Coerce a copy-context value to an integer or use its default."""
+
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 
 def _lineage_mapping(context: Mapping[str, object]) -> Mapping[str, object]:

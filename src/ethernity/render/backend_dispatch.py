@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Final
 
+from ethernity.page_sizes import PaperSize
 from ethernity.render.designs import load_design_manifest_by_name
 from ethernity.render.direct_pdf.archive import (
     render_archive_kit_direct_pdf,
@@ -18,14 +19,14 @@ from ethernity.render.direct_pdf.archive import (
     render_archive_shard_direct_pdf,
     render_archive_signing_key_shard_direct_pdf,
 )
-from ethernity.render.direct_pdf.forge_kit import (
+from ethernity.render.direct_pdf.forge.kit import (
     render_forge_kit_direct_pdf,
     render_forge_kit_index_direct_pdf,
 )
-from ethernity.render.direct_pdf.forge_main import render_forge_main_direct_pdf
-from ethernity.render.direct_pdf.forge_recovery import render_forge_recovery_direct_pdf
-from ethernity.render.direct_pdf.forge_shard import render_forge_shard_direct_pdf
-from ethernity.render.direct_pdf.forge_signing_key_shard import (
+from ethernity.render.direct_pdf.forge.main import render_forge_main_direct_pdf
+from ethernity.render.direct_pdf.forge.recovery import render_forge_recovery_direct_pdf
+from ethernity.render.direct_pdf.forge.shard import render_forge_shard_direct_pdf
+from ethernity.render.direct_pdf.forge.signing_key_shard import (
     render_forge_signing_key_shard_direct_pdf,
 )
 from ethernity.render.direct_pdf.ledger import (
@@ -42,12 +43,13 @@ from ethernity.render.direct_pdf.maritime import (
     render_maritime_shard_direct_pdf,
     render_maritime_signing_key_shard_direct_pdf,
 )
-from ethernity.render.direct_pdf.sentinel_kit import render_sentinel_kit_direct_pdf
-from ethernity.render.direct_pdf.sentinel_kit_index import render_sentinel_kit_index_direct_pdf
-from ethernity.render.direct_pdf.sentinel_main import render_sentinel_main_direct_pdf
-from ethernity.render.direct_pdf.sentinel_recovery import render_sentinel_recovery_direct_pdf
-from ethernity.render.direct_pdf.sentinel_shard import render_sentinel_shard_direct_pdf
-from ethernity.render.direct_pdf.sentinel_signing_key_shard import (
+from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
+from ethernity.render.direct_pdf.sentinel.kit import render_sentinel_kit_direct_pdf
+from ethernity.render.direct_pdf.sentinel.kit_index import render_sentinel_kit_index_direct_pdf
+from ethernity.render.direct_pdf.sentinel.main import render_sentinel_main_direct_pdf
+from ethernity.render.direct_pdf.sentinel.recovery import render_sentinel_recovery_direct_pdf
+from ethernity.render.direct_pdf.sentinel.shard import render_sentinel_shard_direct_pdf
+from ethernity.render.direct_pdf.sentinel.signing_key_shard import (
     render_sentinel_signing_key_shard_direct_pdf,
 )
 from ethernity.render.doc_types import (
@@ -143,8 +145,11 @@ DIRECT_PDF_DESIGN_REGISTRY: Final[Mapping[str, DirectPdfDesignRenderer]] = {
 }
 
 
-def render_with_direct_backend(inputs: RenderInputs) -> RenderResult:
-    """Render through the registered direct-PDF renderer for these inputs."""
+def render_frames_to_pdf(inputs: RenderInputs) -> RenderResult:
+    """Render frames through the registered direct-PDF renderer for these inputs."""
+
+    if not inputs.frames and (inputs.render_qr or inputs.render_fallback):
+        raise ValueError("frames cannot be empty when QR or fallback rendering is enabled")
 
     renderer = _selected_direct_renderer(inputs)
     if renderer is not None:
@@ -166,7 +171,20 @@ def _selected_direct_renderer(inputs: RenderInputs) -> DirectPdfRenderer | None:
     design = DIRECT_PDF_DESIGN_REGISTRY.get(manifest.name)
     if design is None:
         return None
-    return design.renderer_for(normalized_doc_type)
+    renderer = design.renderer_for(normalized_doc_type)
+    if renderer is None:
+        return None
+    geometry = resolve_page_geometry(inputs)
+    manifest.require_page_size(
+        normalized_doc_type,
+        PaperSize(
+            name=geometry.paper_size,
+            display_name=geometry.paper_size,
+            width_mm=geometry.width_mm,
+            height_mm=geometry.height_mm,
+        ),
+    )
+    return renderer
 
 
 def _normalized_doc_type(inputs: RenderInputs) -> str:
@@ -200,5 +218,5 @@ def _input_shape_allows_direct(inputs: RenderInputs, normalized_doc_type: str) -
 __all__ = [
     "DIRECT_PDF_DESIGN_REGISTRY",
     "DirectPdfDesignRenderer",
-    "render_with_direct_backend",
+    "render_frames_to_pdf",
 ]
