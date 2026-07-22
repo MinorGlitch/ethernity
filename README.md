@@ -113,9 +113,11 @@ passphrase. Store the sheets in separate places and keep them apart from the bac
 - Scan a printed QR code before you put the documents into storage.
 - Test a restore with the documents and recovery sheets you plan to keep.
 
-The browser recovery kit contains the software needed to restore a backup without installing
-Ethernity. It does not contain your files. Create a printable copy with `ethernity run print-kit`
-and test it with disposable data.
+Browser recovery tools contain the software needed to restore a backup without installing
+Ethernity; they do not contain your files. Add Files publishes a chain-bound replacement kit for
+its new head. The expert `ethernity run print-kit` command creates an unanchored rescue kit, which
+cannot prove that the supplied extension head is the expected latest state. Test either kind with
+disposable data.
 
 Read the [security policy](SECURITY.md) for the threat model and private vulnerability reporting
 process.
@@ -131,7 +133,8 @@ Run `ethernity` for the guided terminal app. The same workflows are available fo
 | `ethernity run add-files` | Add or replace files in an existing backup |
 | `ethernity run rebuild` | Turn a backup history into one standalone set |
 | `ethernity run replace-recovery-docs` | Create replacement recovery sheets |
-| `ethernity run print-kit` | Create the printable browser recovery kit |
+| `ethernity run print-kit` | Create an unanchored browser rescue kit |
+| `ethernity run doctor` | Inspect or repair an interrupted publication transaction |
 
 Add `--preview` to inspect a task without writing files. Add `--json` when a script needs
 machine-readable output. Run `ethernity run <command> --help` for all options.
@@ -141,8 +144,10 @@ machine-readable output. Run `ethernity run <command> --help` for all options.
 - [Advanced workflows](docs/advanced-workflows.md) covers updates, rebuilds, trusted fingerprints,
   and replacement recovery sheets.
 - [Format specification](docs/format.md) defines the backup and recovery format.
+- [Extension operations profile](docs/extension_publication_profile.md) defines the normative v1.2
+  publication, recovery-kit, and chain-maintenance rules.
 - [Format notes](docs/format_notes.md) explains the design and operating model.
-- [Compatibility ledger](docs/format_changes.md) records format changes.
+- [Compatibility history](docs/format_changes.md) records frozen release targets and shipped formats.
 - [Release guide](docs/release_artifacts.md) explains archive and Sigstore verification.
 
 ## Contributing

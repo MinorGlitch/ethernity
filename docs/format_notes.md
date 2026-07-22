@@ -1,7 +1,9 @@
 # Ethernity Format Notes (Non-normative)
 
 This document contains rationale and operational guidance that is intentionally excluded from the
-core wire/on-disk format specification (`docs/format.md`).
+[core format specification](format.md). Canonical extension export and maintenance requirements are
+defined separately in the
+[v1.2 extension operations and publication profile](extension_publication_profile.md).
 
 ## Sealing: Rationale and Use Cases
 
@@ -58,12 +60,15 @@ Operational implications:
   complete chain whose latest head is `N`.
 - Missing, corrupt, forked, or unauthenticated supplied extensions still fail closed; the limitation
   is only absence detection for material that was not supplied.
-- Absolute freshness requires an additional signed head marker, external registry, or other
-  out-of-band freshness source. That is outside the current content-import profile.
+- A separately stored chain-bound kit supplies an out-of-band trust anchor for the root identity,
+  root signing key fingerprint, and expected head. A manually recorded expected head can pin
+  freshness without authenticating root identity. Neither is part of content import itself.
 - Two operators can append independently from the same head and create valid forks. Supplying both
   conflicting branches is an ambiguity and fails closed, but either branch can validate in isolation.
-  `Latest` therefore always means latest among the carriers supplied to that operation. The current
-  release deliberately has no global ledger or online coordination requirement.
+  `Latest` therefore always means latest among the carriers supplied to that operation. Browser
+  recovery requires a trusted-kit pin, a manually entered expected head, or an explicit
+  freshness-unknown acknowledgement before using that target. The current release deliberately has
+  no global ledger or online coordination requirement.
 
 ## Extension Authority and Lifecycle
 
@@ -84,25 +89,43 @@ path, and retire every old paper and digital carrier whose historical copy must 
 
 ## Published Fallback Assurance
 
-Machine-readable ciphertext, AUTH frames, and signed shard payloads remain authoritative. The
-extractable fallback text layer in each fallback-bearing canonical root or extension PDF is
-nevertheless checked immediately after rendering, before publish, and again during later
-append/discovery validation of a canonical published head. Designated sections must canonical-decode
-in order and match the exact expected MAIN/AUTH or KEY frame bytes one-to-one.
+Machine-readable ciphertext, AUTH frames, and signed shard payloads remain authoritative. The v1.2
+operations profile also requires exact validation of extractable fallback sections before publish
+and append so the fallback bytes cannot silently diverge from their authenticated carrier.
 
-This binds one extractable fallback encoding to one authenticated carrier identity. PDF text
-extraction cannot prove that text is physically visible, on-page, unclipped, or comfortably legible,
-so print inspection remains separate. The check is not a signed publication manifest and does not
-prove that every carrier ever produced, or a globally latest head, is present.
+Text extraction cannot prove physical visibility or legibility, and it is not a signed publication
+inventory. In particular, root envelope v1 cannot prove that an entirely absent shard role was ever
+published. The operations profile defines the resulting fail-closed and unknowable cases.
 
-Canonical root creation/publish and later append apply the audit to `recovery_document.pdf` and to
-every canonical-named root shard PDF. A present canonical shard role is filename-enumerable, so its
-declared `1..share_count` set can fail closed on gaps or inconsistent signed payloads. An entirely
-absent shard role is different: the root has no signed publication manifest recording that such a
-set was created, so absence is unknowable rather than proof of completeness. Renamed matching-root
-PDF shards can be audited individually, but their names cannot establish a complete custody set.
-Images and unrelated or foreign-root carriers under non-canonical names are ignored by the PDF
-fallback audit; canonical-pattern names remain fail-closed.
+## Publication Recovery
+
+`.chain.lock` is intentionally permanent. Its existence does not mean a process is running; the
+kernel lock held through the open file handle is the concurrency signal and disappears if that
+process dies. Inside a canonical backup, a leftover `.staging-*` directory is likewise not
+something to delete by hand. `ethernity run doctor` first authenticates the published chain and
+checks transaction snapshots and ancestry. With `--repair --yes`, it can remove a staging duplicate
+whose final directory is already the authenticated committed head. It refuses to remove
+unjournaled staging because a live publisher may still own it, and it refuses to resume journaled
+staging because transaction version 1 does not authenticate the original optional-carrier
+publication policy. Repair moves such an authenticated, snapshot-matching unpublished transaction
+to a sibling quarantine instead; this preserves the staged carriers and frees the canonical
+extension namespace for a fresh Add Files operation. Promoted transaction records are inspected
+against the authenticated chain and require no repair when their recorded snapshot still matches.
+
+A scan-mode loose output root is a dedicated generated workspace, not a canonical backup root, so
+Doctor does not operate on it. If publication was interrupted before an `extension-*` directory
+was promoted, first confirm that no Add Files process is still running, then abandon the entire
+loose output folder or choose another empty output folder. Do not remove individual hidden entries.
+If an `extension-*` directory was promoted, preserve the completed bundle.
+
+Directory durability is not uniformly exposed by every operating system and filesystem. Extension
+publication therefore requires flushed regular files, a transaction journal, one persistent
+advisory lock, authenticated head revalidation, and a same-filesystem atomic rename on every
+platform. Compaction uses the same source-chain lock, head revalidation, file flushing, and atomic
+rename but, because it creates a separate standalone backup, does not write an extension
+transaction journal. POSIX implementations additionally require directory `fsync`; Windows
+continues with its strongest portable guarantee when Python cannot open a directory for flushing.
+Ordinary backup, mint, and restore remain outside the journaled durability guarantee.
 
 ## Shard Set Identifier Rationale
 
@@ -168,14 +191,14 @@ Operational implications:
 The extension profile adds chain-wide limits because otherwise individually valid documents can
 accumulate unbounded recovery work. A chain stops at 128 total documents, 64 MiB aggregate
 ciphertext, and 256 MiB cumulative decoded inline chunks. Rebuild/compaction creates a fresh
-standalone root when a chain is near any limit. Browser KDF admission is a runtime safety policy,
-not a stable-v1 format restriction; desktop recovery retains age's full legacy compatibility.
-The browser parses every public scrypt stanza before starting a KDF, rejects factors above its
-supported ceiling. A separate explicit action is required before either a profile above
-`log_n = 18` or cumulative work above eight `log_n = 18` documents is attempted. Approved KDF work
-runs one document at a time in a cancellable Worker. This keeps `log_n = 19` and `20` recovery
-available without letting scanned input silently start a 512 MiB or 1 GiB allocation, or a long
-sequence of otherwise individually acceptable KDFs.
+standalone root when a chain is near any limit. KDF admission is a runtime safety policy, not a
+stable-v1 format restriction. Desktop and browser recovery parse every public scrypt stanza before
+starting a KDF, enforce both per-stanza and cumulative work ceilings, and run approved work in
+disposable workers. Normal desktop recovery accepts through `log_n = 19`; `log_n = 20` requires the
+explicitly named resource-intensive compatibility recovery override. Values above `20` and
+cumulative work above the compatibility ceiling are always rejected. Browser recovery retains its
+more conservative automatic threshold. Cancellation, CPU/memory ceilings, or wall-time expiry
+terminate the active worker rather than leaving an in-process KDF running.
 
 Append deduplication does not require retaining every historical decoded chunk. Writers can retain
 the latest logical state's chunk bytes plus the set of all earlier chunk identifiers. If new input
@@ -201,7 +224,7 @@ Compatibility note:
 
 ## QR Payload Transport Note
 
-Version 1 supports two QR transport codecs as defined in `docs/format.md`:
+Version 1 supports two QR transport codecs as defined in the core format specification:
 - `raw` frame bytes (preferred for QR scan transport)
 - unpadded `base64` text (for text-based workflows)
 
@@ -214,19 +237,15 @@ Implementations should not negotiate or introduce additional codecs in v1.
 
 ## QR/PDF Scan Parser Isolation Note
 
-The current CLI scan implementation parses PDF and image carriers in-process through the centralized
-`ethernity.qr.scan` boundary. That boundary rejects symlinked scan inputs, applies backup-export
-layout rules before recursive scans, enforces explicit file/PDF/image/decoded-payload budgets, and
-hands decoded QR bytes back to the normal frame/profile validators, but it is not an OS sandbox
-around the PDF/image parser libraries.
+The CLI treats each PDF or image carrier as hostile input. Path traversal and publication-layout
+checks happen before parsing. Each admitted file is then parsed and QR-decoded in a fresh spawned
+worker with memory, CPU, wall-time, PDF-page, embedded-image, pixel, decoded-payload, and IPC-output
+ceilings. The complete scan also has file-count, aggregate payload, and wall-time ceilings.
 
-Operational guidance:
-- Treat scans from unknown bulk sources as untrusted file parsing and run the CLI in an OS sandbox,
-  container, or equivalent restricted environment when that threat model matters.
-- Prefer scanned artifacts generated by Ethernity or individually reviewed recovery carriers over
-  arbitrary directory trees.
-- A future scanner-worker split should preserve the current `QrDecoder` adapter boundary while
-  moving PDF/image parser execution into a constrained subprocess with resource limits.
+Workers are disposable: timeout, resource exhaustion, parser failure, task cancellation, or source
+replacement terminates the subprocess. Parser objects and decoded image state never return to the
+main application; only bounded QR payload bytes cross the process boundary. Platforms that cannot
+install or observe the required worker limits fail closed instead of silently parsing in-process.
 
 ## Runtime Config Note
 
@@ -253,7 +272,7 @@ abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon 
 ## Shamir Operational Guidance
 
 Any conforming Shamir implementation may be used as long as it matches the field parameters and
-encoding rules in `docs/format.md`.
+encoding rules in the core format specification.
 
 Python reference implementation:
 - Secret sharing: `pycryptodome` (`Crypto.Protocol.SecretSharing.Shamir`).
@@ -290,30 +309,6 @@ Python reference implementation:
 - Encryption/decryption: `pyrage` (age passphrase recipient).
 
 Scrypt parameters (work factor, salt, etc.) are defined by the age scrypt recipient stanza.
-
-## Stable v1 Baseline Notes
-
-Stable v1 profile baseline (normative requirements are in `docs/format.md`):
-- Stable v1 decoders require manifest keys `input_origin`, `input_roots`, and `path_encoding`.
-- Stable v1 decoders require array-based manifest `files` entries.
-- Map-style manifest file-entry encodings are out-of-profile and are rejected by stable v1
-  decoders.
-
-CBOR payload evolution guidance:
-- These payloads are CBOR maps. New optional fields should be added as new map keys.
-- Decoders ignore unknown keys (as defined normatively in `docs/format.md`) to allow forward
-  compatibility.
-- Unknown keys are extension data only and are not trust-authoritative.
-- Encoders should avoid emitting keys not defined in the format specification for a given version.
-
-## Conformance Guidance (Non-normative)
-
-The normative conformance requirements, including required decoder validation order and minimum
-must-pass/must-reject scenarios, are defined in `docs/format.md` (Section 18).
-
-Operational recommendation:
-1. Use the Section 18 checklist as release gating for decoder conformance claims.
-2. Keep implementation-specific test harness details outside the normative spec.
 
 ## Varint and CBOR Integer Encoding
 

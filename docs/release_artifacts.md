@@ -13,6 +13,11 @@ For each published binary variant, expect:
 - a CycloneDX SBOM (`*.sbom.cdx.json`)
 - a Sigstore bundle for the archive and SBOM (`*.sigstore.json`)
 
+Each release also includes `ethernity-source-vX.Y.Z.tar.gz` plus its SBOM and Sigstore bundle.
+That tagged source archive is built after injecting the generated recovery-kit bundles and includes
+the frozen extension smoke carriers used by the Homebrew formula. Homebrew must consume this
+release asset rather than GitHub's automatically generated tag archive.
+
 Bundle-first verification is the canonical path.
 
 ## Extension Compatibility Gates
@@ -59,5 +64,6 @@ Do not run the binary yet if any of these are true:
 
 - [Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts)
 - [Format spec](format.md)
+- [v1.2 extension operations profile](extension_publication_profile.md)
 - [Format notes](format_notes.md)
 - [Security policy](../SECURITY.md)

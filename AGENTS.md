@@ -27,6 +27,8 @@ format compatibility, recovery behavior, rendering output, and packaging as high
 - CI gates and release checks: `.github/workflows/ci.yml`,
   `.github/workflows/pyinstaller.yml`, and `.github/workflows/homebrew-tap.yml`.
 - Normative format specification: `docs/format.md`.
+- Normative v1.2 extension operations and publication profile:
+  `docs/extension_publication_profile.md`.
 - Format rationale and operations: `docs/format_notes.md`.
 - Format compatibility ledger: `docs/format_changes.md`.
 - Render style manifests and capabilities:
@@ -54,6 +56,8 @@ format compatibility, recovery behavior, rendering output, and packaging as high
   Keep command flags thin; delegate validation and execution to task/domain layers.
 - `src/ethernity/tasks/`: task state, validation, preview, execution adapters, and presentation
   models shared by the app and command runner.
+- `src/ethernity/workflows/`: adapter-neutral application use cases with typed requests, issues,
+  assessments, and execution results. Do not accept CLI argument models or return UI/JSON models.
 - `src/ethernity/cli/features/` and `src/ethernity/cli/shared/`: feature orchestration and shared
   CLI/domain helpers. Keep planning, execution, rendering, and reporting separated.
 - `src/ethernity/render/`: render contracts, layout policy, template/style parsing, and backend
@@ -100,6 +104,8 @@ reuse an existing service. Do not reach across layers with string parsing, dupli
 ### Format Or Recovery Semantics
 
 - Update `docs/format.md` for normative behavior.
+- Update `docs/extension_publication_profile.md` for canonical extension export, carrier,
+  recovery-kit, selected-recovery, minting, or compaction behavior.
 - Update `docs/format_notes.md` for rationale or operational guidance.
 - Update `docs/format_changes.md` only when the behavior is a compatibility-relevant delta. Before
   adding a new entry, check whether the behavior was introduced earlier on the same unreleased
@@ -179,3 +185,48 @@ Before adding a rule, ask:
 - Is it expected to remain true across branches?
 - Is this the best source of truth, or should the rule live next to code/config/docs instead?
 - Will it help agents avoid real mistakes without encouraging broad rewrites?
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **ethernity** (14925 symbols, 31387 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "master"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/ethernity/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/ethernity/clusters` | All functional areas |
+| `gitnexus://repo/ethernity/processes` | All execution flows |
+| `gitnexus://repo/ethernity/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

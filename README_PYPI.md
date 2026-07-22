@@ -79,7 +79,8 @@ cmp ./test-file.txt ./restored.txt
 The guided app can add or replace files, rebuild a backup as one standalone set, create replacement
 recovery sheets, and create a printable copy of the offline browser recovery tool.
 
-Run `ethernity run --help` to see the six scriptable tasks.
+Run `ethernity run --help` to see the scriptable tasks, including `doctor` for authenticated
+inspection and repair of interrupted publication transactions.
 
 ## Learn more
 
