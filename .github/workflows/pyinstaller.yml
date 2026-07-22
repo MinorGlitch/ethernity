@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}-${{ inputs.release_tag || 'none' }}
+  group: release-${{ github.workflow }}-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -49,11 +49,19 @@ jobs:
       - name: Resolve target tag and commit
         id: meta
         shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          REQUESTED_PRERELEASE: ${{ inputs.prerelease }}
+          REQUESTED_DRAFT: ${{ inputs.draft }}
         run: |
           set -euo pipefail
 
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            TAG="${{ inputs.release_tag }}"
+            if [[ "${GITHUB_REF}" != "refs/heads/master" ]]; then
+              echo "manual releases must dispatch the workflow from master" >&2
+              exit 1
+            fi
+            TAG="${REQUESTED_TAG}"
           else
             TAG="${GITHUB_REF#refs/tags/}"
           fi
@@ -62,12 +70,13 @@ jobs:
             echo "release_tag is required" >&2
             exit 1
           fi
-          if [[ ! "${TAG}" =~ ^v ]]; then
-            echo "release tag must start with 'v': ${TAG}" >&2
+          if [[ ! "${TAG}" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
+            echo "release tag contains unsupported characters: ${TAG}" >&2
             exit 1
           fi
 
-          git fetch --force --tags origin
+          git fetch --force --tags origin \
+            "+refs/heads/master:refs/remotes/origin/master"
           if ! git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "tag not found: ${TAG}" >&2
             exit 1
@@ -76,6 +85,10 @@ jobs:
           COMMIT_SHA="$(git rev-list -n 1 "refs/tags/${TAG}")"
           if [[ -z "${COMMIT_SHA}" ]]; then
             echo "unable to resolve commit SHA for tag: ${TAG}" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${COMMIT_SHA}" refs/remotes/origin/master; then
+            echo "release tag must resolve to a commit on origin/master: ${TAG} -> ${COMMIT_SHA}" >&2
             exit 1
           fi
 
@@ -107,12 +120,12 @@ jobs:
           fi
 
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+            if [[ "${REQUESTED_PRERELEASE}" == "true" ]]; then
               PRERELEASE=true
             else
               PRERELEASE=false
             fi
-            if [[ "${{ inputs.draft }}" == "true" ]]; then
+            if [[ "${REQUESTED_DRAFT}" == "true" ]]; then
               DRAFT=true
             else
               DRAFT=false
@@ -157,22 +170,31 @@ jobs:
           }
 
           while True:
-              query = urllib.parse.urlencode({"head_sha": sha, "per_page": "100"})
+              query = urllib.parse.urlencode(
+                  {
+                      "branch": "master",
+                      "event": "push",
+                      "head_sha": sha,
+                      "per_page": "100",
+                  }
+              )
               url = f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{query}"
               req = urllib.request.Request(url, headers=headers)
               with urllib.request.urlopen(req) as response:  # noqa: S310
                   payload = json.load(response)
 
               runs = payload.get("workflow_runs", [])
-              qualifying_events = {"push", "pull_request", "workflow_dispatch"}
               qualifying_runs = [
-                  run for run in runs if str(run.get("event") or "") in qualifying_events
+                  run
+                  for run in runs
+                  if str(run.get("event") or "") == "push"
+                  and str(run.get("head_branch") or "") == "master"
+                  and str(run.get("head_sha") or "") == sha
               ]
               if qualifying_runs:
-                  # Release gating policy: require the latest CI run for this commit SHA
-                  # from a substantive event to be green. We intentionally do not
-                  # allow an older successful run to satisfy the gate after a newer
-                  # qualifying run fails/cancels.
+                  # Release gating policy: require the latest push CI run on master
+                  # for this exact commit SHA to be green. An ad-hoc dispatch or a
+                  # pull-request merge ref is not a release admission signal.
                   latest = qualifying_runs[0]
                   latest_status = str(latest.get("status") or "unknown")
                   latest_conclusion = str(latest.get("conclusion") or "unknown")
@@ -261,7 +283,12 @@ jobs:
 
       - name: Generate kit bundles
         working-directory: kit
-        run: node build_kit.mjs
+        env:
+          ETHERNITY_KIT_COMPRESSION: gzip
+          ETHERNITY_KIT_VARIANTS: both
+        run: |
+          rm -f ../src/ethernity/resources/kit/recovery_kit*.bundle.html
+          node build_kit.mjs
 
       - name: Prepare kit bundle artifact
         run: |
@@ -271,10 +298,30 @@ jobs:
             src/ethernity/resources/kit/recovery_kit.bundle.html \
             src/ethernity/resources/kit/recovery_kit.scanner.bundle.html \
             release-kit-bundles/
-          ls -la release-kit-bundles/
+          shopt -s nullglob
+          bundles=(release-kit-bundles/*.html)
+          if (( ${#bundles[@]} != 2 )); then
+            echo "expected exactly two canonical recovery-kit bundles" >&2
+            ls -la release-kit-bundles >&2
+            exit 1
+          fi
+          for bundle in \
+            release-kit-bundles/recovery_kit.bundle.html \
+            release-kit-bundles/recovery_kit.scanner.bundle.html
+          do
+            if [[ ! -s "${bundle}" ]]; then
+              echo "missing or empty canonical recovery-kit bundle: ${bundle}" >&2
+              exit 1
+            fi
+            size="$(wc -c < "${bundle}")"
+            if (( size < 1000 )); then
+              echo "canonical recovery-kit bundle is unexpectedly small: ${bundle}" >&2
+              exit 1
+            fi
+          done
 
       - name: Upload kit bundle artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-kit-bundles
           if-no-files-found: error
@@ -322,8 +369,9 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          version: "0.11.31"
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
@@ -336,19 +384,28 @@ jobs:
           name: release-kit-bundles
           path: src/ethernity/resources/kit
 
-      - name: Verify generated kit bundles
+      - name: Verify exact generated kit bundles
         shell: bash
         run: |
           set -euo pipefail
-          for BUNDLE in \
+          shopt -s nullglob
+          bundles=(src/ethernity/resources/kit/*.html)
+          if (( ${#bundles[@]} != 2 )); then
+            echo "expected exactly two canonical recovery-kit bundles" >&2
+            printf '  %s\n' "${bundles[@]}" >&2
+            exit 1
+          fi
+          for bundle in \
             src/ethernity/resources/kit/recovery_kit.bundle.html \
             src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
           do
-            test -s "$BUNDLE"
-            SIZE=$(wc -c < "$BUNDLE")
-            echo "Generated bundle size ($BUNDLE): $SIZE bytes"
-            if [ "$SIZE" -lt 1000 ]; then
-              echo "ERROR: Generated bundle seems too small, may be corrupted: $BUNDLE"
+            if [[ ! -s "${bundle}" ]]; then
+              echo "missing or empty canonical recovery-kit bundle: ${bundle}" >&2
+              exit 1
+            fi
+            size="$(wc -c < "${bundle}")"
+            if (( size < 1000 )); then
+              echo "canonical recovery-kit bundle is unexpectedly small: ${bundle}" >&2
               exit 1
             fi
           done
@@ -378,6 +435,59 @@ jobs:
             --yes
           test -d "$SMOKE_OUT/recovered"
 
+      - name: Prepare unsigned build tree
+        shell: bash
+        run: tar -czf unsigned-build-tree.tar.gz -C dist ethernity
+
+      - name: Upload unsigned build tree
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned-build-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}
+          if-no-files-found: error
+          path: unsigned-build-tree.tar.gz
+
+  package-linux:
+    needs: [precheck, build]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            artifact_os: linux
+            artifact_arch: x64
+            archive_ext: tar.gz
+          - runner: ubuntu-24.04-arm
+            artifact_os: linux
+            artifact_arch: arm64
+            archive_ext: tar.gz
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.precheck.outputs.commit_sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Download unsigned build tree
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unsigned-build-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}
+          path: unsigned-build
+
+      - name: Restore unsigned build tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -xzf unsigned-build/unsigned-build-tree.tar.gz -C dist
+
       - name: Package release archive
         env:
           RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
@@ -386,15 +496,268 @@ jobs:
           RUNNER_ARCH: ${{ runner.arch }}
           PACKAGER: pyinstaller
           PACKAGE_MODE: onedir
-        run: uv run python scripts/package_pyinstaller.py
+        run: python scripts/package_pyinstaller.py
+
+      - name: Generate archive SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}.${{ matrix.archive_ext }}
+          format: cyclonedx-json
+          output-file: ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}.sbom.cdx.json
+          syft-version: v1.49.0
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
 
       - name: Upload packaged artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-build-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}
           if-no-files-found: error
           path: |
             ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}.${{ matrix.archive_ext }}
+            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}.sbom.cdx.json
+
+  package-signed:
+    needs: [precheck, build]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            artifact_os: macos
+            artifact_arch: x64
+            archive_ext: tar.gz
+          - runner: macos-latest
+            artifact_os: macos
+            artifact_arch: arm64
+            archive_ext: tar.gz
+          - runner: windows-latest
+            artifact_os: windows
+            artifact_arch: x64
+            archive_ext: zip
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.precheck.outputs.commit_sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Download unsigned build tree
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unsigned-build-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}
+          path: unsigned-build
+
+      - name: Restore unsigned build tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -xzf unsigned-build/unsigned-build-tree.tar.gz -C dist
+
+      - name: Sign macOS build
+        if: matrix.artifact_os == 'macos'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          for required_name in \
+            MACOS_CERTIFICATE_P12 \
+            MACOS_CERTIFICATE_PASSWORD \
+            MACOS_SIGNING_IDENTITY
+          do
+            if [[ -z "${!required_name:-}" ]]; then
+              echo "required release secret is not configured: ${required_name}" >&2
+              exit 1
+            fi
+          done
+
+          certificate_path="${RUNNER_TEMP}/ethernity-signing.p12"
+          keychain_path="${RUNNER_TEMP}/ethernity-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          cleanup() {
+            security delete-keychain "${keychain_path}" >/dev/null 2>&1 || true
+            rm -f "${certificate_path}"
+          }
+          trap cleanup EXIT
+
+          python - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          Path(os.environ["RUNNER_TEMP"], "ethernity-signing.p12").write_bytes(
+              base64.b64decode(os.environ["MACOS_CERTIFICATE_P12"], validate=True)
+          )
+          PY
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${certificate_path}" \
+            -k "${keychain_path}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "${keychain_password}" \
+            "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}"
+
+          main_binary="dist/ethernity/ethernity"
+          find dist/ethernity -type f -print0 | while IFS= read -r -d '' candidate; do
+            if [[ "${candidate}" == "${main_binary}" ]]; then
+              continue
+            fi
+            if file "${candidate}" | grep -q 'Mach-O'; then
+              codesign --force --options runtime --timestamp \
+                --sign "${MACOS_SIGNING_IDENTITY}" "${candidate}"
+            fi
+          done
+          codesign --force --options runtime --timestamp \
+            --sign "${MACOS_SIGNING_IDENTITY}" "${main_binary}"
+          codesign --verify --deep --strict --verbose=2 "${main_binary}"
+
+      - name: Sign Windows build
+        if: matrix.artifact_os == 'windows'
+        shell: pwsh
+        env:
+          WINDOWS_CODE_SIGNING_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CODE_SIGNING_CERTIFICATE_PFX }}
+          WINDOWS_CODE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CODE_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          $Required = @(
+              "WINDOWS_CODE_SIGNING_CERTIFICATE_PFX",
+              "WINDOWS_CODE_SIGNING_CERTIFICATE_PASSWORD"
+          )
+          foreach ($Name in $Required) {
+              if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($Name))) {
+                  throw "Required release secret is not configured: $Name"
+              }
+          }
+
+          $CertificatePath = Join-Path $env:RUNNER_TEMP "ethernity-signing.pfx"
+          try {
+              [IO.File]::WriteAllBytes(
+                  $CertificatePath,
+                  [Convert]::FromBase64String($env:WINDOWS_CODE_SIGNING_CERTIFICATE_PFX)
+              )
+              $SignTool = Get-ChildItem `
+                  "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" `
+                  -ErrorAction SilentlyContinue |
+                  Sort-Object FullName |
+                  Select-Object -Last 1
+              if ($null -eq $SignTool) {
+                  throw "signtool.exe was not found in the Windows SDK"
+              }
+
+              $MainBinary = (Resolve-Path "dist/ethernity/ethernity.exe").Path
+              $CodeFiles = @(
+                  Get-ChildItem "dist/ethernity" -Recurse -File |
+                      Where-Object { $_.Extension -in @(".exe", ".dll", ".pyd") } |
+                      Where-Object { $_.FullName -ne $MainBinary }
+              )
+              $CodeFiles += Get-Item $MainBinary
+              foreach ($CodeFile in $CodeFiles) {
+                  $SignArguments = @(
+                      "sign",
+                      "/fd", "SHA256",
+                      "/td", "SHA256",
+                      "/tr", "https://timestamp.digicert.com",
+                      "/f", $CertificatePath,
+                      "/p", $env:WINDOWS_CODE_SIGNING_CERTIFICATE_PASSWORD,
+                      $CodeFile.FullName
+                  )
+                  & $SignTool.FullName @SignArguments
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Authenticode signing failed: $($CodeFile.FullName)"
+                  }
+                  & $SignTool.FullName verify /pa /v $CodeFile.FullName
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Authenticode verification failed: $($CodeFile.FullName)"
+                  }
+              }
+          }
+          finally {
+              Remove-Item $CertificatePath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Smoke test signed executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.artifact_os }}" == "windows" ]]; then
+            bin="./dist/ethernity/ethernity.exe"
+          else
+            bin="./dist/ethernity/ethernity"
+          fi
+          "${bin}" --version
+
+      - name: Notarize macOS build
+        if: matrix.artifact_os == 'macos'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for required_name in APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!required_name:-}" ]]; then
+              echo "required release secret is not configured: ${required_name}" >&2
+              exit 1
+            fi
+          done
+          notarization_zip="${RUNNER_TEMP}/ethernity-notarization.zip"
+          ditto -c -k --keepParent dist/ethernity "${notarization_zip}"
+          xcrun notarytool submit "${notarization_zip}" \
+            --apple-id "${APPLE_ID}" \
+            --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --wait
+          rm -f "${notarization_zip}"
+
+      - name: Package signed release archive
+        env:
+          RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
+          ARTIFACT_OS: ${{ matrix.artifact_os }}
+          ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          PACKAGER: pyinstaller
+          PACKAGE_MODE: onedir
+        run: python scripts/package_pyinstaller.py
+
+      - name: Generate signed archive SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}.${{ matrix.archive_ext }}
+          format: cyclonedx-json
+          output-file: ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}.sbom.cdx.json
+          syft-version: v1.49.0
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Upload signed packaged artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-build-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}
+          if-no-files-found: error
+          path: |
+            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}.${{ matrix.archive_ext }}
+            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}.sbom.cdx.json
 
   source-archive:
     needs: [precheck, kit-bundles]
@@ -414,13 +777,36 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.31"
 
       - name: Download generated kit bundles
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-kit-bundles
           path: src/ethernity/resources/kit
+
+      - name: Verify exact source archive kit bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(src/ethernity/resources/kit/*.html)
+          if (( ${#bundles[@]} != 2 )); then
+            echo "expected exactly two canonical recovery-kit bundles" >&2
+            printf '  %s\n' "${bundles[@]}" >&2
+            exit 1
+          fi
+          for bundle in \
+            src/ethernity/resources/kit/recovery_kit.bundle.html \
+            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
+          do
+            if [[ ! -s "${bundle}" ]]; then
+              echo "missing or empty canonical recovery-kit bundle: ${bundle}" >&2
+              exit 1
+            fi
+          done
 
       - name: Build tagged source archive
         shell: bash
@@ -434,37 +820,35 @@ jobs:
           fi
           mv "${archives[0]}" "ethernity-source-${{ needs.precheck.outputs.tag }}.tar.gz"
 
+      - name: Generate source archive SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: ethernity-source-${{ needs.precheck.outputs.tag }}.tar.gz
+          format: cyclonedx-json
+          output-file: ethernity-source-${{ needs.precheck.outputs.tag }}.sbom.cdx.json
+          syft-version: v1.49.0
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
+
       - name: Upload tagged source archive
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-source
           if-no-files-found: error
-          path: ethernity-source-${{ needs.precheck.outputs.tag }}.tar.gz
+          path: |
+            ethernity-source-${{ needs.precheck.outputs.tag }}.tar.gz
+            ethernity-source-${{ needs.precheck.outputs.tag }}.sbom.cdx.json
 
   provenance:
-    needs: [precheck, build, source-archive]
+    needs: [precheck, package-linux, package-signed, source-archive]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    environment: release
     permissions:
       contents: read
       id-token: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ needs.precheck.outputs.commit_sha }}
-
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.11"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
       - name: Download packaged artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -481,67 +865,75 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
-      - name: Export locked requirements for SBOM
-        run: |
-          uv export --format requirements.txt --no-dev --extra build --frozen \
-            --no-editable --no-emit-project --no-emit-workspace \
-            --output-file dist-artifacts/release-requirements.txt
-
-      - name: Generate SBOMs and sign artifacts
+      - name: Validate and sign release artifacts
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
+          tag="${{ needs.precheck.outputs.tag }}"
+          expected_archives=(
+            "dist-artifacts/ethernity-${tag}-linux-x64.tar.gz"
+            "dist-artifacts/ethernity-${tag}-linux-arm64.tar.gz"
+            "dist-artifacts/ethernity-${tag}-macos-x64.tar.gz"
+            "dist-artifacts/ethernity-${tag}-macos-arm64.tar.gz"
+            "dist-artifacts/ethernity-${tag}-windows-x64.zip"
+            "dist-artifacts/ethernity-source-${tag}.tar.gz"
+          )
           archives=(dist-artifacts/*.zip dist-artifacts/*.tar.gz)
-          if (( ${#archives[@]} == 0 )); then
-            echo "no archives found to sign" >&2
+          sboms=(dist-artifacts/*.sbom.cdx.json)
+          if (( ${#archives[@]} != ${#expected_archives[@]} )); then
+            echo "expected ${#expected_archives[@]} release archives, found ${#archives[@]}" >&2
+            exit 1
+          fi
+          if (( ${#sboms[@]} != ${#expected_archives[@]} )); then
+            echo "expected ${#expected_archives[@]} release SBOMs, found ${#sboms[@]}" >&2
             exit 1
           fi
 
-          for archive in "${archives[@]}"; do
+          for archive in "${expected_archives[@]}"; do
+            if [[ ! -s "${archive}" ]]; then
+              echo "missing or empty expected release archive: ${archive}" >&2
+              exit 1
+            fi
             if [[ "${archive}" == *.tar.gz ]]; then
               stem="${archive%.tar.gz}"
             else
               stem="${archive%.zip}"
             fi
             sbom="${stem}.sbom.cdx.json"
-
-            uv run --with cyclonedx-bom cyclonedx-py requirements \
-              dist-artifacts/release-requirements.txt \
-              --pyproject pyproject.toml \
-              --output-reproducible \
-              --of JSON \
-              --output-file "${sbom}"
-
-            # Sign distributable payloads directly.
+            if [[ ! -s "${sbom}" ]]; then
+              echo "missing or empty expected release SBOM: ${sbom}" >&2
+              exit 1
+            fi
             for file in "${archive}" "${sbom}"; do
               cosign sign-blob --yes \
                 --bundle "${file}.sigstore.json" \
-                --output-signature "${file}.sig" \
-                --output-certificate "${file}.pem" \
                 "${file}"
             done
           done
 
       - name: Upload provenance artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-provenance
           if-no-files-found: error
-          path: |
-            dist-artifacts/*.sbom.cdx.json
-            dist-artifacts/*.sigstore.json
-            dist-artifacts/*.sig
-            dist-artifacts/*.pem
+          path: dist-artifacts/*.sigstore.json
 
   release:
     needs: [precheck, provenance]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: always() && needs.precheck.result == 'success' && needs.provenance.result == 'success'
+    environment: release
     permissions:
       contents: write
     steps:
+      - name: Checkout release commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.precheck.outputs.commit_sha }}
+          fetch-depth: 0
+
       - name: Download all release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -565,15 +957,28 @@ jobs:
           )
 
           archives=(dist-artifacts/*.zip dist-artifacts/*.tar.gz)
+          sboms=(dist-artifacts/*.sbom.cdx.json)
+          bundles=(dist-artifacts/*.sigstore.json)
           if (( ${#archives[@]} != ${#expected_archives[@]} )); then
             echo "expected ${#expected_archives[@]} archives, found ${#archives[@]}" >&2
             ls -la dist-artifacts || true
             exit 1
           fi
+          if (( ${#sboms[@]} != ${#expected_archives[@]} )); then
+            echo "expected ${#expected_archives[@]} SBOMs, found ${#sboms[@]}" >&2
+            ls -la dist-artifacts || true
+            exit 1
+          fi
+          expected_bundle_count=$(( ${#expected_archives[@]} * 2 ))
+          if (( ${#bundles[@]} != expected_bundle_count )); then
+            echo "expected ${expected_bundle_count} Sigstore bundles, found ${#bundles[@]}" >&2
+            ls -la dist-artifacts || true
+            exit 1
+          fi
 
           for archive in "${expected_archives[@]}"; do
-            if [[ ! -f "${archive}" ]]; then
-              echo "missing expected archive: ${archive}" >&2
+            if [[ ! -s "${archive}" ]]; then
+              echo "missing or empty expected archive: ${archive}" >&2
               ls -la dist-artifacts || true
               exit 1
             fi
@@ -585,45 +990,206 @@ jobs:
             fi
             sbom="${stem}.sbom.cdx.json"
 
-            required=(
-              "${sbom}"
-            )
-            for file in "${required[@]}"; do
-              if [[ ! -f "${file}" ]]; then
-                echo "missing required release file: ${file}" >&2
-                exit 1
-              fi
-            done
+            if [[ ! -s "${sbom}" ]]; then
+              echo "missing or empty required release SBOM: ${sbom}" >&2
+              exit 1
+            fi
 
             signed_targets=("${archive}" "${sbom}")
             for target in "${signed_targets[@]}"; do
               bundle="${target}.sigstore.json"
-              if [[ ! -f "${bundle}" ]]; then
-                echo "missing required bundle: ${bundle}" >&2
+              if [[ ! -s "${bundle}" ]]; then
+                echo "missing or empty required bundle: ${bundle}" >&2
                 exit 1
-              fi
-              sig="${target}.sig"
-              cert="${target}.pem"
-              if [[ -f "${sig}" || -f "${cert}" ]]; then
-                if [[ ! -f "${sig}" || ! -f "${cert}" ]]; then
-                  echo "signature/certificate pair incomplete for: ${target}" >&2
-                  exit 1
-                fi
               fi
             done
           done
 
-      - name: Publish release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          tag_name: ${{ needs.precheck.outputs.tag }}
-          prerelease: ${{ needs.precheck.outputs.prerelease == 'true' }}
-          draft: ${{ needs.precheck.outputs.draft == 'true' }}
-          generate_release_notes: true
-          files: |
-            dist-artifacts/*.zip
-            dist-artifacts/*.tar.gz
-            dist-artifacts/*.sbom.cdx.json
-            dist-artifacts/*.sigstore.json
-            dist-artifacts/*.sig
-            dist-artifacts/*.pem
+      - name: Recheck immutable release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.precheck.outputs.tag }}"
+          expected_sha="${{ needs.precheck.outputs.commit_sha }}"
+          git fetch --force origin \
+            "refs/tags/${tag}:refs/tags/${tag}" \
+            "+refs/heads/master:refs/remotes/origin/master"
+          current_sha="$(git rev-list -n 1 "refs/tags/${tag}")"
+          if [[ "${current_sha}" != "${expected_sha}" ]]; then
+            echo "release tag moved during the build: expected ${expected_sha}, found ${current_sha}" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${current_sha}" refs/remotes/origin/master; then
+            echo "release tag no longer resolves to a commit on origin/master" >&2
+            exit 1
+          fi
+
+      - name: Publish release without replacing assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
+          RELEASE_COMMIT_SHA: ${{ needs.precheck.outputs.commit_sha }}
+          RELEASE_PRERELEASE: ${{ needs.precheck.outputs.prerelease }}
+          RELEASE_DRAFT: ${{ needs.precheck.outputs.draft }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          expected_archives=(
+            "dist-artifacts/ethernity-${RELEASE_TAG}-linux-x64.tar.gz"
+            "dist-artifacts/ethernity-${RELEASE_TAG}-linux-arm64.tar.gz"
+            "dist-artifacts/ethernity-${RELEASE_TAG}-macos-x64.tar.gz"
+            "dist-artifacts/ethernity-${RELEASE_TAG}-macos-arm64.tar.gz"
+            "dist-artifacts/ethernity-${RELEASE_TAG}-windows-x64.zip"
+            "dist-artifacts/ethernity-source-${RELEASE_TAG}.tar.gz"
+          )
+          release_files=()
+          for archive in "${expected_archives[@]}"; do
+            if [[ "${archive}" == *.tar.gz ]]; then
+              stem="${archive%.tar.gz}"
+            else
+              stem="${archive%.zip}"
+            fi
+            sbom="${stem}.sbom.cdx.json"
+            release_files+=(
+              "${archive}"
+              "${sbom}"
+              "${archive}.sigstore.json"
+              "${sbom}.sigstore.json"
+            )
+          done
+
+          declare -A expected_by_name=()
+          for file in "${release_files[@]}"; do
+            if [[ ! -s "${file}" ]]; then
+              echo "missing or empty local release file: ${file}" >&2
+              exit 1
+            fi
+            name="$(basename "${file}")"
+            if [[ -n "${expected_by_name[${name}]:-}" ]]; then
+              echo "duplicate release asset name: ${name}" >&2
+              exit 1
+            fi
+            expected_by_name["${name}"]="${file}"
+          done
+
+          release_exists=false
+          release_is_draft=true
+          release_is_prerelease=false
+          if gh release view "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json isDraft,isPrerelease >/dev/null 2>&1
+          then
+            release_exists=true
+            release_state="$(
+              gh release view "${RELEASE_TAG}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --json isDraft,isPrerelease \
+                --jq '[.isDraft, .isPrerelease] | @tsv'
+            )"
+            IFS=$'\t' read -r release_is_draft release_is_prerelease <<< "${release_state}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --draft \
+              --generate-notes \
+              --verify-tag
+          fi
+
+          if [[ "${release_exists}" == "true" \
+            && "${release_is_draft}" != "true" \
+            && "${RELEASE_DRAFT}" == "true" ]]
+          then
+            echo "refusing to convert an existing published release back to a draft" >&2
+            exit 1
+          fi
+
+          mapfile -t remote_assets < <(
+            gh release view "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json assets \
+              --jq '.assets[].name'
+          )
+          declare -A remote_by_name=()
+          for name in "${remote_assets[@]}"; do
+            if [[ -z "${expected_by_name[${name}]:-}" ]]; then
+              echo "unexpected existing release asset: ${name}" >&2
+              exit 1
+            fi
+            remote_by_name["${name}"]=1
+          done
+
+          compare_dir="$(mktemp -d)"
+          trap 'rm -rf "${compare_dir}"' EXIT
+          missing_files=()
+          for file in "${release_files[@]}"; do
+            name="$(basename "${file}")"
+            if [[ -z "${remote_by_name[${name}]:-}" ]]; then
+              missing_files+=("${file}")
+              continue
+            fi
+            gh release download "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --pattern "${name}" \
+              --dir "${compare_dir}"
+            if ! cmp -s "${file}" "${compare_dir}/${name}"; then
+              echo "existing release asset differs from local artifact: ${name}" >&2
+              exit 1
+            fi
+          done
+
+          if (( ${#missing_files[@]} > 0 )); then
+            if [[ "${release_is_draft}" != "true" ]]; then
+              echo "published release is incomplete; refusing to mutate immutable assets" >&2
+              printf '  missing: %s\n' "${missing_files[@]}" >&2
+              exit 1
+            fi
+            gh release upload "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              "${missing_files[@]}"
+          fi
+
+          mapfile -t final_assets < <(
+            gh release view "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json assets \
+              --jq '.assets[].name'
+          )
+          if (( ${#final_assets[@]} != ${#release_files[@]} )); then
+            echo "release asset set is incomplete after upload" >&2
+            exit 1
+          fi
+          for name in "${final_assets[@]}"; do
+            if [[ -z "${expected_by_name[${name}]:-}" ]]; then
+              echo "unexpected release asset after upload: ${name}" >&2
+              exit 1
+            fi
+          done
+
+          git fetch --force origin \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" \
+            "+refs/heads/master:refs/remotes/origin/master"
+          current_sha="$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")"
+          if [[ "${current_sha}" != "${RELEASE_COMMIT_SHA}" ]]; then
+            echo "release tag moved during asset upload" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${current_sha}" refs/remotes/origin/master; then
+            echo "release tag no longer resolves to a commit on origin/master" >&2
+            exit 1
+          fi
+
+          if [[ "${release_is_draft}" != "true" ]]; then
+            if [[ "${release_is_prerelease}" != "${RELEASE_PRERELEASE}" ]]; then
+              echo "immutable published release has different prerelease metadata" >&2
+              exit 1
+            fi
+            echo "Immutable release already contains the exact expected assets."
+            exit 0
+          fi
+
+          gh release edit "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --prerelease="${RELEASE_PRERELEASE}" \
+            --draft="${RELEASE_DRAFT}"

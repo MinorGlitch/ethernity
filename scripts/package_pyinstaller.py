@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import gzip
 import os
 import tarfile
 import zipfile
@@ -108,8 +109,10 @@ def _tar_filter(info: tarfile.TarInfo) -> tarfile.TarInfo:
 
 
 def _create_tar_gz(output: Path, archive_root: str) -> None:
-    with tarfile.open(output, "w:gz") as tar_handle:
-        tar_handle.add(PYINSTALLER_DIR, arcname=archive_root, filter=_tar_filter)
+    with output.open("wb") as raw_handle:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw_handle, mtime=0) as gzip_handle:
+            with tarfile.open(fileobj=gzip_handle, mode="w") as tar_handle:
+                tar_handle.add(PYINSTALLER_DIR, arcname=archive_root, filter=_tar_filter)
 
 
 def main() -> None:

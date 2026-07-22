@@ -121,9 +121,12 @@ def _normalize_package_name(name: str) -> str:
 
 def _sha256_from_lock_hash(value: str) -> str:
     prefix = "sha256:"
-    if value.startswith(prefix):
-        return value[len(prefix) :]
-    return value
+    if not value.startswith(prefix):
+        raise ValueError(f"locked artifact hash is not SHA-256: {value!r}")
+    digest = value[len(prefix) :]
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise ValueError(f"locked artifact has invalid SHA-256 digest: {value!r}")
+    return digest
 
 
 def _wheel_filename(wheel: dict[str, object]) -> str:
@@ -375,18 +378,20 @@ def _required_runtime_resource_names(
 def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str, object]]) -> str:
     resource_names = _resource_package_names(formula)
     formula_dependency_names = _formula_dependency_names(formula)
-    missing_resources = sorted(
-        _required_runtime_resource_names(
-            lock_packages,
-            formula_dependency_names=formula_dependency_names,
-        )
-        - resource_names
+    required_resources = _required_runtime_resource_names(
+        lock_packages,
+        formula_dependency_names=formula_dependency_names,
     )
+    missing_resources = sorted(required_resources - resource_names)
     if missing_resources:
         joined = ", ".join(missing_resources)
         raise ValueError(
             f"formula template is missing resource blocks for runtime packages: {joined}"
         )
+    stale_resources = sorted(resource_names - required_resources)
+    if stale_resources:
+        joined = ", ".join(stale_resources)
+        raise ValueError(f"formula template contains stale runtime resource blocks: {joined}")
 
     lines = formula.splitlines(keepends=True)
     index = 0
@@ -415,21 +420,22 @@ def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str,
             block_end += 1
 
         if url_idx is None or sha_idx is None or block_end >= len(lines):
-            index = block_end + 1
-            continue
+            raise ValueError(f"formula resource block is malformed: {package_name}")
 
         current_url_match = re.search(r'url "([^"]+)"', lines[url_idx])
         if current_url_match is None:
-            index = block_end + 1
-            continue
+            raise ValueError(f"formula resource URL is malformed: {package_name}")
         current_url = current_url_match.group(1)
         selected = _choose_artifact_for_block(package, current_url)
-        if selected is not None:
-            new_url, new_sha = selected
-            url_indent = lines[url_idx][: len(lines[url_idx]) - len(lines[url_idx].lstrip())]
-            sha_indent = lines[sha_idx][: len(lines[sha_idx]) - len(lines[sha_idx].lstrip())]
-            lines[url_idx] = f'{url_indent}url "{new_url}"\n'
-            lines[sha_idx] = f'{sha_indent}sha256 "{new_sha}"\n'
+        if selected is None:
+            raise ValueError(f"no locked artifact matches formula resource: {package_name}")
+        new_url, new_sha = selected
+        if not new_url.startswith("https://"):
+            raise ValueError(f"locked artifact URL is not HTTPS for resource: {package_name}")
+        url_indent = lines[url_idx][: len(lines[url_idx]) - len(lines[url_idx].lstrip())]
+        sha_indent = lines[sha_idx][: len(lines[sha_idx]) - len(lines[sha_idx].lstrip())]
+        lines[url_idx] = f'{url_indent}url "{new_url}"\n'
+        lines[sha_idx] = f'{sha_indent}sha256 "{new_sha}"\n'
 
         index = block_end + 1
 
