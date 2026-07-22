@@ -454,7 +454,9 @@ def main() -> int:
     template_path = Path(args.template)
     output_path = Path(args.output)
     lock_path = Path(args.lock)
-    source_url = f"https://github.com/{args.repo}/archive/refs/tags/{tag}.tar.gz"
+    source_url = (
+        f"https://github.com/{args.repo}/releases/download/{tag}/ethernity-source-{tag}.tar.gz"
+    )
     source_sha = _sha256_from_url(source_url)
 
     template = template_path.read_text(encoding="utf-8")
