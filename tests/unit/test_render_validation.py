@@ -92,23 +92,23 @@ class TestRenderValidation(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.shared.render_validation.validate_render_artifact_proof",
+                "ethernity.render.validation.validate_render_artifact_proof",
                 side_effect=lambda **_kwargs: calls.append("artifact"),
             ),
             mock.patch(
-                "ethernity.cli.shared.render_validation.validate_pdf_has_pages",
+                "ethernity.render.validation.validate_pdf_has_pages",
                 side_effect=lambda *_args, **_kwargs: calls.append("pages") or reader,
             ),
             mock.patch(
-                "ethernity.cli.shared.render_validation.validate_render_layout_proof",
+                "ethernity.render.validation.validate_render_layout_proof",
                 side_effect=lambda **_kwargs: calls.append("layout"),
             ),
             mock.patch(
-                "ethernity.cli.shared.render_validation.validate_fallback_render_proof",
+                "ethernity.render.validation.validate_fallback_render_proof",
                 side_effect=lambda **_kwargs: calls.append("fallback_proof"),
             ) as validate_fallback_proof,
             mock.patch(
-                "ethernity.cli.shared.render_validation.validate_fallback_text_in_pdf",
+                "ethernity.render.validation.validate_fallback_text_in_pdf",
                 side_effect=lambda **_kwargs: calls.append("fallback_text"),
             ) as validate_fallback_text,
         ):
@@ -200,7 +200,7 @@ class TestRenderValidation(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.shared.render_validation.validate_pdf_has_pages",
+            "ethernity.render.validation.validate_pdf_has_pages",
             return_value=_Reader("Recovery Document"),
         ):
             with self.assertRaises(RenderProofError) as ctx:
@@ -235,7 +235,7 @@ class TestRenderValidation(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.shared.render_validation.validate_pdf_has_pages",
+            "ethernity.render.validation.validate_pdf_has_pages",
             return_value=_Reader("Recovery Kit Index"),
         ):
             with self.assertRaises(RenderProofError) as ctx:

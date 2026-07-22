@@ -38,6 +38,10 @@ class TestCheckWheelContents(unittest.TestCase):
                 "recursive-exclude src/ethernity/resources/kit *.html",
                 "include src/ethernity/resources/kit/recovery_kit.bundle.html",
                 "include src/ethernity/resources/kit/recovery_kit.scanner.bundle.html",
+                (
+                    "recursive-include tests/fixtures/v1_2/extension_golden/raw/"
+                    "gzip_replacement_chain/chain *.pdf"
+                ),
             ],
         )
 

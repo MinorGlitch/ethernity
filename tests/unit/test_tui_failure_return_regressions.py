@@ -83,7 +83,7 @@ def test_restore_runtime_output_failure_returns_to_reviewed_destination(tmp_path
             )
             assert str(
                 result_screen.query_one("#result-reviewed-destination", Static).content
-            ).endswith("/reviewed-restore-destination")
+            ).endswith(str(Path("/") / "reviewed-restore-destination"))
 
             await _click_result_return(app, pilot)
 

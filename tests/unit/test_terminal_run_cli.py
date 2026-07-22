@@ -321,7 +321,7 @@ def test_run_backup_json_yes_executes_task_model(monkeypatch) -> None:
     assert len(calls) == 1
     assert payload["status"] == "executed"
     assert payload["result"]["message"] == "Backup documents created."
-    assert payload["result"]["output_paths"] == ["backup-out/main.pdf"]
+    assert payload["result"]["output_paths"] == [str(Path("backup-out/main.pdf"))]
 
 
 def test_run_restore_preview_uses_task_model() -> None:

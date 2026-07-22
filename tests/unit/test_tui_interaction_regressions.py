@@ -512,7 +512,11 @@ def test_review_renders_every_dynamic_field_as_literal_text() -> None:
             rendered_blocks = "\n".join(str(block.content) for block in screen.query(Static))
             rendered_blocks += f"\n{screen.query_one('#review-execute', Button).label}"
             for marker in expected_markers:
-                assert dangerous(marker) in rendered_blocks
+                expected = {
+                    "read-path": str(read_path),
+                    "output-path": str(output_path),
+                }.get(marker, dangerous(marker))
+                assert expected in rendered_blocks
 
             issue = screen.query_one(".review-notice", Static)
             issue_lines = "\n".join(
@@ -556,7 +560,7 @@ def test_result_renders_messages_and_newline_paths_without_markup() -> None:
             rendered_path = "\n".join(
                 path_list.render_line(index).text for index in range(path_list.region.height)
             )
-            assert dangerous in rendered_path
+            assert str(output_path).splitlines()[0] in rendered_path
             assert "## injected.pdf" in rendered_path
 
             issue_line = next(

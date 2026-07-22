@@ -165,7 +165,7 @@ def test_task_facade_uses_saved_extend_defaults_without_hardcoded_overrides(
     extend_start = config_text.index("[defaults.extend]")
     recover_start = config_text.index("[defaults.recover]")
     extend = config_text[extend_start:recover_start]
-    extend = extend.replace('base_dir = ""', f'base_dir = "{tmp_path}"', 1)
+    extend = extend.replace('base_dir = ""', f"base_dir = {json.dumps(str(tmp_path))}", 1)
     extend = extend.replace('unlock_policy = ""', 'unlock_policy = "reuse-root"', 1)
     config_path.write_text(
         config_text[:extend_start] + extend + config_text[recover_start:],

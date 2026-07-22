@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from unittest import mock
@@ -65,7 +66,7 @@ class TestShardRendering(unittest.TestCase):
 
         self.assertEqual(
             output_path,
-            f"/tmp/output/shard-{doc_id.hex()}-1-of-3.pdf",
+            str(Path(f"/tmp/output/shard-{doc_id.hex()}-1-of-3.pdf")),
         )
         shard_frame = render_service.shard_inputs.call_args.args[0]
         self.assertEqual(shard_frame.frame_type, FrameType.KEY_DOCUMENT)

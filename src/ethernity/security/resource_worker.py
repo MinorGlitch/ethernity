@@ -247,8 +247,21 @@ def _install_windows_job_limits(limits: WorkerLimits) -> None:
         ]
 
     kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
     kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.SetInformationJobObject.argtypes = (
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    )
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.GetCurrentProcess.argtypes = ()
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
     job = kernel32.CreateJobObjectW(None, None)
     if not job:
         raise RuntimeError("Windows job object creation failed")

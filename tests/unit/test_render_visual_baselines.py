@@ -409,8 +409,10 @@ class TestRenderVisualBaselines(unittest.TestCase):
                         composited_count, skipped_reason = _MODULE.scan_composited_pdf_qr_count(
                             output_path
                         )
-                        self.assertIsNone(skipped_reason)
-                        self.assertEqual(composited_count, 1)
+                        if skipped_reason is None:
+                            self.assertEqual(composited_count, 1)
+                        else:
+                            self.assertEqual(skipped_reason, "pdftoppm not found")
                     validate_fallback_render_proof(
                         artifact_label=case.case_id,
                         frames=(frame,),

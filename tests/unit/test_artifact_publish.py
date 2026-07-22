@@ -37,7 +37,10 @@ class TestArtifactPublish(unittest.TestCase):
     def test_directory_sync_fails_explicitly_when_unavailable(self) -> None:
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            mock.patch("ethernity.artifacts.publish.os.name", "posix"),
+            mock.patch(
+                "ethernity.artifacts.publish._directory_metadata_sync_supported",
+                return_value=True,
+            ),
             mock.patch(
                 "ethernity.artifacts.publish._open_directory_fd",
                 side_effect=OSError("unsupported"),
@@ -49,7 +52,10 @@ class TestArtifactPublish(unittest.TestCase):
     def test_directory_sync_is_portable_on_windows(self) -> None:
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            mock.patch("ethernity.artifacts.publish.os.name", "nt"),
+            mock.patch(
+                "ethernity.artifacts.publish._directory_metadata_sync_supported",
+                return_value=False,
+            ),
             mock.patch("ethernity.artifacts.publish._open_directory_fd") as open_directory,
         ):
             sync_directory_metadata(tmpdir)

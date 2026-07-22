@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -83,22 +84,57 @@ async def _type_text(pilot, value: str) -> None:
         await pilot.press("space" if character == " " else character)
 
 
+async def _wait_for_condition(
+    pilot,
+    condition: Callable[[], bool],
+    description: str,
+) -> None:
+    for _ in range(40):
+        if condition():
+            return
+        await pilot.pause(0.05)
+    raise AssertionError(f"Timed out waiting for {description}.")
+
+
 async def _choose_picker_paths(app: EthernityApp, pilot, *paths: Path) -> None:
-    assert isinstance(app.screen, FilePickerScreen)
+    await _wait_for_condition(
+        pilot,
+        lambda: (
+            isinstance(app.screen, FilePickerScreen)
+            and bool(app.screen.query("#file-picker-selected"))
+        ),
+        "file picker to mount",
+    )
     picker = app.screen
+    assert isinstance(picker, FilePickerScreen)
     picker.set_selected_paths(paths)
     await pilot.click("#file-picker-choose")
-    await pilot.pause()
+    await _wait_for_condition(
+        pilot,
+        lambda: not isinstance(app.screen, FilePickerScreen),
+        "file picker to close",
+    )
 
 
 async def _save_picker_name(app: EthernityApp, pilot, value: str) -> None:
+    await _wait_for_condition(
+        pilot,
+        lambda: (
+            isinstance(app.screen, FilePickerScreen) and bool(app.screen.query("#file-picker-name"))
+        ),
+        "save picker to mount",
+    )
     assert isinstance(app.screen, FilePickerScreen)
     field = app.screen.query_one("#file-picker-name", Input)
     field.value = ""
     field.focus()
     await _type_text(pilot, value)
     await pilot.press("enter")
-    await pilot.pause()
+    await _wait_for_condition(
+        pilot,
+        lambda: not isinstance(app.screen, FilePickerScreen),
+        "save picker to close",
+    )
 
 
 async def _save_pasted_text(app: EthernityApp, pilot, value: str) -> None:
@@ -1339,7 +1375,11 @@ def test_textual_app_diagnostics_are_on_demand_and_redacted(tmp_path) -> None:
             assert "super secret" not in _rich_log_text(first_log)
 
             tabs.active = "diagnostics-tab-1"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: bool(_rich_log_text(app.screen.query_one("#diagnostics-log-1", RichLog))),
+                "manifest diagnostics to render",
+            )
 
             manifest_log = app.screen.query_one("#diagnostics-log-1", RichLog)
             assert app.screen.focused is manifest_log
@@ -1348,7 +1388,11 @@ def test_textual_app_diagnostics_are_on_demand_and_redacted(tmp_path) -> None:
             assert "<masked bytes=" in _rich_log_text(manifest_log)
 
             tabs.active = "diagnostics-tab-2"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: bool(_rich_log_text(app.screen.query_one("#diagnostics-log-2", RichLog))),
+                "envelope diagnostics to render",
+            )
 
             envelope_manifest_log = app.screen.query_one("#diagnostics-log-2", RichLog)
             assert app.screen.focused is envelope_manifest_log
@@ -1361,7 +1405,11 @@ def test_textual_app_diagnostics_are_on_demand_and_redacted(tmp_path) -> None:
 
             switch = app.screen.query_one("#diagnostics-reveal", Switch)
             switch.toggle()
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: "super secret" in _rich_log_text(first_log),
+                "revealed diagnostics to render",
+            )
 
             assert switch.value
             assert "super secret" in _rich_log_text(first_log)
@@ -1576,9 +1624,17 @@ def test_textual_app_canvas_rows_edit_secondary_choices() -> None:
             await pilot.press("6")
             await pilot.pause()
             app.query_one("#workspace-kit-paper", Select).value = "LETTER"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: app.kit_state.paper_size == "LETTER",
+                "kit paper size update",
+            )
             app.query_one("#workspace-kit-design", Select).value = "forge"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: app.kit_state.design == "forge",
+                "kit design update",
+            )
 
             assert app.kit_state.paper_size == "LETTER"
             assert app.kit_state.design == "forge"
@@ -2071,7 +2127,11 @@ def test_textual_app_rebuild_auth_material_control_is_real() -> None:
             assert "Signature payload: auth-payloads.json" in _preview_text(app)
 
             app.query_one("#workspace-rebuild-auth-material", Select).value = "auto"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: app.rebuild_state.auth_payloads_file is None,
+                "automatic rebuild authentication selection",
+            )
 
             assert app.rebuild_state.auth_text_file is None
             assert app.rebuild_state.auth_payloads_file is None
@@ -2142,7 +2202,11 @@ def test_textual_app_replace_recovery_signing_key_controls_are_real() -> None:
             assert not app.replace_recovery_docs_state.mint_signing_key_recovery
 
             app.query_one("#workspace-replace-signing-key-select", Select).value = "same"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: app.replace_recovery_docs_state.mint_signing_key_recovery,
+                "signing-key recovery selection",
+            )
 
             assert app.replace_recovery_docs_state.mint_signing_key_recovery
             assert app.replace_recovery_docs_state.signing_key_recovery_threshold is None
@@ -2154,7 +2218,11 @@ def test_textual_app_replace_recovery_signing_key_controls_are_real() -> None:
             )
 
             app.query_one("#workspace-replace-signing-key-select", Select).value = "custom"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: bool(app.screen.query("#edit-field-input")),
+                "custom signing-key quorum editor",
+            )
             field = app.screen.query_one("#edit-field-input", Input)
             assert isinstance(field, MaskedInput)
             field.value = ""
@@ -2171,7 +2239,11 @@ def test_textual_app_replace_recovery_signing_key_controls_are_real() -> None:
             assert app.query_one("#workspace-replace-signing-key-select", Select).value == "custom"
 
             app.query_one("#workspace-replace-signing-key-select", Select).value = "off"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: not app.replace_recovery_docs_state.mint_signing_key_recovery,
+                "disabled signing-key recovery selection",
+            )
 
             assert not app.replace_recovery_docs_state.mint_signing_key_recovery
             assert app.replace_recovery_docs_state.signing_key_recovery_threshold is None
@@ -2414,12 +2486,20 @@ def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
             )
 
             app.query_one("#workspace-add-files-unlock-policy", Select).value = "reuse-root"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: app.add_files_state.unlock_policy == "reuse-root",
+                "extension unlock policy update",
+            )
 
             assert app.add_files_state.unlock_policy == "reuse-root"
 
             app.query_one("#workspace-add-files-recovery-docs", Select).value = "custom"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: bool(app.screen.query("#edit-field-input")),
+                "custom extension recovery quorum editor",
+            )
             recovery = app.screen.query_one("#edit-field-input", Input)
             recovery.value = ""
             recovery.focus()
@@ -2437,7 +2517,11 @@ def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
             assert "A custom quorum changes how many sheets you need" in _preview_text(app)
 
             app.query_one("#workspace-add-files-signing-key-mode", Select).value = "custom"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: bool(app.screen.query("#edit-field-input")),
+                "custom extension signing-key quorum editor",
+            )
             signing = app.screen.query_one("#edit-field-input", Input)
             signing.value = ""
             signing.focus()
@@ -2479,9 +2563,20 @@ def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
             assert "Custom QR density can change page count" in _preview_text(app)
 
             app.query_one("#workspace-add-files-recovery-docs", Select).value = "original"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: (
+                    app.add_files_state.recovery_document_count == 0
+                    and app.add_files_state.unlock_policy == "reuse-root"
+                ),
+                "original recovery material selection",
+            )
             app.query_one("#workspace-add-files-signing-key-mode", Select).value = "default"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: app.add_files_state.signing_key_mode is None,
+                "default extension signing-key selection",
+            )
 
             assert app.add_files_state.recovery_document_threshold is None
             assert app.add_files_state.recovery_document_count == 0
@@ -2601,7 +2696,15 @@ def test_textual_app_settings_tabs_show_advanced_and_config_actions(tmp_path) ->
             assert save_status.region.x > settings_tabs.region.x + settings_tabs.region.width // 2
 
             app.query_one("#settings-copy-config", Button).focus()
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: (
+                    settings_tabs.active == "settings-pane-config"
+                    and app.query_one("#settings-copy-config", Button).region.width > 0
+                    and app.query_one("#settings-open-config", Button).region.width > 0
+                ),
+                "config settings pane layout",
+            )
 
             assert settings_tabs.active == "settings-pane-config"
             _assert_buttons_are_spaced(app.query_one("#setting-row-config .inline-action-group"))
@@ -2642,7 +2745,11 @@ def test_textual_app_settings_tabs_show_advanced_and_config_actions(tmp_path) ->
             assert ("Raw (recommended)", "raw") in qr_encoding_options
 
             app.query_one("#setting-control-qr_chunk_size", Input).focus()
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: settings_tabs.active == "settings-pane-advanced",
+                "advanced settings pane",
+            )
 
             assert settings_tabs.active == "settings-pane-advanced"
             assert app.query_one("#setting-row-qr_chunk_size").display
@@ -2673,7 +2780,7 @@ def test_textual_app_settings_middle_truncates_long_config_path(tmp_path) -> Non
             rendered_path = _static_text(app, "#setting-value-config")
 
             assert "..." in rendered_path
-            assert rendered_path.endswith("six/config.toml")
+            assert rendered_path.endswith(str(Path("six/config.toml")))
             assert rendered_path != str(config_path)
             assert len(rendered_path) <= 56
 
@@ -3150,7 +3257,7 @@ def test_textual_app_review_can_execute_ready_backup(monkeypatch) -> None:
             _assert_success_result_modal_layout(app)
             assert "Destination\nbackup-out" in result_text
             assert "Files\n1 backup file" in result_text
-            assert "backup-out/main.pdf" in result_text
+            assert str(Path("backup-out/main.pdf")) in result_text
             assert "Print every PDF at actual size." in result_text
             assert "Create and store a recovery kit if you do not already have one." not in (
                 result_text
@@ -3160,7 +3267,7 @@ def test_textual_app_review_can_execute_ready_backup(monkeypatch) -> None:
             await pilot.click("#result-copy-paths")
             await pilot.pause()
 
-            assert copied_paths == ["backup-out/main.pdf"]
+            assert copied_paths == [str(Path("backup-out/main.pdf"))]
 
             await pilot.click("#result-close")
             await pilot.pause()
@@ -3507,7 +3614,7 @@ def test_textual_app_review_can_execute_ready_restore(monkeypatch) -> None:
             _assert_success_result_modal_layout(app)
             assert "Destination\nrecovered" in result_text
             assert "2 restored paths" in result_text
-            assert "recovered/secrets.txt" in result_text
+            assert str(Path("recovered/secrets.txt")) in result_text
             assert "Check the restored files" in result_text
             assert "Compare same-name files in the destination" in result_text
 
@@ -3644,7 +3751,7 @@ def test_textual_app_review_can_execute_maintenance_workflows(monkeypatch) -> No
             _assert_success_result_modal_layout(add_app)
             assert "Destination\ndocs" in result_text
             assert "Files\n2 update files" in result_text
-            assert "docs/update.pdf" in result_text
+            assert str(Path("docs/update.pdf")) in result_text
             assert "Print every new PDF at actual size." in result_text
 
         rebuild_app = EthernityApp(

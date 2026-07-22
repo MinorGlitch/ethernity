@@ -112,16 +112,14 @@ class TestFilterFallbackLines(unittest.TestCase):
 
     def test_parse_fallback_frame_rejects_line_limit_overflow(self) -> None:
         lines = ["ybndr", "fghej", "kmcpq"]
-        with mock.patch("ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_LINES", 2):
+        with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_LINES", 2):
             with self.assertRaisesRegex(ValueError, "MAX_FALLBACK_LINES"):
                 parse_fallback_frame(lines, label="fallback")
 
     def test_parse_fallback_frame_rejects_normalized_char_limit_overflow(self) -> None:
         lines = ["ybnd r", "fghe j"]
-        with mock.patch("ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_LINES", 10):
-            with mock.patch(
-                "ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_NORMALIZED_CHARS", 9
-            ):
+        with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_LINES", 10):
+            with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_NORMALIZED_CHARS", 9):
                 with self.assertRaisesRegex(ValueError, "MAX_FALLBACK_NORMALIZED_CHARS"):
                     parse_fallback_frame(lines, label="fallback")
 
@@ -136,9 +134,9 @@ class TestFilterFallbackLines(unittest.TestCase):
         )
         line = encode_zbase32(encode_frame(frame))
         normalized_chars = len(line.replace(" ", "").replace("-", ""))
-        with mock.patch("ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_LINES", 1):
+        with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_LINES", 1):
             with mock.patch(
-                "ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_NORMALIZED_CHARS",
+                "ethernity.encoding.fallback_text.MAX_FALLBACK_NORMALIZED_CHARS",
                 normalized_chars,
             ):
                 parsed = parse_fallback_frame([line], label="fallback")

@@ -207,6 +207,10 @@ def promote_staged_artifact_dir(
             raise ValueError("validated staging_dir artifacts changed before promotion")
         if validate_promotion is not None:
             validate_promotion()
+        if _directory_identity_or_none(staging_path.parent) != staging_parent_identity:
+            raise ValueError("validated staging_dir parent changed before promotion")
+        if _directory_identity_or_none(final_path.parent) != final_parent_identity:
+            raise ValueError("final artifact directory parent changed before promotion")
         if (
             expected_transaction is not None
             and not (staging_path / TRANSACTION_METADATA_NAME).exists()
@@ -451,7 +455,7 @@ def _sync_staged_artifact_dir(
     for entry in sorted(path.iterdir(), key=lambda item: item.name):
         if entry.is_symlink() or not entry.is_file():
             continue
-        with entry.open("rb") as handle:
+        with entry.open("r+b" if os.name == "nt" else "rb") as handle:
             _sync_file(handle, durability=durability)
     _sync_directory_metadata(path, durability=durability)
 
@@ -476,7 +480,7 @@ def sync_directory_metadata(path: str | Path) -> None:
     """Flush directory metadata where the platform exposes that operation."""
 
     path = Path(path).expanduser()
-    if os.name == "nt":
+    if not _directory_metadata_sync_supported():
         return
     try:
         fd = _open_directory_fd(path)
@@ -571,6 +575,10 @@ def _open_directory_fd(path: Path) -> int:
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     return os.open(path, flags)
+
+
+def _directory_metadata_sync_supported() -> bool:
+    return os.name != "nt"
 
 
 def _harden_dir_permissions(path: Path) -> None:

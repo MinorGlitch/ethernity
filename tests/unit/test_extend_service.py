@@ -24,6 +24,7 @@ from unittest import mock
 
 from fpdf import FPDF
 
+from ethernity.cli.features.extension_reporting import CliExtensionReporter
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL
 from ethernity.cli.shared.input_scope import InputScopeDiff
@@ -102,6 +103,7 @@ from ethernity.workflows.extension.service import (
 from ethernity.workflows.extension.shard_validation import (
     validate_rendered_shard_carrier as _validate_rendered_shard_carrier,
 )
+from ethernity.workflows.recovery.frame_inputs import FrameInputResult
 
 
 def _inspection(
@@ -1252,6 +1254,7 @@ class TestExtendService(unittest.TestCase):
                     publish,
                     renderer=_renderer,
                     post_validate=lambda _plan, _result: None,
+                    reporter=CliExtensionReporter(),
                 )
 
             events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
@@ -2487,22 +2490,22 @@ class TestExtendService(unittest.TestCase):
                     "ethernity.workflows.extension.execution._replace_layout_debug_sidecars",
                     side_effect=OSError("debug move failed"),
                 ),
-                mock.patch("ethernity.workflows.extension.execution.warn") as warn,
             ):
+                reporter = mock.Mock()
                 executed = execute_prepared_extend(
                     prepared,
                     chunker=lambda data, _profile: ((0, len(data)),),
                     nonce="abc123",
+                    reporter=reporter,
                 )
 
             self.assertEqual(executed.result.index, 2)
             self.assertFalse((debug_dir / "qr_document.layout.json").exists())
             self.assertEqual(list(debug_dir.iterdir()), [])
-            warn.assert_called_once()
-            self.assertIn("Extension published", warn.call_args.args[0])
-            self.assertFalse(warn.call_args.kwargs["quiet"])
+            reporter.warning.assert_called_once()
+            self.assertIn("Extension published", reporter.warning.call_args.args[0])
             self.assertEqual(
-                Path(warn.call_args.kwargs["details"]["layout_debug_dir"]),
+                Path(reporter.warning.call_args.kwargs["details"]["layout_debug_dir"]),
                 debug_dir.resolve(),
             )
 
@@ -2521,21 +2524,24 @@ class TestExtendService(unittest.TestCase):
             final_dir.rename(moved_dir)
             final_dir.mkdir()
 
-            with mock.patch("ethernity.workflows.extension.execution.warn") as warn:
-                extend_execution._publish_staged_layout_debug(
-                    staging_dir,
-                    str(final_dir),
-                    expected_final_dir_identity=expected_identity,
-                    quiet=False,
-                )
+            reporter = mock.Mock()
+            extend_execution._publish_staged_layout_debug(
+                staging_dir,
+                str(final_dir),
+                expected_final_dir_identity=expected_identity,
+                reporter=reporter,
+            )
 
             self.assertFalse(staging_dir.exists())
             self.assertFalse((final_dir / "qr_document.layout.json").exists())
-            warn.assert_called_once()
-            self.assertIn("layout debug sidecar promotion failed", warn.call_args.args[0])
+            reporter.warning.assert_called_once()
+            self.assertIn(
+                "layout debug sidecar promotion failed",
+                reporter.warning.call_args.args[0],
+            )
             self.assertIn(
                 "changed before sidecar promotion",
-                warn.call_args.kwargs["details"]["error"],
+                reporter.warning.call_args.kwargs["details"]["error"],
             )
 
     def test_run_extend_promotes_rendered_extension_with_validated_unlock_shards(self) -> None:
@@ -2595,7 +2601,7 @@ class TestExtendService(unittest.TestCase):
                     and not any(frame.frame_type == FrameType.AUTH for frame in frames)
                 ):
                     frames.append(auth_frame)
-                return frames
+                return FrameInputResult(frames=tuple(frames))
 
             with (
                 mock.patch(
@@ -2754,16 +2760,18 @@ class TestExtendService(unittest.TestCase):
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.main_carrier_validation.recovery_frames_from_scan",
-                    side_effect=lambda *_args, **_kwargs: [
-                        Frame(
-                            version=VERSION,
-                            frame_type=FrameType.MAIN_DOCUMENT,
-                            doc_id=captured["frames"][0].doc_id,
-                            index=0,
-                            total=1,
-                            data=b"wrong",
-                        ),
-                    ],
+                    side_effect=lambda *_args, **_kwargs: FrameInputResult(
+                        frames=(
+                            Frame(
+                                version=VERSION,
+                                frame_type=FrameType.MAIN_DOCUMENT,
+                                doc_id=captured["frames"][0].doc_id,
+                                index=0,
+                                total=1,
+                                data=b"wrong",
+                            ),
+                        )
+                    ),
                 ),
             ):
                 with self.assertRaises(ExtensionWorkflowError) as ctx:
@@ -2866,7 +2874,7 @@ class TestExtendService(unittest.TestCase):
             with (
                 mock.patch(
                     "ethernity.workflows.extension.main_carrier_validation.recovery_frames_from_scan",
-                    return_value=qr_frames,
+                    return_value=FrameInputResult(frames=tuple(qr_frames)),
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.main_carrier_validation._validate_recovery_document_pdf",
@@ -2877,7 +2885,8 @@ class TestExtendService(unittest.TestCase):
                     "validate_fallback_text_in_pdf",
                 ),
                 mock.patch(
-                    "ethernity.workflows.extension.main_carrier_validation.resolve_auth_payload",
+                    "ethernity.workflows.extension.main_carrier_validation."
+                    "resolve_required_auth_payload",
                     return_value=(
                         AuthPayload(
                             version=1,
@@ -2977,7 +2986,9 @@ class TestExtendService(unittest.TestCase):
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.main_carrier_validation.recovery_frames_from_scan",
-                    side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
+                    side_effect=lambda *_args, **_kwargs: FrameInputResult(
+                        frames=tuple(captured["frames"])
+                    ),
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.main_carrier_validation."
@@ -2989,7 +3000,8 @@ class TestExtendService(unittest.TestCase):
                     "validate_fallback_text_in_pdf",
                 ),
                 mock.patch(
-                    "ethernity.workflows.extension.main_carrier_validation.resolve_auth_payload",
+                    "ethernity.workflows.extension.main_carrier_validation."
+                    "resolve_required_auth_payload",
                     return_value=(
                         AuthPayload(
                             version=1,
@@ -3173,7 +3185,9 @@ class TestExtendService(unittest.TestCase):
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.main_carrier_validation.recovery_frames_from_scan",
-                    side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
+                    side_effect=lambda *_args, **_kwargs: FrameInputResult(
+                        frames=tuple(captured["frames"])
+                    ),
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.main_carrier_validation."
@@ -3185,7 +3199,8 @@ class TestExtendService(unittest.TestCase):
                     "validate_fallback_text_in_pdf",
                 ),
                 mock.patch(
-                    "ethernity.workflows.extension.main_carrier_validation.resolve_auth_payload",
+                    "ethernity.workflows.extension.main_carrier_validation."
+                    "resolve_required_auth_payload",
                     return_value=(
                         AuthPayload(
                             version=1,
@@ -3672,7 +3687,9 @@ class TestExtendService(unittest.TestCase):
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.main_carrier_validation.recovery_frames_from_scan",
-                    side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
+                    side_effect=lambda *_args, **_kwargs: FrameInputResult(
+                        frames=tuple(captured["frames"])
+                    ),
                 ),
             ):
                 with self.assertRaises(ExtensionWorkflowError) as ctx:
@@ -3706,7 +3723,7 @@ class TestExtendService(unittest.TestCase):
 
         with mock.patch(
             "ethernity.workflows.extension.main_carrier_validation.recovery_frames_from_scan",
-            return_value=[main_frame],
+            return_value=FrameInputResult(frames=(main_frame,)),
         ):
             with self.assertRaises(ExtensionWorkflowError) as ctx:
                 _validate_single_main_carrier(
@@ -3753,7 +3770,8 @@ class TestExtendService(unittest.TestCase):
                 "validate_fallback_text_in_pdf",
             ) as validate_fallback_text_in_pdf,
             mock.patch(
-                "ethernity.workflows.extension.main_carrier_validation.resolve_auth_payload",
+                "ethernity.workflows.extension.main_carrier_validation."
+                "resolve_required_auth_payload",
                 return_value=(
                     AuthPayload(
                         version=1,
@@ -3838,7 +3856,8 @@ class TestExtendService(unittest.TestCase):
                 "validate_fallback_text_in_pdf",
             ) as validate_fallback_text_in_pdf,
             mock.patch(
-                "ethernity.workflows.extension.main_carrier_validation.resolve_auth_payload",
+                "ethernity.workflows.extension.main_carrier_validation."
+                "resolve_required_auth_payload",
                 return_value=(
                     AuthPayload(
                         version=1,
@@ -3996,10 +4015,11 @@ class TestExtendService(unittest.TestCase):
         with (
             mock.patch(
                 "ethernity.workflows.extension.main_carrier_validation.recovery_frames_from_scan",
-                return_value=[main_frame, auth_frame],
+                return_value=FrameInputResult(frames=(main_frame, auth_frame)),
             ),
             mock.patch(
-                "ethernity.workflows.extension.main_carrier_validation.resolve_auth_payload",
+                "ethernity.workflows.extension.main_carrier_validation."
+                "resolve_required_auth_payload",
                 return_value=(
                     AuthPayload(
                         version=1,

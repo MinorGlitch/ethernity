@@ -1006,7 +1006,7 @@ class TestEnvelope(unittest.TestCase):
         )
         with self.assertRaises(ValueError) as ctx:
             extract_payloads(manifest, payload)
-        self.assertIn("exceeds", str(ctx.exception).lower())
+        self.assertIn("does not match manifest sizes", str(ctx.exception).lower())
 
     def test_extract_payloads_total_length_mismatch(self) -> None:
         """Test extract_payloads when payload is longer than manifest total."""

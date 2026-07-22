@@ -533,11 +533,11 @@ class TestInspectAuthPayload(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.recover.planning._inspect_auth_payload",
+            "ethernity.workflows.recovery.inspection._inspect_auth_payload",
             return_value=(None, "missing", ()),
         ) as inspect_auth_mock:
             with mock.patch(
-                "ethernity.cli.features.recover.planning._inspect_unlock_status",
+                "ethernity.workflows.recovery.inspection._inspect_unlock_status",
                 return_value=mock.Mock(
                     satisfied=False,
                     resolved_passphrase=None,

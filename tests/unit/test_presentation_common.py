@@ -11,7 +11,7 @@ def test_middle_truncate_path_preserves_parent_and_filename_when_possible() -> N
         max_chars=40,
     )
 
-    assert rendered == "/var/.../ethernity/config.toml"
+    assert rendered == str(Path("/var/.../ethernity/config.toml"))
     assert len(rendered) <= 40
 
 

@@ -297,7 +297,7 @@ def test_failure_result_prioritizes_remediation_and_reviewed_destination(tmp_pat
             output = screen.query_one("#result-output")
             assert remediation.region.y < actions.region.y < output.region.y
             assert str(screen.query_one("#result-reviewed-destination", Static).content).endswith(
-                "/restored"
+                str(Path("/") / "restored")
             )
             assert str(screen.query_one("#result-return", Button).label) == ("Edit destination")
 
@@ -682,5 +682,5 @@ def test_output_paths_report_the_nearest_meaningful_common_folder() -> None:
     )
 
     assert single_output_folder(paths) == Path("/archive/restored")
-    assert common_output_folder(paths) == "/archive/restored"
+    assert common_output_folder(paths) == str(Path("/archive/restored"))
     assert single_output_folder((Path("/one/file.pdf"), Path("/two/file.pdf"))) is None

@@ -52,6 +52,7 @@ from ethernity.workflows.extension.planning import (
 )
 from ethernity.workflows.extension.request import ExtensionRequest
 from ethernity.workflows.extension.root_shards import published_root_passphrase_shard_policy
+from ethernity.workflows.recovery.frame_inputs import FrameInputResult
 
 TEST_CHUNKING = ExtensionChunkingProfile(
     algorithm_id=CHUNK_ALGORITHM_FASTCDC,
@@ -1489,11 +1490,11 @@ class TestExtendInspection(unittest.TestCase):
         recovery_path = Path("/tmp/root/recovery_document.pdf")
         root_frame = Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")
 
-        def _scan(paths: list[str], *, quiet: bool = False) -> list[Frame]:
+        def _scan(paths: list[str], *, quiet: bool = False) -> FrameInputResult:
             _ = quiet
             self.assertEqual(len(paths), 1)
             if paths == [str(qr_path)]:
-                return [root_frame]
+                return FrameInputResult(frames=(root_frame,))
             if paths == [str(recovery_path)]:
                 raise NoQrFramesError(
                     f"scan failed: explicit scan input contains no QR codes: {recovery_path}"
@@ -1550,7 +1551,9 @@ class TestExtendInspection(unittest.TestCase):
             ),
             mock.patch(
                 "ethernity.workflows.extension.planning.recovery_frames_from_scan",
-                return_value=[Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")],
+                return_value=FrameInputResult(
+                    frames=(Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root"),)
+                ),
             ),
             mock.patch(
                 "ethernity.workflows.extension.planning._shard_frames_from_extend_args",
@@ -1604,7 +1607,9 @@ class TestExtendInspection(unittest.TestCase):
             ),
             mock.patch(
                 "ethernity.workflows.extension.planning.recovery_frames_from_scan",
-                return_value=[Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")],
+                return_value=FrameInputResult(
+                    frames=(Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root"),)
+                ),
             ),
             mock.patch(
                 "ethernity.workflows.extension.planning._shard_frames_from_extend_args",
@@ -1672,7 +1677,9 @@ class TestExtendInspection(unittest.TestCase):
             ),
             mock.patch(
                 "ethernity.workflows.extension.planning.recovery_frames_from_scan",
-                return_value=[Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")],
+                return_value=FrameInputResult(
+                    frames=(Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root"),)
+                ),
             ),
             mock.patch(
                 "ethernity.workflows.extension.planning._shard_frames_from_extend_args",

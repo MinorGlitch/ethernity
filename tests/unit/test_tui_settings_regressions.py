@@ -134,7 +134,12 @@ def test_successful_settings_save_rehydrates_only_inherited_app_fields(tmp_path:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.press("7")
             app.query_one("#setting-control-page_size", Select).value = "A4"
-            await pilot.pause()
+            for _ in range(40):
+                if app.kit_state.paper_size == "A4":
+                    break
+                await pilot.pause(0.05)
+            else:
+                raise AssertionError("Timed out waiting for saved page size to propagate.")
 
             assert app.backup_state.paper_size == "LETTER"
             assert app.kit_state.paper_size == "A4"
@@ -183,7 +188,12 @@ def test_settings_numeric_input_saves_when_focus_leaves_and_reverts_invalid_draf
             await pilot.pause()
             field.value = "2048"
             app.query_one("#settings-reset-all", Button).focus()
-            await pilot.pause()
+            for _ in range(40):
+                if app.settings_state.setting_value("qr_chunk_size") == 2048:
+                    break
+                await pilot.pause(0.05)
+            else:
+                raise AssertionError("Timed out waiting for QR chunk size to save.")
 
             assert app.settings_state.setting_value("qr_chunk_size") == 2048
             assert app.settings_state.save_status == "Saved"
@@ -196,7 +206,12 @@ def test_settings_numeric_input_saves_when_focus_leaves_and_reverts_invalid_draf
             await pilot.pause()
             field.value = "0"
             app.query_one("#settings-reset-all", Button).focus()
-            await pilot.pause()
+            for _ in range(40):
+                if field.value == "2048" and app.settings_state.save_status == "Not saved":
+                    break
+                await pilot.pause(0.05)
+            else:
+                raise AssertionError("Timed out waiting for invalid QR chunk size to revert.")
 
             assert app.settings_state.setting_value("qr_chunk_size") == 2048
             assert field.value == "2048"
@@ -211,7 +226,12 @@ def test_settings_numeric_input_saves_when_focus_leaves_and_reverts_invalid_draf
             await pilot.pause()
             chunk_min.value = "32768"
             app.query_one("#settings-reset-all", Button).focus()
-            await pilot.pause()
+            for _ in range(40):
+                if app.settings_state.setting_value("extension_chunk_min") == 32768:
+                    break
+                await pilot.pause(0.05)
+            else:
+                raise AssertionError("Timed out waiting for extension chunk minimum update.")
 
             assert app.settings_state.setting_value("extension_chunk_min") == 32768
             assert app.settings_state.save_status == "Not saved"
