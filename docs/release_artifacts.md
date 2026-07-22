@@ -69,8 +69,9 @@ than the workflow initiator, and is the only job allowed to read `HOMEBREW_TAP_T
 `HOMEBREW_TAP_REPO` is the canonical GitHub repository slug (for example,
 `MinorGlitch/homebrew-tap`); the workflow derives the Homebrew tap name (`MinorGlitch/tap`) from
 it. Bottle releases are draft-first, exact-set checked, and published before the validated formula
-is pushed with a normal fast-forward update. Existing assets are reused only after a byte-for-byte
-match and are never replaced.
+is pushed with a normal fast-forward update. Enable immutable releases on the tap repository as
+well as the source repository. Existing assets are reused only after a byte-for-byte match and are
+never replaced.
 
 ## Extension Compatibility Gates
 

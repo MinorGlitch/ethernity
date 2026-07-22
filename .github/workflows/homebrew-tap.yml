@@ -473,6 +473,16 @@ jobs:
             fi
           done
 
+          final_remote_tag="$(
+            git ls-remote "https://github.com/${TAP_REPO}.git" \
+              "refs/tags/${BOTTLE_RELEASE_TAG}"
+          )"
+          final_remote_tag_sha="${final_remote_tag%%[[:space:]]*}"
+          if [[ "${final_remote_tag_sha}" != "${EXPECTED_TAP_BASE}" ]]; then
+            echo "bottle release tag moved during asset upload" >&2
+            exit 1
+          fi
+
           if [[ "${release_is_draft}" == "true" ]]; then
             gh release edit "${BOTTLE_RELEASE_TAG}" \
               --repo "${TAP_REPO}" \
