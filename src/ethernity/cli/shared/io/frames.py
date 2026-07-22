@@ -158,15 +158,3 @@ def shard_frames_from_scan(paths: list[str], *, quiet: bool = False) -> list[Fra
 
     result = _frame_inputs.shard_frames_from_scan(paths, notice_sink=_notice_sink(quiet))
     return list(result.frames)
-
-
-# Private compatibility aliases used by existing internal diagnostics and tests.
-_all_lines_match_fallback_text = _frame_inputs._all_lines_match_fallback_text
-_all_payload_lines_decode = _frame_inputs._all_payload_lines_decode
-_decode_payload = _frame_inputs._decode_payload
-_detect_recovery_input_mode = _frame_inputs._detect_recovery_input_mode
-_frame_from_fallback_lines = _frame_inputs._frame_from_fallback_lines
-_frame_from_payload_text = _frame_inputs._frame_from_payload_text
-_frame_from_scanned_payload = _frame_inputs._frame_from_scanned_payload
-_frames_from_payload_lines = _frame_inputs._frames_from_payload_lines
-_read_text_lines = _frame_inputs._read_text_lines

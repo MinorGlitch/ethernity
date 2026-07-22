@@ -6,9 +6,9 @@ from typing import Sequence
 
 from PIL import ImageGrab
 
-from ethernity.cli.shared.io.frames import _frame_from_scanned_payload
 from ethernity.encoding.framing import Frame
 from ethernity.qr.scan import QrScanError, _load_decoder, scan_qr_payloads
+from ethernity.workflows.recovery.frame_inputs import frame_from_scanned_payload
 
 from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
 from .constants import SCAN_SUFFIXES
@@ -22,7 +22,7 @@ def _frames_from_scanned_payloads(
     errors: list[str] = []
     for index, payload in enumerate(payloads, start=1):
         try:
-            frames.append(_frame_from_scanned_payload(payload))
+            frames.append(frame_from_scanned_payload(payload))
         except ValueError as exc:
             errors.append(f"#{index}: {exc}")
     if not frames:

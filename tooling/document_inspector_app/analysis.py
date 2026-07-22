@@ -12,11 +12,6 @@ from ethernity.cli.features.recover.key_recovery import (
     validated_shard_payloads_from_frames,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.io.frames import (
-    _detect_recovery_input_mode,
-    _frames_from_fallback_lines,
-    _frames_from_payload_lines,
-)
 from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.sharding import (
@@ -43,6 +38,11 @@ from ethernity.formats import decode_any_envelope
 from ethernity.formats.envelope_codec import extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 from ethernity.formats.extension_envelope import ExtensionEnvelope
+from ethernity.workflows.recovery.frame_inputs import (
+    detect_recovery_input_mode,
+    frames_from_fallback_text,
+    frames_from_payload_text,
+)
 
 from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
 from .constants import MODE_AUTO, MODE_FALLBACK, MODE_PAYLOADS
@@ -87,17 +87,16 @@ class _DecodedMainDocument:
 
 
 def _parse_text_to_frames(text: str, *, selected_mode: str) -> tuple[str, list[Frame]]:
-    lines = text.splitlines()
-    if not any(line.strip() for line in lines):
+    if not any(line.strip() for line in text.splitlines()):
         raise ValueError("paste QR payloads or fallback text to inspect")
-    input_mode = _detect_recovery_input_mode(lines) if selected_mode == MODE_AUTO else selected_mode
+    input_mode = detect_recovery_input_mode(text) if selected_mode == MODE_AUTO else selected_mode
     if input_mode == MODE_PAYLOADS:
-        frames = _frames_from_payload_lines(lines, source="pasted input")
+        result = frames_from_payload_text(text)
     elif input_mode in {MODE_FALLBACK, "fallback_marked"}:
-        frames = _frames_from_fallback_lines(lines, allow_invalid_auth=False, quiet=True)
+        result = frames_from_fallback_text(text, allow_invalid_auth=False)
     else:
         raise ValueError(f"unsupported input mode: {input_mode}")
-    return input_mode, frames
+    return input_mode, list(result.frames)
 
 
 def _dedupe_inspection_frames(frames: Sequence[Frame]) -> list[Frame]:

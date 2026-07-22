@@ -1,13 +1,40 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { TransformStream } from "node:stream/web";
 import test from "node:test";
 import vm from "node:vm";
-import { brotliCompressSync, gzipSync } from "node:zlib";
+import { brotliCompressSync, brotliDecompressSync, gunzipSync, gzipSync } from "node:zlib";
 
 import { buildCompressedLoaderHtml, buildUnsupportedLoaderHtml } from "../lib/loader_html.js";
 
 const BASE91_ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"';
+
+const TEST_DECOMPRESSORS = new Map([
+  ["gzip", gunzipSync],
+  ["brotli", brotliDecompressSync],
+]);
+
+class TestDecompressionStream {
+  constructor(format) {
+    const decompress = TEST_DECOMPRESSORS.get(format);
+    if (!decompress) {
+      throw new TypeError(`Unsupported test decompression format: ${format}`);
+    }
+
+    const chunks = [];
+    const stream = new TransformStream({
+      transform(chunk) {
+        chunks.push(Buffer.from(chunk));
+      },
+      flush(controller) {
+        controller.enqueue(decompress(Buffer.concat(chunks)));
+      },
+    });
+    this.readable = stream.readable;
+    this.writable = stream.writable;
+  }
+}
 
 function base91Encode(bytes) {
   let buffer = 0;
@@ -141,7 +168,7 @@ async function renderRawKitHtml(rawHtml) {
     Blob,
     CSS: { escape: (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&") },
     DataView,
-    DecompressionStream,
+    DecompressionStream: TestDecompressionStream,
     HTMLElement: NodeStub,
     Map,
     Promise,
@@ -197,11 +224,11 @@ async function decodeGeneratedBundleHtml(html) {
 
   await vm.runInNewContext(extractLoaderScript(html), {
     Blob,
-    DecompressionStream,
+    DecompressionStream: TestDecompressionStream,
     Response,
     Uint8Array,
     document,
-    window: { DecompressionStream },
+    window: { DecompressionStream: TestDecompressionStream },
   });
 
   return written.join("");
@@ -291,11 +318,11 @@ test("buildCompressedLoaderHtml decodes and renders gzip payload", async () => {
 
   await vm.runInNewContext(extractLoaderScript(html), {
     Blob,
-    DecompressionStream,
+    DecompressionStream: TestDecompressionStream,
     Response,
     Uint8Array,
     document,
-    window: { DecompressionStream },
+    window: { DecompressionStream: TestDecompressionStream },
   });
 
   assert.equal(written.join(""), sourceHtml);
@@ -326,11 +353,11 @@ test("buildCompressedLoaderHtml decodes and renders brotli payload", async () =>
 
   await vm.runInNewContext(extractLoaderScript(html), {
     Blob,
-    DecompressionStream,
+    DecompressionStream: TestDecompressionStream,
     Response,
     Uint8Array,
     document,
-    window: { DecompressionStream },
+    window: { DecompressionStream: TestDecompressionStream },
   });
 
   assert.equal(written.join(""), sourceHtml);
@@ -358,11 +385,11 @@ test("generated recovery kit bundles decode to extension-capable UI", async () =
 
     await vm.runInNewContext(extractLoaderScript(html), {
       Blob,
-      DecompressionStream,
+      DecompressionStream: TestDecompressionStream,
       Response,
       Uint8Array,
       document,
-      window: { DecompressionStream },
+      window: { DecompressionStream: TestDecompressionStream },
     });
 
     const decoded = written.join("");

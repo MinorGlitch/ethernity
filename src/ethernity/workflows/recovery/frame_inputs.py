@@ -92,11 +92,14 @@ __all__ = [
     "NoQrFramesError",
     "auth_frames_from_fallback",
     "auth_frames_from_payloads",
+    "detect_recovery_input_mode",
     "frame_from_fallback",
+    "frame_from_scanned_payload",
     "format_recovery_input_error",
     "format_shard_input_error",
     "frames_from_fallback",
     "frames_from_fallback_text",
+    "frames_from_payload_text",
     "frames_from_payloads",
     "frames_from_scan",
     "recovery_frames_from_scan",
@@ -468,6 +471,12 @@ def _detect_recovery_input_mode(lines: list[str]) -> str:
     )
 
 
+def detect_recovery_input_mode(text: str) -> str:
+    """Classify pasted recovery input without exposing line-parser internals."""
+
+    return _detect_recovery_input_mode(text.splitlines())
+
+
 def _auth_frames_from_fallback_lines(
     lines: list[str],
     *,
@@ -531,6 +540,18 @@ def _frames_from_payload_lines(
     if not frames:
         raise ValueError(f"no {label} found in {source}; check the payload data")
     return frames
+
+
+def frames_from_payload_text(
+    text: str,
+    *,
+    label: str = "QR payloads",
+    source: str = "pasted input",
+) -> FrameInputResult:
+    """Decode pasted QR payload lines through the workflow result contract."""
+
+    frames = _frames_from_payload_lines(text.splitlines(), label=label, source=source)
+    return FrameInputResult(frames=tuple(frames))
 
 
 def frames_from_payloads(path: str, *, label: str = "QR payloads") -> list[Frame]:
@@ -811,3 +832,9 @@ def _frame_from_scanned_payload(payload: bytes | str) -> Frame:
         except ValueError:
             pass
     return _frame_from_payload_text(payload)
+
+
+def frame_from_scanned_payload(payload: bytes | str) -> Frame:
+    """Decode one scanner payload without exposing scanner codec internals."""
+
+    return _frame_from_scanned_payload(payload)
