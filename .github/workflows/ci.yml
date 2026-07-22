@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches:
+      - master
     paths:
       - "src/**"
       - "kit/**"
@@ -19,6 +21,8 @@ on:
       - "README_PYPI.md"
       - "LICENSE"
   pull_request:
+    branches:
+      - master
     paths:
       - "src/**"
       - "kit/**"
@@ -43,7 +47,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
