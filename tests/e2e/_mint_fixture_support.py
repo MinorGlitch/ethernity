@@ -55,38 +55,42 @@ def mint_cases_for_scenario(scenario_id: str) -> tuple[MintFrozenCase, ...]:
 
 def mint_cli_args(case: MintFrozenCase, scenario_root: Path, passphrase: str) -> list[str]:
     args = [
-        "mint",
+        "replace-recovery-docs",
         "--payloads-file",
         str(scenario_root / "main_payloads.txt"),
         "--output-dir",
         str(scenario_root / "mint-output" / case.case_id),
-        "--quiet",
+        "--yes",
     ]
     if case.source_mode == "passphrase":
         args.extend(["--passphrase", passphrase])
     elif case.source_mode == "passphrase_shards":
-        args.extend(["--shard-payloads-file", str(scenario_root / "shard_payloads_threshold.txt")])
+        args.extend(
+            ["--recovery-payloads-file", str(scenario_root / "shard_payloads_threshold.txt")]
+        )
     else:
         raise ValueError(f"unsupported mint source mode: {case.source_mode}")
     if case.use_signing_key_shards:
-        args.extend(
-            ["--signing-key-shard-payloads-file", str(scenario_root / SIGNING_KEY_PAYLOADS_TEXT)]
-        )
+        args.extend(["--signing-key-payloads-file", str(scenario_root / SIGNING_KEY_PAYLOADS_TEXT)])
     if case.mint_passphrase_shards:
         args.extend(
-            ["--shard-threshold", str(case.shard_threshold), "--shard-count", str(case.shard_count)]
-        )
-    else:
-        args.append("--no-passphrase-shards")
-    if case.mint_signing_key_shards:
-        args.extend(
             [
-                "--signing-key-shard-threshold",
-                str(case.signing_key_shard_threshold),
-                "--signing-key-shard-count",
-                str(case.signing_key_shard_count),
+                "--recovery-threshold",
+                str(case.shard_threshold),
+                "--recovery-count",
+                str(case.shard_count),
             ]
         )
     else:
-        args.append("--no-signing-key-shards")
+        args.append("--no-passphrase-recovery")
+    if case.mint_signing_key_shards:
+        args.extend(
+            [
+                "--signing-key-recovery",
+                "--signing-key-threshold",
+                str(case.signing_key_shard_threshold),
+                "--signing-key-count",
+                str(case.signing_key_shard_count),
+            ]
+        )
     return args

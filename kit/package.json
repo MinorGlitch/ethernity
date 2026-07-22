@@ -3,6 +3,7 @@
   "version": "1.2.0",
   "type": "module",
   "imports": {
+    "#kit-scanner-panel": "./app/components/QrScannerPanel.jsx",
     "#kit-scanner-runtime": "./app/hooks/useQrScannerRuntime_jsqr.js"
   },
   "main": "app/index.jsx",
@@ -11,6 +12,7 @@
   },
   "scripts": {
     "test": "node scripts/run_tests.mjs",
+    "test:browser": "node scripts/smoke_generated_bundle_chrome.mjs",
     "lint": "biome lint --error-on-warnings .",
     "format:check": "biome check --linter-enabled=false --assist-enabled=false .",
     "format": "biome format --write ."
@@ -22,12 +24,13 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.11",
     "esbuild": "0.28.0",
-    "html-minifier-terser": "7.2.0"
+    "html-minifier-terser": "7.2.0",
+    "terser": "^5.48.0"
   },
   "dependencies": {
     "@noble/ciphers": "^2.1.1",
-    "@noble/curves": "^2.2.0",
+    "@noble/ed25519": "^3.1.0",
     "@noble/hashes": "^2.0.1",
-    "jsqr": "^1.4.0"
+    "jsqr": "https://github.com/MinorGlitch/jsQR/archive/3fd85b9f977186b036a25cf05c8fb89607c06f3e.tar.gz"
   }
 }

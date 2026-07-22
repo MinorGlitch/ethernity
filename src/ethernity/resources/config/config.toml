@@ -1,23 +1,8 @@
-[templates]
-default_name = "sentinel"
-
-[template]
-name = "sentinel"
-
-[recovery_template]
-name = "sentinel"
-
-[shard_template]
-name = "sentinel"
-
-[signing_key_shard_template]
-name = "sentinel"
-
-[kit_template]
-name = "sentinel"
+[render]
+style = "sentinel"
 
 [page]
-size = "A4" # Supported: A4, Letter
+size = "A4" # Supported sizes are listed by the application.
 
 [qr]
 error = "M"
@@ -91,6 +76,7 @@ output = ""
 quiet = false
 no_color = false
 no_animations = false
+show_internals = false
 
 [debug]
 # Set to 0 to unset and fall back to the CLI default (1024).

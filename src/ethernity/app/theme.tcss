@@ -1,0 +1,2184 @@
+Screen {
+    background: $background;
+    color: $text;
+}
+
+Footer {
+    height: 1;
+    background: $footer-background;
+    color: $footer-foreground;
+}
+
+Button:focus {
+    text-style: bold;
+}
+
+Button.-primary:focus {
+    text-style: bold underline;
+}
+
+EditFieldScreen,
+FilePickerScreen,
+PasteTextScreen,
+HelpScreen,
+DiagnosticsScreen,
+ReviewTaskScreen,
+ConfirmActionScreen,
+TaskResultScreen {
+    align: center middle;
+    background: $background 80%;
+}
+
+#confirm-action-modal {
+    width: 68;
+    max-width: 92%;
+    height: auto;
+    max-height: 92%;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#confirm-action-title {
+    height: 1;
+    color: $text;
+    text-style: bold;
+}
+
+#confirm-action-message {
+    height: auto;
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#confirm-action-actions {
+    height: auto;
+    margin-top: 1;
+}
+
+#shell {
+    height: 1fr;
+}
+
+#app-header {
+    height: 2;
+    width: 1fr;
+    padding: 0 1;
+    border-bottom: solid $border-blurred;
+    background: $panel;
+    color: $text;
+}
+
+#app-header-brand {
+    height: 1fr;
+    width: 17;
+    padding-left: 1;
+    content-align: left middle;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#app-header-title {
+    height: 1fr;
+    width: 1fr;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+#app-header-status {
+    height: 1fr;
+    width: 12;
+    padding-right: 1;
+    content-align: right middle;
+    color: $text-primary;
+}
+
+#nav {
+    width: 34;
+    padding: 1 1;
+    border-right: solid $border-blurred;
+    background: $surface;
+}
+
+#nav-drawer {
+    height: 1fr;
+    width: 1fr;
+}
+
+#shell.nav-collapsed #nav,
+#shell.nav-drawer-open #nav {
+    width: 4;
+    padding: 0;
+    border-right: none;
+    background: $background;
+}
+
+#shell.nav-drawer-open #nav-drawer {
+    display: block;
+    overlay: screen;
+    layer: overlay;
+    offset: 4 0;
+    width: 34;
+    height: 100%;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#workspace {
+    width: 1fr;
+    padding: 0;
+    align-horizontal: left;
+    background: $background;
+}
+
+#nav-strip {
+    display: none;
+    width: 4;
+    min-width: 4;
+    height: 3;
+    border: none;
+    background: $surface;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#nav-strip:focus {
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+#shell.nav-collapsed #nav-strip {
+    display: block;
+}
+
+#shell.nav-collapsed #nav-drawer {
+    display: none;
+}
+
+#shell.nav-drawer-open #nav-strip {
+    display: block;
+}
+
+#nav-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#nav-list {
+    height: 1fr;
+    border: none;
+    background: $surface;
+}
+
+#nav-list:focus {
+    border: none;
+}
+
+#nav-list > ListItem {
+    height: auto;
+    width: 1fr;
+}
+
+#nav-list > ListItem.nav-section {
+    height: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#nav-list > ListItem.nav-workflow {
+    height: 1;
+    color: $text;
+}
+
+#nav-list > ListItem.nav-workflow.active {
+    background: $primary 12%;
+    color: $text;
+}
+
+#nav-list > ListItem.nav-workflow.-highlight {
+    background: $primary;
+    color: $button-color-foreground;
+    text-style: bold;
+}
+
+#nav-list > ListItem.nav-workflow.-highlight .nav-row-marker,
+#nav-list > ListItem.nav-workflow.-highlight .nav-row-number,
+#nav-list > ListItem.nav-workflow.-highlight .nav-row-label,
+#nav-list > ListItem.nav-workflow.-highlight .nav-row-state {
+    color: $button-color-foreground;
+}
+
+.nav-row {
+    height: 1;
+    width: 1fr;
+}
+
+.nav-row-marker {
+    width: 2;
+    content-align: left middle;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.nav-row-number {
+    width: 3;
+    content-align: left middle;
+    color: $text-muted;
+}
+
+.nav-row-label {
+    width: 1fr;
+    content-align: left middle;
+}
+
+.nav-row-state {
+    width: 3;
+    content-align: center middle;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.nav-section-label {
+    height: 1;
+    content-align: left middle;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#task-canvas {
+    height: 1fr;
+    width: 1fr;
+    max-width: 112;
+}
+
+#task-canvas-shell {
+    height: 1fr;
+    width: 1fr;
+    padding: 1 2 0 2;
+    layout: grid;
+    grid-size: 1 3;
+    grid-columns: 1fr;
+    grid-rows: 3 1fr 3;
+}
+
+#task-canvas-shell.settings-mode {
+    grid-size: 1 1;
+    grid-rows: 1fr;
+}
+
+#canvas-hero {
+    height: 3;
+    width: 1fr;
+}
+
+#canvas-hero.settings-mode {
+    height: 3;
+}
+
+#canvas-heading {
+    width: 1fr;
+}
+
+#canvas-readiness {
+    width: 28;
+    padding-left: 2;
+}
+
+#canvas-title {
+    color: $text;
+    text-style: bold;
+    margin-top: 0;
+}
+
+#canvas-progress-label {
+    height: 1;
+    color: $text;
+    text-align: right;
+}
+
+#canvas-progress {
+    width: 1fr;
+    height: 1;
+}
+
+#canvas-task-workspaces,
+#canvas-settings-workspace {
+    height: 1fr;
+    width: 1fr;
+    overflow-y: hidden;
+}
+
+#task-workspaces,
+#task-workspace-switcher,
+#settings-form-widget {
+    height: 1fr;
+    width: 1fr;
+    overflow-y: hidden;
+}
+
+.task-workspace {
+    height: 1fr;
+    width: 1fr;
+    overflow-y: auto;
+    background: $surface;
+    padding: 1 2 0 2;
+}
+
+KitWorkspace {
+    align-horizontal: center;
+}
+
+KitWorkspace .compact-form-workspace {
+    width: 100;
+    max-width: 100%;
+}
+
+.workspace-section {
+    height: auto;
+    width: 1fr;
+    margin-bottom: 0;
+    padding: 0 0 0 1;
+}
+
+Rule.workspace-section-rule {
+    height: 1;
+    margin: 0;
+    color: $border-blurred;
+}
+
+.workspace-group-title {
+    height: 1;
+    margin-top: 0;
+    margin-bottom: 0;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.workspace-section-status {
+    height: auto;
+    min-height: 1;
+    margin-bottom: 1;
+    color: $text-muted;
+}
+
+.workspace-status-missing,
+.workspace-status-optional {
+    color: $text-muted;
+}
+
+.workspace-status-blocked {
+    color: $text-error;
+    text-style: bold;
+}
+
+.workspace-status-warning {
+    color: $text-warning;
+    text-style: bold;
+}
+
+.workspace-status-ready {
+    color: $text-muted;
+}
+
+Collapsible.workspace-advanced-panel {
+    height: auto;
+    width: 1fr;
+    margin-bottom: 0;
+    padding-left: 0;
+    padding-bottom: 0;
+    border-top: none;
+    background: $surface;
+}
+
+Collapsible.workspace-advanced-panel > CollapsibleTitle {
+    height: 1;
+    padding: 0;
+    color: $text-primary;
+    text-style: bold;
+}
+
+Collapsible.workspace-advanced-panel > CollapsibleTitle:focus {
+    background: $primary 32%;
+    color: $text;
+}
+
+Collapsible.workspace-advanced-panel.workspace-panel-warning > CollapsibleTitle {
+    color: $text-warning;
+}
+
+Collapsible.workspace-advanced-panel > Contents {
+    padding: 1 0 0 0;
+}
+
+.workspace-path-selection-list {
+    height: 4;
+    margin-bottom: 1;
+    border: none;
+    background: $background;
+}
+
+.workspace-path-list {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.workspace-empty-state {
+    height: auto;
+    min-height: 1;
+    margin-bottom: 1;
+    padding: 0 1;
+    border: none;
+    color: $text-muted;
+    background: transparent;
+}
+
+.workspace-button-row {
+    height: 1;
+    margin-bottom: 0;
+}
+
+.workspace-button-row-spaced {
+    margin-bottom: 1;
+}
+
+.workspace-button-row Button {
+    width: auto;
+    max-width: 32;
+    min-width: 8;
+    height: 1;
+    border: none;
+    background: $panel;
+}
+
+.workspace-button-gap,
+.action-button-gap {
+    width: 1;
+    height: 1;
+}
+
+.modal-action-row {
+    height: auto;
+    min-height: 1;
+}
+
+.modal-action-row.equal-actions {
+    width: 1fr;
+}
+
+.modal-action-spacer {
+    width: 1fr;
+    height: 1;
+}
+
+.modal-action-gap {
+    width: 1;
+    height: 1;
+}
+
+.modal-action-row Button {
+    width: auto;
+    min-width: 10;
+    max-width: 30;
+    height: 1;
+    margin-left: 0;
+    margin-right: 0;
+    border: none;
+    background: $panel;
+}
+
+.modal-action-row.equal-actions Button {
+    width: 1fr;
+}
+
+.modal-action-row Button:focus {
+    background: $primary 32%;
+}
+
+.modal-action-row Button.primary-modal-action {
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+.modal-action-row Button.success-modal-action {
+    background: $success;
+    color: $button-color-foreground;
+}
+
+.modal-action-row Button.warning-modal-action {
+    background: $warning;
+    color: $button-color-foreground;
+}
+
+.modal-action-row Button.error-modal-action {
+    background: $error;
+    color: $button-color-foreground;
+}
+
+.modal-action-row Button.primary-modal-action:focus,
+.modal-action-row Button.success-modal-action:focus,
+.modal-action-row Button.warning-modal-action:focus,
+.modal-action-row Button.error-modal-action:focus {
+    text-style: bold underline;
+}
+
+.modal-action-row Button:disabled {
+    background: $panel;
+    color: $text-muted;
+}
+
+.inline-action-group {
+    width: auto;
+    height: 1;
+}
+
+.inline-action-gap {
+    width: 1;
+    height: 1;
+}
+
+.inline-action-group Button {
+    height: 1;
+    margin-left: 0;
+    margin-right: 0;
+    border: none;
+    background: $panel;
+}
+
+.inline-action-group Button:focus {
+    background: $primary 32%;
+}
+
+.inline-action-group Button.primary-inline-action {
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+.inline-action-group Button.success-inline-action {
+    background: $success;
+    color: $button-color-foreground;
+}
+
+.inline-action-group Button.warning-inline-action {
+    background: $warning;
+    color: $button-color-foreground;
+}
+
+.inline-action-group Button.error-inline-action {
+    background: $error;
+    color: $button-color-foreground;
+}
+
+.inline-action-group Button.primary-inline-action:focus,
+.inline-action-group Button.success-inline-action:focus,
+.inline-action-group Button.warning-inline-action:focus,
+.inline-action-group Button.error-inline-action:focus {
+    text-style: bold underline;
+}
+
+.inline-action-group Button:disabled {
+    background: $panel;
+    color: $text-muted;
+}
+
+.workspace-field-row {
+    height: 1;
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+.workspace-field-label {
+    width: 24;
+    content-align: left middle;
+    color: $text;
+}
+
+.workspace-field-value {
+    width: 1fr;
+    content-align: left middle;
+    color: $text-muted;
+}
+
+.workspace-field-row Button {
+    width: 28;
+    height: 1;
+    border: none;
+    background: $panel;
+}
+
+Select.workspace-select {
+    width: 1fr;
+    height: 1;
+    background: $surface;
+    color: $text;
+}
+
+Select.workspace-select > SelectCurrent {
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $text;
+}
+
+Select.workspace-select > SelectOverlay {
+    border: none;
+    background: $surface;
+}
+
+.workspace-field-note {
+    height: auto;
+    min-height: 1;
+    margin-bottom: 1;
+    color: $text-muted;
+}
+
+.workspace-choice-set {
+    height: auto;
+    margin-bottom: 1;
+    border: none;
+    padding: 0;
+    background: $surface;
+}
+
+.workspace-choice-empty {
+    display: none;
+}
+
+.workspace-path-selection-list:focus,
+.workspace-field-row Button:focus,
+.workspace-button-row Button:focus,
+.workspace-choice-set:focus-within {
+    background: $primary 32%;
+    color: $text;
+}
+
+.workspace-field-row Button:disabled,
+.workspace-button-row Button:disabled {
+    background: $surface;
+    color: $text-disabled;
+}
+
+Select.workspace-select:focus > SelectCurrent {
+    border: none;
+    background: $primary 32%;
+}
+
+#task-action-bar {
+    height: 3;
+    width: 1fr;
+    padding-top: 1;
+    border-top: solid $border-blurred;
+    background: $background;
+}
+
+#canvas-action-row {
+    height: 1;
+    width: 1fr;
+    margin-top: 0;
+    background: $surface;
+}
+
+#canvas-action-row.settings-mode {
+    height: 1;
+}
+
+#canvas-action-row Button {
+    width: 18;
+    height: 1;
+    border: none;
+    margin-right: 0;
+}
+
+#canvas-loading {
+    width: 10;
+    height: 1;
+    margin-right: 1;
+    color: $text-primary;
+}
+
+.canvas-action-spacer {
+    width: 1fr;
+}
+
+#canvas-action-row.settings-mode Button {
+    width: 12;
+    margin-right: 0;
+}
+
+#canvas-action-row.settings-mode #canvas-primary {
+    width: 12;
+}
+
+#canvas-action-row #canvas-primary {
+    width: 28;
+    margin-right: 0;
+}
+
+#canvas-action-row #canvas-internals {
+    margin-right: 1;
+}
+
+#canvas-action-row #canvas-primary:disabled {
+    background: $panel;
+    color: $text-disabled;
+}
+
+Screen.-ethernity-standard #task-canvas-shell,
+Screen.-ethernity-narrow #task-canvas-shell,
+Screen.-ethernity-short #task-canvas-shell {
+    padding: 1 1 0 1;
+}
+
+Screen.-ethernity-standard .task-workspace,
+Screen.-ethernity-narrow .task-workspace,
+Screen.-ethernity-short .task-workspace {
+    padding: 1 1 0 1;
+}
+
+Screen.-ethernity-standard .workspace-section,
+Screen.-ethernity-narrow .workspace-section,
+Screen.-ethernity-short .workspace-section {
+    padding-left: 0;
+}
+
+Screen.-ethernity-standard .workspace-field-label {
+    width: 18;
+}
+
+Screen.-ethernity-standard .workspace-field-row Button {
+    width: 24;
+}
+
+Screen.-ethernity-standard .setting-label {
+    width: 18;
+}
+
+Screen.-ethernity-standard .setting-help {
+    padding-left: 19;
+}
+
+Screen.-ethernity-narrow #app-header,
+Screen.-ethernity-short #app-header {
+    height: 1;
+    padding: 0;
+    border-bottom: none;
+}
+
+Screen.-ethernity-narrow #app-header-title,
+Screen.-ethernity-narrow #app-header-status,
+Screen.-ethernity-short #app-header-title,
+Screen.-ethernity-short #app-header-status {
+    display: none;
+}
+
+Screen.-ethernity-narrow #app-header-brand,
+Screen.-ethernity-short #app-header-brand {
+    width: 1fr;
+    padding-left: 1;
+}
+
+Screen.-ethernity-narrow #nav-strip,
+Screen.-ethernity-short #nav-strip {
+    height: 1;
+}
+
+Screen.-ethernity-narrow #canvas-hero,
+Screen.-ethernity-short #canvas-hero {
+    height: 3;
+    layout: vertical;
+}
+
+Screen.-ethernity-narrow #canvas-heading,
+Screen.-ethernity-narrow #canvas-readiness,
+Screen.-ethernity-short #canvas-heading,
+Screen.-ethernity-short #canvas-readiness {
+    width: 1fr;
+}
+
+Screen.-ethernity-narrow #canvas-readiness,
+Screen.-ethernity-short #canvas-readiness {
+    height: 2;
+    padding-left: 0;
+}
+
+Screen.-ethernity-narrow #canvas-progress-label,
+Screen.-ethernity-short #canvas-progress-label {
+    text-align: left;
+}
+
+Screen.-ethernity-narrow .workspace-field-row,
+Screen.-ethernity-short .workspace-field-row {
+    height: auto;
+    min-height: 3;
+    layout: vertical;
+}
+
+Screen.-ethernity-narrow .workspace-select-row,
+Screen.-ethernity-short .workspace-select-row {
+    min-height: 2;
+}
+
+Screen.-ethernity-narrow .workspace-field-label,
+Screen.-ethernity-narrow .workspace-field-value,
+Screen.-ethernity-narrow .workspace-field-row Button,
+Screen.-ethernity-short .workspace-field-label,
+Screen.-ethernity-short .workspace-field-value,
+Screen.-ethernity-short .workspace-field-row Button {
+    width: 1fr;
+}
+
+Screen.-ethernity-narrow .workspace-field-value,
+Screen.-ethernity-short .workspace-field-value {
+    height: auto;
+    min-height: 1;
+}
+
+Screen.-ethernity-narrow .workspace-button-row,
+Screen.-ethernity-short .workspace-button-row {
+    height: auto;
+    layout: vertical;
+}
+
+Screen.-ethernity-narrow .workspace-button-row Button,
+Screen.-ethernity-short .workspace-button-row Button {
+    width: 1fr;
+    max-width: 1fr;
+}
+
+Screen.-ethernity-narrow .workspace-button-gap,
+Screen.-ethernity-short .workspace-button-gap {
+    display: none;
+}
+
+Screen.-ethernity-narrow .canvas-action-spacer,
+Screen.-ethernity-short .canvas-action-spacer {
+    display: none;
+}
+
+Screen.-ethernity-narrow #canvas-loading,
+Screen.-ethernity-short #canvas-loading {
+    width: 8;
+}
+
+Screen.-ethernity-narrow #canvas-action-row #canvas-primary,
+Screen.-ethernity-short #canvas-action-row #canvas-primary {
+    width: 1fr;
+}
+
+Screen.-ethernity-narrow .setting-label,
+Screen.-ethernity-short .setting-label {
+    width: 14;
+}
+
+Screen.-ethernity-narrow .setting-help,
+Screen.-ethernity-short .setting-help {
+    padding-left: 15;
+}
+
+WorkflowStepHeader:focus {
+    background: $primary 32%;
+    color: $text;
+}
+
+.guided-step-body {
+    background: $panel;
+}
+
+Screen.-ethernity-narrow .guided-step-body,
+Screen.-ethernity-short .guided-step-body {
+    padding: 1;
+}
+
+Screen.-ethernity-narrow .guided-field-row,
+Screen.-ethernity-narrow .guided-actions,
+Screen.-ethernity-narrow .guided-quorum-fields,
+Screen.-ethernity-short .guided-field-row,
+Screen.-ethernity-short .guided-actions,
+Screen.-ethernity-short .guided-quorum-fields {
+    layout: vertical;
+    height: auto;
+}
+
+Screen.-ethernity-narrow .guided-field-label,
+Screen.-ethernity-narrow .guided-field-value,
+Screen.-ethernity-narrow .guided-quorum-field,
+Screen.-ethernity-short .guided-field-label,
+Screen.-ethernity-short .guided-field-value,
+Screen.-ethernity-short .guided-quorum-field {
+    width: 1fr;
+}
+
+Screen.-ethernity-narrow .guided-actions Button,
+Screen.-ethernity-short .guided-actions Button {
+    width: 1fr;
+    margin: 0 0 1 0;
+}
+
+Screen.-ethernity-narrow .guided-field-row Button,
+Screen.-ethernity-short .guided-field-row Button {
+    width: 1fr;
+    margin-top: 1;
+}
+
+Screen.-ethernity-narrow .guided-path-list,
+Screen.-ethernity-short .guided-path-list {
+    max-height: 4;
+}
+
+#settings-form {
+    height: 1fr;
+    overflow: hidden;
+    border: none;
+    background: $background;
+}
+
+#settings-save-row {
+    dock: bottom;
+    height: 1;
+    width: 1fr;
+    padding: 0 1;
+    align-horizontal: right;
+    background: $background;
+}
+
+#settings-save-status {
+    height: 1;
+    width: auto;
+    min-width: 6;
+    content-align: right middle;
+    color: $text-muted;
+}
+
+#settings-save-status.settings-status-pending {
+    color: $text-warning;
+    text-style: bold;
+}
+
+#settings-save-status.settings-status-error {
+    color: $text-error;
+}
+
+#settings-save-row .settings-retry-button {
+    width: 14;
+    height: 1;
+}
+
+#settings-tabs {
+    height: 1fr;
+    width: 1fr;
+    overflow: hidden;
+    background: $background;
+}
+
+#settings-tabs Tabs {
+    height: 2;
+    margin-bottom: 1;
+    background: $background;
+}
+
+#settings-tabs Tabs:focus {
+    background: $background;
+}
+
+#settings-tabs Tab {
+    height: 1;
+    padding: 0 1;
+}
+
+#settings-tabs Tab.-active {
+    color: $text;
+    text-style: bold;
+}
+
+#settings-tabs ContentSwitcher {
+    height: 1fr;
+    overflow: hidden;
+}
+
+#settings-tabs TabPane {
+    width: 1fr;
+    height: 1fr;
+    overflow-y: auto;
+}
+
+.settings-row {
+    height: 2;
+    width: 1fr;
+    padding: 0 1;
+    background: $background;
+}
+
+.settings-summary-row {
+    height: 1;
+    margin-bottom: 1;
+}
+
+.settings-reset-row {
+    height: 1;
+    margin-bottom: 1;
+}
+
+.setting-reset-spacer {
+    width: 1fr;
+}
+
+.settings-config-row {
+    height: 1;
+    margin-top: 1;
+}
+
+.settings-row-bool {
+    height: 3;
+}
+
+.settings-row-warning {
+    border-left: thick $warning;
+}
+
+.settings-row-blocked {
+    border-left: thick $error;
+}
+
+.setting-label {
+    width: 30;
+    content-align: left middle;
+    color: $text;
+}
+
+.setting-value {
+    width: 1fr;
+    content-align: left middle;
+    color: $text-muted;
+}
+
+.setting-help {
+    height: auto;
+    min-height: 1;
+    padding: 0 1 0 31;
+    color: $text-muted;
+}
+
+.setting-help-error {
+    color: $text-error;
+    text-style: bold;
+}
+
+.setting-help-warning {
+    color: $text-warning;
+}
+
+.setting-marker {
+    width: 10;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+.setting-marker-changed {
+    color: $warning;
+    text-style: bold;
+}
+
+.setting-select {
+    width: 1fr;
+    max-width: 80;
+    height: 1;
+}
+
+.setting-input {
+    width: 1fr;
+    max-width: 80;
+    height: 1;
+}
+
+.setting-switch {
+    width: 12;
+    height: 3;
+}
+
+.setting-path-control {
+    width: 1fr;
+    max-width: 80;
+    height: 1;
+}
+
+Screen.-ethernity-narrow .setting-select,
+Screen.-ethernity-narrow .setting-input,
+Screen.-ethernity-narrow .setting-path-control {
+    max-width: 100%;
+}
+
+.setting-path-button {
+    width: 14;
+    height: 1;
+    margin-left: 0;
+}
+
+.settings-reset-button {
+    width: 22;
+}
+
+#settings-form Select {
+    height: 1;
+    background: $background;
+    color: $text;
+}
+
+#settings-form Select > SelectCurrent {
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $text;
+}
+
+#settings-form Select > SelectOverlay {
+    border: none;
+    background: $surface;
+}
+
+#settings-form Input {
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $text;
+}
+
+#settings-form Select:focus > SelectCurrent,
+#settings-form Input:focus {
+    border: none;
+    background: $primary 32%;
+}
+
+#settings-form Switch.setting-switch {
+    border: tall $border-blurred;
+    background: $panel;
+    padding: 0 2;
+}
+
+#settings-form Switch.setting-switch > .switch--slider {
+    background: $background;
+    color: $text-muted;
+}
+
+#settings-form Switch.setting-switch.-on > .switch--slider {
+    color: $success;
+}
+
+#settings-form Switch.setting-switch:focus {
+    border: tall $text-primary;
+    background: $panel;
+}
+
+.ready {
+    color: $text-success;
+}
+
+.missing {
+    color: $text-warning;
+}
+
+.warning {
+    color: $text-warning;
+    border: tall $warning-muted;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+#edit-field-modal {
+    width: 68;
+    max-width: 92%;
+    max-height: 92%;
+    height: auto;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#edit-field-title {
+    color: $text;
+    text-style: bold;
+}
+
+#edit-field-prompt {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#edit-field-input {
+    margin-top: 1;
+}
+
+#edit-field-actions {
+    margin-top: 1;
+    height: auto;
+}
+
+#paste-text-modal {
+    width: 84%;
+    height: 78%;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#paste-text-title {
+    color: $text;
+    text-style: bold;
+}
+
+#paste-text-prompt {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#paste-text-input {
+    margin-top: 1;
+    height: 1fr;
+}
+
+#paste-text-actions {
+    margin-top: 1;
+    height: auto;
+}
+
+#file-picker-modal {
+    width: 92%;
+    height: 92%;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#file-picker-title {
+    color: $text;
+    text-style: bold;
+}
+
+#file-picker-prompt {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#file-picker-body {
+    height: 1fr;
+    margin-top: 1;
+}
+
+#file-picker-browser {
+    width: 2fr;
+    height: 1fr;
+}
+
+#file-picker-location-row {
+    height: 3;
+    margin-bottom: 1;
+}
+
+#file-picker-up {
+    width: 10;
+    margin-right: 0;
+}
+
+#file-picker-location {
+    width: 1fr;
+    padding: 0 1;
+    content-align: left middle;
+    color: $text-muted;
+    background: $background;
+}
+
+#file-picker-tree {
+    width: 1fr;
+    height: 1fr;
+    border: solid $border-blurred;
+    background: $background;
+}
+
+#file-picker-tree:focus {
+    border: solid $border;
+}
+
+#file-picker-side {
+    width: 1fr;
+    height: 1fr;
+    margin-left: 1;
+}
+
+#file-picker-selected-title,
+#file-picker-name-title {
+    color: $text-primary;
+    text-style: bold;
+}
+
+#file-picker-selected-header {
+    height: 1;
+}
+
+#file-picker-selected-title {
+    width: 1fr;
+}
+
+#file-picker-remove {
+    width: 12;
+    height: 1;
+    min-width: 12;
+    border: none;
+    background: $surface;
+    color: $text-primary;
+}
+
+#file-picker-selected {
+    height: 1fr;
+    margin-top: 1;
+    border: solid $border-blurred;
+    background: $surface;
+}
+
+#file-picker-selected > .selection-list--button,
+#file-picker-selected > .selection-list--button-highlighted {
+    background: $surface;
+    color: $text-muted;
+}
+
+#file-picker-selected > .selection-list--button-selected,
+#file-picker-selected > .selection-list--button-selected-highlighted {
+    background: $surface;
+    color: $text;
+}
+
+#file-picker-selected > .selection-list--button-highlighted,
+#file-picker-selected > .selection-list--button-selected-highlighted {
+    background: $surface-active;
+}
+
+#file-picker-name-title {
+    margin-top: 1;
+}
+
+#file-picker-name {
+    margin-top: 1;
+}
+
+#file-picker-error {
+    height: 3;
+    color: $text-error;
+    text-style: bold;
+}
+
+#file-picker-modal.open-mode #file-picker-error {
+    height: 1;
+    color: $text-muted;
+    text-style: none;
+}
+
+#file-picker-actions {
+    height: 3;
+    margin-top: 1;
+}
+
+#file-picker-modal.compact {
+    padding: 0 1;
+}
+
+#file-picker-modal.compact #file-picker-prompt,
+#file-picker-modal.compact #file-picker-body {
+    margin-top: 0;
+}
+
+#file-picker-modal.compact #file-picker-location-row {
+    height: 1;
+    margin-bottom: 0;
+}
+
+#file-picker-modal.compact #file-picker-up {
+    height: 1;
+    border: none;
+    background: $panel;
+}
+
+#file-picker-modal.compact #file-picker-selected {
+    min-height: 3;
+    margin-top: 0;
+}
+
+#file-picker-modal.compact #file-picker-name-title,
+#file-picker-modal.compact #file-picker-name {
+    margin-top: 0;
+}
+
+#file-picker-modal.compact #file-picker-error {
+    height: auto;
+    min-height: 2;
+}
+
+#file-picker-modal.compact #file-picker-actions {
+    height: 1;
+    margin-top: 1;
+}
+
+#file-picker-modal.save-mode #file-picker-browser {
+    width: 3fr;
+}
+
+#file-picker-modal.save-mode #file-picker-side {
+    width: 2fr;
+}
+
+#file-picker-modal.compact #file-picker-body {
+    layout: vertical;
+}
+
+#file-picker-modal.compact #file-picker-browser {
+    width: 1fr;
+    height: 2fr;
+}
+
+#file-picker-modal.compact #file-picker-side {
+    width: 1fr;
+    height: 1fr;
+    margin-left: 0;
+    margin-top: 1;
+}
+
+#file-picker-modal.compact.save-mode #file-picker-browser {
+    height: 1fr;
+}
+
+#file-picker-modal.compact.save-mode #file-picker-side {
+    height: 2fr;
+    margin-top: 0;
+}
+
+#file-picker-modal.compact.save-mode #file-picker-selected {
+    height: 2;
+    min-height: 2;
+    max-height: 2;
+}
+
+#file-picker-modal.compact.save-mode #file-picker-name {
+    height: 1;
+}
+
+#file-picker-modal.compact.save-mode #file-picker-error {
+    min-height: 1;
+    max-height: 2;
+}
+
+#review-modal {
+    width: 98;
+    height: 90%;
+    max-width: 94%;
+    max-height: 94%;
+    padding: 0;
+    border: solid $border;
+    background: $background;
+}
+
+#review-header {
+    height: auto;
+    min-height: 3;
+    padding: 1 2;
+    border-bottom: solid $border-blurred;
+    background: $surface;
+}
+
+#review-title {
+    height: auto;
+    max-height: 2;
+    width: 1fr;
+    color: $text;
+    text-style: bold;
+}
+
+#review-body {
+    height: 1fr;
+    padding: 1 2 0 2;
+    overflow-x: hidden;
+    background: $background;
+    color: $text;
+}
+
+#review-overview,
+#review-preview {
+    width: 1fr;
+    height: auto;
+}
+
+#review-overview {
+    padding: 0 1;
+}
+
+.review-section-title {
+    width: 1fr;
+    height: auto;
+    margin-bottom: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+Rule.review-section-rule {
+    height: 1;
+    margin: 0;
+    color: $border-blurred;
+}
+
+#review-key-facts,
+#review-preview-items {
+    width: 1fr;
+    height: auto;
+    grid-size-columns: 2;
+    grid-rows: auto;
+    grid-gutter: 0 2;
+}
+
+#review-key-facts {
+    grid-columns: 15 1fr;
+}
+
+.review-fact-label,
+.review-item-label {
+    width: 1fr;
+    height: auto;
+    color: $text-muted;
+}
+
+.review-fact-value,
+.review-item-detail {
+    width: 1fr;
+    height: auto;
+    color: $text;
+}
+
+.review-fact-value {
+    text-style: bold;
+}
+
+#review-attention {
+    width: 1fr;
+    height: auto;
+    padding: 1 2;
+    border-left: solid $border;
+    background: $panel;
+}
+
+#review-attention.review-attention-warning {
+    border-left: solid $warning;
+}
+
+#review-attention.review-attention-error {
+    border-left: solid $error;
+}
+
+#review-attention .review-section-title {
+    margin-bottom: 0;
+}
+
+#review-attention.review-attention-warning .review-section-title,
+.review-notice-warning {
+    color: $text-warning;
+}
+
+#review-attention.review-attention-error .review-section-title,
+.review-notice-error {
+    color: $text-error;
+}
+
+.review-notice {
+    width: 1fr;
+    height: auto;
+    margin-top: 1;
+}
+
+#review-preview {
+    padding: 0 1 1 1;
+}
+
+#review-preview-items {
+    grid-columns: 22 1fr;
+}
+
+.review-item-label {
+    color: $text-primary;
+    text-style: bold;
+}
+
+Collapsible.review-details-panel {
+    width: 1fr;
+    height: auto;
+    padding: 0 1 1 1;
+    border-top: none;
+    background: $background;
+}
+
+Collapsible.review-details-panel > CollapsibleTitle {
+    height: 1;
+    padding: 0;
+    color: $text-muted;
+}
+
+Collapsible.review-details-panel > CollapsibleTitle:focus {
+    background: $primary 32%;
+    color: $text;
+    text-style: bold;
+}
+
+Collapsible.review-details-panel > Contents {
+    padding: 1 1 0 1;
+    background: $surface;
+}
+
+.review-detail-title {
+    width: 1fr;
+    height: auto;
+    margin-top: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.review-detail-title:first-of-type {
+    margin-top: 0;
+}
+
+.review-detail-line {
+    width: 1fr;
+    height: auto;
+    padding-left: 2;
+    color: $text-muted;
+}
+
+#review-actions {
+    height: 3;
+    padding: 1 2 0 2;
+    border-top: solid $border-blurred;
+    background: $surface;
+}
+
+Screen.-ethernity-wide #review-modal {
+    width: 108;
+}
+
+Screen.-ethernity-narrow #review-modal {
+    width: 96%;
+    max-width: 96%;
+}
+
+Screen.-ethernity-narrow #review-header {
+    min-height: 1;
+    padding: 0 1;
+}
+
+Screen.-ethernity-narrow #review-body {
+    padding: 1 1 0 1;
+}
+
+Screen.-ethernity-narrow #review-overview,
+Screen.-ethernity-narrow #review-preview,
+Screen.-ethernity-narrow Collapsible.review-details-panel {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+Screen.-ethernity-narrow #review-key-facts,
+Screen.-ethernity-narrow #review-preview-items {
+    grid-size-columns: 1;
+    grid-columns: 1fr;
+    grid-gutter: 0;
+}
+
+Screen.-ethernity-narrow .review-fact-value,
+Screen.-ethernity-narrow .review-item-detail {
+    min-height: 1;
+    padding-left: 2;
+}
+
+Screen.-ethernity-narrow #review-attention {
+    padding: 1;
+}
+
+Screen.-ethernity-narrow #review-actions {
+    padding-left: 1;
+    padding-right: 1;
+}
+
+Screen.-ethernity-narrow #review-actions > .modal-action-spacer {
+    display: none;
+}
+
+Screen.-ethernity-narrow #review-actions Button {
+    width: 48%;
+    max-width: 48%;
+}
+
+Screen.-ethernity-short #review-modal {
+    height: 96%;
+    max-height: 96%;
+}
+
+Screen.-ethernity-short #review-header {
+    min-height: 1;
+    padding: 0 1;
+}
+
+Screen.-ethernity-short #review-body {
+    padding-top: 0;
+}
+
+Screen.-ethernity-short Rule.review-section-rule {
+    height: 1;
+}
+
+Screen.-ethernity-short .review-section-title {
+    margin-bottom: 0;
+}
+
+Screen.-ethernity-short #review-attention {
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+#result-modal {
+    width: 88;
+    height: 90%;
+    max-width: 94%;
+    max-height: 94%;
+    padding: 0;
+    border: solid $border;
+    background: $background;
+}
+
+#result-header {
+    height: auto;
+    min-height: 3;
+    padding: 1 2;
+    border-bottom: solid $border-blurred;
+    background: $surface;
+}
+
+#result-title {
+    height: auto;
+    max-height: 2;
+    width: 1fr;
+    color: $text;
+    text-style: bold;
+}
+
+#result-status {
+    width: 1fr;
+    height: auto;
+    max-height: 2;
+    content-align: left middle;
+    text-style: bold;
+}
+
+#result-status.success {
+    color: $text-success;
+}
+
+#result-status.failure {
+    color: $text-error;
+}
+
+#result-body {
+    height: 1fr;
+    padding: 1 2 0 2;
+    overflow-x: hidden;
+    background: $background;
+}
+
+#result-outcome,
+#result-next-steps,
+#result-remediation {
+    height: auto;
+    width: 1fr;
+    background: $background;
+    color: $text;
+}
+
+#result-outcome {
+    padding: 0 1;
+}
+
+.result-section-title {
+    height: auto;
+    width: 1fr;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#result-key-facts {
+    height: auto;
+    width: 1fr;
+    margin-top: 1;
+    grid-size-columns: 2;
+    grid-columns: 14 1fr;
+    grid-rows: auto;
+    grid-gutter: 0 2;
+}
+
+.result-fact-label,
+.result-fact-value {
+    height: auto;
+    width: 1fr;
+}
+
+.result-fact-label {
+    color: $text-muted;
+}
+
+.result-fact-value {
+    color: $text;
+    text-style: bold;
+}
+
+.result-summary-line {
+    height: auto;
+    width: 1fr;
+    color: $text;
+}
+
+#result-output {
+    height: auto;
+    width: 1fr;
+    margin-top: 1;
+    padding: 1 2;
+    border-left: solid $primary;
+    background: $surface;
+}
+
+#result-output.partial-output {
+    border-left: solid $warning;
+    background: $panel;
+}
+
+#result-output-title {
+    height: auto;
+    width: 1fr;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#result-output.partial-output #result-output-title,
+#result-partial-warning {
+    color: $text-warning;
+}
+
+#result-partial-warning {
+    height: auto;
+    width: 1fr;
+    margin-top: 1;
+    text-style: bold;
+}
+
+#result-output-count {
+    height: auto;
+    width: 1fr;
+    color: $text-muted;
+}
+
+#result-output-paths {
+    height: auto;
+    min-height: 1;
+    max-height: 6;
+    width: 1fr;
+    margin-top: 1;
+    padding: 0;
+    border: none;
+    background: $surface;
+}
+
+#result-output.partial-output #result-output-paths {
+    background: $panel;
+}
+
+#result-output-paths > .option-list--option,
+#result-output-paths > .option-list--option-highlighted,
+#result-output-paths > .option-list--option-hover {
+    padding: 0 1;
+}
+
+#result-next-steps {
+    margin-top: 1;
+    padding: 0 1;
+}
+
+.result-next-step {
+    margin-top: 1;
+}
+
+#result-remediation {
+    margin-top: 1;
+    padding: 1 2;
+    border-left: solid $error;
+    background: $panel;
+}
+
+#result-remediation .result-section-title {
+    color: $text-error;
+}
+
+.result-remediation-line {
+    margin-top: 1;
+}
+
+#result-context-actions {
+    width: 1fr;
+    height: auto;
+    margin-top: 1;
+    padding: 0 1;
+}
+
+#result-context-actions Button {
+    width: auto;
+    max-width: 24;
+}
+
+#result-log {
+    height: 6;
+    margin: 1 0 0 0;
+    padding: 1;
+    border: solid $border-blurred;
+    background: $surface;
+    color: $text;
+}
+
+#result-log.failure {
+    height: 6;
+    margin: 0;
+}
+
+Collapsible.result-details-panel {
+    height: auto;
+    width: 1fr;
+    margin: 1 0 0 0;
+    padding: 0 1 1 1;
+    border-top: none;
+    background: $background;
+}
+
+Collapsible.result-details-panel > CollapsibleTitle {
+    height: 1;
+    padding: 0;
+    color: $text-primary;
+    text-style: bold;
+}
+
+Collapsible.result-details-panel > CollapsibleTitle:focus {
+    background: $primary 32%;
+    color: $text;
+}
+
+Collapsible.result-details-panel > Contents {
+    padding: 1 1 0 1;
+    background: $surface;
+}
+
+#result-metadata {
+    width: 1fr;
+    height: auto;
+}
+
+.result-detail-title {
+    width: 1fr;
+    height: auto;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.result-detail-line {
+    width: 1fr;
+    height: auto;
+    padding-left: 2;
+    color: $text-muted;
+}
+
+#result-actions {
+    height: 3;
+    padding: 1 2 0 2;
+    border-top: solid $border-blurred;
+    background: $surface;
+}
+
+Screen.-ethernity-wide #result-modal {
+    width: 100;
+}
+
+Screen.-ethernity-narrow #result-modal {
+    width: 96%;
+    max-width: 96%;
+}
+
+Screen.-ethernity-narrow #result-header {
+    min-height: 1;
+    padding: 0 1;
+}
+
+Screen.-ethernity-narrow #result-body {
+    padding: 1 1 0 1;
+}
+
+Screen.-ethernity-narrow #result-outcome,
+Screen.-ethernity-narrow #result-next-steps,
+Screen.-ethernity-narrow #result-context-actions,
+Screen.-ethernity-narrow Collapsible.result-details-panel {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+Screen.-ethernity-narrow #result-key-facts {
+    grid-size-columns: 1;
+    grid-columns: 1fr;
+    grid-gutter: 0;
+}
+
+Screen.-ethernity-narrow .result-fact-value {
+    min-height: 1;
+    padding-left: 2;
+}
+
+Screen.-ethernity-narrow #result-output,
+Screen.-ethernity-narrow #result-remediation {
+    padding: 1;
+}
+
+Screen.-ethernity-narrow #result-context-actions {
+    layout: vertical;
+}
+
+Screen.-ethernity-narrow #result-context-actions Button {
+    width: 1fr;
+    max-width: 1fr;
+    margin-bottom: 1;
+}
+
+Screen.-ethernity-narrow #result-context-actions .inline-action-gap {
+    display: none;
+}
+
+Screen.-ethernity-short #result-modal {
+    height: 96%;
+    max-height: 96%;
+}
+
+Screen.-ethernity-short #result-header {
+    min-height: 1;
+    padding: 0 1;
+}
+
+Screen.-ethernity-short #result-body {
+    padding-top: 0;
+}
+
+#help-modal {
+    width: 88;
+    max-width: 92%;
+    height: 92%;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#help-title {
+    height: 1;
+    color: $text;
+    text-style: bold;
+}
+
+#help-intro {
+    height: auto;
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#help-shortcuts {
+    height: auto;
+    min-height: 1;
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#help-body {
+    height: 1fr;
+    margin-top: 1;
+    background: $surface;
+}
+
+#help-body Markdown {
+    padding: 0 1;
+    color: $text;
+}
+
+#help-body MarkdownTableOfContents {
+    width: 24;
+    background: $background;
+    border-right: solid $border-blurred;
+}
+
+#help-actions {
+    height: 1;
+    margin-top: 1;
+}
+
+#diagnostics-modal {
+    width: 92%;
+    height: 86%;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#diagnostics-title {
+    height: 1;
+    color: $text;
+    text-style: bold;
+}
+
+#diagnostics-toolbar {
+    height: 3;
+    margin-top: 1;
+}
+
+#diagnostics-reveal-label {
+    width: 16;
+    content-align: left middle;
+    color: $text;
+}
+
+#diagnostics-reveal {
+    width: 10;
+    height: 3;
+}
+
+#diagnostics-tabs {
+    height: 1fr;
+    margin-top: 1;
+    background: $surface;
+}
+
+#diagnostics-tabs ContentSwitcher {
+    height: 1fr;
+    background: $surface;
+}
+
+#diagnostics-tabs TabPane {
+    height: 1fr;
+    padding: 0;
+    background: $surface;
+}
+
+.diagnostics-internals {
+    height: 1fr;
+    border: solid $border-blurred;
+    background: $background;
+}
+
+.diagnostics-internals:focus {
+    border: solid $border;
+}
+
+#diagnostics-actions {
+    height: 3;
+    margin-top: 1;
+}

@@ -18,18 +18,17 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from rich.console import Console
+
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared.events import CommandError
-from ethernity.cli.shared.io.outputs import (
-    _single_entry_uses_directory_output,
-    _write_recovered_outputs,
-)
-from ethernity.cli.shared.ui.debug import print_recover_debug
-from ethernity.cli.shared.ui.summary import format_auth_status, print_recover_summary
-from ethernity.cli.shared.ui_api import print_completion_panel, status
+from ethernity.cli.shared.io import outputs
+from ethernity.cli.shared.ui.runtime import plain_status
+from ethernity.cli.shared.ui.state import isatty
 from ethernity.crypto import decrypt_bytes
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
@@ -39,6 +38,57 @@ from ethernity.extensions.recovery import (
 )
 from ethernity.formats.envelope_codec import decode_envelope, extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
+
+_CONSOLE = Console(force_terminal=isatty(sys.__stdout__, sys.stdout))
+_CONSOLE_ERR = Console(stderr=True, force_terminal=isatty(sys.__stderr__, sys.stderr))
+
+
+def format_auth_status(status_value: str, *, allow_unsigned: bool) -> str:
+    if status_value == "verified":
+        return "verified"
+    if status_value == "skipped":
+        return "skipped (unsigned recovery)"
+    if status_value == "ignored":
+        return "failed (ignored during unsigned recovery)"
+    if status_value == "invalid":
+        return "invalid (ignored during unsigned recovery)" if allow_unsigned else "invalid"
+    if status_value == "missing":
+        return "skipped (unsigned recovery)" if allow_unsigned else "missing"
+    return status_value
+
+
+def print_recover_summary(
+    entries: list[tuple[ManifestFile, bytes]],
+    output_path: str | None,
+    *,
+    auth_status: str | None,
+    quiet: bool,
+    **_: object,
+) -> None:
+    if quiet:
+        return
+    count = len(entries)
+    suffix = "file" if count == 1 else "files"
+    target = output_path or "stdout"
+    if auth_status:
+        _CONSOLE_ERR.print(f"Recovered {count} {suffix} to {target}. Auth: {auth_status}.")
+        return
+    _CONSOLE_ERR.print(f"Recovered {count} {suffix} to {target}.")
+
+
+def print_completion_panel(
+    title: str,
+    actions: list[str],
+    *,
+    quiet: bool,
+    use_err: bool = False,
+) -> None:
+    if quiet:
+        return
+    console = _CONSOLE_ERR if use_err else _CONSOLE
+    console.print(title)
+    for action in actions:
+        console.print(f"- {action}")
 
 
 @dataclass(frozen=True)
@@ -67,7 +117,11 @@ def decrypt_manifest_extract_selection(
                 selected_extension_doc_hash=chain.selected_extension_doc_hash,
             )
 
-        with status("Decrypting and unpacking payload...", quiet=quiet):
+        with plain_status(
+            "Decrypting and unpacking payload...",
+            quiet=quiet,
+            console=_CONSOLE,
+        ):
             plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
             manifest, payload = decode_envelope(plaintext)
             extracted = extract_payloads(manifest, payload)
@@ -123,7 +177,7 @@ def write_recovered_outputs(
 ) -> list[str]:
     """Write recovered outputs and print the post-recovery summary."""
 
-    written_paths = _write_recovered_outputs(
+    written_paths = outputs.write_recovered_outputs(
         output_path,
         extracted,
         single_entry_output_is_directory=single_entry_output_is_directory,
@@ -151,52 +205,3 @@ def write_recovered_outputs(
             actions.append("Save stdout output if you need to keep the recovered data.")
         print_completion_panel("Recovery complete", actions, quiet=quiet, use_err=True)
     return written_paths
-
-
-def run_recover_plan(
-    plan: RecoveryPlan,
-    *,
-    quiet: bool,
-    debug: bool = False,
-    debug_max_bytes: int = 0,
-    debug_reveal_secrets: bool = False,
-) -> int:
-    """Execute a prepared recovery plan end to end."""
-    decrypted = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
-    manifest = decrypted.manifest
-    extracted = decrypted.extracted
-    if debug:
-        print_recover_debug(
-            manifest=manifest,
-            extracted=extracted,
-            ciphertext=plan.ciphertext,
-            passphrase=plan.passphrase,
-            auth_status=plan.auth_status,
-            allow_unsigned=plan.allow_unsigned,
-            output_path=plan.output_path,
-            debug_max_bytes=debug_max_bytes,
-            reveal_secrets=debug_reveal_secrets,
-        )
-    single_entry_output_is_directory = (
-        plan.output_path is not None
-        and len(extracted) == 1
-        and manifest.input_origin in {"directory", "mixed"}
-    )
-    single_entry_output_is_directory = _single_entry_uses_directory_output(
-        plan.output_path,
-        single_entry_output_is_directory=single_entry_output_is_directory,
-    )
-    write_recovered_outputs(
-        extracted,
-        output_path=plan.output_path,
-        auth_status=plan.auth_status,
-        allow_unsigned=plan.allow_unsigned,
-        quiet=quiet,
-        single_entry_output_is_directory=single_entry_output_is_directory,
-        requested_extension_index=getattr(plan, "extension_index", None),
-        requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
-        expected_head_doc_hash=getattr(plan, "expected_head_doc_hash", None),
-        selected_extension_index=decrypted.selected_extension_index,
-        selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
-    )
-    return 0

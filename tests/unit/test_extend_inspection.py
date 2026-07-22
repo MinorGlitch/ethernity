@@ -20,22 +20,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from ethernity.cli.features.extend.planning import (
-    ExtendInspection,
-    _apply_expected_head_guard,
-    _inspect_root_recovery,
-    _RootRecoveryInspection,
-    _shard_frames_from_extend_args,
-    inspect_from_args,
-    resolve_extend_state,
-)
-from ethernity.cli.features.extend.root_shards import published_root_passphrase_shard_policy
 from ethernity.cli.features.recover.key_recovery import InsufficientShardError
 from ethernity.cli.features.recover.planning import RecoveryInspection, RecoveryUnlockStatus
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.cli.shared.types import ExtendArgs
-from ethernity.crypto.signing import AuthPayload
+from ethernity.cli.shared.io.frames import NoQrFramesError
+from ethernity.crypto import sharding as sharding_module
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
+from ethernity.crypto.signing import AuthPayload, derive_public_key, sign_auth
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import LogicalFileState
 from ethernity.extensions.recovery import (
@@ -49,6 +40,19 @@ from ethernity.formats.envelope_codec import build_manifest_and_payload
 from ethernity.formats.envelope_types import PayloadPart
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.workflows.extension.errors import ExtensionWorkflowError
+from ethernity.workflows.extension.planning import (
+    _audit_published_root_fallback_carriers,
+    _expected_head_issue,
+    _inspect_root_recovery,
+    _RootRecoveryInspection,
+    _shard_frames_from_extend_args,
+    inspect_from_args,
+    resolve_extend_state,
+)
+from ethernity.workflows.extension.request import ExtensionRequest
+from ethernity.workflows.extension.root_shards import published_root_passphrase_shard_policy
+from ethernity.workflows.recovery.frame_inputs import FrameInputResult
 
 TEST_CHUNKING = ExtensionChunkingProfile(
     algorithm_id=CHUNK_ALGORITHM_FASTCDC,
@@ -63,12 +67,26 @@ def _root_inspection(
     passphrase: str | None = None,
     auth_status: str = "verified",
     blocking_issues: tuple[dict[str, object], ...] = (),
+    authenticated: bool = False,
 ) -> RecoveryInspection:
+    root_doc_hash = b"\x22" * 32
+    signing_seed = b"\x33" * 32
+    sign_pub = derive_public_key(signing_seed)
+    auth_payload = (
+        AuthPayload(
+            version=1,
+            doc_hash=root_doc_hash,
+            sign_pub=sign_pub,
+            signature=sign_auth(root_doc_hash, sign_pub=sign_pub, sign_priv=signing_seed),
+        )
+        if auth_status == "verified" and authenticated
+        else None
+    )
     return RecoveryInspection(
         ciphertext=b"ciphertext",
         doc_id=b"\x11" * 16,
-        doc_hash=b"\x22" * 32,
-        auth_payload=None,
+        doc_hash=root_doc_hash,
+        auth_payload=auth_payload,
         auth_status=auth_status,
         allow_unsigned=False,
         input_label="Backup root directory",
@@ -181,10 +199,8 @@ def _discovered_extension(
     doc_id_hex: str = "deadbeefcafebabe",
     doc_hash: bytes = b"\xca\xfe\xba\xbe" * 8,
 ) -> ImportedRecoveryDocument:
-    return ImportedRecoveryDocument(
-        doc_id=bytes.fromhex(doc_id_hex),
-        doc_hash=doc_hash,
-        ciphertext=b"extension",
+    return ImportedRecoveryDocument.from_ciphertext(
+        ciphertext=b"extension:" + bytes.fromhex(doc_id_hex) + doc_hash,
         auth_frames=(),
         source_label=dir_name,
         extension_index=index,
@@ -192,10 +208,417 @@ def _discovered_extension(
     )
 
 
+def _authenticated_root_audit_inspection() -> tuple[RecoveryInspection, bytes]:
+    ciphertext = b"authenticated published root ciphertext"
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
+    signing_seed = b"\x33" * 32
+    sign_pub = derive_public_key(signing_seed)
+    auth_frame = Frame(
+        version=1,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=b"auth",
+    )
+    inspection = replace(
+        _root_inspection(passphrase="secret"),
+        ciphertext=ciphertext,
+        doc_id=doc_id,
+        doc_hash=doc_hash,
+        auth_payload=AuthPayload(
+            version=1,
+            doc_hash=doc_hash,
+            sign_pub=sign_pub,
+            signature=b"\x55" * 64,
+        ),
+        auth_frames=(auth_frame,),
+    )
+    return inspection, signing_seed
+
+
+def _signed_root_shard_frames(
+    inspection: RecoveryInspection,
+    signing_seed: bytes,
+    *,
+    key_type: str = sharding_module.KEY_TYPE_PASSPHRASE,
+    share_count: int = 2,
+) -> tuple[Frame, ...]:
+    auth_payload = inspection.auth_payload
+    assert auth_payload is not None
+    if key_type == sharding_module.KEY_TYPE_PASSPHRASE:
+        payloads = sharding_module.split_passphrase(
+            "secret",
+            threshold=min(2, share_count),
+            shares=share_count,
+            doc_hash=inspection.doc_hash,
+            sign_priv=signing_seed,
+            sign_pub=auth_payload.sign_pub,
+        )
+    else:
+        payloads = sharding_module.split_signing_seed(
+            b"\x77" * 32,
+            threshold=min(2, share_count),
+            shares=share_count,
+            doc_hash=inspection.doc_hash,
+            sign_priv=signing_seed,
+            sign_pub=auth_payload.sign_pub,
+        )
+    return tuple(
+        Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=inspection.doc_id,
+            index=0,
+            total=1,
+            data=sharding_module.encode_shard_payload(payload),
+        )
+        for payload in payloads
+    )
+
+
 class TestExtendInspection(unittest.TestCase):
+    def test_published_root_recovery_fallback_is_audited_against_qr_document(self) -> None:
+        ciphertext = b"authenticated root ciphertext"
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
+        auth_frame = Frame(
+            version=1,
+            frame_type=FrameType.AUTH,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=b"auth",
+        )
+        inspection = replace(
+            _root_inspection(passphrase="secret"),
+            ciphertext=ciphertext,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            auth_payload=AuthPayload(
+                version=1,
+                doc_hash=doc_hash,
+                sign_pub=b"\x44" * 32,
+                signature=b"\x55" * 64,
+            ),
+            auth_frames=(auth_frame,),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            recovery_path = root_dir / "recovery_document.pdf"
+            recovery_path.write_bytes(b"pdf")
+            with (
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "validate_published_recovery_document_carrier"
+                ) as validate_recovery,
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=(),
+                ),
+            ):
+                _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+        validate_recovery.assert_called_once()
+        self.assertEqual(validate_recovery.call_args.kwargs["path"], recovery_path)
+        self.assertEqual(validate_recovery.call_args.kwargs["document"].ciphertext, ciphertext)
+
+    def test_published_root_audit_requires_recovery_document(self) -> None:
+        inspection, _signing_seed = _authenticated_root_audit_inspection()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(ValueError, "missing required recovery_document.pdf"):
+                _audit_published_root_fallback_carriers(Path(tmpdir), inspection, quiet=True)
+
+    def test_published_root_audit_rejects_invalid_recovery_document(self) -> None:
+        inspection, _signing_seed = _authenticated_root_audit_inspection()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\ninvalid")
+            with self.assertRaises(ExtensionWorkflowError) as ctx:
+                _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+        self.assertEqual(ctx.exception.code, api_codes.EXTENSION_MAIN_CARRIER_INVALID)
+        self.assertIn("published recovery document", str(ctx.exception))
+
+    def test_complete_canonical_root_shard_set_is_bound_and_fallback_audited(self) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        frames = _signed_root_shard_frames(inspection, signing_seed)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+            carriers: list[tuple[Path, tuple[Frame, ...]]] = []
+            for index, frame in enumerate(frames, start=1):
+                path = root_dir / f"shard-{inspection.doc_id.hex()}-{index}-of-2.pdf"
+                path.write_bytes(b"%PDF-1.4\n")
+                carriers.append((path, (frame,)))
+            with (
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=tuple(carriers),
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "validate_published_shard_fallback_carrier"
+                ) as validate_shard,
+            ):
+                _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+        self.assertEqual(validate_shard.call_count, 2)
+        self.assertEqual(
+            {call.kwargs["path"].name for call in validate_shard.call_args_list},
+            {path.name for path, _frames in carriers},
+        )
+
+    def test_incomplete_canonical_root_shard_set_is_rejected(self) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        frame = _signed_root_shard_frames(inspection, signing_seed)[0]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+            shard_path = root_dir / f"shard-{inspection.doc_id.hex()}-1-of-2.pdf"
+            shard_path.write_bytes(b"%PDF-1.4\n")
+            with (
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=((shard_path, (frame,)),),
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "validate_published_shard_fallback_carrier"
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "must contain shares 1 through 2"):
+                    _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_canonical_root_shard_filename_metadata_is_bound_to_payload(self) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        frame = _signed_root_shard_frames(inspection, signing_seed)[0]
+        cases = (
+            (
+                f"signing-key-shard-{inspection.doc_id.hex()}-1-of-2.pdf",
+                "filename role does not match payload",
+            ),
+            ("shard-9999999999999999-1-of-2.pdf", "filename doc_id does not match root"),
+            (
+                f"shard-{inspection.doc_id.hex()}-2-of-2.pdf",
+                "filename share metadata is invalid",
+            ),
+        )
+        for filename, error in cases:
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as tmpdir:
+                root_dir = Path(tmpdir)
+                (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+                shard_path = root_dir / filename
+                shard_path.write_bytes(b"%PDF-1.4\n")
+                with (
+                    mock.patch(
+                        "ethernity.workflows.extension.planning."
+                        "validate_published_recovery_document_carrier"
+                    ),
+                    mock.patch(
+                        "ethernity.workflows.extension.planning."
+                        "root_level_key_frame_carriers_from_scan",
+                        return_value=((shard_path, (frame,)),),
+                    ),
+                ):
+                    with self.assertRaisesRegex(ValueError, error):
+                        _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_canonical_root_shard_without_key_qr_is_rejected(self) -> None:
+        inspection, _signing_seed = _authenticated_root_audit_inspection()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+            shard_path = root_dir / f"shard-{inspection.doc_id.hex()}-1-of-1.pdf"
+            shard_path.write_bytes(b"%PDF-1.4\n")
+            with (
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=(),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "contains no KEY frame"):
+                    _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_canonical_root_shard_requires_root_hash_authority_and_signature(self) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        auth_payload = inspection.auth_payload
+        assert auth_payload is not None
+        valid_frame = _signed_root_shard_frames(
+            inspection,
+            signing_seed,
+            share_count=1,
+        )[0]
+        valid_payload = sharding_module.decode_shard_payload(valid_frame.data)
+        wrong_hash_payload = sharding_module.split_passphrase(
+            "secret",
+            threshold=1,
+            shares=1,
+            doc_hash=b"\x99" * 32,
+            sign_priv=signing_seed,
+            sign_pub=auth_payload.sign_pub,
+        )[0]
+        other_seed = b"\x88" * 32
+        wrong_authority_payload = sharding_module.split_passphrase(
+            "secret",
+            threshold=1,
+            shares=1,
+            doc_hash=inspection.doc_hash,
+            sign_priv=other_seed,
+            sign_pub=derive_public_key(other_seed),
+        )[0]
+        cases = (
+            (wrong_hash_payload, "not bound to the root"),
+            (wrong_authority_payload, "signing authority does not match root"),
+            (replace(valid_payload, signature=b"\x00" * 64), "signature verification failed"),
+        )
+        for payload, error in cases:
+            frame = replace(valid_frame, data=sharding_module.encode_shard_payload(payload))
+            with self.subTest(error=error), tempfile.TemporaryDirectory() as tmpdir:
+                root_dir = Path(tmpdir)
+                (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+                shard_path = root_dir / f"shard-{inspection.doc_id.hex()}-1-of-1.pdf"
+                shard_path.write_bytes(b"%PDF-1.4\n")
+                with (
+                    mock.patch(
+                        "ethernity.workflows.extension.planning."
+                        "validate_published_recovery_document_carrier"
+                    ),
+                    mock.patch(
+                        "ethernity.workflows.extension.planning."
+                        "root_level_key_frame_carriers_from_scan",
+                        return_value=((shard_path, (frame,)),),
+                    ),
+                ):
+                    with self.assertRaisesRegex(ValueError, error):
+                        _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_canonical_root_shard_rejects_mixed_root_and_foreign_key_frames(self) -> None:
+        inspection = replace(
+            _root_inspection(passphrase="secret"),
+            doc_id=b"\x11" * 8,
+            auth_payload=AuthPayload(
+                version=1,
+                doc_hash=b"\x22" * 32,
+                sign_pub=b"\x44" * 32,
+                signature=b"\x55" * 64,
+            ),
+        )
+        root_frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=inspection.doc_id,
+            index=0,
+            total=1,
+            data=b"root",
+        )
+        foreign_frame = replace(root_frame, doc_id=b"\x99" * 8, data=b"foreign")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"pdf")
+            shard_path = root_dir / "shard-1111111111111111-1-of-1.pdf"
+            shard_path.write_bytes(b"pdf")
+            with (
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=((shard_path, (root_frame, foreign_frame)),),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "exactly one distinct KEY frame"):
+                    _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_canonical_root_shard_rejects_foreign_only_key_frame(self) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        root_frame = _signed_root_shard_frames(
+            inspection,
+            signing_seed,
+            share_count=1,
+        )[0]
+        foreign_frame = replace(root_frame, doc_id=b"\x99" * len(inspection.doc_id))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+            shard_path = root_dir / f"shard-{inspection.doc_id.hex()}-1-of-1.pdf"
+            shard_path.write_bytes(b"%PDF-1.4\n")
+            with (
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=((shard_path, (foreign_frame,)),),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "not bound to the root"):
+                    _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_noncanonical_root_shard_pdf_is_audited_but_image_and_foreign_pdf_are_not(
+        self,
+    ) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        matching_frame = _signed_root_shard_frames(
+            inspection,
+            signing_seed,
+            share_count=1,
+        )[0]
+        foreign_frame = replace(matching_frame, doc_id=b"\x99" * len(inspection.doc_id))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+            renamed_pdf = root_dir / "renamed-custody-copy.pdf"
+            renamed_pdf.write_bytes(b"%PDF-1.4\n")
+            image_path = root_dir / "root-shard.png"
+            image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            foreign_pdf = root_dir / "foreign.pdf"
+            foreign_pdf.write_bytes(b"%PDF-1.4\n")
+            with (
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=(
+                        (renamed_pdf, (matching_frame,)),
+                        (image_path, (matching_frame,)),
+                        (foreign_pdf, (foreign_frame,)),
+                    ),
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "validate_published_shard_fallback_carrier"
+                ) as validate_shard,
+            ):
+                _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+        validate_shard.assert_called_once_with(path=renamed_pdf, frames=(matching_frame,))
+
     def test_inspect_from_args_requires_root_dir(self) -> None:
-        with self.assertRaises(ApiCommandError):
-            inspect_from_args(ExtendArgs())
+        with self.assertRaises(ExtensionWorkflowError):
+            inspect_from_args(ExtensionRequest())
 
     def test_inspect_from_args_rejects_symlinked_root_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -207,8 +630,8 @@ class TestExtendInspection(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"symlinks unavailable: {exc}")
 
-            with self.assertRaises(ApiCommandError) as ctx:
-                inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
+            with self.assertRaises(ExtensionWorkflowError) as ctx:
+                inspect_from_args(ExtensionRequest(publish_root=str(root_dir)))
 
         self.assertEqual(ctx.exception.code, "INVALID_INPUT")
         self.assertIn("must not be a symlink", str(ctx.exception))
@@ -224,8 +647,8 @@ class TestExtendInspection(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"symlinks unavailable: {exc}")
 
-            with self.assertRaises(ApiCommandError) as ctx:
-                inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
+            with self.assertRaises(ExtensionWorkflowError) as ctx:
+                inspect_from_args(ExtensionRequest(publish_root=str(root_dir)))
 
         self.assertEqual(ctx.exception.code, "INVALID_INPUT")
         self.assertIn("root backup MAIN carrier must not be a symlink", str(ctx.exception))
@@ -234,11 +657,11 @@ class TestExtendInspection(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                "ethernity.workflows.extension.planning._inspect_root_recovery",
                 return_value=_root_recovery(),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
+                "ethernity.workflows.extension.planning._inspect_published_extension_inventory",
                 return_value=_extension_inventory(
                     extensions=(_discovered_extension(doc_hash=b"\xca\xfe\xba\xbe" * 8),),
                 ),
@@ -256,11 +679,11 @@ class TestExtendInspection(unittest.TestCase):
             (nested_dir / "beta.txt").write_text("beta", encoding="utf-8")
 
             inspection = inspect_from_args(
-                ExtendArgs(
-                    root_dir=str(root_dir),
-                    input=[str(local_dir / "alpha.txt")],
-                    input_dir=[str(nested_dir)],
-                    base_dir=str(local_dir),
+                ExtensionRequest(
+                    publish_root=str(root_dir),
+                    input_paths=[str(local_dir / "alpha.txt")],
+                    input_directories=[str(nested_dir)],
+                    base_directory=str(local_dir),
                 )
             )
 
@@ -291,12 +714,12 @@ class TestExtendInspection(unittest.TestCase):
             (extension_dir / "qr_document-01-deadbeefcafebabe.pdf").write_bytes(b"extension")
             (root_dir / "source.txt").write_text("source", encoding="utf-8")
 
-            with self.assertRaises(ApiCommandError) as ctx:
+            with self.assertRaises(ExtensionWorkflowError) as ctx:
                 inspect_from_args(
-                    ExtendArgs(
-                        root_dir=str(root_dir),
-                        input_dir=[str(root_dir)],
-                        base_dir=str(root_dir),
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        input_directories=[str(root_dir)],
+                        base_directory=str(root_dir),
                     )
                 )
 
@@ -312,25 +735,25 @@ class TestExtendInspection(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                "ethernity.workflows.extension.planning._inspect_root_recovery",
                 return_value=_root_recovery(),
             ),
         ):
             root_dir = Path(tmpdir) / "backup-root"
             (root_dir / "extensions" / "001").mkdir(parents=True)
 
-            inspection = inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
+            inspection = inspect_from_args(ExtensionRequest(publish_root=str(root_dir)))
 
         self.assertEqual(inspection.input_kind, "standalone_root")
         self.assertEqual(inspection.discovered_extension_dirs, ())
         self.assertEqual(inspection.available_extensions, ())
-        self.assertEqual(inspection.blocking_issues[0]["code"], "EXTENSION_LAYOUT_INVALID")
+        self.assertEqual(inspection.blocking_issues[0].code, "EXTENSION_LAYOUT_INVALID")
 
     def test_inspect_from_args_rejects_invalid_extension_doc_id_filename(self) -> None:
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                "ethernity.workflows.extension.planning._inspect_root_recovery",
                 return_value=_root_recovery(),
             ),
         ):
@@ -340,25 +763,25 @@ class TestExtendInspection(unittest.TestCase):
             (extension_dir / "qr_document-01-abc.pdf").write_bytes(b"x")
             (extension_dir / "recovery_document-01-abc.pdf").write_bytes(b"y")
 
-            inspection = inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
+            inspection = inspect_from_args(ExtensionRequest(publish_root=str(root_dir)))
 
         self.assertEqual(inspection.discovered_extension_dirs, ())
         self.assertEqual(inspection.available_extensions, ())
-        self.assertEqual(inspection.blocking_issues[0]["code"], "EXTENSION_LAYOUT_INVALID")
+        self.assertEqual(inspection.blocking_issues[0].code, "EXTENSION_LAYOUT_INVALID")
         self.assertIn(
             "invalid extension MAIN carrier filename",
-            inspection.blocking_issues[0]["message"],
+            inspection.blocking_issues[0].message,
         )
 
     def test_inspect_from_args_rejects_corrupt_canonical_extension_inventory(self) -> None:
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                "ethernity.workflows.extension.planning._inspect_root_recovery",
                 return_value=_root_recovery(),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
+                "ethernity.workflows.extension.planning._inspect_published_extension_inventory",
                 return_value=_extension_inventory(
                     failure=RecoveryReplayFailure(
                         stage="discovery",
@@ -375,21 +798,21 @@ class TestExtendInspection(unittest.TestCase):
             (extension_dir / "qr_document-01-deadbeefcafebabe.pdf").write_bytes(b"x")
             (extension_dir / "recovery_document-01-deadbeefcafebabe.pdf").write_bytes(b"y")
 
-            inspection = inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
+            inspection = inspect_from_args(ExtensionRequest(publish_root=str(root_dir)))
 
         self.assertEqual(inspection.discovered_extension_dirs, (1,))
         self.assertEqual(inspection.available_extensions, ())
-        self.assertEqual(inspection.blocking_issues[0]["code"], "EXTENSION_LAYOUT_INVALID")
+        self.assertEqual(inspection.blocking_issues[0].code, "EXTENSION_LAYOUT_INVALID")
         self.assertIn(
             "extension 01 MAIN carriers could not be reconstructed",
-            inspection.blocking_issues[0]["message"],
+            inspection.blocking_issues[0].message,
         )
 
     def test_inspect_from_args_base_dir_only_uses_canonical_selected_scope_shape(self) -> None:
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                "ethernity.workflows.extension.planning._inspect_root_recovery",
                 return_value=_root_recovery(),
             ),
         ):
@@ -397,9 +820,9 @@ class TestExtendInspection(unittest.TestCase):
             root_dir.mkdir(parents=True)
 
             inspection = inspect_from_args(
-                ExtendArgs(
-                    root_dir=str(root_dir),
-                    base_dir=str(Path(tmpdir) / "scope"),
+                ExtensionRequest(
+                    publish_root=str(root_dir),
+                    base_directory=str(Path(tmpdir) / "scope"),
                 )
             )
 
@@ -420,7 +843,7 @@ class TestExtendInspection(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                "ethernity.workflows.extension.planning._inspect_root_recovery",
                 return_value=_root_recovery(),
             ),
         ):
@@ -431,6 +854,7 @@ class TestExtendInspection(unittest.TestCase):
             extension_dir.mkdir(parents=True)
             qr_path.write_bytes(b"x")
             recovery_path.write_bytes(b"y")
+            (extension_dir / "recovery_kit-01-1111111111111111.pdf").write_bytes(b"kit")
 
             def _scan(paths: list[str], *, quiet: bool = False):
                 _ = quiet
@@ -455,7 +879,7 @@ class TestExtendInspection(unittest.TestCase):
 
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.scan_extension_carriers",
+                    "ethernity.workflows.extension.planning.scan_extension_carriers",
                     side_effect=_scan,
                 ) as scan_mock,
                 mock.patch(
@@ -463,16 +887,16 @@ class TestExtendInspection(unittest.TestCase):
                     return_value=(SimpleNamespace(sign_pub=b"\x44" * 32), "verified"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.doc_id_and_hash_from_ciphertext",
+                    "ethernity.extensions.recovery.doc_id_and_hash_from_ciphertext",
                     return_value=(b"\x11" * 8, b"\x22" * 32),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning."
+                    "ethernity.workflows.extension.planning."
                     "validate_published_recovery_document_carrier",
                     return_value=None,
                 ),
             ):
-                inspection = inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
+                inspection = inspect_from_args(ExtensionRequest(publish_root=str(root_dir)))
 
         self.assertEqual(scan_mock.call_args_list, [mock.call([str(qr_path)], quiet=False)])
         self.assertEqual(inspection.discovered_extension_dirs, (1,))
@@ -483,7 +907,7 @@ class TestExtendInspection(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                "ethernity.workflows.extension.planning._inspect_root_recovery",
                 return_value=_root_recovery(),
             ),
         ):
@@ -494,10 +918,11 @@ class TestExtendInspection(unittest.TestCase):
             extension_dir.mkdir(parents=True)
             qr_path.write_bytes(b"x")
             recovery_path.write_bytes(b"not a pdf and not fallback text")
+            (extension_dir / "recovery_kit-01-1111111111111111.pdf").write_bytes(b"kit")
 
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.scan_extension_carriers",
+                    "ethernity.workflows.extension.planning.scan_extension_carriers",
                     return_value=(
                         b"extension-ciphertext",
                         [
@@ -517,30 +942,30 @@ class TestExtendInspection(unittest.TestCase):
                     return_value=(SimpleNamespace(sign_pub=b"\x44" * 32), "verified"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.doc_id_and_hash_from_ciphertext",
+                    "ethernity.extensions.recovery.doc_id_and_hash_from_ciphertext",
                     return_value=(b"\x11" * 8, b"\x22" * 32),
                 ),
             ):
-                inspection = inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
+                inspection = inspect_from_args(ExtensionRequest(publish_root=str(root_dir)))
 
         self.assertEqual(scan_mock.call_args_list, [mock.call([str(qr_path)], quiet=False)])
         self.assertEqual(inspection.discovered_extension_dirs, ())
         self.assertEqual(inspection.available_extensions, ())
-        self.assertEqual(inspection.blocking_issues[0]["code"], "EXTENSION_LAYOUT_INVALID")
+        self.assertEqual(inspection.blocking_issues[0].code, "EXTENSION_LAYOUT_INVALID")
         self.assertIn(
             "recovery_document carrier could not be validated",
-            inspection.blocking_issues[0]["message"],
+            inspection.blocking_issues[0].message,
         )
 
     def test_inspect_from_args_rejects_valid_prefix_when_suffix_is_invalid(self) -> None:
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                "ethernity.workflows.extension.planning._inspect_root_recovery",
                 return_value=_root_recovery(),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
+                "ethernity.workflows.extension.planning._inspect_published_extension_inventory",
                 return_value=_extension_inventory(
                     extensions=(_discovered_extension(),),
                     failure=RecoveryReplayFailure(
@@ -561,15 +986,15 @@ class TestExtendInspection(unittest.TestCase):
             (valid_dir / "recovery_document-01-deadbeefcafebabe.pdf").write_bytes(b"y")
             (invalid_dir / "qr_document-02-cafebabedeadbeef.pdf").write_bytes(b"z")
 
-            inspection = inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
+            inspection = inspect_from_args(ExtensionRequest(publish_root=str(root_dir)))
 
         self.assertEqual(inspection.input_kind, "standalone_root")
         self.assertEqual(inspection.discovered_extension_dirs, ())
         self.assertEqual(inspection.available_extensions, ())
-        self.assertEqual(inspection.blocking_issues[0]["code"], "EXTENSION_LAYOUT_INVALID")
+        self.assertEqual(inspection.blocking_issues[0].code, "EXTENSION_LAYOUT_INVALID")
         self.assertIn(
             "missing required MAIN documents",
-            inspection.blocking_issues[0]["message"],
+            inspection.blocking_issues[0].message,
         )
 
     def test_shard_frames_from_extend_args_preserves_preloaded_frames(self) -> None:
@@ -582,7 +1007,7 @@ class TestExtendInspection(unittest.TestCase):
             data=b"shard",
         )
         shard_frames, shard_fallback, shard_payloads, shard_scan = _shard_frames_from_extend_args(
-            ExtendArgs(shard_frames=[shard_frame]),
+            ExtensionRequest(shard_frames=[shard_frame]),
             quiet=True,
         )
 
@@ -602,7 +1027,7 @@ class TestExtendInspection(unittest.TestCase):
         )
         unlocked_root = RecoveryInspection(
             **{
-                **_root_inspection(passphrase="secret").__dict__,
+                **_root_inspection(passphrase="secret", authenticated=True).__dict__,
                 "unlock": RecoveryUnlockStatus(
                     mode="passphrase",
                     passphrase_provided=True,
@@ -626,15 +1051,15 @@ class TestExtendInspection(unittest.TestCase):
             alpha_mtime = int((local_dir / "alpha.txt").stat().st_mtime)
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     return_value=(
                         LogicalFileState(
                             path="alpha.txt",
@@ -647,10 +1072,10 @@ class TestExtendInspection(unittest.TestCase):
                 ),
             ):
                 inspection = inspect_from_args(
-                    ExtendArgs(
-                        root_dir=str(root_dir),
-                        input=[str(local_dir / "alpha.txt")],
-                        base_dir=str(local_dir),
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        input_paths=[str(local_dir / "alpha.txt")],
+                        base_directory=str(local_dir),
                         passphrase="secret",
                     )
                 )
@@ -687,6 +1112,65 @@ class TestExtendInspection(unittest.TestCase):
             },
         )
 
+    def test_scanned_chain_resolution_reuses_root_selection_decrypt_session(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        base_root = _root_inspection(passphrase="secret")
+        unlocked_root = replace(
+            base_root,
+            unlock=replace(base_root.unlock, satisfied=True),
+        )
+        imported_document = _discovered_extension()
+        decoded_import_session = SimpleNamespace(root_document=mock.sentinel.root_document)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            root_dir.mkdir()
+            with (
+                mock.patch(
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
+                    return_value=_RootRecoveryInspection(
+                        unlocked_root,
+                        "none",
+                        (imported_document,),
+                        decoded_import_session,
+                    ),
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
+                    side_effect=AssertionError("root ciphertext was decrypted twice"),
+                ) as decode_root_manifest,
+                mock.patch(
+                    "ethernity.workflows.extension.planning.decode_imported_root_manifest",
+                    return_value=(manifest, payload),
+                ) as decode_imported_root_manifest,
+                mock.patch(
+                    "ethernity.workflows.extension.planning."
+                    "_scan_extension_inventory_from_imported_documents",
+                    return_value=_extension_inventory(),
+                ) as scan_extension_inventory,
+            ):
+                resolved = resolve_extend_state(
+                    ExtensionRequest(publish_root=str(root_dir), passphrase="secret")
+                )
+
+        self.assertEqual(resolved.inspection.validated_head_index, 0)
+        decode_root_manifest.assert_not_called()
+        decode_imported_root_manifest.assert_called_once_with(
+            mock.sentinel.root_document,
+            decoded_import_session=decoded_import_session,
+        )
+        self.assertIs(
+            scan_extension_inventory.call_args.kwargs["decoded_import_session"],
+            decoded_import_session,
+        )
+
     def test_inspect_from_args_reports_unlock_unsatisfied_when_decrypt_fails(self) -> None:
         base_root = _root_inspection(passphrase="wrong-passphrase")
         unlocked_root = replace(
@@ -704,21 +1188,21 @@ class TestExtendInspection(unittest.TestCase):
             root_dir.mkdir()
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     side_effect=ValueError("decrypt failed"),
                 ),
             ):
                 inspection = inspect_from_args(
-                    ExtendArgs(root_dir=str(root_dir), passphrase="wrong-passphrase")
+                    ExtensionRequest(publish_root=str(root_dir), passphrase="wrong-passphrase")
                 )
 
         self.assertFalse(inspection.unlock["satisfied"])
         self.assertIsNone(inspection.source_summary)
-        self.assertIn("UNLOCK_FAILED", {issue["code"] for issue in inspection.blocking_issues})
+        self.assertIn("UNLOCK_FAILED", {issue.code for issue in inspection.blocking_issues})
 
     def test_inspect_from_args_blocks_directory_scope_deletes(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -734,7 +1218,7 @@ class TestExtendInspection(unittest.TestCase):
         )
         unlocked_root = RecoveryInspection(
             **{
-                **_root_inspection(passphrase="secret").__dict__,
+                **_root_inspection(passphrase="secret", authenticated=True).__dict__,
                 "unlock": RecoveryUnlockStatus(
                     mode="passphrase",
                     passphrase_provided=True,
@@ -756,15 +1240,15 @@ class TestExtendInspection(unittest.TestCase):
             alpha_mtime = int((local_dir / "alpha.txt").stat().st_mtime)
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     return_value=(
                         LogicalFileState(
                             path="alpha.txt",
@@ -784,10 +1268,10 @@ class TestExtendInspection(unittest.TestCase):
                 ),
             ):
                 inspection = inspect_from_args(
-                    ExtendArgs(
-                        root_dir=str(root_dir),
-                        input_dir=[str(local_dir)],
-                        base_dir=str(local_dir),
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        input_directories=[str(local_dir)],
+                        base_directory=str(local_dir),
                         passphrase="secret",
                     )
                 )
@@ -797,11 +1281,13 @@ class TestExtendInspection(unittest.TestCase):
             {
                 "code": api_codes.DELETE_NOT_SUPPORTED,
                 "message": (
-                    "selected scope omits previously backed paths; delete/rename is unsupported"
+                    "selected scope omits previously backed paths; Add Files cannot delete or "
+                    "rename paths. Create a New Backup from the desired files and retire the "
+                    "superseded carriers"
                 ),
                 "details": {"missing_paths": ["beta.txt"]},
             },
-            inspection.blocking_issues,
+            tuple(issue.to_dict() for issue in inspection.blocking_issues),
         )
 
     def test_inspect_from_args_blocks_exact_file_path_alias_without_base_dir(self) -> None:
@@ -815,7 +1301,7 @@ class TestExtendInspection(unittest.TestCase):
         )
         unlocked_root = RecoveryInspection(
             **{
-                **_root_inspection(passphrase="secret").__dict__,
+                **_root_inspection(passphrase="secret", authenticated=True).__dict__,
                 "unlock": RecoveryUnlockStatus(
                     mode="passphrase",
                     passphrase_provided=True,
@@ -836,15 +1322,15 @@ class TestExtendInspection(unittest.TestCase):
             (local_docs / "a.txt").write_text("new", encoding="utf-8")
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     return_value=(
                         LogicalFileState(
                             path="docs/a.txt",
@@ -857,9 +1343,9 @@ class TestExtendInspection(unittest.TestCase):
                 ),
             ):
                 inspection = inspect_from_args(
-                    ExtendArgs(
-                        root_dir=str(root_dir),
-                        input=[str(local_docs / "a.txt")],
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        input_paths=[str(local_docs / "a.txt")],
                         passphrase="secret",
                     )
                 )
@@ -878,7 +1364,7 @@ class TestExtendInspection(unittest.TestCase):
                     ]
                 },
             },
-            inspection.blocking_issues,
+            tuple(issue.to_dict() for issue in inspection.blocking_issues),
         )
 
     def test_resolve_extend_state_carries_validated_root_shard_policy(self) -> None:
@@ -911,15 +1397,15 @@ class TestExtendInspection(unittest.TestCase):
             root_dir.mkdir()
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "root"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     return_value=(
                         LogicalFileState(
                             path="alpha.txt",
@@ -931,7 +1417,7 @@ class TestExtendInspection(unittest.TestCase):
                     ),
                 ),
             ):
-                resolved = resolve_extend_state(ExtendArgs(root_dir=str(root_dir)))
+                resolved = resolve_extend_state(ExtensionRequest(publish_root=str(root_dir)))
 
         self.assertEqual(resolved.root_passphrase_shard_threshold, 2)
         self.assertEqual(resolved.root_passphrase_shard_count, 5)
@@ -971,15 +1457,15 @@ class TestExtendInspection(unittest.TestCase):
             root_dir.mkdir()
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     return_value=(
                         LogicalFileState(
                             path="alpha.txt",
@@ -992,7 +1478,7 @@ class TestExtendInspection(unittest.TestCase):
                 ),
             ):
                 resolved = resolve_extend_state(
-                    ExtendArgs(root_dir=str(root_dir), passphrase="secret")
+                    ExtensionRequest(publish_root=str(root_dir), passphrase="secret")
                 )
 
         self.assertIsNone(resolved.root_passphrase_shard_threshold)
@@ -1004,38 +1490,38 @@ class TestExtendInspection(unittest.TestCase):
         recovery_path = Path("/tmp/root/recovery_document.pdf")
         root_frame = Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")
 
-        def _scan(paths: list[str], *, quiet: bool = False) -> list[Frame]:
+        def _scan(paths: list[str], *, quiet: bool = False) -> FrameInputResult:
             _ = quiet
             self.assertEqual(len(paths), 1)
             if paths == [str(qr_path)]:
-                return [root_frame]
+                return FrameInputResult(frames=(root_frame,))
             if paths == [str(recovery_path)]:
-                raise ValueError(
+                raise NoQrFramesError(
                     f"scan failed: explicit scan input contains no QR codes: {recovery_path}"
                 )
             raise AssertionError(f"unexpected scan paths: {paths!r}")
 
         with (
             mock.patch(
-                "ethernity.cli.features.extend.planning._published_root_scan_paths",
+                "ethernity.workflows.extension.planning._published_root_scan_paths",
                 return_value=[str(qr_path), str(recovery_path)],
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning.recovery_frames_from_scan",
+                "ethernity.workflows.extension.planning.recovery_frames_from_scan",
                 side_effect=_scan,
             ) as recovery_frames_from_scan,
             mock.patch(
-                "ethernity.cli.features.extend.planning._shard_frames_from_extend_args",
+                "ethernity.workflows.extension.planning._shard_frames_from_extend_args",
                 return_value=([], [], [], []),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning.inspect_recovery_inputs",
+                "ethernity.workflows.extension.planning.inspect_recovery_inputs",
                 return_value=root_inspection,
             ) as inspect_recovery_inputs,
         ):
             recovery = _inspect_root_recovery(
                 Path("/tmp/root"),
-                ExtendArgs(root_dir="/tmp/root", passphrase="secret"),
+                ExtensionRequest(publish_root="/tmp/root", passphrase="secret"),
                 extension_inventory=None,
             )
 
@@ -1060,23 +1546,25 @@ class TestExtendInspection(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.extend.planning._published_root_scan_paths",
+                "ethernity.workflows.extension.planning._published_root_scan_paths",
                 return_value=[Path("/tmp/root/recovery.pdf")],
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning.recovery_frames_from_scan",
-                return_value=[Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")],
+                "ethernity.workflows.extension.planning.recovery_frames_from_scan",
+                return_value=FrameInputResult(
+                    frames=(Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root"),)
+                ),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning._shard_frames_from_extend_args",
+                "ethernity.workflows.extension.planning._shard_frames_from_extend_args",
                 return_value=([shard_frame], [], ["/tmp/shards.txt"], []),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning.inspect_recovery_inputs",
+                "ethernity.workflows.extension.planning.inspect_recovery_inputs",
                 return_value=root_inspection,
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning."
+                "ethernity.workflows.extension.planning."
                 "select_root_import_document_from_passphrase_shards",
                 side_effect=ValueError(
                     "shard payloads do not match any imported recovery document"
@@ -1085,7 +1573,7 @@ class TestExtendInspection(unittest.TestCase):
         ):
             recovery = _inspect_root_recovery(
                 Path("/tmp/root"),
-                ExtendArgs(root_dir="/tmp/root", shard_payloads_file=["/tmp/shards.txt"]),
+                ExtensionRequest(publish_root="/tmp/root", shard_payload_files=["/tmp/shards.txt"]),
                 extension_inventory=inventory,
             )
 
@@ -1098,6 +1586,62 @@ class TestExtendInspection(unittest.TestCase):
         )
         self.assertEqual(issue["details"], {"stage": "extension_shard_unlock"})
         self.assertEqual(recovery.inspection.shard_payloads_file, ("/tmp/shards.txt",))
+
+    def test_published_append_resource_admission_precedes_extension_shard_unlock(self) -> None:
+        root_inspection = replace(_root_inspection(), doc_id=b"\x11" * 8)
+        shard_frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x33" * 8,
+            index=0,
+            total=1,
+            data=b"shard",
+        )
+        extension = _discovered_extension(doc_hash=b"\x44" * 32)
+        inventory = _recovery_chain_inspection(extensions=(extension,)).inventory
+
+        with (
+            mock.patch(
+                "ethernity.workflows.extension.planning._published_root_scan_paths",
+                return_value=[Path("/tmp/root/recovery.pdf")],
+            ),
+            mock.patch(
+                "ethernity.workflows.extension.planning.recovery_frames_from_scan",
+                return_value=FrameInputResult(
+                    frames=(Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root"),)
+                ),
+            ),
+            mock.patch(
+                "ethernity.workflows.extension.planning._shard_frames_from_extend_args",
+                return_value=([shard_frame], [], ["/tmp/shards.txt"], []),
+            ),
+            mock.patch(
+                "ethernity.workflows.extension.planning.inspect_recovery_inputs",
+                return_value=root_inspection,
+            ) as inspect_recovery_inputs,
+            mock.patch(
+                "ethernity.workflows.extension.planning.require_chain_resource_limits",
+                side_effect=ValueError("extension append exceeds resource limit"),
+            ) as require_resource_limits,
+            mock.patch(
+                "ethernity.workflows.extension.planning."
+                "select_root_import_document_from_passphrase_shards",
+            ) as select_root,
+            self.assertRaisesRegex(ValueError, "exceeds resource limit"),
+        ):
+            _inspect_root_recovery(
+                Path("/tmp/root"),
+                ExtensionRequest(publish_root="/tmp/root", shard_payload_files=["/tmp/shards.txt"]),
+                extension_inventory=inventory,
+            )
+
+        require_resource_limits.assert_called_once_with(
+            document_count=3,
+            total_ciphertext_bytes=(len(b"root") + len(extension.ciphertext) + 1),
+            operation="extension append",
+        )
+        inspect_recovery_inputs.assert_not_called()
+        select_root.assert_not_called()
 
     def test_inspect_root_recovery_blocks_extension_shards_for_wrong_root(self) -> None:
         root_inspection = replace(_root_inspection(), doc_id=b"\x11" * 8)
@@ -1128,30 +1672,32 @@ class TestExtendInspection(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.extend.planning._published_root_scan_paths",
+                "ethernity.workflows.extension.planning._published_root_scan_paths",
                 return_value=[Path("/tmp/root/recovery.pdf")],
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning.recovery_frames_from_scan",
-                return_value=[Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")],
+                "ethernity.workflows.extension.planning.recovery_frames_from_scan",
+                return_value=FrameInputResult(
+                    frames=(Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root"),)
+                ),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning._shard_frames_from_extend_args",
+                "ethernity.workflows.extension.planning._shard_frames_from_extend_args",
                 return_value=([shard_frame], [], ["/tmp/shards.txt"], []),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning.inspect_recovery_inputs",
+                "ethernity.workflows.extension.planning.inspect_recovery_inputs",
                 return_value=root_inspection,
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning."
+                "ethernity.workflows.extension.planning."
                 "select_root_import_document_from_passphrase_shards",
                 return_value=selection,
             ),
         ):
             recovery = _inspect_root_recovery(
                 Path("/tmp/root"),
-                ExtendArgs(root_dir="/tmp/root", shard_payloads_file=["/tmp/shards.txt"]),
+                ExtensionRequest(publish_root="/tmp/root", shard_payload_files=["/tmp/shards.txt"]),
                 extension_inventory=inventory,
             )
 
@@ -1192,15 +1738,15 @@ class TestExtendInspection(unittest.TestCase):
             (root_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     return_value=(
                         LogicalFileState(
                             path="alpha.txt",
@@ -1213,9 +1759,9 @@ class TestExtendInspection(unittest.TestCase):
                 ),
             ):
                 inspection = inspect_from_args(
-                    ExtendArgs(
-                        root_dir=str(root_dir),
-                        input=[str(root_dir / "alpha.txt")],
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        input_paths=[str(root_dir / "alpha.txt")],
                         passphrase="secret",
                     )
                 )
@@ -1231,11 +1777,11 @@ class TestExtendInspection(unittest.TestCase):
 
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.root_shards.root_level_key_frames_from_scan",
+                    "ethernity.workflows.extension.root_shards.root_level_key_frames_from_scan",
                     return_value=[object()],
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.root_shards.root_shard_quorum_from_frames",
+                    "ethernity.workflows.extension.root_shards.root_shard_quorum_from_frames",
                     side_effect=InsufficientShardError(
                         threshold=2,
                         provided_count=1,
@@ -1276,11 +1822,11 @@ class TestExtendInspection(unittest.TestCase):
 
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.root_shards.root_level_key_frames_from_scan",
+                    "ethernity.workflows.extension.root_shards.root_level_key_frames_from_scan",
                     return_value=[object()],
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.root_shards.has_potential_root_shard_frames",
+                    "ethernity.workflows.extension.root_shards.has_potential_root_shard_frames",
                     return_value=True,
                 ),
             ):
@@ -1335,15 +1881,15 @@ max_size = 65536
             )
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     return_value=(
                         LogicalFileState(
                             path="alpha.txt",
@@ -1356,9 +1902,9 @@ max_size = 65536
                 ),
             ):
                 resolved = resolve_extend_state(
-                    ExtendArgs(
-                        config=str(config_path),
-                        root_dir=str(root_dir),
+                    ExtensionRequest(
+                        config_path=str(config_path),
+                        publish_root=str(root_dir),
                         passphrase="secret",
                     )
                 )
@@ -1405,15 +1951,15 @@ max_size = 65536
             (root_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     return_value=(
                         LogicalFileState(
                             path="alpha.txt",
@@ -1426,9 +1972,9 @@ max_size = 65536
                 ),
             ):
                 inspection = inspect_from_args(
-                    ExtendArgs(
-                        root_dir=str(root_dir),
-                        input=[str(root_dir / "alpha.txt")],
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        input_paths=[str(root_dir / "alpha.txt")],
                         passphrase="secret",
                     )
                 )
@@ -1436,7 +1982,7 @@ max_size = 65536
         self.assertEqual(inspection.signing_authority["available"], True)
         self.assertEqual(inspection.signing_authority["satisfied"], False)
         self.assertIsNone(inspection.signing_authority["source"])
-        self.assertEqual(inspection.blocking_issues[0]["code"], "ROOT_AUTHORITY_MISMATCH")
+        self.assertEqual(inspection.blocking_issues[0].code, "ROOT_AUTHORITY_MISMATCH")
 
     def test_inspect_from_args_reports_post_unlock_state_errors_as_chain_invalid(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -1467,68 +2013,41 @@ max_size = 65536
             root_dir.mkdir()
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     side_effect=ValueError("invalid logical root state"),
                 ),
             ):
                 inspection = inspect_from_args(
-                    ExtendArgs(root_dir=str(root_dir), passphrase="secret")
+                    ExtensionRequest(publish_root=str(root_dir), passphrase="secret")
                 )
 
-        issue_codes = {issue["code"] for issue in inspection.blocking_issues}
+        issue_codes = {issue.code for issue in inspection.blocking_issues}
         self.assertIn(api_codes.CHAIN_INVALID, issue_codes)
         self.assertNotIn("UNLOCK_FAILED", issue_codes)
-        self.assertEqual(inspection.blocking_issues[0]["details"], {"stage": "chain"})
+        self.assertEqual(inspection.blocking_issues[0].details, {"stage": "chain"})
 
     def test_expected_head_guard_canonicalizes_args_on_mismatch(self) -> None:
-        args = ExtendArgs(expected_head_doc_hash=f" {'AA' * 32} ")
-        inspection = ExtendInspection(
-            doc_id="11" * 8,
-            root_dir="/tmp/root",
-            input_label="Backup root directory",
-            input_detail="/tmp/root",
-            input_kind="extended_root",
-            source_summary=None,
-            frame_counts={"main": 0, "auth": 0, "shard": 0},
-            root_doc_id="11" * 8,
-            root_doc_hash="22" * 32,
-            chain_id="33" * 32,
-            auth_status="verified",
-            unlock={
-                "mode": "passphrase",
-                "passphrase_provided": True,
-                "validated_shard_count": 0,
-                "required_shard_threshold": None,
-                "shard_share_count": None,
-                "satisfied": True,
-            },
-            discovered_extension_dirs=(),
+        args = ExtensionRequest(expected_head_doc_hash=f" {'AA' * 32} ")
+        issue = _expected_head_issue(
+            args,
             validated_head_index=1,
             validated_head_doc_hash="22" * 32,
-            available_extensions=(),
-            ancestry_valid=True,
-            validated_head_auth_status="verified",
-            validated_head_root_authority_verified=True,
-            signing_authority={"available": True, "satisfied": True, "source": "embedded_seed"},
-            selected_scope=None,
-            diff_summary=None,
-            blocking_issues=(),
         )
 
-        guarded = _apply_expected_head_guard(args, inspection)
-
+        self.assertIsNotNone(issue)
+        assert issue is not None
         self.assertEqual(args.expected_head_doc_hash, "aa" * 32)
-        self.assertEqual(guarded.blocking_issues[0]["code"], api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(issue.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertEqual(
-            guarded.blocking_issues[0]["details"]["expected_head_doc_hash"],
+            issue.details["expected_head_doc_hash"],
             "aa" * 32,
         )
 
@@ -1565,15 +2084,15 @@ max_size = 65536
                 root_dir = Path(tmpdir) / "publish-root"
                 with (
                     mock.patch(
-                        "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                        "ethernity.workflows.extension.planning._inspect_root_recovery",
                         return_value=_RootRecoveryInspection(unlocked_root, "none"),
                     ),
                     mock.patch(
-                        "ethernity.cli.features.extend.planning._decode_root_manifest",
+                        "ethernity.workflows.extension.planning._decode_root_manifest",
                         return_value=(manifest, payload),
                     ),
                     mock.patch(
-                        "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                        "ethernity.workflows.extension.planning.extract_root_logical_state",
                         return_value=(
                             LogicalFileState(
                                 path="alpha.txt",
@@ -1586,23 +2105,23 @@ max_size = 65536
                     ),
                 ):
                     inspection = inspect_from_args(
-                        ExtendArgs(
-                            root_dir=str(root_dir),
-                            scan=["root.pdf"],
+                        ExtensionRequest(
+                            publish_root=str(root_dir),
+                            scan_paths=["root.pdf"],
                             passphrase="secret",
                             **arg_overrides,
                         )
                     )
 
-            issue_codes = [issue["code"] for issue in inspection.blocking_issues]
+            issue_codes = [issue.code for issue in inspection.blocking_issues]
             self.assertEqual(inspection.input_kind, "scanned_chain")
             self.assertEqual(inspection.validated_head_doc_hash, "22" * 32)
             if should_block:
                 self.assertIn(api_codes.RECOVERY_HEAD_UNTRUSTED, issue_codes)
                 issue = inspection.blocking_issues[0]
-                self.assertEqual(issue["details"]["validated_head_index"], 0)
-                self.assertEqual(issue["details"]["validated_head_doc_hash"], "22" * 32)
-                self.assertEqual(issue["details"]["freshness_scope"], "supplied_carriers_only")
+                self.assertEqual(issue.details["validated_head_index"], 0)
+                self.assertEqual(issue.details["validated_head_doc_hash"], "22" * 32)
+                self.assertEqual(issue.details["freshness_scope"], "supplied_carriers_only")
             else:
                 self.assertNotIn(api_codes.RECOVERY_HEAD_UNTRUSTED, issue_codes)
 
@@ -1619,7 +2138,7 @@ max_size = 65536
         )
         unlocked_root = RecoveryInspection(
             **{
-                **_root_inspection(passphrase="secret").__dict__,
+                **_root_inspection(passphrase="secret", authenticated=True).__dict__,
                 "unlock": RecoveryUnlockStatus(
                     mode="passphrase",
                     passphrase_provided=True,
@@ -1659,9 +2178,7 @@ max_size = 65536
                 "explicit_selection": False,
             },
         )
-        extension = ImportedRecoveryDocument(
-            doc_id=bytes.fromhex("de" * 8),
-            doc_hash=b"\xaa" * 32,
+        extension = ImportedRecoveryDocument.from_ciphertext(
             ciphertext=b"extension-01",
             auth_frames=(),
             source_label="01",
@@ -1710,19 +2227,19 @@ max_size = 65536
             (root_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
+                    "ethernity.workflows.extension.planning._inspect_published_extension_inventory",
                     return_value=chain_inspection.inventory,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     return_value=(
                         LogicalFileState(
                             path="alpha.txt",
@@ -1734,14 +2251,18 @@ max_size = 65536
                     ),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_published_extension_chain",
+                    "ethernity.workflows.extension.planning._inspect_published_extension_chain",
                     return_value=chain_inspection,
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning._replay_authenticated_chain_state",
+                    return_value=mock.sentinel.validated_chain_state,
                 ),
             ):
                 inspection = inspect_from_args(
-                    ExtendArgs(
-                        root_dir=str(root_dir),
-                        input=[str(root_dir / "alpha.txt")],
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        input_paths=[str(root_dir / "alpha.txt")],
                         passphrase="secret",
                     )
                 )
@@ -1758,14 +2279,14 @@ max_size = 65536
             "validated_head_auth_status": "verified",
             "validated_head_root_authority_verified": True,
         }
-        self.assertEqual(inspection.blocking_issues[0]["code"], api_codes.RECOVERY_HEAD_UNTRUSTED)
-        self.assertEqual(inspection.blocking_issues[0]["details"], expected_details)
-        self.assertEqual(inspection.blocking_issues[0]["details"]["failure_stage"], "discovery")
-        self.assertEqual(inspection.blocking_issues[0]["details"]["validated_head_index"], 0)
-        self.assertNotIn("CHAIN_INVALID", [issue["code"] for issue in inspection.blocking_issues])
+        self.assertEqual(inspection.blocking_issues[0].code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(inspection.blocking_issues[0].details, expected_details)
+        self.assertEqual(inspection.blocking_issues[0].details["failure_stage"], "discovery")
+        self.assertEqual(inspection.blocking_issues[0].details["validated_head_index"], 0)
+        self.assertNotIn("CHAIN_INVALID", [issue.code for issue in inspection.blocking_issues])
         self.assertNotIn(
             "EXTENSION_LAYOUT_INVALID",
-            [issue["code"] for issue in inspection.blocking_issues],
+            [issue.code for issue in inspection.blocking_issues],
         )
 
     def test_inspect_from_args_adds_auth_metadata_from_shared_chain_inspection(self) -> None:
@@ -1779,7 +2300,7 @@ max_size = 65536
         )
         unlocked_root = RecoveryInspection(
             **{
-                **_root_inspection(passphrase="secret").__dict__,
+                **_root_inspection(passphrase="secret", authenticated=True).__dict__,
                 "unlock": RecoveryUnlockStatus(
                     mode="passphrase",
                     passphrase_provided=True,
@@ -1791,9 +2312,7 @@ max_size = 65536
                 ),
             }
         )
-        extension = ImportedRecoveryDocument(
-            doc_id=bytes.fromhex("de" * 8),
-            doc_hash=b"\xaa" * 32,
+        extension = ImportedRecoveryDocument.from_ciphertext(
             ciphertext=b"extension-01",
             auth_frames=(),
             source_label="01",
@@ -1803,10 +2322,11 @@ max_size = 65536
         decoded_link = mock.Mock(
             auth_status="verified",
             root_authority_verified=True,
-            link=mock.Mock(doc_hash=b"\xaa" * 32),
+            link=mock.Mock(doc_hash=extension.doc_hash),
         )
         decoded_link.link.document.header.index = 1
         decoded_link.link.document.chunks = ()
+        decoded_link.link.document.inline_chunk_raw_bytes = 0
         chain_inspection = _recovery_chain_inspection(
             extensions=(extension,),
             links=(decoded_link,),
@@ -1831,15 +2351,15 @@ max_size = 65536
             (root_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    "ethernity.workflows.extension.planning._inspect_root_recovery",
                     return_value=_RootRecoveryInspection(unlocked_root, "none"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    "ethernity.workflows.extension.planning._decode_root_manifest",
                     return_value=(manifest, payload),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    "ethernity.workflows.extension.planning.extract_root_logical_state",
                     return_value=(
                         LogicalFileState(
                             path="alpha.txt",
@@ -1851,18 +2371,22 @@ max_size = 65536
                     ),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
+                    "ethernity.workflows.extension.planning._inspect_published_extension_inventory",
                     return_value=_extension_inventory(extensions=(extension,)),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_published_extension_chain",
+                    "ethernity.workflows.extension.planning._inspect_published_extension_chain",
                     return_value=chain_inspection,
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.planning._replay_authenticated_chain_state",
+                    return_value=mock.sentinel.validated_chain_state,
                 ),
             ):
                 inspection = inspect_from_args(
-                    ExtendArgs(
-                        root_dir=str(root_dir),
-                        input=[str(root_dir / "alpha.txt")],
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        input_paths=[str(root_dir / "alpha.txt")],
                         passphrase="secret",
                     )
                 )
@@ -1878,8 +2402,8 @@ max_size = 65536
                 {
                     "index": 1,
                     "dir_name": "01",
-                    "doc_id": "de" * 8,
-                    "doc_hash": "aa" * 32,
+                    "doc_id": extension.doc_id_hex,
+                    "doc_hash": extension.doc_hash.hex(),
                     "auth_status": "verified",
                     "root_authority_verified": True,
                 },

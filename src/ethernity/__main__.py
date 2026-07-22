@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-from ethernity.cli import main
+from ethernity.main import main
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

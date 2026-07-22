@@ -21,6 +21,8 @@ import os
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+from ethernity.core.validation import has_windows_drive_prefix
+
 
 def resolve_layout_debug_dir(
     path: str | Path | None,
@@ -84,15 +86,11 @@ def layout_debug_json_path(layout_debug_dir: str | Path | None, stem: str) -> st
     if isinstance(layout_debug_dir, Path):
         return str(layout_debug_dir / filename)
     text = str(layout_debug_dir)
-    if "\\" in text or _has_windows_drive(text):
+    if "\\" in text or has_windows_drive_prefix(text):
         return str(PureWindowsPath(text) / filename)
     if "/" in text:
         return str(PurePosixPath(text) / filename)
     return str(Path(text) / filename)
-
-
-def _has_windows_drive(path: str) -> bool:
-    return len(path) >= 2 and path[1] == ":" and path[0].isalpha()
 
 
 __all__ = [

@@ -23,7 +23,7 @@ import segno
 import zxingcpp  # noqa: F401
 from PIL import Image  # noqa: F401
 
-from ethernity.cli import run_recover_command
+from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
 from ethernity.cli.shared.types import RecoverArgs
 from ethernity.config.install import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
@@ -69,6 +69,11 @@ def _auth_frame(*, doc_id: bytes, doc_hash: bytes, sign_priv: bytes, sign_pub: b
     )
 
 
+def _run_recover(args: RecoverArgs) -> None:
+    plan = prepare_recover_plan(args)
+    execute_recover_plan(plan, quiet=args.quiet)
+
+
 class TestIntegrationRecover(unittest.TestCase):
     def test_recover_from_frames_via_cli(self) -> None:
         payload = b"hello integration"
@@ -110,7 +115,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 config=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
-                run_recover_command(args)
+                _run_recover(args)
             self.assertEqual(output_path.read_bytes(), payload)
 
     def test_recover_from_fallback_via_cli(self) -> None:
@@ -158,7 +163,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 config=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
-                run_recover_command(args)
+                _run_recover(args)
             self.assertEqual(output_path.read_bytes(), payload)
 
     def test_recover_from_scan_image(self) -> None:
@@ -200,7 +205,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 config=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
-                run_recover_command(args)
+                _run_recover(args)
             self.assertEqual(output_path.read_bytes(), payload)
 
     def test_recover_multi_file_output_dir(self) -> None:
@@ -249,7 +254,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 config=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
-                run_recover_command(args)
+                _run_recover(args)
 
             self.assertEqual((output_dir / "alpha.txt").read_bytes(), b"alpha")
             self.assertEqual((output_dir / "beta" / "beta.txt").read_bytes(), b"beta")
@@ -307,7 +312,7 @@ class TestIntegrationRecover(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "trailing data"):
                 with suppress_output():
-                    run_recover_command(args)
+                    _run_recover(args)
             self.assertFalse(output_path.exists())
 
     def test_recover_with_multiple_key_document_frames_same_doc_id(self) -> None:
@@ -400,7 +405,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 config=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
-                run_recover_command(args)
+                _run_recover(args)
             self.assertEqual(output_path.read_bytes(), payload)
 
 

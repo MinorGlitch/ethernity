@@ -18,7 +18,7 @@
 import { useState } from "microact/hooks";
 import { CollectorStep } from "./CollectorStep.jsx";
 import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
-import { QrScannerPanel } from "./QrScannerPanel.jsx";
+import { QrScannerPanel, SCANNER_ENABLED } from "#kit-scanner-panel";
 
 export function ShardCollector({
   shardPayloadText,
@@ -57,30 +57,32 @@ export function ShardCollector({
     setPasteHint("");
     onAddShardPayloads();
   };
-  const handleScanPayload = (scannedPayload) => {
-    const hasBytes =
-      scannedPayload &&
-      scannedPayload.bytes instanceof Uint8Array &&
-      scannedPayload.bytes.length > 0;
-    if (hasBytes && typeof onScannedShardPayload === "function") {
-      onScannedShardPayload(scannedPayload);
-      setPasteHint("Scanned 1 shard frame. Added automatically.");
-      return;
-    }
+  const handleScanPayload = SCANNER_ENABLED
+    ? (scannedPayload) => {
+        const hasBytes =
+          scannedPayload &&
+          scannedPayload.bytes instanceof Uint8Array &&
+          scannedPayload.bytes.length > 0;
+        if (hasBytes && typeof onScannedShardPayload === "function") {
+          onScannedShardPayload(scannedPayload);
+          setPasteHint("Scanned 1 shard frame. Added automatically.");
+          return;
+        }
 
-    const lines = String(scannedPayload?.text ?? "")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    if (!lines.length) {
-      setPasteHint("Scanned QR was empty.");
-      return;
-    }
-    const prefix = shardPayloadText && !shardPayloadText.endsWith("\n") ? "\n" : "";
-    const nextValue = `${shardPayloadText ?? ""}${prefix}${lines.join("\n")}`;
-    onShardPayloadChange({ currentTarget: { value: nextValue } });
-    setPasteHint(`Scanned ${lines.length} line(s). Click Add.`);
-  };
+        const lines = String(scannedPayload?.text ?? "")
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+        if (!lines.length) {
+          setPasteHint("Scanned QR was empty.");
+          return;
+        }
+        const prefix = shardPayloadText && !shardPayloadText.endsWith("\n") ? "\n" : "";
+        const nextValue = `${shardPayloadText ?? ""}${prefix}${lines.join("\n")}`;
+        onShardPayloadChange({ currentTarget: { value: nextValue } });
+        setPasteHint(`Scanned ${lines.length} line(s). Click Add.`);
+      }
+    : null;
   const input = {
     body: (
       <>
@@ -94,7 +96,7 @@ export function ShardCollector({
           as="textarea"
           spellCheck="false"
         />
-        <QrScannerPanel onScanPayload={handleScanPayload} />
+        {SCANNER_ENABLED ? <QrScannerPanel onScanPayload={handleScanPayload} /> : null}
         {pasteHint ? <div class="hint">{pasteHint}</div> : null}
         <div class="hint">Skip if you have the full passphrase.</div>
       </>

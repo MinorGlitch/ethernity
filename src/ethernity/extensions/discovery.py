@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from ethernity.artifacts.publish import TRANSACTION_METADATA_NAME
 from ethernity.extensions.layout import (
     ExtensionMainArtifactName,
     ExtensionShardArtifactName,
@@ -33,11 +34,17 @@ from ethernity.extensions.layout import (
 )
 
 EXTENSIONS_DIR_NAME = "extensions"
-_MAIN_FILENAME_PREFIXES = ("qr_document-", "recovery_document-", "recovery_kit_index-")
+_MAIN_FILENAME_PREFIXES = (
+    "qr_document-",
+    "recovery_document-",
+    "recovery_kit-",
+    "recovery_kit_index-",
+)
 _SHARD_FILENAME_PREFIXES = ("shard-", "signing-key-shard-")
 _RECOGNIZED_FILENAME_PREFIXES = (*_MAIN_FILENAME_PREFIXES, *_SHARD_FILENAME_PREFIXES)
 _PAYLOAD_MAIN_DOC_TYPES = frozenset({"qr_document"})
-_REQUIRED_MAIN_DOC_TYPES = frozenset({"qr_document", "recovery_document"})
+_REQUIRED_MAIN_DOC_TYPES = frozenset({"qr_document", "recovery_document", "recovery_kit"})
+_EXPOSED_MAIN_DOC_TYPES = frozenset({"qr_document", "recovery_document"})
 
 
 @dataclass(frozen=True)
@@ -66,6 +73,7 @@ class DiscoveredExtensionDirectory:
     doc_id_hex: str
     main_carriers: tuple[DiscoveredExtensionMainCarrier, ...]
     shard_carriers: tuple[DiscoveredExtensionShardCarrier, ...]
+    recovery_kit_carrier: DiscoveredExtensionMainCarrier
     recovery_kit_index_carrier: DiscoveredExtensionMainCarrier | None = None
 
 
@@ -321,6 +329,8 @@ def _discover_extension_directory(*, index: int, path: Path) -> DiscoveredExtens
     shard_keys: set[tuple[str, int]] = set()
 
     for entry in sorted(path.iterdir(), key=lambda item: item.name):
+        if entry.name == TRANSACTION_METADATA_NAME:
+            continue
         if entry.is_symlink():
             raise ValueError(
                 "extension directory "
@@ -343,15 +353,16 @@ def _discover_extension_directory(*, index: int, path: Path) -> DiscoveredExtens
             shard_keys=shard_keys,
         )
 
-    required_main_carriers = tuple(
-        carrier for carrier in main_carriers if carrier.doc_type in _REQUIRED_MAIN_DOC_TYPES
-    )
-    if not required_main_carriers:
+    required_types = {
+        carrier.doc_type
+        for carrier in main_carriers
+        if carrier.doc_type in _REQUIRED_MAIN_DOC_TYPES
+    }
+    if not required_types:
         raise ValueError(
             f"extension directory {path.name} must contain required MAIN documents: "
-            "qr_document, recovery_document"
+            "qr_document, recovery_document, recovery_kit"
         )
-    required_types = {carrier.doc_type for carrier in required_main_carriers}
     if required_types != _REQUIRED_MAIN_DOC_TYPES:
         missing = sorted(_REQUIRED_MAIN_DOC_TYPES.difference(required_types))
         raise ValueError(
@@ -376,8 +387,13 @@ def _discover_extension_directory(*, index: int, path: Path) -> DiscoveredExtens
         dir_name=path.name,
         path=path,
         doc_id_hex=doc_id_hex,
-        main_carriers=required_main_carriers,
+        main_carriers=tuple(
+            carrier for carrier in main_carriers if carrier.doc_type in _EXPOSED_MAIN_DOC_TYPES
+        ),
         shard_carriers=tuple(shard_carriers),
+        recovery_kit_carrier=next(
+            carrier for carrier in main_carriers if carrier.doc_type == "recovery_kit"
+        ),
         recovery_kit_index_carrier=next(
             (carrier for carrier in main_carriers if carrier.doc_type == "recovery_kit_index"),
             None,
@@ -434,8 +450,11 @@ def _require_complete_shard_carrier_sets(
             )
         expected_count = next(iter(share_counts))
         actual_indexes = {carrier.share_index for carrier in carriers}
-        expected_indexes = set(range(1, expected_count + 1))
-        if actual_indexes != expected_indexes:
+        if (
+            len(actual_indexes) != expected_count
+            or min(actual_indexes) != 1
+            or max(actual_indexes) != expected_count
+        ):
             raise ValueError(
                 f"extension directory {path.name} {doc_type} carriers must include shares "
                 f"1 through {expected_count}"

@@ -407,3 +407,6 @@ class TestExtensionDiscovery(unittest.TestCase):
     def _write(path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"placeholder")
+        if path.name.startswith("recovery_document-"):
+            kit_name = path.name.replace("recovery_document-", "recovery_kit-", 1)
+            (path.parent / kit_name).write_bytes(b"placeholder")

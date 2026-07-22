@@ -15,5 +15,44 @@
 
 $ErrorActionPreference = "Stop"
 
+$KitResourceDir = "src/ethernity/resources/kit"
+$ExpectedBundles = @(
+    "recovery_kit.bundle.html",
+    "recovery_kit.scanner.bundle.html"
+)
+
+if (-not (Get-Command libdeflate-gzip -ErrorAction SilentlyContinue)) {
+    throw "libdeflate-gzip is required to generate deterministic recovery-kit bundles"
+}
+
+Get-ChildItem -Path $KitResourceDir -Filter "recovery_kit*.bundle.html" -File `
+    -ErrorAction SilentlyContinue | Remove-Item -Force
+
+Push-Location kit
+try {
+    npm ci
+    $env:ETHERNITY_KIT_COMPRESSION = "gzip"
+    $env:ETHERNITY_KIT_VARIANTS = "both"
+    node build_kit.mjs
+}
+finally {
+    Remove-Item Env:ETHERNITY_KIT_COMPRESSION -ErrorAction SilentlyContinue
+    Remove-Item Env:ETHERNITY_KIT_VARIANTS -ErrorAction SilentlyContinue
+    Pop-Location
+}
+
+$GeneratedBundles = @(Get-ChildItem -Path $KitResourceDir -Filter "*.html" -File)
+if ($GeneratedBundles.Count -ne $ExpectedBundles.Count) {
+    $GeneratedNames = ($GeneratedBundles | ForEach-Object Name) -join ", "
+    throw "Expected exactly $($ExpectedBundles.Count) generated recovery-kit bundles; found: $GeneratedNames"
+}
+foreach ($BundleName in $ExpectedBundles) {
+    $BundlePath = Join-Path $KitResourceDir $BundleName
+    $Bundle = Get-Item $BundlePath -ErrorAction SilentlyContinue
+    if ($null -eq $Bundle -or $Bundle.Length -eq 0) {
+        throw "Missing or empty generated recovery-kit bundle: $BundlePath"
+    }
+}
+
 uv sync --extra build --frozen
 uv run pyinstaller --clean --noconfirm ethernity.spec

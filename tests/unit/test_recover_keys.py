@@ -61,7 +61,7 @@ class TestResolveAuthPayload(unittest.TestCase):
             )
 
     def test_missing_auth_returns_skipped_when_allow_unsigned(self) -> None:
-        with mock.patch("ethernity.cli.features.recover.key_recovery._warn") as warn_mock:
+        with mock.patch("ethernity.cli.features.recover.key_recovery.warn") as warn_mock:
             payload, status = resolve_auth_payload(
                 [],
                 doc_id=b"\x10" * DOC_ID_LEN,
@@ -112,7 +112,7 @@ class TestResolveAuthPayload(unittest.TestCase):
 
     def test_auth_doc_id_mismatch_ignored_in_allow_unsigned_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x11" * DOC_ID_LEN)
-        with mock.patch("ethernity.cli.features.recover.key_recovery._warn") as warn_mock:
+        with mock.patch("ethernity.cli.features.recover.key_recovery.warn") as warn_mock:
             payload, status = resolve_auth_payload(
                 [frame],
                 doc_id=b"\x12" * DOC_ID_LEN,
@@ -140,10 +140,10 @@ class TestResolveAuthPayload(unittest.TestCase):
     def test_invalid_auth_payload_can_be_ignored_in_allow_unsigned_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN)
         with mock.patch(
-            "ethernity.cli.features.recover.key_recovery.decode_auth_payload",
+            "ethernity.workflows.recovery.keys.decode_auth_payload",
             side_effect=ValueError("invalid cbor"),
         ):
-            with mock.patch("ethernity.cli.features.recover.key_recovery._warn") as warn_mock:
+            with mock.patch("ethernity.cli.features.recover.key_recovery.warn") as warn_mock:
                 payload, status = resolve_auth_payload(
                     [frame],
                     doc_id=b"\x10" * DOC_ID_LEN,
@@ -159,7 +159,7 @@ class TestResolveAuthPayload(unittest.TestCase):
     def test_invalid_auth_payload_raises_in_strict_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN)
         with mock.patch(
-            "ethernity.cli.features.recover.key_recovery.decode_auth_payload",
+            "ethernity.workflows.recovery.keys.decode_auth_payload",
             side_effect=ValueError("invalid cbor"),
         ):
             with self.assertRaisesRegex(ValueError, "invalid cbor"):
@@ -178,10 +178,10 @@ class TestResolveAuthPayload(unittest.TestCase):
             doc_hash=b"\x99" * 32, sign_pub=b"p" * 32, signature=b"s" * 64
         )
         with mock.patch(
-            "ethernity.cli.features.recover.key_recovery.decode_auth_payload",
+            "ethernity.workflows.recovery.keys.decode_auth_payload",
             return_value=payload_obj,
         ):
-            with mock.patch("ethernity.cli.features.recover.key_recovery._warn") as warn_mock:
+            with mock.patch("ethernity.cli.features.recover.key_recovery.warn") as warn_mock:
                 payload, status = resolve_auth_payload(
                     [frame],
                     doc_id=b"\x10" * DOC_ID_LEN,
@@ -200,7 +200,7 @@ class TestResolveAuthPayload(unittest.TestCase):
             doc_hash=b"\x99" * 32, sign_pub=b"p" * 32, signature=b"s" * 64
         )
         with mock.patch(
-            "ethernity.cli.features.recover.key_recovery.decode_auth_payload",
+            "ethernity.workflows.recovery.keys.decode_auth_payload",
             return_value=payload_obj,
         ):
             with self.assertRaisesRegex(ValueError, "doc_hash does not match"):
@@ -213,9 +213,7 @@ class TestResolveAuthPayload(unittest.TestCase):
                     quiet=True,
                 )
 
-    @mock.patch(
-        "ethernity.cli.features.recover.key_recovery.hmac.compare_digest", return_value=False
-    )
+    @mock.patch("ethernity.workflows.recovery.keys.hmac.compare_digest", return_value=False)
     def test_doc_hash_mismatch_uses_compare_digest(
         self,
         compare_digest: mock.MagicMock,
@@ -226,7 +224,7 @@ class TestResolveAuthPayload(unittest.TestCase):
         )
         expected = b"\x20" * 32
         with mock.patch(
-            "ethernity.cli.features.recover.key_recovery.decode_auth_payload",
+            "ethernity.workflows.recovery.keys.decode_auth_payload",
             return_value=payload_obj,
         ):
             with self.assertRaisesRegex(ValueError, "doc_hash does not match"):
@@ -246,13 +244,13 @@ class TestResolveAuthPayload(unittest.TestCase):
             doc_hash=b"\x20" * 32, sign_pub=b"p" * 32, signature=b"s" * 64
         )
         with mock.patch(
-            "ethernity.cli.features.recover.key_recovery.decode_auth_payload",
+            "ethernity.workflows.recovery.keys.decode_auth_payload",
             return_value=payload_obj,
         ):
             with mock.patch(
                 "ethernity.cli.features.recover.key_recovery.verify_auth", return_value=False
             ):
-                with mock.patch("ethernity.cli.features.recover.key_recovery._warn") as warn_mock:
+                with mock.patch("ethernity.cli.features.recover.key_recovery.warn") as warn_mock:
                     payload, status = resolve_auth_payload(
                         [frame],
                         doc_id=b"\x10" * DOC_ID_LEN,
@@ -271,7 +269,7 @@ class TestResolveAuthPayload(unittest.TestCase):
             doc_hash=b"\x20" * 32, sign_pub=b"p" * 32, signature=b"s" * 64
         )
         with mock.patch(
-            "ethernity.cli.features.recover.key_recovery.decode_auth_payload",
+            "ethernity.workflows.recovery.keys.decode_auth_payload",
             return_value=payload_obj,
         ):
             with mock.patch(
@@ -293,7 +291,7 @@ class TestResolveAuthPayload(unittest.TestCase):
             doc_hash=b"\x20" * 32, sign_pub=b"p" * 32, signature=b"s" * 64
         )
         with mock.patch(
-            "ethernity.cli.features.recover.key_recovery.decode_auth_payload",
+            "ethernity.workflows.recovery.keys.decode_auth_payload",
             return_value=payload_obj,
         ):
             with mock.patch(

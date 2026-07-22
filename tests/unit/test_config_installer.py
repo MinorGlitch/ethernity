@@ -24,22 +24,15 @@ from pathlib import Path
 from unittest import mock
 
 import ethernity.config.install as installer
+import ethernity.config.paths as config_paths
 from ethernity.core import app_paths
-
-
-def _home_env(home: Path) -> dict[str, str]:
-    env = {"HOME": str(home), "USERPROFILE": str(home)}
-    drive, tail = os.path.splitdrive(str(home))
-    if drive:
-        env["HOMEDRIVE"] = drive
-        env["HOMEPATH"] = tail or "\\"
-    return env
+from tests.support.environment import home_environment
 
 
 def _create_design(root: Path, name: str) -> Path:
     design_dir = root / name
     design_dir.mkdir(parents=True, exist_ok=True)
-    for filename in installer.TEMPLATE_FILENAMES:
+    for filename in installer.RENDER_STYLE_FILENAMES:
         (design_dir / filename).write_text(f"{name}:{filename}", encoding="utf-8")
     return design_dir
 
@@ -62,7 +55,7 @@ class TestConfigInstaller(unittest.TestCase):
             with mock.patch.object(installer, "user_config_dir_path", return_value=config_root):
                 installer.mark_first_run_onboarding_complete(
                     configured_fields={
-                        installer.ONBOARDING_FIELD_TEMPLATE_DESIGN,
+                        installer.ONBOARDING_FIELD_RENDER_STYLE,
                         installer.ONBOARDING_FIELD_SHARDING,
                     }
                 )
@@ -70,7 +63,7 @@ class TestConfigInstaller(unittest.TestCase):
                     installer.first_run_onboarding_configured_fields(),
                     frozenset(
                         {
-                            installer.ONBOARDING_FIELD_TEMPLATE_DESIGN,
+                            installer.ONBOARDING_FIELD_RENDER_STYLE,
                             installer.ONBOARDING_FIELD_SHARDING,
                         }
                     ),
@@ -81,7 +74,7 @@ class TestConfigInstaller(unittest.TestCase):
             config_root = Path(tmpdir) / "config"
             with mock.patch.object(installer, "user_config_dir_path", return_value=config_root):
                 installer.mark_first_run_onboarding_complete(
-                    configured_fields={installer.ONBOARDING_FIELD_TEMPLATE_DESIGN}
+                    configured_fields={installer.ONBOARDING_FIELD_RENDER_STYLE}
                 )
                 installer.mark_first_run_onboarding_complete(
                     configured_fields={installer.ONBOARDING_FIELD_SHARDING}
@@ -131,16 +124,13 @@ class TestConfigInstaller(unittest.TestCase):
             config_root = Path(tmpdir) / "config"
             paths = installer.ConfigPaths(
                 user_config_dir=config_root,
-                user_templates_root=config_root / "templates",
-                user_templates_dir=config_root / "templates" / "sentinel",
                 user_config_path=config_root / "config.toml",
-                user_template_paths={},
                 user_required_files=(),
             )
             paths.user_config_path.parent.mkdir(parents=True, exist_ok=True)
             paths.user_config_path.write_text("[ui]\nquiet = false\n", encoding="utf-8")
             with (
-                mock.patch.object(installer, "_build_paths", return_value=paths),
+                mock.patch.object(installer, "build_config_paths", return_value=paths),
                 mock.patch.object(
                     installer, "_ensure_user_config", return_value=True
                 ) as ensure_user,
@@ -153,23 +143,8 @@ class TestConfigInstaller(unittest.TestCase):
     def test_apply_first_run_defaults_updates_existing_config(self) -> None:
         initial = (
             """
-[templates]
-default_name = "sentinel"
-
-[template]
-name = "sentinel"
-
-[recovery_template]
-name = "sentinel"
-
-[shard_template]
-name = "sentinel"
-
-[signing_key_shard_template]
-name = "sentinel"
-
-[kit_template]
-name = "sentinel"
+[render]
+style = "sentinel"
 
 [defaults.backup]
 payload_codec = "auto"
@@ -182,7 +157,7 @@ qr_payload_codec = "raw"
             config_path.write_text(initial, encoding="utf-8")
             with mock.patch.object(
                 installer,
-                "resolve_template_design_path",
+                "resolve_render_style_path",
                 return_value=Path("/tmp/forge"),
             ):
                 updated_path = installer.apply_first_run_defaults(
@@ -191,7 +166,7 @@ qr_payload_codec = "raw"
                     payload_codec="gzip",
                     qr_payload_codec="base64",
                     qr_error_correction="Q",
-                    page_size="LETTER",
+                    page_size=" letter ",
                     backup_output_dir="/tmp/backups",
                     qr_chunk_size=384,
                     shard_threshold=2,
@@ -201,12 +176,7 @@ qr_payload_codec = "raw"
             self.assertEqual(updated_path, config_path)
             parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(parsed["templates"]["default_name"], "forge")
-        self.assertEqual(parsed["template"]["name"], "forge")
-        self.assertEqual(parsed["recovery_template"]["name"], "forge")
-        self.assertEqual(parsed["shard_template"]["name"], "forge")
-        self.assertEqual(parsed["signing_key_shard_template"]["name"], "forge")
-        self.assertEqual(parsed["kit_template"]["name"], "forge")
+        self.assertEqual(parsed["render"]["style"], "forge")
         self.assertEqual(parsed["defaults"]["backup"]["payload_codec"], "gzip")
         self.assertEqual(parsed["defaults"]["backup"]["qr_payload_codec"], "base64")
         self.assertEqual(parsed["qr"]["error"], "Q")
@@ -283,86 +253,66 @@ qr_payload_codec = "raw"
 
     def test_build_paths_contains_expected_required_files(self) -> None:
         user_cfg = Path("/tmp/usercfg")
-        with mock.patch.object(installer, "user_config_dir_path", return_value=user_cfg):
+        with mock.patch.object(config_paths, "user_config_dir_path", return_value=user_cfg):
             with mock.patch.object(
-                installer, "user_templates_root_path", return_value=user_cfg / "templates"
+                config_paths,
+                "user_config_file_path",
+                return_value=user_cfg / "config.toml",
             ):
-                with mock.patch.object(
-                    installer,
-                    "user_templates_design_path",
-                    side_effect=lambda design: user_cfg / "templates" / design,
-                ):
-                    with mock.patch.object(
-                        installer,
-                        "user_config_file_path",
-                        return_value=user_cfg / "config.toml",
-                    ):
-                        paths = installer._build_paths()
+                paths = config_paths.build_config_paths()
 
         self.assertEqual(paths.user_config_dir, Path("/tmp/usercfg"))
-        self.assertEqual(paths.user_templates_root, Path("/tmp/usercfg/templates"))
-        self.assertEqual(paths.user_templates_dir, Path("/tmp/usercfg/templates/sentinel"))
         self.assertEqual(paths.user_config_path, Path("/tmp/usercfg/config.toml"))
-        self.assertEqual(len(paths.user_template_paths), 5)
-        self.assertEqual(len(paths.user_required_files), 6)
+        self.assertEqual(len(paths.user_required_files), 1)
         self.assertIn(paths.user_config_path, paths.user_required_files)
 
-    def test_list_template_designs_handles_missing_and_filters_entries(self) -> None:
+    def test_list_render_styles_handles_missing_and_filters_entries(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             templates_root = Path(tmpdir) / "package-templates"
-            user_cfg = Path(tmpdir) / "usercfg"
             with mock.patch.object(installer, "TEMPLATES_RESOURCE_ROOT", templates_root):
-                with mock.patch.object(installer, "user_config_dir_path", return_value=user_cfg):
-                    with mock.patch.object(
-                        installer, "user_templates_root_path", return_value=user_cfg / "templates"
-                    ):
-                        self.assertEqual(installer.list_template_designs(), {})
+                self.assertEqual(installer.list_render_styles(), {})
 
-                        templates_root.mkdir(parents=True, exist_ok=True)
+                templates_root.mkdir(parents=True, exist_ok=True)
 
-                        _create_design(templates_root, "ledger")
-                        _create_design(templates_root, "maritime")
-                        _create_design(templates_root, "archive_stack")
-                        _create_design(templates_root, "maritime_ledger")
-                        _create_design(templates_root, "shadow_archive")
-                        _create_design(templates_root, ".hidden")
-                        (templates_root / "file.txt").write_text("x", encoding="utf-8")
-                        (templates_root / "invalid").mkdir(parents=True, exist_ok=True)
-                        (templates_root / "_shared").mkdir(parents=True, exist_ok=True)
+                _create_design(templates_root, "ledger")
+                _create_design(templates_root, "maritime")
+                _create_design(templates_root, "archive_stack")
+                _create_design(templates_root, "maritime_ledger")
+                _create_design(templates_root, "shadow_archive")
+                _create_design(templates_root, ".hidden")
+                (templates_root / "file.txt").write_text("x", encoding="utf-8")
+                (templates_root / "invalid").mkdir(parents=True, exist_ok=True)
+                (templates_root / "_shared").mkdir(parents=True, exist_ok=True)
 
-                        user_ledger = _create_design(user_cfg / "templates", "ledger")
-                        result = installer.list_template_designs()
+                result = installer.list_render_styles()
 
         self.assertEqual(set(result.keys()), {"ledger", "maritime"})
-        self.assertEqual(result["ledger"], user_ledger)
+        self.assertEqual(result["ledger"], templates_root / "ledger")
         self.assertEqual(result["maritime"], templates_root / "maritime")
         self.assertNotIn("archive_stack", result)
         self.assertNotIn("maritime_ledger", result)
         self.assertNotIn("shadow_archive", result)
 
-    def test_resolve_template_design_path_variants(self) -> None:
+    def test_resolve_render_style_path_variants(self) -> None:
         designs = {
             "Ledger": Path("/tmp/ledger"),
             "forge": Path("/tmp/forge"),
         }
-        with mock.patch.object(installer, "list_template_designs", return_value=designs):
-            self.assertEqual(installer.resolve_template_design_path("forge"), Path("/tmp/forge"))
-            self.assertEqual(installer.resolve_template_design_path("ledger"), Path("/tmp/ledger"))
+        with mock.patch.object(installer, "list_render_styles", return_value=designs):
+            self.assertEqual(installer.resolve_render_style_path("forge"), Path("/tmp/forge"))
+            self.assertEqual(installer.resolve_render_style_path("ledger"), Path("/tmp/ledger"))
             with self.assertRaisesRegex(ValueError, "cannot be empty"):
-                installer.resolve_template_design_path("   ")
-            with self.assertRaisesRegex(ValueError, "unknown template design"):
-                installer.resolve_template_design_path("nope")
+                installer.resolve_render_style_path("   ")
+            with self.assertRaisesRegex(ValueError, "unknown render style"):
+                installer.resolve_render_style_path("nope")
 
     def test_init_user_config_success_and_failure(self) -> None:
         paths = installer.ConfigPaths(
             user_config_dir=Path("/tmp/config"),
-            user_templates_root=Path("/tmp/config/templates"),
-            user_templates_dir=Path("/tmp/config/templates/ledger"),
             user_config_path=Path("/tmp/config/config.toml"),
-            user_template_paths={},
             user_required_files=(),
         )
-        with mock.patch.object(installer, "_build_paths", return_value=paths):
+        with mock.patch.object(installer, "build_config_paths", return_value=paths):
             with mock.patch.object(installer, "_ensure_user_config", return_value=True):
                 self.assertEqual(installer.init_user_config(), Path("/tmp/config"))
             with mock.patch.object(installer, "_ensure_user_config", return_value=False):
@@ -377,16 +327,13 @@ qr_payload_codec = "raw"
             existing.write_text("ok", encoding="utf-8")
             paths = installer.ConfigPaths(
                 user_config_dir=root,
-                user_templates_root=root / "templates",
-                user_templates_dir=root / "templates" / "ledger",
                 user_config_path=root / "config.toml",
-                user_template_paths={},
                 user_required_files=(existing, missing),
             )
-            with mock.patch.object(installer, "_build_paths", return_value=paths):
+            with mock.patch.object(installer, "build_config_paths", return_value=paths):
                 self.assertTrue(installer.user_config_needs_init())
             missing.write_text("ok", encoding="utf-8")
-            with mock.patch.object(installer, "_build_paths", return_value=paths):
+            with mock.patch.object(installer, "build_config_paths", return_value=paths):
                 self.assertFalse(installer.user_config_needs_init())
 
     def test_resolve_config_path_paths(self) -> None:
@@ -395,7 +342,7 @@ qr_payload_codec = "raw"
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict(os.environ, _home_env(home), clear=False):
+            with mock.patch.dict(os.environ, home_environment(home), clear=False):
                 self.assertEqual(
                     installer.resolve_config_path("~/custom.toml"),
                     home / "custom.toml",
@@ -407,16 +354,13 @@ qr_payload_codec = "raw"
             config_path.write_text("x", encoding="utf-8")
             paths = installer.ConfigPaths(
                 user_config_dir=root,
-                user_templates_root=root / "templates",
-                user_templates_dir=root / "templates" / "ledger",
                 user_config_path=config_path,
-                user_template_paths={},
                 user_required_files=(),
             )
-            with mock.patch.object(installer, "_build_paths", return_value=paths):
+            with mock.patch.object(installer, "build_config_paths", return_value=paths):
                 with mock.patch.object(installer, "_ensure_user_config", return_value=True):
                     self.assertEqual(installer.resolve_config_path(), config_path)
-            with mock.patch.object(installer, "_build_paths", return_value=paths):
+            with mock.patch.object(installer, "build_config_paths", return_value=paths):
                 with mock.patch.object(installer, "_ensure_user_config", return_value=False):
                     self.assertEqual(installer.resolve_config_path(), installer.DEFAULT_CONFIG_PATH)
 
@@ -425,68 +369,22 @@ qr_payload_codec = "raw"
             root = Path(tmpdir)
             paths = installer.ConfigPaths(
                 user_config_dir=root / "cfg",
-                user_templates_root=root / "cfg" / "templates",
-                user_templates_dir=root / "cfg" / "templates" / "ledger",
                 user_config_path=root / "cfg" / "config.toml",
-                user_template_paths={},
                 user_required_files=(),
             )
             with mock.patch.object(installer, "_copy_if_missing") as copy_mock:
-                with mock.patch.object(installer, "_copy_template_designs") as copy_designs_mock:
-                    with mock.patch.object(
-                        installer,
-                        "_migrate_user_config",
-                        return_value=False,
-                    ) as migrate_mock:
-                        with mock.patch.object(
-                            installer,
-                            "get_ethernity_version",
-                            return_value="9.9.9",
-                        ):
-                            self.assertTrue(installer._ensure_user_config(paths))
+                with mock.patch.object(
+                    installer,
+                    "_migrate_user_config",
+                    return_value=False,
+                ) as migrate_mock:
+                    self.assertTrue(installer._ensure_user_config(paths))
             copy_mock.assert_called_once()
             migrate_mock.assert_called_once_with(paths.user_config_path)
-            copy_designs_mock.assert_called_once_with(paths, overwrite=True)
             self.assertTrue(paths.user_config_dir.is_dir())
-            self.assertTrue(paths.user_templates_root.is_dir())
 
             with mock.patch.object(installer, "_copy_if_missing", side_effect=OSError("denied")):
                 self.assertFalse(installer._ensure_user_config(paths))
-
-    def test_ensure_user_config_reuses_synced_version_without_overwrite(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            paths = installer.ConfigPaths(
-                user_config_dir=root / "cfg",
-                user_templates_root=root / "cfg" / "templates",
-                user_templates_dir=root / "cfg" / "templates" / "ledger",
-                user_config_path=root / "cfg" / "config.toml",
-                user_template_paths={},
-                user_required_files=(),
-            )
-
-            with mock.patch.object(installer, "_copy_if_missing"):
-                with mock.patch.object(installer, "_migrate_user_config", return_value=False):
-                    with mock.patch.object(
-                        installer, "_copy_template_designs"
-                    ) as copy_designs_mock:
-                        with mock.patch.object(
-                            installer,
-                            "get_ethernity_version",
-                            return_value="9.9.9",
-                        ):
-                            self.assertTrue(installer._ensure_user_config(paths))
-                            copy_designs_mock.assert_called_once_with(paths, overwrite=True)
-
-                            state_path = (
-                                paths.user_templates_root / installer._TEMPLATE_SYNC_STATE_FILENAME
-                            )
-                            state = json.loads(state_path.read_text(encoding="utf-8"))
-                            self.assertEqual(state["template_version"], "9.9.9")
-
-                            copy_designs_mock.reset_mock()
-                            self.assertTrue(installer._ensure_user_config(paths))
-                            copy_designs_mock.assert_called_once_with(paths, overwrite=False)
 
     def test_ensure_user_config_migrates_stale_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -498,21 +396,11 @@ qr_payload_codec = "raw"
 
             paths = installer.ConfigPaths(
                 user_config_dir=root / "cfg",
-                user_templates_root=root / "cfg" / "templates",
-                user_templates_dir=root / "cfg" / "templates" / "ledger",
                 user_config_path=config_path,
-                user_template_paths={},
                 user_required_files=(),
             )
 
-            with mock.patch.object(installer, "_copy_template_designs") as copy_designs_mock:
-                with mock.patch.object(
-                    installer,
-                    "get_ethernity_version",
-                    return_value="9.9.9",
-                ):
-                    self.assertTrue(installer._ensure_user_config(paths))
-            copy_designs_mock.assert_called_once_with(paths, overwrite=True)
+            self.assertTrue(installer._ensure_user_config(paths))
 
             migrated = config_path.read_text(encoding="utf-8")
             self.assertIn('qr_payload_codec = "raw"', migrated)
@@ -589,88 +477,6 @@ qr_payload_codec = "raw"
         updated, applied = installer._apply_config_migrations("[defaults.backup]\n", steps)
         self.assertEqual(updated, "[defaults.backup]\n")
         self.assertEqual(applied, ())
-
-    def test_copy_template_designs_shared_and_design_copy_behavior(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            templates_root = root / "package-templates"
-            shared = templates_root / "_shared"
-            shared.mkdir(parents=True, exist_ok=True)
-            (shared / "a.txt").write_text("a", encoding="utf-8")
-            (shared / ".secret").write_text("secret", encoding="utf-8")
-            (shared / "nested").mkdir(parents=True, exist_ok=True)
-            (shared / "nested" / "b.txt").write_text("b", encoding="utf-8")
-
-            _create_design(templates_root, "ledger")
-            invalid = templates_root / "invalid"
-            invalid.mkdir(parents=True, exist_ok=True)
-            (invalid / "main_document.html.j2").write_text("x", encoding="utf-8")
-            (templates_root / ".dotdesign").mkdir(parents=True, exist_ok=True)
-
-            paths = installer.ConfigPaths(
-                user_config_dir=root / "cfg",
-                user_templates_root=root / "cfg" / "templates",
-                user_templates_dir=root / "cfg" / "templates" / "ledger",
-                user_config_path=root / "cfg" / "config.toml",
-                user_template_paths={},
-                user_required_files=(),
-            )
-            with mock.patch.object(installer, "TEMPLATES_RESOURCE_ROOT", templates_root):
-                installer._copy_template_designs(paths)
-            self.assertTrue((paths.user_templates_root / "_shared" / "a.txt").is_file())
-            self.assertTrue((paths.user_templates_root / "_shared" / "nested" / "b.txt").is_file())
-            self.assertFalse((paths.user_templates_root / "_shared" / ".secret").exists())
-            for filename in installer.TEMPLATE_FILENAMES:
-                self.assertTrue((paths.user_templates_root / "ledger" / filename).is_file())
-            self.assertFalse((paths.user_templates_root / "invalid").exists())
-
-    def test_copy_template_designs_overwrite_flag_controls_replacement(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            templates_root = root / "package-templates"
-
-            _create_design(templates_root, "ledger")
-
-            paths = installer.ConfigPaths(
-                user_config_dir=root / "cfg",
-                user_templates_root=root / "cfg" / "templates",
-                user_templates_dir=root / "cfg" / "templates" / "ledger",
-                user_config_path=root / "cfg" / "config.toml",
-                user_template_paths={},
-                user_required_files=(),
-            )
-            existing_path = (
-                paths.user_templates_root / "ledger" / installer.DEFAULT_TEMPLATE_PATH.name
-            )
-            existing_path.parent.mkdir(parents=True, exist_ok=True)
-            existing_path.write_text("custom-user-template", encoding="utf-8")
-
-            with mock.patch.object(installer, "TEMPLATES_RESOURCE_ROOT", templates_root):
-                installer._copy_template_designs(paths, overwrite=False)
-                self.assertEqual(existing_path.read_text(encoding="utf-8"), "custom-user-template")
-
-                installer._copy_template_designs(paths, overwrite=True)
-                self.assertEqual(
-                    existing_path.read_text(encoding="utf-8"),
-                    f"ledger:{installer.DEFAULT_TEMPLATE_PATH.name}",
-                )
-
-    def test_copy_template_designs_no_package_templates_root(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            paths = installer.ConfigPaths(
-                user_config_dir=root / "cfg",
-                user_templates_root=root / "cfg" / "templates",
-                user_templates_dir=root / "cfg" / "templates" / "ledger",
-                user_config_path=root / "cfg" / "config.toml",
-                user_template_paths={},
-                user_required_files=(),
-            )
-            with mock.patch.object(
-                installer, "TEMPLATES_RESOURCE_ROOT", root / "missing-templates"
-            ):
-                installer._copy_template_designs(paths)
-            self.assertFalse(paths.user_templates_root.exists())
 
     def test_copy_if_missing_respects_existing_and_copies_when_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

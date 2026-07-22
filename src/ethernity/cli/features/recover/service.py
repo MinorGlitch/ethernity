@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
-from pathlib import Path
 from typing import Literal
 
 from ethernity.cli.features.recover.execution import (
@@ -34,21 +33,15 @@ from ethernity.cli.shared.events import (
     emit_progress,
     event_session,
 )
-from ethernity.cli.shared.io.outputs import _single_entry_uses_directory_output
-from ethernity.cli.shared.paths import display_parent_path, expanduser_cli_path
+from ethernity.cli.shared.io.outputs import single_entry_uses_directory_output
+from ethernity.cli.shared.paths import display_parent_path
 from ethernity.cli.shared.types import RecoverArgs
-from ethernity.cli.shared.ui.debug import print_recover_debug
+from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 
 
-@dataclass(frozen=True)
-class RecoverShardDirError(ValueError):
-    reason: str
-    path: str
-    message: str
-
-    def __post_init__(self) -> None:
-        ValueError.__init__(self, self.message)
+def print_recover_debug(**_: object) -> None:
+    return
 
 
 @dataclass(frozen=True)
@@ -68,55 +61,17 @@ class RecoverExecutionResult:
     selected_extension_doc_hash: str | None = None
 
 
-def expand_recover_shard_dir(shard_dir: str | None) -> list[str]:
-    """Expand shard directory to a list of `.txt` files."""
-
-    if not shard_dir:
-        return []
-    path = Path(expanduser_cli_path(shard_dir, preserve_stdin=False) or "")
-    if not path.exists():
-        raise RecoverShardDirError(
-            reason="not_found",
-            path=shard_dir,
-            message=f"shard directory not found: {shard_dir}",
-        )
-    if not path.is_dir():
-        raise RecoverShardDirError(
-            reason="invalid_type",
-            path=shard_dir,
-            message=f"shard-dir must be a directory: {shard_dir}",
-        )
-    files = sorted(
-        child for child in path.iterdir() if child.is_file() and child.suffix.lower() == ".txt"
-    )
-    if not files:
-        raise RecoverShardDirError(
-            reason="empty",
-            path=shard_dir,
-            message=f"no .txt files found in shard directory: {shard_dir}",
-        )
-    return [str(path_item) for path_item in files]
-
-
-def apply_recover_stdin_default(
-    fallback_file: str | None,
-    payloads_file: str | None,
-    scan: list[str] | None,
-    *,
-    extension_selector_present: bool = False,
-    stdin_is_tty: bool,
-) -> str | None:
-    if fallback_file or payloads_file or (scan or []) or extension_selector_present or stdin_is_tty:
-        return fallback_file
-    return "-"
-
-
 def prepare_recover_plan(
     args: RecoverArgs,
     *,
     event_sink: EventSink | None = None,
 ) -> RecoveryPlan:
-    with event_session(event_sink):
+    with (
+        event_session(event_sink),
+        recovery_kdf_budget(
+            allow_resource_intensive_compatibility=(args.resource_intensive_compatibility_recovery)
+        ),
+    ):
         emit_phase(phase="plan", label="Resolving recovery inputs")
         plan = plan_from_args(args)
         emit_progress(
@@ -143,7 +98,12 @@ def execute_recover_plan(
     emit_file_artifacts: bool = True,
     event_sink: EventSink | None = None,
 ) -> RecoverExecutionResult:
-    with event_session(event_sink):
+    with (
+        event_session(event_sink),
+        recovery_kdf_budget(
+            allow_resource_intensive_compatibility=(plan.resource_intensive_compatibility_recovery)
+        ),
+    ):
         file_payloads: list[dict[str, object]] = []
 
         def _on_file_written(
@@ -208,7 +168,7 @@ def execute_recover_plan(
             and len(extracted) == 1
             and manifest.input_origin in {"directory", "mixed"}
         )
-        single_entry_output_is_directory = _single_entry_uses_directory_output(
+        single_entry_output_is_directory = single_entry_uses_directory_output(
             plan.output_path,
             single_entry_output_is_directory=single_entry_output_is_directory,
         )
@@ -256,9 +216,6 @@ def execute_recover_plan(
 
 __all__ = [
     "RecoverExecutionResult",
-    "RecoverShardDirError",
-    "apply_recover_stdin_default",
     "execute_recover_plan",
-    "expand_recover_shard_dir",
     "prepare_recover_plan",
 ]

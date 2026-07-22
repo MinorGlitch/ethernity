@@ -213,14 +213,20 @@ def encode_extension_envelope(document: object) -> bytes:
     return document.encode()
 
 
-def decode_extension_envelope(data: bytes) -> object:
+def decode_extension_envelope(
+    data: bytes,
+    *,
+    max_inline_chunk_bytes: int | None = None,
+) -> object:
     """Decode an extension envelope."""
 
-    return ExtensionEnvelope.decode(data)
+    if max_inline_chunk_bytes is None:
+        return ExtensionEnvelope.decode(data)
+    return ExtensionEnvelope.decode(data, max_inline_chunk_bytes=max_inline_chunk_bytes)
 
 
-def decode_any_envelope(data: bytes) -> tuple[int, object]:
-    """Decode any supported envelope version and return `(version, payload)`."""
+def detect_envelope_version(data: bytes) -> int:
+    """Return the authenticated plaintext envelope version without decoding its body."""
 
     idx = len(MAGIC)
     if len(data) < idx + 1:
@@ -228,10 +234,24 @@ def decode_any_envelope(data: bytes) -> tuple[int, object]:
     if data[:idx] != MAGIC:
         raise ValueError("invalid envelope magic")
     version, _next_idx = _decode_uvarint(data, idx)
+    return version
+
+
+def decode_any_envelope(
+    data: bytes,
+    *,
+    max_extension_inline_chunk_bytes: int | None = None,
+) -> tuple[int, object]:
+    """Decode any supported envelope version and return `(version, payload)`."""
+
+    version = detect_envelope_version(data)
     if version == VERSION:
         return version, decode_envelope(data)
     if version == 2:
-        return version, decode_extension_envelope(data)
+        return version, decode_extension_envelope(
+            data,
+            max_inline_chunk_bytes=max_extension_inline_chunk_bytes,
+        )
     raise ValueError(f"unsupported envelope version: {version}")
 
 
@@ -242,6 +262,10 @@ def extract_payloads(
     """Split payload bytes into manifest entries and verify entry hashes."""
 
     payload = decode_payload_from_manifest(manifest, payload)
+    expected_payload_len = sum(entry.size for entry in manifest.files)
+    if len(payload) != expected_payload_len:
+        raise ValueError("payload length does not match manifest sizes")
+
     outputs: list[tuple[ManifestFile, bytes]] = []
     offset = 0
     for entry in manifest.files:
@@ -253,8 +277,6 @@ def extract_payloads(
             raise ValueError(f"sha256 mismatch for {entry.path}")
         outputs.append((entry, data))
         offset = end
-    if offset != len(payload):
-        raise ValueError("payload length does not match manifest sizes")
     return outputs
 
 

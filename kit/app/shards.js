@@ -15,10 +15,10 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { bytesToHex } from "../lib/encoding.js";
+import { bytesToHex } from "../lib/bytes.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED, textDecoder } from "./constants.js";
-import { completeDocumentRecords } from "./document_store.js";
+import { completeDocumentRecords } from "./documents/store.js";
 import { ensureCiphertextAndHash, ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 import { activateShardSet, shardSetRecords } from "./shard_store.js";
 import { setStatus } from "./state/initial.js";

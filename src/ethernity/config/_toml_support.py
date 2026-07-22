@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import re
 import tempfile
+import tomllib
 from pathlib import Path
 
 _TABLE_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$")
+
+
+def load_toml(path: Path) -> dict[str, object]:
+    """Load a TOML file into a raw dictionary."""
+
+    with path.open("rb") as handle:
+        return tomllib.load(handle)
 
 
 def write_text_atomic(path: Path, text: str) -> None:

@@ -31,7 +31,6 @@ from ethernity.cli.features.recover.key_recovery import (
 )
 from ethernity.cli.features.recover.planning import plan_from_args as plan_recover_from_args
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_from_doc_hash
 from ethernity.cli.shared.io.frames import frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.root_shard_policy import (
@@ -40,14 +39,15 @@ from ethernity.cli.shared.root_shard_policy import (
     root_shard_quorum_from_frames,
 )
 from ethernity.cli.shared.types import BackupArgs, BackupResult, CompactArgs, InputFile, RecoverArgs
-from ethernity.config import apply_template_design, load_app_config
+from ethernity.config import apply_render_style, load_app_config
 from ethernity.crypto import sharding as sharding_module
+from ethernity.crypto.document_identity import doc_id_from_doc_hash
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import recover_chain_entries
-from ethernity.extensions.staging import EXTENSION_CHAIN_LOCK_DIR_NAME
+from ethernity.extensions.staging import EXTENSION_CHAIN_LOCK_FILE_NAME
 from ethernity.render.types import RenderLineage
 
 
@@ -217,10 +217,10 @@ def _compact_head_value(value: object) -> object:
     return value.hex() if isinstance(value, bytes) else value
 
 
-def _compact_source_chain_lock_dir(root_dir: Path | None) -> Path | None:
+def _compact_source_chain_lock_path(root_dir: Path | None) -> Path | None:
     if root_dir is None:
         return None
-    return root_dir / EXTENSIONS_DIR_NAME / EXTENSION_CHAIN_LOCK_DIR_NAME
+    return root_dir / EXTENSIONS_DIR_NAME / EXTENSION_CHAIN_LOCK_FILE_NAME
 
 
 def _prepare_compact_source_chain_lock(root_dir: Path | None) -> None:
@@ -493,7 +493,7 @@ def run_compact(args: CompactArgs) -> BackupResult:
         quiet=args.quiet,
     )
     config = load_app_config(backup_args.config, paper_size=backup_args.paper)
-    config = apply_template_design(config, backup_args.design)
+    config = apply_render_style(config, backup_args.design)
     config = apply_qr_chunk_size_override(config, backup_args.qr_chunk_size)
     backup_plan = plan_backup_from_args(backup_args)
     input_files = [
@@ -505,7 +505,7 @@ def run_compact(args: CompactArgs) -> BackupResult:
         )
         for entry, data in chain.extracted
     ]
-    promote_lock_dir = _compact_source_chain_lock_dir(root_dir)
+    promote_lock_path = _compact_source_chain_lock_path(root_dir)
     prepare_promotion = (
         (lambda: _prepare_compact_source_chain_lock(root_dir)) if root_dir is not None else None
     )
@@ -522,13 +522,14 @@ def run_compact(args: CompactArgs) -> BackupResult:
         config=config,
         signing_seed_override=None if manifest.sealed else manifest.signing_seed,
         render_lineage=RenderLineage(kind="compaction_checkpoint"),
-        promote_lock_dir=promote_lock_dir,
+        promote_lock_path=promote_lock_path,
         prepare_promotion=prepare_promotion,
         validate_promotion=lambda: _validate_compact_source_head_for_promotion(
             args=args,
             root_dir=root_dir,
             expected=source_head,
         ),
+        publication_durability="required",
         quiet=args.quiet,
     )
     return replace(

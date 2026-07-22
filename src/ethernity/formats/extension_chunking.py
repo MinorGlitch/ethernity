@@ -21,12 +21,22 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 
-Chunker = Callable[[bytes, "ExtensionChunkingProfile"], Sequence[bytes]]
+class ExtensionChunkingProfileLike(Protocol):
+    @property
+    def target_size(self) -> int: ...
+
+    @property
+    def min_size(self) -> int: ...
+
+    @property
+    def max_size(self) -> int: ...
+
+
+ChunkRange = tuple[int, int]
+Chunker = Callable[[bytes, ExtensionChunkingProfileLike], Sequence[ChunkRange]]
 
 _ROLLING_HASH_MASK = (1 << 64) - 1
 _MIN_MASK_BITS = 4
@@ -50,11 +60,13 @@ _GEAR_TABLE = _build_gear_table()
 
 def default_extension_chunker(
     data: bytes,
-    profile: "ExtensionChunkingProfile",
-) -> tuple[bytes, ...]:
+    profile: ExtensionChunkingProfileLike,
+) -> tuple[ChunkRange, ...]:
+    """Return canonical ``(start, end)`` ranges without copying chunk payloads."""
+
     if not data:
         return ()
-    chunks: list[bytes] = []
+    chunks: list[ChunkRange] = []
     start = 0
     data_view = memoryview(data)
     primary_mask, secondary_mask = _rolling_masks(profile.target_size)
@@ -68,31 +80,62 @@ def default_extension_chunker(
             primary_mask=primary_mask,
             secondary_mask=secondary_mask,
         )
-        chunks.append(bytes(data_view[start:chunk_end]))
+        if chunk_end is None:  # eof=True always yields a boundary.
+            raise AssertionError("canonical chunker failed to produce an EOF boundary")
+        chunks.append((start, chunk_end))
         start = chunk_end
     return tuple(chunks)
 
 
 def canonical_chunk_refs_for_bytes(
     data: bytes,
-    profile: "ExtensionChunkingProfile",
+    profile: ExtensionChunkingProfileLike,
 ) -> tuple[tuple[bytes, int], ...]:
     """Return the canonical chunk reference sequence for bytes under an extension profile."""
 
+    data_view = memoryview(data)
     return tuple(
-        (hashlib.sha256(chunk).digest(), len(chunk))
-        for chunk in default_extension_chunker(data, profile)
+        (hashlib.sha256(data_view[start:end]).digest(), end - start)
+        for start, end in default_extension_chunker(data, profile)
     )
 
 
 def require_canonical_chunk_refs(
     declared_refs: Sequence[tuple[bytes, int]],
     data: bytes,
-    profile: "ExtensionChunkingProfile",
+    profile: ExtensionChunkingProfileLike,
 ) -> None:
     """Reject chunk refs that do not match the locked extension chunking profile."""
 
     if tuple(declared_refs) != canonical_chunk_refs_for_bytes(data, profile):
+        raise ValueError("extension file chunk_refs do not match locked chunking profile")
+
+
+def require_canonical_chunk_boundary(
+    chunk: bytes | memoryview,
+    profile: ExtensionChunkingProfileLike,
+    *,
+    is_final: bool,
+) -> None:
+    """Validate one declared chunk boundary without reconstructing or rechunking a file."""
+
+    chunk_view = chunk if isinstance(chunk, memoryview) else memoryview(chunk)
+    if not chunk_view:
+        raise ValueError("extension chunk must not be empty")
+    if not is_final and len(chunk_view) < profile.min_size:
+        raise ValueError("extension file chunk_refs do not match locked chunking profile")
+    primary_mask, secondary_mask = _rolling_masks(profile.target_size)
+    boundary = _next_chunk_boundary(
+        chunk_view,
+        start=0,
+        min_size=profile.min_size,
+        target_size=profile.target_size,
+        max_size=profile.max_size,
+        primary_mask=primary_mask,
+        secondary_mask=secondary_mask,
+        eof=is_final,
+    )
+    if boundary != len(chunk_view):
         raise ValueError("extension file chunk_refs do not match locked chunking profile")
 
 
@@ -112,9 +155,10 @@ def _next_chunk_boundary(
     max_size: int,
     primary_mask: int,
     secondary_mask: int,
-) -> int:
+    eof: bool = True,
+) -> int | None:
     total_len = len(data)
-    if total_len - start <= min_size:
+    if eof and total_len - start <= min_size:
         return total_len
 
     min_end = min(total_len, start + min_size)
@@ -145,7 +189,9 @@ def _next_chunk_boundary(
         if fingerprint & mask == 0:
             return index + 1
 
-    return max_end
+    if eof or max_end - start == max_size:
+        return max_end
+    return None
 
 
 def _roll_fingerprint(current: int, byte_value: int) -> int:
@@ -159,7 +205,9 @@ def _rotate_left(value: int, shift: int) -> int:
 
 __all__ = [
     "Chunker",
+    "ChunkRange",
     "canonical_chunk_refs_for_bytes",
     "default_extension_chunker",
     "require_canonical_chunk_refs",
+    "require_canonical_chunk_boundary",
 ]

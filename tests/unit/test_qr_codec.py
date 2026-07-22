@@ -18,7 +18,7 @@ import unittest
 
 from PIL import Image
 
-from ethernity.qr.codec import qr_bytes
+from ethernity.qr.codec import QrConfig, qr_bytes
 
 # Try to import zxingcpp for QR decoding verification
 try:
@@ -65,6 +65,25 @@ class TestQrCodec(unittest.TestCase):
             self.assertEqual(img.format, "PNG")
             self.assertGreater(img.width, 0)
             self.assertGreater(img.height, 0)
+
+    def test_capacity_failure_is_actionable_instead_of_leaking_segno_error(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            r"QR payload does not fit.*payload_bytes=4000.*error=Q.*lower QR error",
+        ):
+            qr_bytes(b"x" * 4_000, error="Q")
+
+    def test_large_single_payload_can_use_a_capacity_appropriate_error_level(self) -> None:
+        png = qr_bytes(b"x" * 2_050, error="M", boost_error=False)
+
+        self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_default_error_level_encodes_the_maximum_raw_frame_size(self) -> None:
+        self.assertEqual(QrConfig().error, "M")
+
+        png = qr_bytes(b"x" * 2_068)
+
+        self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
 
     @unittest.skipUnless(HAS_ZXING, "zxingcpp not available")
     def test_payload_decodable_cases(self) -> None:

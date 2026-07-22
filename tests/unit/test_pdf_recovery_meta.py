@@ -16,8 +16,11 @@
 import unittest
 
 from ethernity.render.recovery_meta import (
+    PASSPHRASE_PRINT_MODE_JSON,
+    PASSPHRASE_PRINT_MODE_LITERAL,
     RecoveryMeta,
     build_recovery_meta,
+    decode_printed_passphrase,
     recovery_meta_lines_extra,
 )
 
@@ -79,6 +82,66 @@ class TestPdfRecoveryMeta(unittest.TestCase):
                 quorum_shares=None,
                 signing_pub=None,
             )
+
+    def test_canonical_words_keep_literal_grouping(self) -> None:
+        passphrase = " ".join(f"word{index:02d}" for index in range(24))
+
+        meta = build_recovery_meta(
+            passphrase=passphrase,
+            quorum_threshold=None,
+            quorum_shares=None,
+            signing_pub=None,
+        )
+
+        self.assertEqual(meta.passphrase_print_mode, PASSPHRASE_PRINT_MODE_LITERAL)
+        self.assertEqual(len(meta.passphrase_lines), 4)
+        self.assertEqual(
+            decode_printed_passphrase(
+                meta.passphrase_lines,
+                print_mode=meta.passphrase_print_mode,
+            ),
+            passphrase,
+        )
+
+    def test_significant_whitespace_and_unicode_use_lossless_ascii_json(self) -> None:
+        for passphrase in (
+            "alpha  beta",
+            "alpha\tbeta\ngamma",
+            " p\u00e4ssphrase ",
+            "emoji \U0001f510 passphrase",
+        ):
+            with self.subTest(passphrase=passphrase):
+                meta = build_recovery_meta(
+                    passphrase=passphrase,
+                    quorum_threshold=None,
+                    quorum_shares=None,
+                    signing_pub=None,
+                )
+
+                self.assertEqual(meta.passphrase_print_mode, PASSPHRASE_PRINT_MODE_JSON)
+                self.assertTrue(all(line.isascii() for line in meta.passphrase_lines))
+                self.assertEqual(
+                    decode_printed_passphrase(
+                        meta.passphrase_lines,
+                        print_mode=meta.passphrase_print_mode,
+                    ),
+                    passphrase,
+                )
+
+    def test_json_part_decoder_rejects_out_of_order_or_incomplete_numbering(self) -> None:
+        with self.assertRaisesRegex(ValueError, "incomplete or out of order"):
+            decode_printed_passphrase(
+                ('02/02 "beta"', '01/02 "alpha"'),
+                print_mode="json-parts",
+            )
+        for lines in (
+            (),
+            ('01/03 "alpha"', '02/03 "beta"'),
+            ('01/02 "alpha"', '01/02 "beta"'),
+        ):
+            with self.subTest(lines=lines):
+                with self.assertRaises(ValueError):
+                    decode_printed_passphrase(lines, print_mode="json-parts")
 
 
 if __name__ == "__main__":

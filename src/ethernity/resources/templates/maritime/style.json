@@ -1,15 +1,3 @@
 {
-  "name": "maritime",
-  "header": {
-    "meta_row_gap_mm": 1.2,
-    "stack_gap_mm": 1.6,
-    "divider_thickness_mm": 0.4
-  },
-  "content_offset": {
-    "divider_gap_extra_mm": -10.0,
-    "doc_types": ["recovery"]
-  },
-  "capabilities": {
-    "repeat_main_instructions_on_all_pages": true
-  }
+  "name": "maritime"
 }

@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "name": "sentinel",
+  "style": "style.json",
+  "documents": [
+    "main",
+    "recovery",
+    "shard",
+    "signing_key_shard",
+    "kit",
+    "kit_index"
+  ],
+  "page_support": {
+    "main": { "minimum_width_mm": 200.0, "minimum_height_mm": 279.4 },
+    "recovery": { "minimum_width_mm": 200.0, "minimum_height_mm": 279.4 },
+    "shard": { "minimum_width_mm": 200.0, "minimum_height_mm": 279.4 },
+    "signing_key_shard": { "minimum_width_mm": 200.0, "minimum_height_mm": 279.4 },
+    "kit": { "minimum_width_mm": 200.0, "minimum_height_mm": 279.4 },
+    "kit_index": { "minimum_width_mm": 200.0, "minimum_height_mm": 279.4 }
+  }
+}

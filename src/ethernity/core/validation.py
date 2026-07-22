@@ -25,6 +25,12 @@ from ethernity.core.bounds import MAX_PATH_BYTES
 T = TypeVar("T")
 
 
+def has_windows_drive_prefix(path: str) -> bool:
+    """Return whether text begins with a Windows drive-letter prefix."""
+
+    return len(path) >= 2 and path[1] == ":" and path[0].isalpha()
+
+
 def require_list(value: object, min_length: int, *, label: str) -> list[Any] | tuple[Any, ...]:
     """Validate that value is a list/tuple with at least min_length elements."""
     if not isinstance(value, (list, tuple)) or len(value) < min_length:
@@ -66,7 +72,7 @@ def normalize_manifest_path(path: object, *, label: str = "path") -> str:
         raise ValueError(f"{label} must not contain control characters")
     if normalized.startswith("/"):
         raise ValueError(f"{label} must be relative (no leading '/')")
-    if len(normalized) >= 2 and normalized[1] == ":" and normalized[0].isalpha():
+    if has_windows_drive_prefix(normalized):
         raise ValueError(f"{label} must not start with a drive-letter prefix")
     if "\\" in normalized:
         raise ValueError(f"{label} must use POSIX separators ('/')")
@@ -81,6 +87,31 @@ def normalize_manifest_path(path: object, *, label: str = "path") -> str:
             f"{label} exceeds MAX_PATH_BYTES ({MAX_PATH_BYTES} bytes): {path_bytes} bytes"
         )
     return normalized
+
+
+def normalize_input_root_label(value: object, *, label: str) -> str:
+    """Normalize a path-safe input root and require one leaf label."""
+
+    root = normalize_manifest_path(value, label=label)
+    if "/" in root or "\\" in root:
+        raise ValueError(f"{label} must be a leaf label without path separators")
+    return root
+
+
+def validate_input_origin_roots(
+    input_origin: str,
+    input_roots: tuple[str, ...],
+    *,
+    label: str,
+) -> None:
+    """Validate the root-label cardinality required by an input origin."""
+
+    if input_origin == "file":
+        if input_roots:
+            raise ValueError(f"{label} must be empty when input_origin is file")
+        return
+    if not input_roots:
+        raise ValueError(f"{label} must be non-empty for directory or mixed input")
 
 
 def require_length(value: bytes, length: int, *, label: str, prefix: str = "") -> None:

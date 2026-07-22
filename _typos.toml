@@ -9,6 +9,7 @@ extend-exclude = [
   "tests/fixtures/v1_2/extension_golden/**/*.json",
   "tests/fixtures/v1_2/extension_golden/**/*.pdf",
   "tests/fixtures/v1_2/extension_golden/**/*.txt",
+  "tests/visual/snapshots/**/*.svg",
 ]
 
 [default.extend-words]

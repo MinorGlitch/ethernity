@@ -15,29 +15,26 @@
 
 import runpy
 import unittest
+from pathlib import Path
 from unittest import mock
 
 
 class TestMainEntrypoints(unittest.TestCase):
-    @mock.patch("ethernity.cli.main")
-    def test_package_main_dispatches_to_cli_main(self, cli_main: mock.MagicMock) -> None:
-        runpy.run_module("ethernity.__main__", run_name="__main__")
-        cli_main.assert_called_once_with()
+    @mock.patch("ethernity.main.main")
+    def test_package_main_dispatches_to_root_main(self, root_main: mock.MagicMock) -> None:
+        root_main.return_value = 0
+        with self.assertRaises(SystemExit) as ctx:
+            runpy.run_module("ethernity.__main__", run_name="__main__")
+        self.assertEqual(ctx.exception.code, 0)
+        root_main.assert_called_once_with()
 
-    @mock.patch("ethernity.cli.main")
-    def test_package_main_import_path_does_not_dispatch(self, cli_main: mock.MagicMock) -> None:
+    @mock.patch("ethernity.main.main")
+    def test_package_main_import_path_does_not_dispatch(self, root_main: mock.MagicMock) -> None:
         runpy.run_module("ethernity.__main__", run_name="ethernity.__main__")
-        cli_main.assert_not_called()
+        root_main.assert_not_called()
 
-    @mock.patch("ethernity.cli.bootstrap.app.main")
-    def test_cli_main_dispatches_to_app_main(self, app_main: mock.MagicMock) -> None:
-        runpy.run_module("ethernity.cli.__main__", run_name="__main__")
-        app_main.assert_called_once_with()
-
-    @mock.patch("ethernity.cli.bootstrap.app.main")
-    def test_cli_main_import_path_does_not_dispatch(self, app_main: mock.MagicMock) -> None:
-        runpy.run_module("ethernity.cli.__main__", run_name="ethernity.cli.__main__")
-        app_main.assert_not_called()
+    def test_cli_module_entrypoint_is_removed(self) -> None:
+        self.assertFalse(Path("src/ethernity/cli/__main__.py").exists())
 
 
 if __name__ == "__main__":

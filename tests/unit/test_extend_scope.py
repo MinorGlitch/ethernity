@@ -20,9 +20,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.features.extend.scope import load_selected_scope, summarize_scope_diff
-from ethernity.cli.shared.types import ExtendArgs
 from ethernity.extensions import LogicalFileState
+from ethernity.workflows.extension.request import ExtensionRequest
+from ethernity.workflows.extension.scope import load_selected_scope, summarize_scope_diff
 
 
 def _logical_file(path: str, data: bytes, *, mtime: int | None) -> LogicalFileState:
@@ -46,10 +46,10 @@ class TestExtendScope(unittest.TestCase):
             (nested / "beta.txt").write_text("beta", encoding="utf-8")
 
             scope = load_selected_scope(
-                ExtendArgs(
-                    input=[str(workspace / "alpha.txt")],
-                    input_dir=[str(nested)],
-                    base_dir=str(workspace),
+                ExtensionRequest(
+                    input_paths=(str(workspace / "alpha.txt"),),
+                    input_directories=(str(nested),),
+                    base_directory=str(workspace),
                 )
             )
 
@@ -82,10 +82,10 @@ class TestExtendScope(unittest.TestCase):
             (docs / "gamma.txt").write_text("gamma", encoding="utf-8")
 
             scope = load_selected_scope(
-                ExtendArgs(
-                    input=[str(workspace / "alpha.txt")],
-                    input_dir=[str(docs)],
-                    base_dir=str(workspace),
+                ExtensionRequest(
+                    input_paths=(str(workspace / "alpha.txt"),),
+                    input_directories=(str(docs),),
+                    base_directory=str(workspace),
                 )
             )
 
@@ -127,8 +127,8 @@ class TestExtendScope(unittest.TestCase):
             (docs / "a.txt").write_text("new", encoding="utf-8")
 
             scope = load_selected_scope(
-                ExtendArgs(
-                    input=[str(docs / "a.txt")],
+                ExtensionRequest(
+                    input_paths=(str(docs / "a.txt"),),
                 )
             )
 
@@ -149,9 +149,9 @@ class TestExtendScope(unittest.TestCase):
 
             with mock.patch("sys.stdin", io.StringIO("stdin payload")):
                 scope = load_selected_scope(
-                    ExtendArgs(
-                        root_dir=str(root_dir),
-                        input=["-"],
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        input_paths=("-",),
                     )
                 )
 
@@ -173,7 +173,7 @@ class TestExtendScope(unittest.TestCase):
 
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.scope.load_input_scope",
+                    "ethernity.workflows.extension.scope.load_input_scope",
                     side_effect=AssertionError("input scope should not load"),
                 ),
                 self.assertRaisesRegex(
@@ -182,9 +182,9 @@ class TestExtendScope(unittest.TestCase):
                 ),
             ):
                 load_selected_scope(
-                    ExtendArgs(
-                        root_dir=str(root_dir),
-                        input_dir=[str(root_dir)],
-                        base_dir=str(root_dir),
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        input_directories=(str(root_dir),),
+                        base_directory=str(root_dir),
                     )
                 )

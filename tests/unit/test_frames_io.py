@@ -22,17 +22,18 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.shared.io.frames import (
+from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
+from ethernity.encoding.qr_payloads import encode_qr_payload
+from ethernity.encoding.zbase32 import encode_zbase32
+from ethernity.qr.scan import NoQrPayloadsError, QrScanError, ScannedQrPayload
+from ethernity.workflows.recovery.frame_inputs import (
+    FrameInputNotice,
+    FrameInputResult,
+    NoQrFramesError,
     _all_lines_match_fallback_text,
     _all_payload_lines_decode,
-    _auth_frames_from_fallback,
     _auth_frames_from_fallback_lines,
-    _auth_frames_from_payloads,
     _decode_payload,
-    _dedupe_auth_frames,
-    _dedupe_frames,
-    _detect_recovery_input_mode,
-    _frame_from_fallback,
     _frame_from_fallback_lines,
     _frame_from_payload_text,
     _frames_from_fallback_lines,
@@ -40,14 +41,14 @@ from ethernity.cli.shared.io.frames import (
     _frames_from_shard_inputs,
     _parse_fallback_section,
     _read_text_lines,
-    _split_main_and_auth_frames,
+    auth_frames_from_fallback,
+    auth_frames_from_payloads,
+    detect_recovery_input_mode,
+    frame_from_fallback,
+    frames_from_payload_text,
     frames_from_scan,
     recovery_frames_from_scan,
 )
-from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
-from ethernity.encoding.qr_payloads import encode_qr_payload
-from ethernity.encoding.zbase32 import encode_zbase32
-from ethernity.qr.scan import QrScanError, ScannedQrPayload
 
 
 class TestFramesIo(unittest.TestCase):
@@ -107,7 +108,10 @@ class TestFramesIo(unittest.TestCase):
                     real_stat.st_ctime,
                 )
             )
-            with mock.patch("ethernity.cli.shared.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
+            with mock.patch(
+                "ethernity.workflows.recovery.frame_inputs.MAX_RECOVERY_TEXT_BYTES",
+                10,
+            ):
                 with (
                     mock.patch("pathlib.Path.lstat", return_value=small_stat),
                     mock.patch("os.fstat", return_value=small_stat),
@@ -118,7 +122,7 @@ class TestFramesIo(unittest.TestCase):
     def test_frame_from_fallback_lines_returns_parsed_frame(self) -> None:
         frame = self._frame()
         with mock.patch(
-            "ethernity.cli.shared.io.frames._parse_fallback_frame",
+            "ethernity.workflows.recovery.frame_inputs._parse_fallback_frame",
             return_value=frame,
         ):
             parsed = _frame_from_fallback_lines(["a", "b"], label="fallback")
@@ -126,51 +130,55 @@ class TestFramesIo(unittest.TestCase):
 
     def test_frame_from_fallback_uses_read_lines_and_parser(self) -> None:
         frame = self._frame()
-        with mock.patch("ethernity.cli.shared.io.frames._read_text_lines", return_value=["line"]):
+        with mock.patch(
+            "ethernity.workflows.recovery.frame_inputs._read_text_lines",
+            return_value=["line"],
+        ):
             with mock.patch(
-                "ethernity.cli.shared.io.frames._frame_from_fallback_lines",
+                "ethernity.workflows.recovery.frame_inputs._frame_from_fallback_lines",
                 return_value=frame,
             ) as parse_mock:
-                parsed = _frame_from_fallback("fallback.txt")
+                parsed = frame_from_fallback("fallback.txt")
         self.assertEqual(parsed, frame)
         parse_mock.assert_called_once_with(["line"], label="fallback")
 
     def test_frame_from_fallback_strips_single_marked_shard_section(self) -> None:
         frame = self._frame(frame_type=FrameType.KEY_DOCUMENT)
         with mock.patch(
-            "ethernity.cli.shared.io.frames._read_text_lines",
+            "ethernity.workflows.recovery.frame_inputs._read_text_lines",
             return_value=["SHARD FRAME", "line"],
         ):
             with mock.patch(
-                "ethernity.cli.shared.io.frames._frame_from_fallback_lines",
+                "ethernity.workflows.recovery.frame_inputs._frame_from_fallback_lines",
                 return_value=frame,
             ) as parse_mock:
-                parsed = _frame_from_fallback("fallback.txt")
+                parsed = frame_from_fallback("fallback.txt")
         self.assertEqual(parsed, frame)
         parse_mock.assert_called_once_with(["line"], label="key")
 
     def test_frame_from_fallback_rejects_multiple_marked_sections(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames._read_text_lines",
+            "ethernity.workflows.recovery.frame_inputs._read_text_lines",
             return_value=["MAIN FRAME", "aaa", "SHARD FRAME", "bbb"],
         ):
             with self.assertRaisesRegex(ValueError, "exactly one marked fallback section"):
-                _frame_from_fallback("fallback.txt")
+                frame_from_fallback("fallback.txt")
 
     def test_parse_fallback_section_without_markers_passes_through_lines(self) -> None:
         frame = self._frame()
         with mock.patch(
-            "ethernity.cli.shared.io.frames._contains_fallback_markers", return_value=False
+            "ethernity.workflows.recovery.frame_inputs._contains_fallback_markers",
+            return_value=False,
         ):
             with mock.patch(
-                "ethernity.cli.shared.io.frames._frame_from_fallback_lines",
+                "ethernity.workflows.recovery.frame_inputs._frame_from_fallback_lines",
                 return_value=frame,
             ) as parse_mock:
                 parsed = _parse_fallback_section(
                     ["line"],
                     "auth",
                     allow_invalid=False,
-                    quiet=True,
+                    notices=[],
                     missing_error="missing",
                 )
         self.assertEqual(parsed, frame)
@@ -178,10 +186,11 @@ class TestFramesIo(unittest.TestCase):
 
     def test_parse_fallback_section_requires_requested_marker_section(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames._contains_fallback_markers", return_value=True
+            "ethernity.workflows.recovery.frame_inputs._contains_fallback_markers",
+            return_value=True,
         ):
             with mock.patch(
-                "ethernity.cli.shared.io.frames._split_fallback_sections",
+                "ethernity.workflows.recovery.frame_inputs._split_fallback_sections",
                 return_value={"auth": [], "main": ["a"]},
             ):
                 with self.assertRaisesRegex(ValueError, "missing auth section"):
@@ -189,43 +198,46 @@ class TestFramesIo(unittest.TestCase):
                         ["AUTH FRAME"],
                         "auth",
                         allow_invalid=False,
-                        quiet=True,
+                        notices=[],
                         missing_error="missing auth section",
                     )
 
     def test_parse_fallback_section_invalid_section_can_be_ignored(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames._contains_fallback_markers", return_value=True
+            "ethernity.workflows.recovery.frame_inputs._contains_fallback_markers",
+            return_value=True,
         ):
             with mock.patch(
-                "ethernity.cli.shared.io.frames._split_fallback_sections",
+                "ethernity.workflows.recovery.frame_inputs._split_fallback_sections",
                 return_value={"auth": ["bad"], "main": ["main"]},
             ):
                 with mock.patch(
-                    "ethernity.cli.shared.io.frames._frame_from_fallback_lines",
+                    "ethernity.workflows.recovery.frame_inputs._frame_from_fallback_lines",
                     side_effect=ValueError("invalid"),
                 ):
-                    with mock.patch("ethernity.cli.shared.io.frames._warn") as warn_mock:
-                        parsed = _parse_fallback_section(
-                            ["AUTH FRAME", "bad"],
-                            "auth",
-                            allow_invalid=True,
-                            quiet=True,
-                            missing_error="missing",
-                        )
+                    notices: list[FrameInputNotice] = []
+                    parsed = _parse_fallback_section(
+                        ["AUTH FRAME", "bad"],
+                        "auth",
+                        allow_invalid=True,
+                        notices=notices,
+                        missing_error="missing",
+                    )
         self.assertIsNone(parsed)
-        warn_mock.assert_called_once()
+        self.assertEqual(len(notices), 1)
+        self.assertEqual(notices[0].code, "FALLBACK_SECTION_INVALID")
 
     def test_parse_fallback_section_invalid_section_raises_in_strict_mode(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames._contains_fallback_markers", return_value=True
+            "ethernity.workflows.recovery.frame_inputs._contains_fallback_markers",
+            return_value=True,
         ):
             with mock.patch(
-                "ethernity.cli.shared.io.frames._split_fallback_sections",
+                "ethernity.workflows.recovery.frame_inputs._split_fallback_sections",
                 return_value={"auth": ["bad"], "main": ["main"]},
             ):
                 with mock.patch(
-                    "ethernity.cli.shared.io.frames._frame_from_fallback_lines",
+                    "ethernity.workflows.recovery.frame_inputs._frame_from_fallback_lines",
                     side_effect=ValueError("invalid"),
                 ):
                     with self.assertRaisesRegex(ValueError, "invalid"):
@@ -233,28 +245,28 @@ class TestFramesIo(unittest.TestCase):
                             ["AUTH FRAME", "bad"],
                             "auth",
                             allow_invalid=False,
-                            quiet=True,
+                            notices=[],
                             missing_error="missing",
                         )
 
     def test_detect_recovery_input_mode_prefers_marked_fallback(self) -> None:
         payload = encode_qr_payload(encode_frame(self._frame()))
-        mode = _detect_recovery_input_mode(["AUTH FRAME", payload])
+        mode = detect_recovery_input_mode(f"AUTH FRAME\n{payload}")
         self.assertEqual(mode, "fallback_marked")
 
     def test_detect_recovery_input_mode_detects_payload(self) -> None:
         payload = encode_qr_payload(encode_frame(self._frame()))
-        mode = _detect_recovery_input_mode([payload])
+        mode = detect_recovery_input_mode(payload)
         self.assertEqual(mode, "payload")
 
     def test_detect_recovery_input_mode_detects_fallback(self) -> None:
         line = encode_zbase32(encode_frame(self._frame()))
-        mode = _detect_recovery_input_mode([line])
+        mode = detect_recovery_input_mode(line)
         self.assertEqual(mode, "fallback")
 
     def test_detect_recovery_input_mode_rejects_mixed_invalid_lines(self) -> None:
         with self.assertRaisesRegex(ValueError, "neither a valid QR payload list"):
-            _detect_recovery_input_mode(["%%%", "***"])
+            detect_recovery_input_mode("%%%\n***")
 
     def test_all_payload_lines_decode_returns_false_for_empty_lines(self) -> None:
         self.assertFalse(_all_payload_lines_decode(["", "   "]))
@@ -264,17 +276,17 @@ class TestFramesIo(unittest.TestCase):
 
     def test_frames_from_fallback_lines_requires_main_section_when_marked(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames._contains_fallback_markers", return_value=True
+            "ethernity.workflows.recovery.frame_inputs._contains_fallback_markers",
+            return_value=True,
         ):
             with mock.patch(
-                "ethernity.cli.shared.io.frames._split_fallback_sections",
+                "ethernity.workflows.recovery.frame_inputs._split_fallback_sections",
                 return_value={"main": [], "auth": []},
             ):
                 with self.assertRaisesRegex(ValueError, "missing MAIN fallback section"):
                     _frames_from_fallback_lines(
                         ["AUTH FRAME"],
                         allow_invalid_auth=False,
-                        quiet=True,
                     )
 
     def test_frames_from_fallback_lines_rejects_content_before_first_marker(self) -> None:
@@ -285,48 +297,49 @@ class TestFramesIo(unittest.TestCase):
             _frames_from_fallback_lines(
                 ["junk-before-header", "MAIN FRAME", encoded],
                 allow_invalid_auth=False,
-                quiet=True,
             )
 
     def test_auth_frames_from_fallback_lines_wraps_single_frame(self) -> None:
         frame = self._frame(frame_type=FrameType.AUTH)
         with mock.patch(
-            "ethernity.cli.shared.io.frames._parse_fallback_section", return_value=frame
+            "ethernity.workflows.recovery.frame_inputs._parse_fallback_section", return_value=frame
         ):
-            frames = _auth_frames_from_fallback_lines(
+            result = _auth_frames_from_fallback_lines(
                 ["AUTH FRAME"],
                 allow_invalid_auth=False,
-                quiet=True,
             )
-        self.assertEqual(frames, [frame])
+        self.assertEqual(result, FrameInputResult(frames=(frame,)))
 
     def test_auth_frames_from_fallback_lines_returns_empty_when_ignored(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames._parse_fallback_section", return_value=None
+            "ethernity.workflows.recovery.frame_inputs._parse_fallback_section", return_value=None
         ):
-            frames = _auth_frames_from_fallback_lines(
+            result = _auth_frames_from_fallback_lines(
                 ["AUTH FRAME"],
                 allow_invalid_auth=True,
-                quiet=True,
             )
-        self.assertEqual(frames, [])
+        self.assertEqual(result, FrameInputResult(frames=()))
 
     def test_auth_frames_from_fallback_reads_lines_from_path(self) -> None:
         frame = self._frame(frame_type=FrameType.AUTH)
         with mock.patch(
-            "ethernity.cli.shared.io.frames._read_text_lines", return_value=["AUTH FRAME"]
+            "ethernity.workflows.recovery.frame_inputs._read_text_lines",
+            return_value=["AUTH FRAME"],
         ):
             with mock.patch(
-                "ethernity.cli.shared.io.frames._auth_frames_from_fallback_lines",
-                return_value=[frame],
+                "ethernity.workflows.recovery.frame_inputs._auth_frames_from_fallback_lines",
+                return_value=FrameInputResult(frames=(frame,)),
             ) as parse_mock:
-                frames = _auth_frames_from_fallback(
+                result = auth_frames_from_fallback(
                     "auth.txt",
                     allow_invalid_auth=False,
-                    quiet=True,
                 )
-        self.assertEqual(frames, [frame])
-        parse_mock.assert_called_once_with(["AUTH FRAME"], allow_invalid_auth=False, quiet=True)
+        self.assertEqual(result.frames, (frame,))
+        parse_mock.assert_called_once_with(
+            ["AUTH FRAME"],
+            allow_invalid_auth=False,
+            notice_sink=None,
+        )
 
     def test_frames_from_payload_lines_reports_invalid_line_index(self) -> None:
         payload = encode_qr_payload(encode_frame(self._frame()))
@@ -337,13 +350,21 @@ class TestFramesIo(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no QR payloads found"):
             _frames_from_payload_lines(["", "   "], source="stdin")
 
+    def test_frames_from_payload_text_returns_workflow_result(self) -> None:
+        frame = self._frame()
+        payload = encode_qr_payload(encode_frame(frame))
+
+        result = frames_from_payload_text(payload)
+
+        self.assertEqual(result, FrameInputResult(frames=(frame,)))
+
     def test_auth_frames_from_payloads_rejects_non_auth_frames(self) -> None:
         payload = encode_qr_payload(encode_frame(self._frame(frame_type=FrameType.MAIN_DOCUMENT)))
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "payloads.txt"
             path.write_text(payload + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "AUTH payloads only"):
-                _auth_frames_from_payloads(str(path))
+                auth_frames_from_payloads(str(path))
 
     def test_auth_frames_from_payloads_accepts_auth_only_payloads(self) -> None:
         auth_payload = encode_qr_payload(
@@ -352,7 +373,7 @@ class TestFramesIo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "auth_payloads.txt"
             path.write_text(auth_payload + "\n", encoding="utf-8")
-            frames = _auth_frames_from_payloads(str(path))
+            frames = auth_frames_from_payloads(str(path))
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0].frame_type, FrameType.AUTH)
 
@@ -360,11 +381,11 @@ class TestFramesIo(unittest.TestCase):
         fallback_frame = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x34" * DOC_ID_LEN)
         payload_frame = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x35" * DOC_ID_LEN)
         with mock.patch(
-            "ethernity.cli.shared.io.frames._frame_from_fallback",
+            "ethernity.workflows.recovery.frame_inputs.frame_from_fallback",
             return_value=fallback_frame,
         ) as fallback_mock:
             with mock.patch(
-                "ethernity.cli.shared.io.frames._frames_from_payloads",
+                "ethernity.workflows.recovery.frame_inputs.frames_from_payloads",
                 return_value=[payload_frame],
             ) as payload_mock:
                 frames = _frames_from_shard_inputs(
@@ -377,7 +398,7 @@ class TestFramesIo(unittest.TestCase):
 
     def test_frames_from_scan_reports_scan_failures(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             side_effect=QrScanError("boom"),
         ):
             with self.assertRaisesRegex(ValueError, "scan failed"):
@@ -385,22 +406,30 @@ class TestFramesIo(unittest.TestCase):
 
     def test_frames_from_scan_reports_no_payloads(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             return_value=[],
         ):
-            with self.assertRaisesRegex(ValueError, "no QR payloads found"):
+            with self.assertRaisesRegex(NoQrFramesError, "no QR payloads found"):
+                frames_from_scan(["scan.png"])
+
+    def test_frames_from_scan_preserves_no_qr_classification(self) -> None:
+        with mock.patch(
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
+            side_effect=NoQrPayloadsError("no QR codes found in scan inputs"),
+        ):
+            with self.assertRaisesRegex(NoQrFramesError, "scan failed: no QR codes found"):
                 frames_from_scan(["scan.png"])
 
     def test_frames_from_scan_reports_all_invalid_payloads(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             return_value=[
                 ScannedQrPayload(data=b"bad-1", source_path=Path("scan.png")),
                 ScannedQrPayload(data=b"bad-2", source_path=Path("scan.png")),
             ],
         ):
             with mock.patch(
-                "ethernity.cli.shared.io.frames._frame_from_scanned_payload",
+                "ethernity.workflows.recovery.frame_inputs._frame_from_scanned_payload",
                 side_effect=[ValueError("bad one"), ValueError("bad two")],
             ):
                 with self.assertRaisesRegex(ValueError, r"invalid QR payloads \(2\)"):
@@ -410,7 +439,7 @@ class TestFramesIo(unittest.TestCase):
         root_frame = self._frame(doc_id=b"\x31" * DOC_ID_LEN)
         loose_extension = Path("wallet-extension-one.pdf")
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             return_value=[
                 ScannedQrPayload(data=encode_frame(root_frame), source_path=Path("root.pdf")),
                 ScannedQrPayload(
@@ -429,7 +458,7 @@ class TestFramesIo(unittest.TestCase):
     def test_frames_from_scan_accepts_raw_frame_bytes(self) -> None:
         frame = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x31" * DOC_ID_LEN, data=b"auth")
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             return_value=[ScannedQrPayload(data=encode_frame(frame), source_path=Path("scan.png"))],
         ):
             parsed = frames_from_scan(["scan.png"])
@@ -441,7 +470,7 @@ class TestFramesIo(unittest.TestCase):
         root_frame = self._frame(doc_id=b"\x31" * DOC_ID_LEN)
         extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             return_value=[
                 ScannedQrPayload(data=encode_frame(root_frame), source_path=Path("root/qr.pdf")),
                 ScannedQrPayload(data=b"bad-extension", source_path=extension_path),
@@ -458,7 +487,7 @@ class TestFramesIo(unittest.TestCase):
         extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
         extension_main = self._frame(doc_id=extension_doc_id)
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             return_value=[
                 ScannedQrPayload(data=encode_frame(extension_main), source_path=extension_path),
             ],
@@ -474,7 +503,7 @@ class TestFramesIo(unittest.TestCase):
         extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
         extension_main = self._frame(doc_id=extension_doc_id)
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             return_value=[
                 ScannedQrPayload(
                     data=encode_frame(extension_main),
@@ -499,7 +528,7 @@ class TestFramesIo(unittest.TestCase):
             data=b"auth",
         )
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             return_value=[
                 ScannedQrPayload(data=encode_frame(extension_main), source_path=extension_path),
                 ScannedQrPayload(data=encode_frame(extension_auth), source_path=extension_path),
@@ -519,7 +548,7 @@ class TestFramesIo(unittest.TestCase):
             data=b"auth",
         )
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             return_value=[
                 ScannedQrPayload(data=encode_frame(extension_main), source_path=extension_path),
                 ScannedQrPayload(data=encode_frame(extension_auth), source_path=extension_path),
@@ -534,26 +563,26 @@ class TestFramesIo(unittest.TestCase):
         auth = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x40" * DOC_ID_LEN, data=b"auth")
         shard = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
         with mock.patch(
-            "ethernity.cli.shared.io.frames.frames_from_scan", return_value=[main, auth, shard]
+            "ethernity.workflows.recovery.frame_inputs.frames_from_scan",
+            return_value=[main, auth, shard],
         ):
-            with mock.patch("ethernity.cli.shared.io.frames._warn") as warn_mock:
-                frames = recovery_frames_from_scan(["backup-dir"], quiet=False)
-        self.assertEqual(frames, [main, auth])
-        warn_mock.assert_called_once()
+            result = recovery_frames_from_scan(["backup-dir"])
+        self.assertEqual(result.frames, (main, auth))
+        self.assertEqual(len(result.notices), 1)
+        self.assertEqual(result.notices[0].code, "RECOVERY_SHARD_PAYLOADS_IGNORED")
 
     def test_recovery_frames_from_scan_can_exclude_extension_carriers(self) -> None:
         main = self._frame(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
         with mock.patch(
-            "ethernity.cli.shared.io.frames.frames_from_scan",
+            "ethernity.workflows.recovery.frame_inputs.frames_from_scan",
             return_value=[main],
         ) as scan_mock:
-            frames = recovery_frames_from_scan(
+            result = recovery_frames_from_scan(
                 ["backup-dir"],
-                quiet=True,
                 include_extension_carriers=False,
             )
 
-        self.assertEqual(frames, [main])
+        self.assertEqual(result.frames, (main,))
         scan_mock.assert_called_once_with(
             ["backup-dir"],
             include_extension_carriers=False,
@@ -563,16 +592,15 @@ class TestFramesIo(unittest.TestCase):
     def test_recovery_frames_from_scan_can_bound_extension_carriers(self) -> None:
         main = self._frame(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
         with mock.patch(
-            "ethernity.cli.shared.io.frames.frames_from_scan",
+            "ethernity.workflows.recovery.frame_inputs.frames_from_scan",
             return_value=[main],
         ) as scan_mock:
-            frames = recovery_frames_from_scan(
+            result = recovery_frames_from_scan(
                 ["backup-dir"],
-                quiet=True,
                 extension_carrier_max_index=1,
             )
 
-        self.assertEqual(frames, [main])
+        self.assertEqual(result.frames, (main,))
         scan_mock.assert_called_once_with(
             ["backup-dir"],
             include_extension_carriers=True,
@@ -581,47 +609,19 @@ class TestFramesIo(unittest.TestCase):
 
     def test_recovery_frames_from_scan_rejects_shard_only_input(self) -> None:
         shard = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x41" * DOC_ID_LEN)
-        with mock.patch("ethernity.cli.shared.io.frames.frames_from_scan", return_value=[shard]):
+        with mock.patch(
+            "ethernity.workflows.recovery.frame_inputs.frames_from_scan",
+            return_value=[shard],
+        ):
             with self.assertRaisesRegex(ValueError, "did not contain recovery QR payloads"):
-                recovery_frames_from_scan(["backup-dir"], quiet=True)
-
-    def test_dedupe_frames_accepts_identical_duplicates(self) -> None:
-        frame = self._frame()
-        deduped = _dedupe_frames([frame, frame])
-        self.assertEqual(deduped, [frame])
-
-    def test_dedupe_frames_rejects_conflicting_duplicates(self) -> None:
-        frame_a = self._frame(data=b"A")
-        frame_b = self._frame(data=b"B")
-        with self.assertRaisesRegex(ValueError, "conflicting duplicate"):
-            _dedupe_frames([frame_a, frame_b])
-
-    def test_dedupe_auth_frames_rejects_non_auth(self) -> None:
-        with self.assertRaisesRegex(ValueError, "AUTH type"):
-            _dedupe_auth_frames([self._frame(frame_type=FrameType.MAIN_DOCUMENT)])
-
-    def test_dedupe_auth_frames_handles_empty_and_valid_auth_lists(self) -> None:
-        self.assertEqual(_dedupe_auth_frames([]), [])
-        auth = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x36" * DOC_ID_LEN, data=b"auth")
-        self.assertEqual(_dedupe_auth_frames([auth]), [auth])
-
-    def test_split_main_and_auth_requires_main(self) -> None:
-        auth = self._frame(frame_type=FrameType.AUTH)
-        with self.assertRaisesRegex(ValueError, "no main document payloads"):
-            _split_main_and_auth_frames([auth])
-
-    def test_split_main_and_auth_rejects_unexpected_frame_type(self) -> None:
-        main = self._frame(frame_type=FrameType.MAIN_DOCUMENT)
-        shard = self._frame(frame_type=FrameType.KEY_DOCUMENT)
-        with self.assertRaisesRegex(ValueError, "unexpected frame type"):
-            _split_main_and_auth_frames([main, shard])
+                recovery_frames_from_scan(["backup-dir"])
 
     def test_decode_payload_rejects_non_ascii_bytes(self) -> None:
         with self.assertRaisesRegex(ValueError, "must be ASCII"):
             _decode_payload("π".encode("utf-8"))
 
     def test_decode_payload_enforces_char_limit(self) -> None:
-        with mock.patch("ethernity.cli.shared.io.frames.MAX_QR_PAYLOAD_CHARS", 4):
+        with mock.patch("ethernity.workflows.recovery.frame_inputs.MAX_QR_PAYLOAD_CHARS", 4):
             with self.assertRaisesRegex(ValueError, "MAX_QR_PAYLOAD_CHARS"):
                 _decode_payload("AAAAAA")
 
@@ -633,7 +633,10 @@ class TestFramesIo(unittest.TestCase):
         self.assertEqual(parsed.doc_id, frame.doc_id)
 
     def test_read_text_lines_reads_stdin(self) -> None:
-        with mock.patch("ethernity.cli.shared.io.frames.sys.stdin", new=io.StringIO("a\nb\n")):
+        with mock.patch(
+            "ethernity.workflows.recovery.frame_inputs.sys.stdin",
+            new=io.StringIO("a\nb\n"),
+        ):
             lines = _read_text_lines("-")
         self.assertEqual(lines, ["a", "b"])
 

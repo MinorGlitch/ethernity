@@ -20,22 +20,22 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.features.mint.workflow import _signing_key_shard_frames_from_args
+from ethernity.cli.features.mint import workflow as mint_workflow
+from ethernity.cli.features.recover.inputs import load_recovery_frames, load_shard_frames
 from ethernity.cli.features.recover.planning import (
-    _frames_from_args,
     _inspect_auth_payload,
-    _shard_frames_from_args,
+    _resolve_passphrase,
     build_recovery_plan,
     inspect_from_args,
     inspect_recovery_inputs,
     plan_from_args,
 )
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.types import InputFile, MintArgs, RecoverArgs
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
-from ethernity.extensions.build import build_extension_document
+from ethernity.extensions.build import _build_extension_document
 from ethernity.extensions.recovery import recover_chain_entries
 from ethernity.formats.envelope_codec import (
     build_manifest_and_payload,
@@ -95,7 +95,7 @@ def _root_envelope(data: bytes = b"root") -> bytes:
 
 
 def _extension_envelope(root_doc_hash: bytes) -> bytes:
-    built = build_extension_document(
+    built = _build_extension_document(
         index=1,
         parent_doc_hash=root_doc_hash,
         root_doc_hash=root_doc_hash,
@@ -115,7 +115,7 @@ def _extension_envelope(root_doc_hash: bytes) -> bytes:
         ),
         input_origin="file",
         input_roots=(),
-        chunker=lambda data, _profile: (data,),
+        chunker=lambda data, _profile: ((0, len(data)),),
         existing_file_sizes={},
     )
     return encode_extension_envelope(built.document)
@@ -150,13 +150,28 @@ def _passphrase_shard_frames(
 
 
 class TestInspectAuthPayload(unittest.TestCase):
+    def test_direct_custom_passphrase_stays_exact_until_decrypt(self) -> None:
+        exact = "  " + "  ".join(["abandon"] * 11 + ["above"]) + "  "
+
+        resolved = _resolve_passphrase(
+            passphrase=exact,
+            shard_frames=[],
+            doc_id=b"\x11" * DOC_ID_LEN,
+            doc_hash=b"\x22" * 32,
+            sign_pub=None,
+            allow_unsigned=False,
+            args=None,
+        )
+
+        self.assertEqual(resolved, exact)
+
     def test_frames_from_args_bounds_scan_for_selected_extension_index(self) -> None:
         main = _main_frame(b"root")
         with mock.patch(
-            "ethernity.cli.features.recover.planning.recovery_frames_from_scan",
+            "ethernity.cli.features.recover.inputs.recovery_frames_from_scan",
             return_value=[main],
         ) as scan_mock:
-            frames, label, detail, _stdin_path = _frames_from_args(
+            frames, label, detail, _stdin_path = load_recovery_frames(
                 RecoverArgs(scan=["backup-root"], extension_index=1),
                 allow_unsigned=False,
                 quiet=True,
@@ -183,7 +198,7 @@ class TestInspectAuthPayload(unittest.TestCase):
 
     def test_doc_id_mismatch_is_ignored_in_allow_unsigned_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x11" * DOC_ID_LEN)
-        with mock.patch("ethernity.cli.features.recover.planning._warn") as warn_mock:
+        with mock.patch("ethernity.cli.features.recover.planning.warn") as warn_mock:
             payload, status, blocking_issues = _inspect_auth_payload(
                 [frame],
                 doc_id=b"\x12" * DOC_ID_LEN,
@@ -253,15 +268,15 @@ class TestInspectAuthPayload(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.planning._frames_from_args",
+                "ethernity.cli.features.recover.inputs.load_recovery_frames",
                 return_value=(frames, "Recovery input", "inline", None),
             ),
             mock.patch(
-                "ethernity.cli.features.recover.planning._extra_auth_frames_from_args",
+                "ethernity.cli.features.recover.inputs.load_extra_auth_frames",
                 return_value=extra_auth_frames,
             ),
             mock.patch(
-                "ethernity.cli.features.recover.planning._shard_frames_from_args",
+                "ethernity.cli.features.recover.inputs.load_shard_frames",
                 return_value=([], [], [], []),
             ),
             mock.patch(
@@ -346,7 +361,7 @@ class TestInspectAuthPayload(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.planning._resolve_recovery_keys",
+                "ethernity.cli.features.recover.planning.resolve_recovery_keys",
                 return_value="secret",
             ) as resolve_keys,
             mock.patch(
@@ -399,15 +414,15 @@ class TestInspectAuthPayload(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.planning._frames_from_args",
+                "ethernity.cli.features.recover.inputs.load_recovery_frames",
                 return_value=(frames, "Recovery input", "inline", None),
             ),
             mock.patch(
-                "ethernity.cli.features.recover.planning._extra_auth_frames_from_args",
+                "ethernity.cli.features.recover.inputs.load_extra_auth_frames",
                 return_value=[],
             ),
             mock.patch(
-                "ethernity.cli.features.recover.planning._shard_frames_from_args",
+                "ethernity.cli.features.recover.inputs.load_shard_frames",
                 return_value=(shard_frames, [], [], []),
             ),
             mock.patch(
@@ -434,7 +449,7 @@ class TestInspectAuthPayload(unittest.TestCase):
             payload_path.write_text("not-a-valid-shard-payload\n", encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "QR payload"):
-                _shard_frames_from_args(
+                load_shard_frames(
                     RecoverArgs(shard_payloads_file=[str(payload_path)], quiet=True),
                     quiet=True,
                 )
@@ -445,7 +460,7 @@ class TestInspectAuthPayload(unittest.TestCase):
             payload_path.write_text("not-a-valid-shard-payload\n", encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "QR payload"):
-                _signing_key_shard_frames_from_args(
+                mint_workflow._signing_key_shard_frames_from_args(
                     MintArgs(signing_key_shard_payloads_file=[str(payload_path)], quiet=True),
                     quiet=True,
                 )
@@ -518,11 +533,11 @@ class TestInspectAuthPayload(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.recover.planning._inspect_auth_payload",
+            "ethernity.workflows.recovery.inspection._inspect_auth_payload",
             return_value=(None, "missing", ()),
         ) as inspect_auth_mock:
             with mock.patch(
-                "ethernity.cli.features.recover.planning._inspect_unlock_status",
+                "ethernity.workflows.recovery.inspection._inspect_unlock_status",
                 return_value=mock.Mock(
                     satisfied=False,
                     resolved_passphrase=None,

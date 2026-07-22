@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ed25519 } from "@noble/curves/ed25519.js";
-
 import {
   AUTH_DOMAIN,
   AUTH_VERSION,
@@ -37,7 +35,8 @@ import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { blake2b256 } from "../lib/blake2b.js";
-import { bytesToHex, hexToBytes } from "../lib/encoding.js";
+import { bytesToHex, hexToBytes } from "../lib/bytes.js";
+import { getSigningPublicKey, signSigningMessage } from "../lib/ed25519.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import {
   buildFrame,
@@ -61,7 +60,7 @@ const PYTHON_V2_SHARD_PAYLOAD_B64 =
   "q2NwdWJYINBKsjJ0K7SrOhNovUYV5ObQIkq3GgFrr4UgozLJd4c3Y3NpZ1hAWEsoTiqBNQb1DQfDrPstJfpOx3jJSN6LP/6YcgXY7OgAqttX4s1XA7c/DNsSsZbcuOzWEzdcZtLDYK22blOXAmRoYXNoWCBh7fSa0XckEjDu2bnOknmko8L07PQlig3lPwQaE0885GR0eXBlanBhc3NwaHJhc2Vlc2hhcmVYIOf9voVpa7vkuGboNLlhY2he9jZk2eqHRvlCeZrvMTsRZmxlbmd0aBgbZnNldF9pZFAAESIzRFVmd4iZqrvM3e7/Z3ZlcnNpb24CaXRocmVzaG9sZAJrc2hhcmVfY291bnQDa3NoYXJlX2luZGV4AQ==";
 const PYTHON_V2_SHARD_SET_ID_HEX = "00112233445566778899aabbccddeeff";
 const AUTH_SEED = new Uint8Array(32).fill(0x42);
-const AUTH_SIGN_PUB = ed25519.getPublicKey(AUTH_SEED);
+const AUTH_SIGN_PUB = getSigningPublicKey(AUTH_SEED);
 
 function shardPayload({
   version = LEGACY_SHARD_VERSION,
@@ -97,7 +96,10 @@ function shardPayload({
 function signAuthPayload(docHash, signPub = AUTH_SIGN_PUB, signingSeed = AUTH_SEED) {
   const signedPayload = { version: AUTH_VERSION, hash: docHash, pub: signPub };
   const signedBytes = encodeCbor(signedPayload);
-  return ed25519.sign(concatBytes([textEncoder.encode(AUTH_DOMAIN), signedBytes]), signingSeed);
+  return signSigningMessage(
+    concatBytes([textEncoder.encode(AUTH_DOMAIN), signedBytes]),
+    signingSeed,
+  );
 }
 
 function addAuthenticatedDocument(state, ciphertext, signPub = AUTH_SIGN_PUB) {

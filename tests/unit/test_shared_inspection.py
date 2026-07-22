@@ -18,10 +18,74 @@ from __future__ import annotations
 import unittest
 
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.inspection import blocking_issue, inspect_result_payload
+from ethernity.cli.shared.inspection import (
+    blocking_issue,
+    inspect_result_payload,
+    manifest_summary_payload,
+)
+from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 
 
 class TestSharedInspection(unittest.TestCase):
+    def test_manifest_summary_payload_preserves_contract_and_key_order(self) -> None:
+        manifest = EnvelopeManifest(
+            format_version=1,
+            created_at=1234.0,
+            sealed=True,
+            signing_seed=None,
+            files=(
+                ManifestFile(
+                    path="archive/payload.bin",
+                    size=7,
+                    sha256=b"x" * 32,
+                    mtime=None,
+                ),
+            ),
+            input_origin="directory",
+            input_roots=("archive",),
+            payload_codec="gzip",
+            payload_raw_len=7,
+        )
+
+        summary = manifest_summary_payload(manifest)
+
+        self.assertEqual(
+            list(summary),
+            [
+                "format_version",
+                "input_origin",
+                "input_roots",
+                "sealed",
+                "payload_codec",
+                "payload_raw_len",
+                "file_count",
+            ],
+        )
+        self.assertEqual(
+            summary,
+            {
+                "format_version": 1,
+                "input_origin": "directory",
+                "input_roots": ["archive"],
+                "sealed": True,
+                "payload_codec": "gzip",
+                "payload_raw_len": 7,
+                "file_count": 1,
+            },
+        )
+        self.assertEqual(
+            {key: type(value) for key, value in summary.items()},
+            {
+                "format_version": int,
+                "input_origin": str,
+                "input_roots": list,
+                "sealed": bool,
+                "payload_codec": str,
+                "payload_raw_len": int,
+                "file_count": int,
+            },
+        )
+
     def test_blocking_issue_preserves_stable_code_and_details(self) -> None:
         issue = blocking_issue(
             code=api_codes.AUTH_REQUIRED,

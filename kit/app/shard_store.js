@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { bytesEqual, bytesToHex } from "../lib/encoding.js";
+import { bytesEqual, bytesToHex } from "../lib/bytes.js";
 
 function shardSetIdHex(payload) {
   return payload.shardSetId ? bytesToHex(payload.shardSetId) : "";

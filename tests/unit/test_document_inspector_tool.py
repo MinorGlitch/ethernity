@@ -7,14 +7,14 @@ from pathlib import Path
 
 import tooling.document_inspector as inspector
 
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.types import InputFile
 from ethernity.crypto import encrypt_bytes_with_passphrase
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_BASE64, encode_qr_payload
-from ethernity.extensions import build_extension_document
+from ethernity.extensions.build import _build_extension_document
 from ethernity.formats.envelope_codec import build_manifest_and_payload, encode_envelope
 from ethernity.formats.envelope_types import PayloadPart
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile
@@ -209,7 +209,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn("Decrypted via: recovered passphrase shards", result.summary_text)
 
     def test_inspect_extension_payloads_require_root_backup_authority_context(self) -> None:
-        extension = build_extension_document(
+        extension = _build_extension_document(
             index=1,
             parent_doc_hash=b"\x10" * 32,
             root_doc_hash=b"\x20" * 32,
@@ -224,7 +224,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: (data,),
+            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
         )
         extension_signing_seed = b"\x41" * 32
@@ -325,7 +325,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             root_plaintext,
             passphrase=_EXTENSION_TEST_PASSPHRASE,
         )
-        extension = build_extension_document(
+        extension = _build_extension_document(
             index=1,
             parent_doc_hash=root_doc_hash,
             root_doc_hash=root_doc_hash,
@@ -340,7 +340,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: (data,),
+            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -402,7 +402,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
                 ),
             ),
         )
-        extension = build_extension_document(
+        extension = _build_extension_document(
             index=1,
             parent_doc_hash=root_doc_hash,
             root_doc_hash=root_doc_hash,
@@ -417,7 +417,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: (data,),
+            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -451,7 +451,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
 
     def test_inspect_extension_payloads_requiring_reused_chunks_fails_closed(self) -> None:
         root_chunk = b"root and extension-only data\n"
-        extension = build_extension_document(
+        extension = _build_extension_document(
             index=1,
             parent_doc_hash=b"\x10" * 32,
             root_doc_hash=b"\x20" * 32,
@@ -466,7 +466,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: (data,),
+            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
             existing_chunks={hashlib.sha256(root_chunk).digest(): root_chunk},
         )
@@ -530,7 +530,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
                 ),
             ),
         )
-        extension = build_extension_document(
+        extension = _build_extension_document(
             index=1,
             parent_doc_hash=root_doc_hash,
             root_doc_hash=root_doc_hash,
@@ -545,7 +545,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: (data,),
+            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -618,7 +618,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
                 ),
             ),
         )
-        extension = build_extension_document(
+        extension = _build_extension_document(
             index=1,
             parent_doc_hash=root_doc_hash,
             root_doc_hash=root_doc_hash,
@@ -633,7 +633,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: (data,),
+            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(

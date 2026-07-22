@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
 
-import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import {
@@ -16,20 +15,26 @@ import {
   FRAME_TYPE_MAIN,
   MAX_CIPHERTEXT_BYTES,
   MAX_DECOMPRESSED_PAYLOAD_BYTES,
+  MAX_EXTENSION_INDEX,
   MAX_RECOVERY_DOCUMENTS,
+  MAX_RECOVERY_DECODED_CHUNK_BYTES,
   textEncoder,
 } from "../app/constants.js";
 import { deriveSigningPublicKey, verifyAuthSignature } from "../app/auth.js";
+import { resetAll } from "../app/actions_collect.js";
 import { decryptCiphertext, extractEnvelope } from "../app/actions_recover.js";
 import {
   decodeExtensionEnvelope,
-  defaultExtensionChunker,
+  decodeExtensionEnvelopeHeader,
   reconstructLatestFiles,
-} from "../app/extension_envelope.js";
+  reconstructLatestFilesFromEnvelopes,
+} from "../app/extensions/envelope.js";
+import { defaultExtensionChunker } from "../app/extensions/chunking.js";
 import {
-  recoverLatestFromEncryptedDocuments,
-  recoverLatestFromPlaintextDocuments,
-} from "../app/extension_recovery.js";
+  recoverLatestFromEncryptedDocuments as recoverEncryptedCore,
+  recoverLatestFromPlaintextDocuments as recoverPlaintextCore,
+} from "../app/extensions/recovery.js";
+import { readEnvelopeVersion } from "../app/envelope.js";
 import { addFrame } from "../app/frames_apply.js";
 import { collectedRecoveryDocuments } from "../app/frames_cipher.js";
 import { decodeFrame } from "../app/frames_protocol.js";
@@ -43,7 +48,9 @@ import {
 } from "../app/state/selectors.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { blake2b256 } from "../lib/blake2b.js";
-import { bytesToHex } from "../lib/encoding.js";
+import { INTENSIVE_SCRYPT_APPROVAL_PREFIX } from "../lib/age_scrypt.js";
+import { signSigningMessage } from "../lib/ed25519.js";
+import { bytesToHex } from "../lib/bytes.js";
 import { buildFrame, concatBytes, encodeUvarint } from "./test_helpers.mjs";
 
 const CHUNKING = {
@@ -208,15 +215,13 @@ function aggregateOverflowExtensionBodyBytes() {
         1,
         [
           [
-            "huge.bin",
-            MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
+            "a.bin",
+            MAX_DECOMPRESSED_PAYLOAD_BYTES,
             new Uint8Array(32),
             null,
-            [
-              [firstChunkId, MAX_DECOMPRESSED_PAYLOAD_BYTES],
-              [secondChunkId, 1],
-            ],
+            [[firstChunkId, MAX_DECOMPRESSED_PAYLOAD_BYTES]],
           ],
+          ["b.bin", 1, new Uint8Array(32), null, [[secondChunkId, 1]]],
         ],
       ],
       [
@@ -254,8 +259,9 @@ function buildEnvelope(version, firstSection, secondSection) {
   ]);
 }
 
-function createStore() {
+function createStore({ freshnessUnknownAcknowledged = true } = {}) {
   let state = createInitialState();
+  state.freshnessUnknownAcknowledged = freshnessUnknownAcknowledged;
   return {
     dispatch(action) {
       state = reducer(state, action);
@@ -278,6 +284,88 @@ function documentFromPlaintext({ docId, ciphertextSeed, plaintext, signPub = ROO
     plaintext,
     authPayload: { version: 1, docHash, signPub, signature: SIGNATURE },
   };
+}
+
+function explicitPlaintextFreshness(documents, options = {}) {
+  const target = options.extensionTarget ?? "latest";
+  if (
+    options.recoveryAnchor ||
+    options.freshnessUnknownAcknowledged === true ||
+    target?.expectedHeadDocHashHex
+  ) {
+    return options;
+  }
+  if (target === "latest" || target?.kind === "latest") {
+    return { ...options, freshnessUnknownAcknowledged: true };
+  }
+  if (target?.kind === "doc_hash") {
+    return options;
+  }
+  if (target === "root" || target?.kind === "root" || target?.index === 0) {
+    const root = documents.find(
+      (document) => readEnvelopeVersion(document.plaintext) === ENVELOPE_VERSION,
+    );
+    return {
+      ...options,
+      extensionTarget: { kind: "root", expectedHeadDocHashHex: root?.docHashHex },
+    };
+  }
+  if (target?.kind === "index") {
+    const selected = documents.find((document) => {
+      if (readEnvelopeVersion(document.plaintext) !== EXTENSION_ENVELOPE_VERSION) return false;
+      return decodeExtensionEnvelopeHeader(document.plaintext).index === target.index;
+    });
+    return {
+      ...options,
+      extensionTarget: { ...target, expectedHeadDocHashHex: selected?.docHashHex },
+    };
+  }
+  return options;
+}
+
+function recoverLatestFromPlaintextDocuments(documents, options = {}) {
+  return recoverPlaintextCore(documents, explicitPlaintextFreshness(documents, options));
+}
+
+function recoverLatestFromEncryptedDocuments(documents, passphrase, decrypt, options = {}) {
+  const target = options.extensionTarget ?? "latest";
+  if (
+    !options.recoveryAnchor &&
+    !options.freshnessUnknownAcknowledged &&
+    (target === "latest" || target?.kind === "latest")
+  ) {
+    return recoverEncryptedCore(documents, passphrase, decrypt, {
+      ...options,
+      freshnessUnknownAcknowledged: true,
+    });
+  }
+  if (!options.recoveryAnchor && !target?.expectedHeadDocHashHex) {
+    if (target === "root" || target?.kind === "root" || target?.index === 0) {
+      const root = documents[0];
+      return recoverEncryptedCore(documents, passphrase, decrypt, {
+        ...options,
+        extensionTarget: {
+          kind: "root",
+          expectedHeadDocHashHex:
+            root.docHashHex ?? bytesToHex(root.docHash ?? blake2b256(root.ciphertext)),
+        },
+      });
+    }
+    if (target?.kind === "index") {
+      const selected = documents.find((document) => {
+        if (!document.plaintext) return false;
+        if (readEnvelopeVersion(document.plaintext) !== EXTENSION_ENVELOPE_VERSION) return false;
+        return decodeExtensionEnvelopeHeader(document.plaintext).index === target.index;
+      });
+      if (selected) {
+        return recoverEncryptedCore(documents, passphrase, decrypt, {
+          ...options,
+          extensionTarget: { ...target, expectedHeadDocHashHex: selected.docHashHex },
+        });
+      }
+    }
+  }
+  return recoverEncryptedCore(documents, passphrase, decrypt, options);
 }
 
 function addSingleFrameDocument(
@@ -320,7 +408,10 @@ function verifiedSignature(docHash, signPub, signature) {
 function signAuthPayload(docHash, signPub = ROOT_SIGN_PUB, signingSeed = ROOT_SIGNING_SEED) {
   const signedPayload = { version: AUTH_VERSION, hash: docHash, pub: signPub };
   const signedBytes = encodeCbor(signedPayload);
-  return ed25519.sign(concatBytes([textEncoder.encode(AUTH_DOMAIN), signedBytes]), signingSeed);
+  return signSigningMessage(
+    concatBytes([textEncoder.encode(AUTH_DOMAIN), signedBytes]),
+    signingSeed,
+  );
 }
 
 function chunkOffsetsAndHashes(chunks) {
@@ -421,6 +512,63 @@ test("extension envelope rejects float-typed integer fields", async () => {
     () => decodeExtensionEnvelope(envelope),
     /extension header version must be an int/,
   );
+});
+
+test("extension envelope enforces cross-runtime V2 field bounds", async () => {
+  const overIndexHeader = validExtensionHeaderMap();
+  overIndexHeader.set(2, MAX_EXTENSION_INDEX + 1);
+  const chunkId = new Uint8Array(32).fill(0x42);
+  const overFileSizeBody = new Map([
+    [
+      1,
+      [
+        [
+          "large.bin",
+          MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
+          new Uint8Array(32),
+          null,
+          [[chunkId, MAX_DECOMPRESSED_PAYLOAD_BYTES + 1]],
+        ],
+      ],
+    ],
+    [2, []],
+  ]);
+  const overChunkRefBody = new Map([
+    [
+      1,
+      [
+        [
+          "large.bin",
+          MAX_DECOMPRESSED_PAYLOAD_BYTES,
+          new Uint8Array(32),
+          null,
+          [[chunkId, MAX_DECOMPRESSED_PAYLOAD_BYTES + 1]],
+        ],
+      ],
+    ],
+    [2, []],
+  ]);
+  const cases = [
+    {
+      envelope: buildExtensionEnvelopeBytes({
+        headerBytes: encodeCbor(overIndexHeader),
+        bodyBytes: validExtensionBodyBytes(),
+      }),
+      pattern: /extension header index exceeds MAX_EXTENSION_INDEX/,
+    },
+    {
+      envelope: buildExtensionEnvelopeBytes({ bodyBytes: encodeCbor(overFileSizeBody) }),
+      pattern: /extension file size exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES/,
+    },
+    {
+      envelope: buildExtensionEnvelopeBytes({ bodyBytes: encodeCbor(overChunkRefBody) }),
+      pattern: /extension chunk_ref uncompressed_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES/,
+    },
+  ];
+
+  for (const testCase of cases) {
+    await assert.rejects(() => decodeExtensionEnvelope(testCase.envelope), testCase.pattern);
+  }
 });
 
 test("extension envelope rejects malformed header and body key sets", async () => {
@@ -575,6 +723,121 @@ test("extension envelope rejects trailing gzip members", async () => {
   );
 });
 
+test("extension replay decodes and releases one authenticated envelope at a time", async () => {
+  const rootData = textEncoder.encode("root");
+  const rootDocHash = new Uint8Array(32).fill(0x10);
+  const extensionOneDocHash = new Uint8Array(32).fill(0x20);
+  const extensionOnePlaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: rootDocHash,
+    rootDocHash,
+    files: [{ path: "a.txt", data: textEncoder.encode("one") }],
+  });
+  const extensionTwoPlaintext = buildExtensionPlaintext({
+    index: 2,
+    parentDocHash: extensionOneDocHash,
+    rootDocHash,
+    files: [{ path: "b.txt", data: textEncoder.encode("two") }],
+  });
+  const envelopes = [
+    {
+      header: decodeExtensionEnvelopeHeader(extensionOnePlaintext),
+      plaintext: extensionOnePlaintext,
+      docHash: extensionOneDocHash,
+    },
+    {
+      header: decodeExtensionEnvelopeHeader(extensionTwoPlaintext),
+      plaintext: extensionTwoPlaintext,
+      docHash: new Uint8Array(32).fill(0x30),
+    },
+  ];
+  const calls = [];
+  let liveDecodedEnvelopes = 0;
+  let peakDecodedEnvelopes = 0;
+
+  const files = await reconstructLatestFilesFromEnvelopes(
+    [{ path: "root.txt", data: rootData }],
+    rootDocHash,
+    envelopes,
+    {
+      async decodeEnvelope(plaintext, options) {
+        const decodeChunks = options?.decodeChunks !== false;
+        calls.push(decodeChunks ? "decode" : "metadata");
+        const decoded = await decodeExtensionEnvelope(plaintext, options);
+        if (decodeChunks) {
+          liveDecodedEnvelopes += 1;
+          peakDecodedEnvelopes = Math.max(peakDecodedEnvelopes, liveDecodedEnvelopes);
+        }
+        return decoded;
+      },
+      onExtensionReplayed() {
+        liveDecodedEnvelopes -= 1;
+      },
+    },
+  );
+
+  assert.deepEqual(calls, ["metadata", "metadata", "decode", "decode"]);
+  assert.equal(peakDecodedEnvelopes, 1);
+  assert.equal(liveDecodedEnvelopes, 0);
+  assert.deepEqual(
+    files.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [
+      ["a.txt", "one"],
+      ["b.txt", "two"],
+      ["root.txt", "root"],
+    ],
+  );
+});
+
+test("extension replay preflights the cumulative decoded chunk budget before decoding", async () => {
+  const rootDocHash = new Uint8Array(32).fill(0x40);
+  const chunking = CHUNKING;
+  const envelopes = [];
+  let parentDocHash = rootDocHash;
+  for (let index = 1; index <= 5; index += 1) {
+    const docHash = new Uint8Array(32).fill(0x40 + index);
+    envelopes.push({
+      header: {
+        version: 1,
+        index,
+        parentDocHash,
+        rootDocHash,
+        createdAt: 1_700_000_000 + index,
+        chunking,
+        inputOrigin: "file",
+        inputRoots: [],
+      },
+      plaintext: index,
+      docHash,
+    });
+    parentDocHash = docHash;
+  }
+  let fullDecodeCount = 0;
+
+  await assert.rejects(
+    () =>
+      reconstructLatestFilesFromEnvelopes([], rootDocHash, envelopes, {
+        async decodeEnvelope(index, options) {
+          if (options?.decodeChunks !== false) {
+            fullDecodeCount += 1;
+            throw new Error("full decode must not start before cumulative preflight");
+          }
+          const chunkIdHex = index.toString(16).padStart(64, "0");
+          return {
+            header: envelopes[index - 1].header,
+            files: [{ chunkRefs: [{ chunkIdHex }] }],
+            chunks: [{ chunkIdHex, rawLen: MAX_DECOMPRESSED_PAYLOAD_BYTES }],
+          };
+        },
+      }),
+    new RegExp(
+      `extension chain inline chunk bytes exceed MAX_RECOVERY_DECODED_CHUNK_BYTES \\(${MAX_RECOVERY_DECODED_CHUNK_BYTES}\\)`,
+    ),
+  );
+  assert.equal(MAX_RECOVERY_DECODED_CHUNK_BYTES, 4 * MAX_DECOMPRESSED_PAYLOAD_BYTES);
+  assert.equal(fullDecodeCount, 0);
+});
+
 test("browser recovery replays the latest supplied authenticated extension chain", async () => {
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root"), mtime: 111 },
@@ -628,6 +891,113 @@ test("browser recovery replays the latest supplied authenticated extension chain
       ["a.txt", 222],
       ["b.txt", 333],
     ],
+  );
+});
+
+test("browser recovery rejects silent latest without a freshness decision", async () => {
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x11),
+    plaintext: buildRootPlaintext([{ path: "a.txt", data: new TextEncoder().encode("root") }]),
+  });
+
+  await assert.rejects(
+    () => recoverPlaintextCore([root], { verifySignature: verifiedSignature }),
+    /latest recovery requires an expected head hash or explicit freshness-unknown acknowledgement/u,
+  );
+});
+
+test("browser recovery labels explicitly acknowledged latest as internally consistent", async () => {
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x12),
+    plaintext: buildRootPlaintext([{ path: "a.txt", data: new TextEncoder().encode("root") }]),
+  });
+
+  const result = await recoverPlaintextCore([root], {
+    verifySignature: verifiedSignature,
+    freshnessUnknownAcknowledged: true,
+  });
+
+  assert.equal(result.freshnessDecision, "supplied_pages_freshness_unknown");
+  assert.equal(result.trustBasis, "internally_consistent");
+});
+
+test("chain-bound kit recovery enforces root, signing authority, and latest head anchors", async () => {
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x18),
+    plaintext: buildRootPlaintext([{ path: "a.txt", data: textEncoder.encode("root") }]),
+  });
+  const extension = documentFromPlaintext({
+    docId: EXT1_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x28),
+    plaintext: buildExtensionPlaintext({
+      index: 1,
+      parentDocHash: root.docHash,
+      rootDocHash: root.docHash,
+      files: [{ path: "a.txt", data: textEncoder.encode("one") }],
+    }),
+  });
+  const anchor = {
+    rootDocumentHashHex: root.docHashHex,
+    rootSigningPublicKeyFingerprintHex: bytesToHex(sha256(ROOT_SIGN_PUB)),
+    expectedLatestHeadHashHex: extension.docHashHex,
+  };
+
+  const result = await recoverLatestFromPlaintextDocuments([root, extension], {
+    verifySignature: verifiedSignature,
+    extensionTarget: {
+      kind: "latest",
+      expectedHeadDocHashHex: anchor.expectedLatestHeadHashHex,
+    },
+    recoveryAnchor: anchor,
+  });
+  assert.equal(result.selectedExtensionDocHash, extension.docHashHex);
+  assert.equal(result.freshnessDecision, "trusted_kit");
+  assert.equal(result.trustBasis, "matched_trusted_kit");
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromPlaintextDocuments([root, extension], {
+        verifySignature: verifiedSignature,
+        recoveryAnchor: { ...anchor, rootDocumentHashHex: "00".repeat(32) },
+      }),
+    /root backup does not match the recovery kit anchor/u,
+  );
+  await assert.rejects(
+    () =>
+      recoverLatestFromPlaintextDocuments([root, extension], {
+        verifySignature: verifiedSignature,
+        recoveryAnchor: {
+          ...anchor,
+          rootSigningPublicKeyFingerprintHex: "00".repeat(32),
+        },
+      }),
+    /root signing authority does not match the recovery kit anchor/u,
+  );
+});
+
+test("chain-bound kit refuses root-only recovery when it pins an extension head", async () => {
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x19),
+    plaintext: buildRootPlaintext([{ path: "a.txt", data: new TextEncoder().encode("root") }]),
+  });
+  const anchor = {
+    rootDocumentHashHex: root.docHashHex,
+    rootSigningPublicKeyFingerprintHex: bytesToHex(sha256(ROOT_SIGN_PUB)),
+    expectedLatestHeadHashHex: "ff".repeat(32),
+  };
+
+  await assert.rejects(
+    () =>
+      recoverPlaintextCore([root], {
+        verifySignature: verifiedSignature,
+        extensionTarget: "root",
+        recoveryAnchor: anchor,
+      }),
+    /root-only recovery refused because the trusted kit pins a non-root head/u,
   );
 });
 
@@ -1037,6 +1407,38 @@ test("browser replay counts unchanged root files in latest-state byte limit", as
   );
 });
 
+test("browser replay rejects oversized logical files before allocating their declared size", async () => {
+  const rootDocHash = new Uint8Array(32).fill(0x9c);
+  const extension = {
+    header: {
+      version: 1,
+      index: 1,
+      parentDocHash: rootDocHash,
+      rootDocHash,
+      createdAt: 1_700_000_100,
+      chunking: CHUNKING,
+      inputOrigin: "file",
+      inputRoots: [],
+    },
+    files: [
+      {
+        path: "oversized.bin",
+        size: Number.MAX_SAFE_INTEGER,
+        sha: new Uint8Array(32),
+        mtime: null,
+        chunkRefs: [],
+      },
+    ],
+    chunks: [],
+    docHash: new Uint8Array(32).fill(0x9d),
+  };
+
+  await assert.rejects(
+    () => reconstructLatestFiles([], rootDocHash, [extension]),
+    /logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES/,
+  );
+});
+
 test("browser encrypted recovery fails closed when a supplied document cannot decrypt", async () => {
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
@@ -1072,6 +1474,129 @@ test("browser encrypted recovery fails closed when a supplied document cannot de
       ),
     /one or more supplied backup documents could not be decrypted/,
   );
+});
+
+test("browser latest recovery rejects a failed scrypt preflight before any KDF work", async () => {
+  let decryptCalls = 0;
+  const decrypt = async () => {
+    decryptCalls += 1;
+    throw new Error("decrypt must not run");
+  };
+  decrypt.preflightBatch = () => ({
+    errors: [null, "scrypt work factor must be between 1 and 20"],
+  });
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromEncryptedDocuments(
+        [{ ciphertext: Uint8Array.of(1) }, { ciphertext: Uint8Array.of(2) }],
+        "pw",
+        decrypt,
+      ),
+    /scrypt work factor must be between 1 and 20/,
+  );
+  assert.equal(decryptCalls, 0);
+});
+
+test("browser latest recovery rejects an invalid supplied AUTH before any KDF work", async () => {
+  const document = documentFromPlaintext({
+    ciphertextSeed: Uint8Array.of(0x71),
+    plaintext: buildRootPlaintext([{ path: "a.txt", data: textEncoder.encode("root") }]),
+  });
+  let decryptCalls = 0;
+  let verifyCalls = 0;
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromEncryptedDocuments(
+        [document],
+        "pw",
+        async () => {
+          decryptCalls += 1;
+          throw new Error("decrypt must not run");
+        },
+        {
+          verifySignature() {
+            verifyCalls += 1;
+            return false;
+          },
+        },
+      ),
+    /AUTH signature is invalid/,
+  );
+  assert.equal(verifyCalls, 1);
+  assert.equal(decryptCalls, 0);
+});
+
+test("browser latest recovery rejects mixed advertised authorities before any KDF work", async () => {
+  const plaintext = buildRootPlaintext([{ path: "a.txt", data: textEncoder.encode("root") }]);
+  const documents = [
+    documentFromPlaintext({ ciphertextSeed: Uint8Array.of(0x72), plaintext }),
+    documentFromPlaintext({
+      ciphertextSeed: Uint8Array.of(0x73),
+      plaintext,
+      signPub: OTHER_SIGN_PUB,
+    }),
+  ];
+  let decryptCalls = 0;
+  let verifyCalls = 0;
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromEncryptedDocuments(
+        documents,
+        "pw",
+        async () => {
+          decryptCalls += 1;
+          throw new Error("decrypt must not run");
+        },
+        {
+          verifySignature() {
+            verifyCalls += 1;
+            return true;
+          },
+        },
+      ),
+    /multiple signing authorities/,
+  );
+  assert.equal(verifyCalls, 2);
+  assert.equal(decryptCalls, 0);
+});
+
+test("browser root-only recovery skips an unrelated document with invalid AUTH", async () => {
+  const rootPlaintext = buildRootPlaintext([{ path: "a.txt", data: textEncoder.encode("root") }]);
+  const root = documentFromPlaintext({
+    ciphertextSeed: Uint8Array.of(0x74),
+    plaintext: rootPlaintext,
+  });
+  const unrelated = documentFromPlaintext({
+    ciphertextSeed: Uint8Array.of(0x75),
+    plaintext: Uint8Array.of(0),
+  });
+  unrelated.authPayload = {
+    ...unrelated.authPayload,
+    signature: new Uint8Array(64).fill(0x77),
+  };
+  let decryptCalls = 0;
+
+  const result = await recoverLatestFromEncryptedDocuments(
+    [root, unrelated],
+    "pw",
+    async (ciphertext) => {
+      decryptCalls += 1;
+      assert.equal(bytesToHex(ciphertext), bytesToHex(root.ciphertext));
+      return rootPlaintext;
+    },
+    {
+      extensionTarget: "root",
+      verifySignature(_docHash, _signPub, signature) {
+        return signature[0] === SIGNATURE[0];
+      },
+    },
+  );
+
+  assert.equal(decryptCalls, 1);
+  assert.equal(result.replayTarget, "root");
 });
 
 test("browser encrypted recovery rejects caller-supplied doc hash metadata", async () => {
@@ -1258,16 +1783,20 @@ test("browser root-only encrypted recovery ignores a supplied extension decrypt 
     },
   };
 
-  const result = await recoverLatestFromEncryptedDocuments(
-    [root, extension],
-    "pw",
-    async (ciphertext) => {
-      if (bytesToHex(ciphertext) === bytesToHex(root.ciphertext)) return rootPlaintext;
-      throw new Error("damaged age payload");
-    },
-    { verifySignature: verifiedSignature, extensionTarget: "root" },
-  );
+  let decryptCalls = 0;
+  const decrypt = async (ciphertext) => {
+    decryptCalls += 1;
+    if (bytesToHex(ciphertext) === bytesToHex(root.ciphertext)) return rootPlaintext;
+    throw new Error("preflight-rejected document must not be decrypted");
+  };
+  decrypt.preflightBatch = () => ({ errors: [null, "scrypt work factor is unsupported"] });
 
+  const result = await recoverLatestFromEncryptedDocuments([root, extension], "pw", decrypt, {
+    verifySignature: verifiedSignature,
+    extensionTarget: "root",
+  });
+
+  assert.equal(decryptCalls, 1);
   assert.equal(result.replayTarget, "root");
   assert.equal(result.selectedExtensionIndex, null);
   assert.deepEqual(
@@ -1452,15 +1981,187 @@ test("browser decrypt action recovers latest supplied extension status", async (
     [["a.txt", "extension"]],
   );
   assert.equal(
+    finalState.decryptStatus.lines.includes("Replay target: latest supplied extension 1."),
+    true,
+  );
+  assert.equal(
     finalState.decryptStatus.lines.includes(
-      "Replay target: latest supplied authenticated extension 1.",
+      "Freshness: unknown beyond supplied pages; explicit acknowledgement used.",
     ),
     true,
   );
   assert.equal(
-    finalState.decryptStatus.lines.includes("Freshness scope: supplied carriers only."),
+    finalState.decryptStatus.lines.includes(
+      "Trust: Internally consistent — signatures agree with keys carried by the supplied set.",
+    ),
     true,
   );
+});
+
+test("browser decrypt action attempts a whitespace-only passphrase exactly", async () => {
+  const store = createStore();
+  const state = store.getState();
+  const exactPassphrase = " \t ";
+  state.agePassphrase = exactPassphrase;
+  const rootCiphertext = Uint8Array.of(0x5a);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  const attemptedPassphrases = [];
+
+  assert.equal(selectActionState(state).canDecryptCiphertext, true);
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(_ciphertext, passphrase) {
+      attemptedPassphrases.push(passphrase);
+      assert.equal(passphrase, exactPassphrase);
+      return rootPlaintext;
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  assert.deepEqual(attemptedPassphrases, [exactPassphrase]);
+  assert.equal(store.getState().recoveryComplete, true);
+});
+
+test("browser decrypt action retries canonical mnemonic whitespace after exact auth failure", async () => {
+  const store = createStore();
+  const state = store.getState();
+  const words = [...Array(11).fill("abandon"), "about"];
+  const canonicalPassphrase = words.join(" ");
+  const enteredPassphrase = `  ${words.slice(0, 6).join("   ")}\n${words.slice(6).join("\t")}  `;
+  state.agePassphrase = enteredPassphrase;
+  const rootCiphertext = Uint8Array.of(0x5b);
+  const extensionCiphertext = Uint8Array.of(0x6b);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const rootDocHash = blake2b256(rootCiphertext);
+  const extensionPlaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: rootDocHash,
+    rootDocHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("extension") }],
+  });
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addSingleFrameDocument(state, { ciphertext: extensionCiphertext });
+  const attemptedPassphrases = [];
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(ciphertext, passphrase) {
+      attemptedPassphrases.push(passphrase);
+      if (passphrase === enteredPassphrase) {
+        throw new Error("invalid passphrase");
+      }
+      assert.equal(passphrase, canonicalPassphrase);
+      if (bytesToHex(ciphertext) === bytesToHex(rootCiphertext)) return rootPlaintext;
+      if (bytesToHex(ciphertext) === bytesToHex(extensionCiphertext)) {
+        return extensionPlaintext;
+      }
+      throw new Error("unexpected ciphertext");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  assert.deepEqual(attemptedPassphrases, [
+    enteredPassphrase,
+    enteredPassphrase,
+    canonicalPassphrase,
+    canonicalPassphrase,
+  ]);
+  assert.equal(store.getState().recoveryComplete, true);
+});
+
+test("browser decrypt action accepts an invalid-checksum wordlist phrase exactly", async () => {
+  const store = createStore();
+  const state = store.getState();
+  const exactPassphrase = [...Array(11).fill("abandon"), "above"].join(" ");
+  state.agePassphrase = exactPassphrase;
+  const rootCiphertext = Uint8Array.of(0x5c);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  const attemptedPassphrases = [];
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(_ciphertext, passphrase) {
+      attemptedPassphrases.push(passphrase);
+      assert.equal(passphrase, exactPassphrase);
+      return rootPlaintext;
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  assert.deepEqual(attemptedPassphrases, [exactPassphrase]);
+  assert.equal(store.getState().recoveryComplete, true);
+});
+
+test("browser decrypt action does not rewrite an exact mnemonic-shaped secret", async () => {
+  const store = createStore();
+  const state = store.getState();
+  const words = [...Array(11).fill("abandon"), "about"];
+  const exactPassphrase = words.join("  ");
+  state.agePassphrase = exactPassphrase;
+  const rootCiphertext = Uint8Array.of(0x5d);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  const attemptedPassphrases = [];
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(_ciphertext, passphrase) {
+      attemptedPassphrases.push(passphrase);
+      assert.equal(passphrase, exactPassphrase);
+      return rootPlaintext;
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  assert.deepEqual(attemptedPassphrases, [exactPassphrase]);
+  assert.equal(store.getState().recoveryComplete, true);
+});
+
+test("browser decrypt action requires a second explicit action before intensive KDF work", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  const rootCiphertext = Uint8Array.of(0x48);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  let decryptCalls = 0;
+  const decrypt = async () => {
+    decryptCalls += 1;
+    return rootPlaintext;
+  };
+  decrypt.preflightBatch = (_documents, { allowResourceIntensive }) => {
+    if (!allowResourceIntensive) {
+      throw new Error(`${INTENSIVE_SCRYPT_APPROVAL_PREFIX} intensive test warning`);
+    }
+    return { errors: [null] };
+  };
+  const options = { decrypt, verifySignature: verifiedSignature };
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), options);
+
+  let finalState = store.getState();
+  assert.equal(decryptCalls, 0);
+  assert.equal(finalState.decryptStatus.type, "warn");
+  assert.deepEqual(finalState.decryptStatus.lines, ["intensive test warning"]);
+  assert.equal(finalState.intensiveRecoveryTarget, "latest");
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    ...options,
+    allowResourceIntensiveScrypt: true,
+  });
+
+  finalState = store.getState();
+  assert.equal(decryptCalls, 1);
+  assert.equal(finalState.recoveryComplete, true);
+  assert.equal(finalState.intensiveRecoveryTarget, null);
 });
 
 test("browser decrypt action does not apply stale results after reset", async () => {
@@ -1500,12 +2201,43 @@ test("browser decrypt action does not apply stale results after reset", async ()
   assert.deepEqual(finalState.frameStatus.lines, ["State cleared."]);
 });
 
+test("browser reset aborts active scrypt work", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  addSingleFrameDocument(state, { ciphertext: Uint8Array.of(0x4a) });
+  let started;
+  const decryptStarted = new Promise((resolve) => {
+    started = resolve;
+  });
+  let observedSignal = null;
+
+  const decryptTask = decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    decrypt(_ciphertext, _passphrase, { signal }) {
+      observedSignal = signal;
+      started();
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+      });
+    },
+    verifySignature: verifiedSignature,
+  });
+  await decryptStarted;
+  resetAll(store.dispatch.bind(store));
+  await decryptTask;
+
+  assert.equal(observedSignal?.aborted, true);
+  assert.equal(store.getState().recoveryComplete, false);
+  assert.deepEqual(store.getState().frameStatus.lines, ["State cleared."]);
+});
+
 test("browser decrypt action can recover root only from multiple supplied documents", async () => {
   const store = createStore();
   const state = store.getState();
   state.agePassphrase = "pw";
   const rootCiphertext = Uint8Array.of(0x1c);
   const extCiphertext = Uint8Array.of(0x2c);
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(rootCiphertext));
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
@@ -1550,6 +2282,7 @@ test("browser decrypt action can recover root only with incomplete extension fra
   const state = store.getState();
   state.agePassphrase = "pw";
   const rootCiphertext = Uint8Array.of(0x1d);
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(rootCiphertext));
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
@@ -1591,6 +2324,7 @@ test("browser decrypt action reports ignored AUTH-only frames for root-only reco
   const state = store.getState();
   state.agePassphrase = "pw";
   const rootCiphertext = Uint8Array.of(0x1f);
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(rootCiphertext));
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
@@ -1636,6 +2370,7 @@ test("browser decrypt action can recover selected extension with incomplete late
   state.extensionTargetText = "1";
   const rootCiphertext = Uint8Array.of(0x35);
   const ext1Ciphertext = Uint8Array.of(0x36);
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(ext1Ciphertext));
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
@@ -1676,7 +2411,7 @@ test("browser decrypt action can recover selected extension with incomplete late
   assert.equal(finalState.recoveryComplete, true);
   assert.equal(finalState.decryptStatus.type, "ok");
   assert.equal(
-    finalState.decryptStatus.lines.includes("Replay target: supplied authenticated extension 1."),
+    finalState.decryptStatus.lines.includes("Replay target: supplied extension 1."),
     true,
   );
   assert.equal(
@@ -1769,6 +2504,7 @@ test("browser action state blocks latest recovery for AUTH-only extension record
   );
 
   assert.equal(selectActionState(state).canDecryptCiphertext, false);
+  state.expectedHeadDocHashText = "aa".repeat(32);
   state.extensionTargetText = "root";
   assert.equal(selectActionState(state).canDecryptCiphertext, true);
   state.extensionTargetText = "1";
@@ -1782,6 +2518,7 @@ test("browser decrypt action accepts extension target input by index", async () 
   state.extensionTargetText = "1";
   const rootCiphertext = Uint8Array.of(0x3c);
   const ext1Ciphertext = Uint8Array.of(0x4c);
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(ext1Ciphertext));
   const ext2Ciphertext = Uint8Array.of(0x5c);
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
@@ -1817,7 +2554,7 @@ test("browser decrypt action accepts extension target input by index", async () 
   assert.equal(finalState.recoveryComplete, true);
   assert.equal(finalState.decryptStatus.type, "ok");
   assert.equal(
-    finalState.decryptStatus.lines.includes("Replay target: supplied authenticated extension 1."),
+    finalState.decryptStatus.lines.includes("Replay target: supplied extension 1."),
     true,
   );
   assert.deepEqual(
@@ -1964,8 +2701,12 @@ test("browser decrypt action accepts dedicated expected head doc hash", async ()
   assert.equal(finalState.recoveryComplete, true);
   assert.equal(finalState.decryptStatus.type, "ok");
   assert.equal(
+    finalState.decryptStatus.lines.includes("Replay target: latest supplied extension 1."),
+    true,
+  );
+  assert.equal(
     finalState.decryptStatus.lines.includes(
-      "Replay target: latest supplied authenticated extension 1.",
+      "Freshness: matched the manually entered expected head hash.",
     ),
     true,
   );
@@ -2549,6 +3290,22 @@ test("encrypted file download is disabled for multi-document scans", () => {
   );
 });
 
+test("browser action state requires an explicit latest freshness decision", () => {
+  const state = createInitialState();
+  state.agePassphrase = "pw";
+  addSingleFrameDocument(state, { ciphertext: Uint8Array.of(0xa0) });
+
+  const blocked = selectActionState(state);
+  assert.equal(blocked.canDecryptCiphertext, false);
+  assert.equal(
+    blocked.decryptDisabledReason,
+    "Enter an expected head hash or acknowledge unknown freshness.",
+  );
+
+  state.freshnessUnknownAcknowledged = true;
+  assert.equal(selectActionState(state).canDecryptCiphertext, true);
+});
+
 test("multi-document collection waits for incomplete extensions before latest recovery", () => {
   const state = createInitialState();
   state.agePassphrase = "pw";
@@ -2566,6 +3323,7 @@ test("multi-document collection waits for incomplete extensions before latest re
     ),
   );
 
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(Uint8Array.of(0xa3)));
   const latestActionState = selectActionState(state);
   assert.equal(selectFrameCollectionComplete(state), false);
   assert.equal(latestActionState.canDecryptCiphertext, false);

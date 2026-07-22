@@ -23,442 +23,153 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _TEMPLATES_ROOT = _PROJECT_ROOT / "src" / "ethernity" / "resources" / "templates"
 
 
+def _write_style(template_dir: Path, content: str) -> None:
+    (template_dir / "style.json").write_text(content, encoding="utf-8")
+
+
 class TestTemplateStyle(unittest.TestCase):
-    def test_builtin_styles_match_expected_values(self) -> None:
-        archive = load_template_style(_TEMPLATES_ROOT / "archive" / "recovery_document.html.j2")
+    def test_builtin_styles_expose_only_live_capabilities(self) -> None:
+        archive = load_template_style(_TEMPLATES_ROOT / "archive")
         self.assertEqual(archive.name, "archive")
-        self.assertEqual(archive.capabilities.recovery_line_groups_bonus, 0)
-        self.assertEqual(archive.capabilities.recovery_first_page_bonus_lines, 13)
-        self.assertEqual(
-            archive.capabilities.recovery_first_page_bonus_lines_per_extra_section,
-            2,
-        )
-        self.assertEqual(archive.capabilities.recovery_continuation_bonus_lines, 16)
-        self.assertEqual(archive.capabilities.shard_line_groups_bonus, 10)
-        self.assertEqual(archive.capabilities.signing_key_shard_line_groups_bonus, 10)
+        self.assertAlmostEqual(archive.capabilities.main_qr_grid_size_mm or 0.0, 58.6)
+        self.assertFalse(archive.capabilities.recovery_first_page_single_section)
+        self.assertFalse(archive.capabilities.recovery_kit_index_document)
 
-        ledger = load_template_style(_TEMPLATES_ROOT / "ledger" / "main_document.html.j2")
-        self.assertEqual(ledger.name, "ledger")
-        self.assertAlmostEqual(ledger.header.meta_row_gap_mm, 1.2)
-        self.assertAlmostEqual(ledger.header.stack_gap_mm, 0.0)
-        self.assertAlmostEqual(ledger.header.divider_thickness_mm, 0.6)
-        self.assertAlmostEqual(ledger.content_offset.divider_gap_extra_mm, 0.0)
-        self.assertEqual(ledger.content_offset.doc_types, frozenset())
-        self.assertFalse(ledger.capabilities.inject_forge_copy)
-        self.assertFalse(ledger.capabilities.repeat_primary_qr_on_shard_continuation)
-        self.assertFalse(ledger.capabilities.advanced_fallback_layout)
-        self.assertFalse(ledger.capabilities.extra_main_first_page_qr_slot)
-        self.assertFalse(ledger.capabilities.uniform_main_qr_capacity)
-        self.assertFalse(ledger.capabilities.recovery_kit_index_document)
-        self.assertIsNone(ledger.capabilities.main_qr_grid_size_mm)
-        self.assertIsNone(ledger.capabilities.main_qr_grid_max_cols)
-        self.assertIsNone(ledger.capabilities.fallback_layout)
-        self.assertFalse(ledger.capabilities.recovery_first_page_single_section)
+        for design in ("ledger", "maritime"):
+            style = load_template_style(_TEMPLATES_ROOT / design)
+            self.assertEqual(style.name, design)
+            self.assertEqual(style.capabilities, type(style.capabilities)())
 
-        maritime = load_template_style(_TEMPLATES_ROOT / "maritime" / "main_document.html.j2")
-        self.assertEqual(maritime.name, "maritime")
-        self.assertAlmostEqual(maritime.header.meta_row_gap_mm, 1.2)
-        self.assertAlmostEqual(maritime.header.stack_gap_mm, 1.6)
-        self.assertAlmostEqual(maritime.header.divider_thickness_mm, 0.4)
-        self.assertAlmostEqual(maritime.content_offset.divider_gap_extra_mm, -10.0)
-        self.assertEqual(maritime.content_offset.doc_types, frozenset({"recovery"}))
-        self.assertTrue(maritime.capabilities.repeat_main_instructions_on_all_pages)
-        self.assertFalse(maritime.capabilities.recovery_kit_index_document)
-
-        forge = load_template_style(_TEMPLATES_ROOT / "forge" / "main_document.html.j2")
-        self.assertEqual(forge.name, "forge")
-        self.assertAlmostEqual(forge.header.meta_row_gap_mm, 1.2)
-        self.assertAlmostEqual(forge.header.stack_gap_mm, 1.2)
-        self.assertAlmostEqual(forge.header.divider_thickness_mm, 0.5)
-        self.assertAlmostEqual(forge.content_offset.divider_gap_extra_mm, 0.0)
-        self.assertEqual(forge.content_offset.doc_types, frozenset())
-        self.assertTrue(forge.capabilities.inject_forge_copy)
+        forge = load_template_style(_TEMPLATES_ROOT / "forge")
         self.assertTrue(forge.capabilities.recovery_first_page_single_section)
-        self.assertTrue(forge.capabilities.repeat_primary_qr_on_shard_continuation)
-        self.assertTrue(forge.capabilities.advanced_fallback_layout)
-        self.assertFalse(forge.capabilities.uniform_main_qr_capacity)
         self.assertTrue(forge.capabilities.recovery_kit_index_document)
-        self.assertEqual(forge.capabilities.recovery_main_section_start_reserved_lines, 1)
-        self.assertEqual(forge.capabilities.shard_first_page_estimate_bonus_lines, 1)
-        self.assertEqual(forge.capabilities.shard_first_page_bonus_lines, 3)
-        self.assertEqual(forge.capabilities.signing_key_shard_line_groups_bonus, 2)
-        self.assertEqual(forge.capabilities.signing_key_shard_first_page_estimate_bonus_lines, 3)
-        self.assertEqual(forge.capabilities.signing_key_shard_first_page_bonus_lines, 3)
-        self.assertIsNotNone(forge.capabilities.fallback_layout)
-        if forge.capabilities.fallback_layout is not None:
-            self.assertAlmostEqual(
-                forge.capabilities.fallback_layout.recovery.line_height_floor_mm,
-                5.8,
-            )
-            self.assertAlmostEqual(
-                forge.capabilities.fallback_layout.recovery.continuation_footer_reserve_mm,
-                35.0,
-            )
-            self.assertAlmostEqual(
-                forge.capabilities.fallback_layout.shard.first_page_payload_zone_height_mm,
-                43.2,
-            )
-            self.assertAlmostEqual(
-                forge.capabilities.fallback_layout.signing_key_shard.first_page_payload_zone_height_mm,
-                37.8,
-            )
+        self.assertIsNone(forge.capabilities.main_qr_grid_size_mm)
 
-        sentinel = load_template_style(_TEMPLATES_ROOT / "sentinel" / "main_document.html.j2")
-        self.assertEqual(sentinel.name, "sentinel")
-        self.assertAlmostEqual(sentinel.header.meta_row_gap_mm, 1.2)
-        self.assertAlmostEqual(sentinel.header.stack_gap_mm, 1.2)
-        self.assertAlmostEqual(sentinel.header.divider_thickness_mm, 0.5)
-        self.assertAlmostEqual(sentinel.content_offset.divider_gap_extra_mm, 0.0)
-        self.assertEqual(sentinel.content_offset.doc_types, frozenset())
-        self.assertFalse(sentinel.capabilities.inject_forge_copy)
+        sentinel = load_template_style(_TEMPLATES_ROOT / "sentinel")
         self.assertFalse(sentinel.capabilities.recovery_first_page_single_section)
-        self.assertTrue(sentinel.capabilities.repeat_primary_qr_on_shard_continuation)
-        self.assertTrue(sentinel.capabilities.advanced_fallback_layout)
-        self.assertTrue(sentinel.capabilities.extra_main_first_page_qr_slot)
-        self.assertFalse(sentinel.capabilities.uniform_main_qr_capacity)
         self.assertTrue(sentinel.capabilities.recovery_kit_index_document)
-        self.assertEqual(sentinel.capabilities.recovery_quorumless_line_groups_bonus, 1)
-        self.assertEqual(sentinel.capabilities.recovery_quorumless_first_page_bonus_lines, 0)
-        self.assertEqual(sentinel.capabilities.recovery_quorumless_continuation_bonus_lines, 0)
-        self.assertEqual(sentinel.capabilities.signing_key_shard_line_groups_bonus, 3)
-        self.assertIsNotNone(sentinel.capabilities.fallback_layout)
-        if sentinel.capabilities.fallback_layout is not None:
-            self.assertAlmostEqual(
-                sentinel.capabilities.fallback_layout.recovery.first_page_text_width_bonus_mm,
-                58.0,
-            )
-            self.assertAlmostEqual(
-                sentinel.capabilities.fallback_layout.recovery.continuation_text_width_bonus_mm,
-                150.0,
-            )
-            self.assertAlmostEqual(
-                sentinel.capabilities.fallback_layout.shard.first_page_payload_zone_height_mm,
-                48.0,
-            )
+        self.assertIsNone(sentinel.capabilities.main_qr_grid_size_mm)
 
     def test_style_defaults_capabilities_when_missing(self) -> None:
         with TemporaryDirectory() as temp_dir:
             template_dir = Path(temp_dir)
-            (template_dir / "style.json").write_text(
-                """{
-  "name": "custom",
-  "header": {
-    "meta_row_gap_mm": 1.2,
-    "stack_gap_mm": 1.0,
-    "divider_thickness_mm": 0.5
-  },
-  "content_offset": {
-    "divider_gap_extra_mm": 0.0,
-    "doc_types": []
-  }
-}
-""",
-                encoding="utf-8",
-            )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
-            style = load_template_style(template_dir / "main_document.html.j2")
-            self.assertFalse(style.capabilities.inject_forge_copy)
+            _write_style(template_dir, '{"name": "custom"}\n')
+
+            style = load_template_style(template_dir)
+
             self.assertFalse(style.capabilities.recovery_first_page_single_section)
-            self.assertFalse(style.capabilities.repeat_primary_qr_on_shard_continuation)
-            self.assertFalse(style.capabilities.advanced_fallback_layout)
-            self.assertFalse(style.capabilities.extra_main_first_page_qr_slot)
-            self.assertFalse(style.capabilities.uniform_main_qr_capacity)
-            self.assertFalse(style.capabilities.repeat_main_instructions_on_all_pages)
             self.assertFalse(style.capabilities.recovery_kit_index_document)
             self.assertIsNone(style.capabilities.main_qr_grid_size_mm)
-            self.assertIsNone(style.capabilities.main_qr_grid_max_cols)
-            self.assertIsNone(style.capabilities.fallback_layout)
-            self.assertEqual(style.capabilities.recovery_line_groups_bonus, 0)
-            self.assertEqual(style.capabilities.recovery_first_page_bonus_lines, 0)
-            self.assertEqual(style.capabilities.recovery_continuation_bonus_lines, 0)
-            self.assertEqual(style.capabilities.recovery_main_section_start_reserved_lines, 0)
-            self.assertEqual(style.capabilities.recovery_quorumless_line_groups_bonus, 0)
-            self.assertEqual(style.capabilities.recovery_quorumless_first_page_bonus_lines, 0)
-            self.assertEqual(style.capabilities.recovery_quorumless_continuation_bonus_lines, 0)
-            self.assertEqual(style.capabilities.shard_line_groups_bonus, 0)
-            self.assertEqual(style.capabilities.shard_first_page_estimate_bonus_lines, 0)
-            self.assertEqual(style.capabilities.shard_first_page_bonus_lines, 0)
-            self.assertEqual(style.capabilities.signing_key_shard_line_groups_bonus, 0)
-            self.assertEqual(
-                style.capabilities.signing_key_shard_first_page_estimate_bonus_lines,
-                0,
-            )
-            self.assertEqual(style.capabilities.signing_key_shard_first_page_bonus_lines, 0)
 
-    def test_omitted_capabilities_do_not_gain_sentinel_defaults(self) -> None:
+    def test_style_accepts_all_live_capabilities(self) -> None:
         with TemporaryDirectory() as temp_dir:
             template_dir = Path(temp_dir)
-            (template_dir / "style.json").write_text(
+            _write_style(
+                template_dir,
                 """{
-  "name": "sentinel",
-  "header": {
-    "meta_row_gap_mm": 1.2,
-    "stack_gap_mm": 1.0,
-    "divider_thickness_mm": 0.5
-  },
-  "content_offset": {
-    "divider_gap_extra_mm": 0.0,
-    "doc_types": []
-  },
+  "name": "custom",
   "capabilities": {
-    "repeat_primary_qr_on_shard_continuation": true,
-    "advanced_fallback_layout": true,
-    "fallback_layout": {
-      "recovery": {
-        "line_height_floor_mm": 5.8,
-        "first_page_footer_reserve_mm": 76.0,
-        "continuation_footer_reserve_mm": 11.6,
-        "meta_baseline_lines": 3,
-        "meta_extra_line_mm": 8.0,
-        "meta_section_overhead_mm": 12.0,
-        "first_page_text_width_bonus_mm": 58.0,
-        "continuation_text_width_bonus_mm": 150.0
-      },
-      "shard": {
-        "line_height_floor_mm": 4.8,
-        "first_page_payload_zone_height_mm": 48.0,
-        "continuation_payload_zone_height_mm": 52.8
-      },
-      "signing_key_shard": {
-        "line_height_floor_mm": 4.2,
-        "first_page_payload_zone_height_mm": 71.4,
-        "continuation_payload_zone_height_mm": 46.2
-      }
-    }
+    "recovery_first_page_single_section": true,
+    "recovery_kit_index_document": true,
+    "main_qr_grid_size_mm": 42
   }
 }
 """,
-                encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
-            style = load_template_style(template_dir / "main_document.html.j2")
-            self.assertFalse(style.capabilities.inject_forge_copy)
-            self.assertTrue(style.capabilities.repeat_primary_qr_on_shard_continuation)
-            self.assertTrue(style.capabilities.advanced_fallback_layout)
-            self.assertFalse(style.capabilities.extra_main_first_page_qr_slot)
-            self.assertFalse(style.capabilities.uniform_main_qr_capacity)
-            self.assertFalse(style.capabilities.recovery_kit_index_document)
-            self.assertIsNone(style.capabilities.main_qr_grid_size_mm)
-            self.assertIsNone(style.capabilities.main_qr_grid_max_cols)
-            self.assertIsNotNone(style.capabilities.fallback_layout)
 
-    def test_style_rejects_unknown_top_level_keys(self) -> None:
+            style = load_template_style(template_dir)
+
+            self.assertTrue(style.capabilities.recovery_first_page_single_section)
+            self.assertTrue(style.capabilities.recovery_kit_index_document)
+            self.assertEqual(style.capabilities.main_qr_grid_size_mm, 42.0)
+
+    def test_style_rejects_removed_top_level_sections(self) -> None:
         with TemporaryDirectory() as temp_dir:
             template_dir = Path(temp_dir)
-            (template_dir / "style.json").write_text(
+            _write_style(
+                template_dir,
                 """{
   "name": "custom",
   "header": {
-    "meta_row_gap_mm": 1.2,
-    "stack_gap_mm": 1.0,
-    "divider_thickness_mm": 0.5
-  },
-  "content_offset": {
-    "divider_gap_extra_mm": 0.0,
-    "doc_types": []
-  },
-  "recovery": {
-    "header_layout": "split"
+    "meta_row_gap_mm": 1.2
   }
 }
 """,
-                encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
+
             with self.assertRaisesRegex(ValueError, "unknown key\\(s\\) in template style"):
-                load_template_style(template_dir / "main_document.html.j2")
+                load_template_style(template_dir)
+
+    def test_style_rejects_removed_capability_keys(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            template_dir = Path(temp_dir)
+            _write_style(
+                template_dir,
+                """{
+  "name": "custom",
+  "capabilities": {
+    "advanced_fallback_layout": true
+  }
+}
+""",
+            )
+
+            with self.assertRaisesRegex(ValueError, "unknown key\\(s\\) in capabilities"):
+                load_template_style(template_dir)
 
     def test_style_rejects_unknown_capability_keys(self) -> None:
         with TemporaryDirectory() as temp_dir:
             template_dir = Path(temp_dir)
-            (template_dir / "style.json").write_text(
-                """{
-  "name": "custom",
-  "header": {
-    "meta_row_gap_mm": 1.2,
-    "stack_gap_mm": 1.0,
-    "divider_thickness_mm": 0.5
-  },
-  "content_offset": {
-    "divider_gap_extra_mm": 0.0,
-    "doc_types": []
-  },
-  "capabilities": {
-    "repeat_primary_qr_on_shard_continuation": true,
-    "unknown_feature": true
-  }
-}
-""",
-                encoding="utf-8",
+            _write_style(
+                template_dir,
+                '{"name": "custom", "capabilities": {"unknown_feature": true}}\n',
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
+
             with self.assertRaisesRegex(ValueError, "unknown key\\(s\\) in capabilities"):
-                load_template_style(template_dir / "main_document.html.j2")
+                load_template_style(template_dir)
 
     def test_style_rejects_non_bool_capability_values(self) -> None:
         with TemporaryDirectory() as temp_dir:
             template_dir = Path(temp_dir)
-            (template_dir / "style.json").write_text(
+            _write_style(
+                template_dir,
                 """{
   "name": "custom",
-  "header": {
-    "meta_row_gap_mm": 1.2,
-    "stack_gap_mm": 1.0,
-    "divider_thickness_mm": 0.5
-  },
-  "content_offset": {
-    "divider_gap_extra_mm": 0.0,
-    "doc_types": []
-  },
   "capabilities": {
-    "repeat_primary_qr_on_shard_continuation": 1
+    "recovery_kit_index_document": 1
   }
 }
 """,
-                encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
+
             with self.assertRaisesRegex(
                 ValueError,
-                "missing or invalid 'repeat_primary_qr_on_shard_continuation' boolean",
+                "missing or invalid 'recovery_kit_index_document' boolean",
             ):
-                load_template_style(template_dir / "main_document.html.j2")
+                load_template_style(template_dir)
 
-    def test_style_rejects_removed_legacy_capability_keys(self) -> None:
+    def test_style_rejects_invalid_main_qr_grid_size(self) -> None:
+        for value in ("0", "true"):
+            with self.subTest(value=value), TemporaryDirectory() as temp_dir:
+                template_dir = Path(temp_dir)
+                _write_style(
+                    template_dir,
+                    f'{{"name": "custom", "capabilities": {{"main_qr_grid_size_mm": {value}}}}}\n',
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "missing or invalid 'main_qr_grid_size_mm' positive number",
+                ):
+                    load_template_style(template_dir)
+
+    def test_style_rejects_invalid_capabilities_object(self) -> None:
         with TemporaryDirectory() as temp_dir:
             template_dir = Path(temp_dir)
-            (template_dir / "style.json").write_text(
-                """{
-  "name": "custom",
-  "header": {
-    "meta_row_gap_mm": 1.2,
-    "stack_gap_mm": 1.0,
-    "divider_thickness_mm": 0.5
-  },
-  "content_offset": {
-    "divider_gap_extra_mm": 0.0,
-    "doc_types": []
-  },
-  "capabilities": {
-    "wide_recovery_fallback_lines": true
-  }
-}
-""",
-                encoding="utf-8",
-            )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
-            with self.assertRaisesRegex(
-                ValueError,
-                "legacy capability keys removed: wide_recovery_fallback_lines",
-            ):
-                load_template_style(template_dir / "main_document.html.j2")
+            _write_style(template_dir, '{"name": "custom", "capabilities": []}\n')
 
-    def test_style_rejects_invalid_main_qr_grid_capability_values(self) -> None:
-        with TemporaryDirectory() as temp_dir:
-            template_dir = Path(temp_dir)
-            (template_dir / "style.json").write_text(
-                """{
-  "name": "custom",
-  "header": {
-    "meta_row_gap_mm": 1.2,
-    "stack_gap_mm": 1.0,
-    "divider_thickness_mm": 0.5
-  },
-  "content_offset": {
-    "divider_gap_extra_mm": 0.0,
-    "doc_types": []
-  },
-  "capabilities": {
-    "main_qr_grid_size_mm": 0,
-    "main_qr_grid_max_cols": -1
-  }
-}
-""",
-                encoding="utf-8",
-            )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
-            with self.assertRaisesRegex(
-                ValueError,
-                "missing or invalid 'main_qr_grid_size_mm' positive number",
-            ):
-                load_template_style(template_dir / "main_document.html.j2")
-
-    def test_style_rejects_boolean_where_number_required(self) -> None:
-        with TemporaryDirectory() as temp_dir:
-            template_dir = Path(temp_dir)
-            (template_dir / "style.json").write_text(
-                """{
-  "name": "custom",
-  "header": {
-    "meta_row_gap_mm": true,
-    "stack_gap_mm": 1.0,
-    "divider_thickness_mm": 0.5
-  },
-  "content_offset": {
-    "divider_gap_extra_mm": 0.0,
-    "doc_types": []
-  }
-}
-""",
-                encoding="utf-8",
-            )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
-            with self.assertRaisesRegex(
-                ValueError,
-                "missing or invalid 'meta_row_gap_mm' number",
-            ):
-                load_template_style(template_dir / "main_document.html.j2")
-
-    def test_style_rejects_negative_recovery_continuation_footer_reserve(self) -> None:
-        with TemporaryDirectory() as temp_dir:
-            template_dir = Path(temp_dir)
-            (template_dir / "style.json").write_text(
-                """{
-  "name": "custom",
-  "header": {
-    "meta_row_gap_mm": 1.2,
-    "stack_gap_mm": 1.0,
-    "divider_thickness_mm": 0.5
-  },
-  "content_offset": {
-    "divider_gap_extra_mm": 0.0,
-    "doc_types": []
-  },
-  "capabilities": {
-    "advanced_fallback_layout": true,
-    "fallback_layout": {
-      "recovery": {
-        "line_height_floor_mm": 5.8,
-        "first_page_footer_reserve_mm": 76.0,
-        "continuation_footer_reserve_mm": -1.0,
-        "meta_baseline_lines": 3,
-        "meta_extra_line_mm": 8.0,
-        "meta_section_overhead_mm": 12.0,
-        "first_page_text_width_bonus_mm": 58.0,
-        "continuation_text_width_bonus_mm": 150.0
-      },
-      "shard": {
-        "line_height_floor_mm": 4.8,
-        "first_page_payload_zone_height_mm": 48.0,
-        "continuation_payload_zone_height_mm": 52.8
-      },
-      "signing_key_shard": {
-        "line_height_floor_mm": 4.2,
-        "first_page_payload_zone_height_mm": 71.4,
-        "continuation_payload_zone_height_mm": 46.2
-      }
-    }
-  }
-}
-""",
-                encoding="utf-8",
-            )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
-            with self.assertRaisesRegex(
-                ValueError,
-                "missing or invalid 'continuation_footer_reserve_mm' non-negative number",
-            ):
-                load_template_style(template_dir / "main_document.html.j2")
+            with self.assertRaisesRegex(ValueError, "invalid 'capabilities' object"):
+                load_template_style(template_dir)
 
 
 if __name__ == "__main__":

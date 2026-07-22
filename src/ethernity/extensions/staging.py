@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Staging-directory validation and atomic promotion helpers for extensions."""
+"""Staging-directory planning and validation for extension publication."""
 
 from __future__ import annotations
 
@@ -25,10 +25,11 @@ from pathlib import Path
 from typing import Literal, TypeAlias
 
 from ethernity.artifacts.publish import (
+    TRANSACTION_METADATA_NAME,
     ArtifactSnapshot,
-    promote_staged_artifact_dir,
     snapshot_artifact_dir,
 )
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
 from ethernity.extensions.layout import (
     build_extension_main_filename,
@@ -41,7 +42,11 @@ from ethernity.extensions.layout import (
     parse_extension_shard_filename,
 )
 
-EXTENSION_CHAIN_LOCK_DIR_NAME = ".chain.lock"
+EXTENSION_CHAIN_LOCK_FILE_NAME = ".chain.lock"
+_LOOSE_INTERRUPTED_OUTPUT_GUIDANCE = (
+    "scan-mode output contains interrupted publication state; if no Add Files process is "
+    "running, remove the entire dedicated output directory or select a new empty output directory"
+)
 DirectoryIdentity = tuple[int, int]
 ExtensionPublishLayout: TypeAlias = Literal["canonical", "loose"]
 StagedExtensionSnapshot = ArtifactSnapshot
@@ -60,6 +65,8 @@ class ExtensionPublishPolicy:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{label} must be a non-negative integer")
+            if value > MAX_SHARES:
+                raise ValueError(f"{label} must be <= MAX_SHARES ({MAX_SHARES})")
 
 
 @dataclass(frozen=True)
@@ -86,6 +93,7 @@ class PlannedStagedExtensionArtifacts:
     artifact_parent_identity: DirectoryIdentity
     qr_document_path: Path
     recovery_document_path: Path
+    recovery_kit_path: Path
     recovery_kit_index_path: Path | None
     shard_paths: tuple[Path, ...]
     signing_key_shard_paths: tuple[Path, ...]
@@ -114,10 +122,14 @@ def create_extension_staging_dir(
         raise ValueError("extensions path must not be a symlink")
     if require_empty_extensions:
         _require_empty_extension_namespace(extensions_dir)
+    _require_no_unfinished_transactions(extensions_dir)
+    _require_advisory_lock_path(extensions_dir / EXTENSION_CHAIN_LOCK_FILE_NAME)
     extensions_dir.mkdir(mode=0o700, parents=False, exist_ok=True)
     _require_existing_directory_no_symlink(extensions_dir, label="extensions path")
     if require_empty_extensions:
         _require_empty_extension_namespace(extensions_dir)
+    _require_no_unfinished_transactions(extensions_dir)
+    _require_advisory_lock_path(extensions_dir / EXTENSION_CHAIN_LOCK_FILE_NAME)
     staging_dir = extensions_dir / build_staging_dir_name(index, nonce)
     staging_dir.mkdir(mode=0o700, parents=False, exist_ok=False)
     _require_existing_directory_no_symlink(staging_dir, label="staging directory")
@@ -152,6 +164,10 @@ def create_loose_extension_staging_dir(
             label="extension publish root",
             display_path=root_dir,
         )
+    _require_advisory_lock_path(
+        root_path / EXTENSION_CHAIN_LOCK_FILE_NAME,
+        loose_output=True,
+    )
     if require_empty_root:
         _require_empty_loose_publish_root(root_path)
     staging_dir = root_path / build_staging_dir_name(index, nonce)
@@ -200,32 +216,6 @@ def _require_directory_identity(
         raise ValueError(f"{label} changed before promotion")
 
 
-def _require_publish_directory_identities(validated: ValidatedStagedExtension) -> None:
-    artifact_parent = validated.staging_dir.parent
-    publish_root = _publish_root_for_staging_dir(
-        validated.staging_dir,
-        publish_layout=validated.publish_layout,
-    )
-    _require_directory_identity(
-        publish_root,
-        expected=validated.publish_root_identity,
-        label="extension publish root",
-    )
-    _require_directory_identity(
-        artifact_parent,
-        expected=validated.artifact_parent_identity,
-        label=_artifact_parent_label(validated.publish_layout),
-    )
-
-
-def _require_staging_directory_identity(validated: ValidatedStagedExtension) -> None:
-    _require_directory_identity(
-        validated.staging_dir,
-        expected=validated.staging_dir_identity,
-        label="staging directory",
-    )
-
-
 def preflight_extension_publish_target(
     root_dir: str | Path,
     *,
@@ -253,13 +243,14 @@ def preflight_extension_publish_target(
     if not root_path.is_dir():
         raise ValueError(f"extension publish root must be a directory: {root_dir}")
     if layout == "loose":
+        _require_advisory_lock_path(
+            root_path / EXTENSION_CHAIN_LOCK_FILE_NAME,
+            loose_output=True,
+        )
         if require_empty_root:
             _require_empty_loose_publish_root(root_path)
         if not os.access(root_path, os.W_OK | os.X_OK):
             raise ValueError(f"extension publish target is not writable: {root_path}")
-        chain_lock_dir = root_path / EXTENSION_CHAIN_LOCK_DIR_NAME
-        if chain_lock_dir.exists() or chain_lock_dir.is_symlink():
-            raise ValueError("extension chain is already being promoted")
         return
     extensions_dir = root_path / EXTENSIONS_DIR_NAME
     if extensions_dir.is_symlink():
@@ -268,20 +259,14 @@ def preflight_extension_publish_target(
         raise ValueError("extensions path must be a directory")
     if require_empty_extensions:
         _require_empty_extension_namespace(extensions_dir)
+    _require_no_unfinished_transactions(extensions_dir)
+    _require_advisory_lock_path(extensions_dir / EXTENSION_CHAIN_LOCK_FILE_NAME)
     writable_dir = extensions_dir if extensions_dir.exists() else root_path
     if not os.access(writable_dir, os.W_OK | os.X_OK):
         raise ValueError(f"extension publish target is not writable: {writable_dir}")
     final_dir = extensions_dir / canonical_extension_dir_name(index)
     if final_dir.exists() or final_dir.is_symlink():
         raise ValueError(f"canonical extension directory already exists: {final_dir.name}")
-    lock_dir = extensions_dir / f".{final_dir.name}.lock"
-    if lock_dir.exists() or lock_dir.is_symlink():
-        raise ValueError(
-            f"canonical extension directory is already being promoted: {final_dir.name}"
-        )
-    chain_lock_dir = extensions_dir / EXTENSION_CHAIN_LOCK_DIR_NAME
-    if chain_lock_dir.exists() or chain_lock_dir.is_symlink():
-        raise ValueError("extension chain is already being promoted")
 
 
 def _require_creatable_root_parent(root_path: Path) -> None:
@@ -296,13 +281,40 @@ def _require_creatable_root_parent(root_path: Path) -> None:
         raise ValueError(f"extension publish root parent is not writable: {parent}")
 
 
+def _require_no_unfinished_transactions(extensions_dir: Path) -> None:
+    if not extensions_dir.exists() or not extensions_dir.is_dir():
+        return
+    unfinished = sorted(
+        entry.name
+        for entry in extensions_dir.iterdir()
+        if is_staging_dir_name(entry.name) and (entry.is_dir() or entry.is_symlink())
+    )
+    if unfinished:
+        raise ValueError(
+            "unfinished extension publication transaction found: "
+            f"{unfinished[0]}; run `ethernity run doctor --backup-folder ...`"
+        )
+
+
+def _require_advisory_lock_path(lock_path: Path, *, loose_output: bool = False) -> None:
+    if lock_path.is_symlink() or (lock_path.exists() and not lock_path.is_file()):
+        if loose_output:
+            raise ValueError(_LOOSE_INTERRUPTED_OUTPUT_GUIDANCE)
+        raise ValueError(
+            "obsolete or invalid chain lock path found; run "
+            "`ethernity run doctor --backup-folder ... --repair --yes`"
+        )
+
+
 def _require_empty_extension_namespace(extensions_dir: Path) -> None:
     if not extensions_dir.exists():
         return
-    try:
-        first_entry = next(extensions_dir.iterdir())
-    except StopIteration:
+    unexpected = sorted(
+        entry for entry in extensions_dir.iterdir() if entry.name != EXTENSION_CHAIN_LOCK_FILE_NAME
+    )
+    if not unexpected:
         return
+    first_entry = unexpected[0]
     raise ValueError(
         "extension publish target must have an empty extensions directory for this "
         f"publish mode; found {first_entry.name}"
@@ -310,10 +322,19 @@ def _require_empty_extension_namespace(extensions_dir: Path) -> None:
 
 
 def _require_empty_loose_publish_root(root_path: Path) -> None:
-    try:
-        first_entry = next(root_path.iterdir())
-    except StopIteration:
+    unexpected = sorted(
+        entry for entry in root_path.iterdir() if entry.name != EXTENSION_CHAIN_LOCK_FILE_NAME
+    )
+    if not unexpected:
         return
+    first_entry = unexpected[0]
+    if is_staging_dir_name(first_entry.name):
+        raise ValueError(_LOOSE_INTERRUPTED_OUTPUT_GUIDANCE)
+    if first_entry.name.startswith("extension-"):
+        raise ValueError(
+            "scan-mode output already contains a published extension; preserve that directory "
+            "and select a new empty output directory"
+        )
     raise ValueError(
         "scan-mode extension publish target must be an empty directory or missing path; "
         f"found {first_entry.name}"
@@ -373,6 +394,11 @@ def create_staged_extension_artifact_plan(
         index,
         doc_id_hex,
     )
+    recovery_kit_path = staging_dir / build_extension_main_filename(
+        "recovery_kit",
+        index,
+        doc_id_hex,
+    )
     recovery_kit_index_path = (
         staging_dir / build_extension_main_filename("recovery_kit_index", index, doc_id_hex)
         if publish_policy.require_recovery_kit_index
@@ -409,6 +435,7 @@ def create_staged_extension_artifact_plan(
         artifact_parent_identity=artifact_parent_identity,
         qr_document_path=qr_document_path,
         recovery_document_path=recovery_document_path,
+        recovery_kit_path=recovery_kit_path,
         recovery_kit_index_path=recovery_kit_index_path,
         shard_paths=shard_paths,
         signing_key_shard_paths=signing_key_shard_paths,
@@ -459,11 +486,15 @@ def validate_staged_extension_dir(
     signing_key_shares: dict[int, tuple[int, str]] = {}
 
     for entry in sorted(path.iterdir(), key=lambda item: item.name):
+        if entry.name == TRANSACTION_METADATA_NAME:
+            continue
         if entry.is_symlink():
             raise ValueError(f"staged extension contains symlinked artifact: {entry.name}")
         if not entry.is_file():
             raise ValueError(f"staged extension contains unexpected non-file entry: {entry.name}")
-        if entry.name.startswith(("qr_document-", "recovery_document-", "recovery_kit_index-")):
+        if entry.name.startswith(
+            ("qr_document-", "recovery_document-", "recovery_kit-", "recovery_kit_index-")
+        ):
             parsed_main = parse_extension_main_filename(entry.name)
             _require_index_match(
                 entry=entry,
@@ -534,60 +565,6 @@ def validate_staged_extension_dir(
     )
 
 
-def promote_staged_extension_dir(validated: ValidatedStagedExtension) -> Path:
-    """Atomically promote a layout-validated staged extension into its final directory."""
-
-    staging_dir = validated.staging_dir
-    if staging_dir.is_symlink():
-        raise ValueError("validated staging_dir must not be a symlink")
-    _require_publish_directory_identities(validated)
-    if not staging_dir.exists() or not staging_dir.is_dir():
-        raise ValueError("validated staging_dir no longer exists")
-    _require_staging_directory_identity(validated)
-    expected_final_dir_name = _extension_final_dir_name(
-        publish_layout=validated.publish_layout,
-        index=validated.expected_index,
-        doc_id_hex=validated.doc_id_hex,
-    )
-    final_dir = staging_dir.parent / expected_final_dir_name
-
-    def _validate_for_promotion(path: Path) -> None:
-        _require_publish_directory_identities(validated)
-        _require_staging_directory_identity(validated)
-        revalidated = validate_staged_extension_dir(
-            path,
-            expected_index=validated.expected_index,
-            publish_policy=validated.publish_policy,
-            publish_layout=validated.publish_layout,
-            expected_publish_root_identity=validated.publish_root_identity,
-            expected_artifact_parent_identity=validated.artifact_parent_identity,
-        )
-        if revalidated.doc_id_hex != validated.doc_id_hex:
-            raise ValueError("validated staging_dir doc_id changed before promotion")
-
-    try:
-        return promote_staged_artifact_dir(
-            staging_dir,
-            final_dir,
-            expected_snapshot=validated.staging_snapshot,
-            expected_staging_identity=validated.staging_dir_identity,
-            validate_staging=_validate_for_promotion,
-            lock_dir=staging_dir.parent / f".{expected_final_dir_name}.lock",
-        )
-    except ValueError as exc:
-        message = str(exc)
-        if message.startswith("final artifact directory already exists"):
-            raise ValueError(
-                f"{_final_dir_label(validated.publish_layout)} already exists: {final_dir.name}"
-            ) from exc
-        if message.startswith("final artifact directory is already being promoted"):
-            raise ValueError(
-                f"{_final_dir_label(validated.publish_layout)} is already being promoted: "
-                f"{final_dir.name}"
-            ) from exc
-        raise
-
-
 def snapshot_staged_extension_dir(staging_dir: str | Path) -> StagedExtensionSnapshot:
     """Return a content fingerprint for all regular files in a staged extension directory."""
 
@@ -626,14 +603,6 @@ def _artifact_parent_label(publish_layout: ExtensionPublishLayout) -> str:
     return "extension publish root" if publish_layout == "loose" else "extensions directory"
 
 
-def _final_dir_label(publish_layout: ExtensionPublishLayout) -> str:
-    return (
-        "loose extension artifact directory"
-        if publish_layout == "loose"
-        else "canonical extension directory"
-    )
-
-
 def _extension_final_dir_name(
     *,
     publish_layout: ExtensionPublishLayout,
@@ -657,7 +626,7 @@ def _require_main_artifacts(
     main_doc_ids: dict[str, str],
     publish_policy: ExtensionPublishPolicy,
 ) -> None:
-    required = {"qr_document", "recovery_document"}
+    required = {"qr_document", "recovery_document", "recovery_kit"}
     if publish_policy.require_recovery_kit_index:
         required.add("recovery_kit_index")
     elif "recovery_kit_index" in main_doc_ids:
@@ -702,7 +671,12 @@ def _require_complete_shards(
         return
     if not shares:
         raise ValueError(f"staged extension is missing required {doc_type} artifacts")
-    if set(shares) != set(range(1, expected_count + 1)):
+    share_indexes = set(shares)
+    if (
+        len(share_indexes) != expected_count
+        or min(share_indexes) != 1
+        or max(share_indexes) != expected_count
+    ):
         raise ValueError(
             f"staged extension {doc_type} artifacts must include shares 1 through {expected_count}"
         )

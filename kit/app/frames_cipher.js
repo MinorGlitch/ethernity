@@ -15,10 +15,8 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { blake2b256 } from "../lib/blake2b.js";
-import { bytesToHex, hexToBytes } from "../lib/encoding.js";
+import { hexToBytes } from "../lib/bytes.js";
 import {
-  DOC_ID_LEN,
   MAX_CIPHERTEXT_BYTES,
   MAX_RECOVERY_CIPHERTEXT_BYTES,
   MAX_RECOVERY_DOCUMENTS,
@@ -29,7 +27,11 @@ import {
   incompleteDocumentRecords,
   primaryDocumentRecord,
   syncLegacyDocumentFields,
-} from "./document_store.js";
+} from "./documents/store.js";
+import {
+  documentIdentityFromCiphertext,
+  documentIdentityFromDocHash,
+} from "./documents/identity.js";
 
 export function reassembleCiphertext(source) {
   if (source.total === null || source.mainFrames.size !== source.total) {
@@ -74,13 +76,13 @@ export function ensureDocumentCiphertextAndHash(record) {
     record.ciphertext = reassembleCiphertext(record);
   }
   if (!record.cipherDocHashHex) {
-    const hash = blake2b256(record.ciphertext);
-    enforceDerivedDocId(record, hash);
-    record.cipherDocHashHex = bytesToHex(hash);
-    return hash;
+    const identity = documentIdentityFromCiphertext(record.ciphertext);
+    enforceDerivedDocId(record, identity);
+    record.cipherDocHashHex = identity.docHashHex;
+    return identity.docHash;
   }
   const hash = hexToBytes(record.cipherDocHashHex);
-  enforceDerivedDocId(record, hash);
+  enforceDerivedDocId(record, documentIdentityFromDocHash(hash));
   return hash;
 }
 
@@ -120,12 +122,9 @@ export function collectedRecoveryDocuments(
   const documents = [];
   for (const record of completeDocumentRecords(state)) {
     const docHash = ensureDocumentCiphertextAndHash(record);
-    const docId = docHash.slice(0, DOC_ID_LEN);
+    const identity = documentIdentityFromDocHash(docHash);
     documents.push({
-      docId,
-      docIdHex: bytesToHex(docId),
-      docHash,
-      docHashHex: bytesToHex(docHash),
+      ...identity,
       ciphertext: record.ciphertext,
       authPayload: record.authPayload,
     });
@@ -164,12 +163,11 @@ export function enforceRecoveryDocumentBudget(
   }
 }
 
-function enforceDerivedDocId(record, docHash) {
+function enforceDerivedDocId(record, identity) {
   if (!record.docIdHex) {
     return;
   }
-  const derivedDocId = docHash.slice(0, DOC_ID_LEN);
-  if (bytesToHex(derivedDocId) !== record.docIdHex) {
+  if (identity.docIdHex !== record.docIdHex) {
     throw new Error("document doc_id does not match derived ciphertext hash");
   }
 }

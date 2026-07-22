@@ -25,6 +25,7 @@ import {
   dispatchState,
   parseTextWithErrors,
 } from "./actions_common.js";
+import { cancelActiveDecryptWork } from "./actions_recover.js";
 import { updateAuthStatus } from "./auth.js";
 import { syncCollectedCiphertext } from "./frames_cipher.js";
 import {
@@ -43,6 +44,7 @@ const RECOVERY_INPUT_FIELDS = new Set([
   "agePassphrase",
   "extensionTargetText",
   "expectedHeadDocHashText",
+  "freshnessUnknownAcknowledged",
 ]);
 
 function parsedMainAccepted(base, before, added) {
@@ -279,10 +281,12 @@ export function updateField(dispatch, getState, key, value) {
     patch.decryptedEnvelope = null;
     patch.decryptedEnvelopeSource = "";
     patch.recoveryComplete = false;
+    patch.intensiveRecoveryTarget = null;
     patch.extractStatus = { lines: [], type: "" };
     patch.decryptStatus = { lines: [], type: "" };
   }
   if (current.isDecrypting && RECOVERY_INPUT_FIELDS.has(key)) {
+    cancelActiveDecryptWork();
     patch.isDecrypting = false;
     patch.decryptRequestId = current.decryptRequestId + 1;
   }
@@ -290,7 +294,15 @@ export function updateField(dispatch, getState, key, value) {
 }
 
 export function resetAll(dispatch) {
+  cancelActiveDecryptWork();
   dispatchReset(dispatch);
+}
+
+function cancelRecoveryDecrypt(state) {
+  if (state.isDecrypting) {
+    cancelActiveDecryptWork();
+  }
+  cancelDecryptRequest(state);
 }
 
 export async function addPayloads(dispatch, getState) {
@@ -305,7 +317,7 @@ export async function addPayloads(dispatch, getState) {
   };
   const { added, failed } = parseTextWithErrors(base, base.payloadText, parseAutoPayload, "errors");
   if (added > 0 || failed) {
-    cancelDecryptRequest(base);
+    cancelRecoveryDecrypt(base);
     clearRecoveryResult(base);
   }
   const fullyAccepted = parsedMainAccepted(base, before, added);
@@ -344,7 +356,7 @@ export async function addScannedPayload(dispatch, getState, scanned) {
     base.authErrors > before.authErrors ||
     base.authConflicts > before.authConflicts
   ) {
-    cancelDecryptRequest(base);
+    cancelRecoveryDecrypt(base);
     clearRecoveryResult(base);
   }
   const fullyAccepted = parsedMainAccepted(base, before, added);
@@ -378,7 +390,7 @@ export async function addShardPayloads(dispatch, getState) {
     "shardErrors",
   );
   if (added > 0 || failed) {
-    cancelDecryptRequest(parsed);
+    cancelRecoveryDecrypt(parsed);
     clearRecoveryResult(parsed);
   }
   const fullyAccepted = parsedShardAccepted(parsed, before, added);
@@ -412,7 +424,7 @@ export async function addScannedShardPayload(dispatch, getState, scanned) {
     parsed.shardErrors > before.shardErrors ||
     parsed.shardConflicts > before.shardConflicts
   ) {
-    cancelDecryptRequest(parsed);
+    cancelRecoveryDecrypt(parsed);
     clearRecoveryResult(parsed);
   }
   const fullyAccepted = parsedShardAccepted(parsed, before, added);

@@ -17,7 +17,11 @@ import gzip
 import hashlib
 import unittest
 
-from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_CBOR_BYTES
+from ethernity.core.bounds import (
+    MAX_DECOMPRESSED_PAYLOAD_BYTES,
+    MAX_JS_SAFE_INTEGER,
+    MAX_MANIFEST_CBOR_BYTES,
+)
 from ethernity.encoding.cbor import dumps_canonical
 from ethernity.encoding.varint import encode_uvarint
 from ethernity.formats.envelope_codec import (
@@ -114,6 +118,53 @@ def _non_canonical_uvarint(value: int) -> bytes:
 
 
 class TestExtensionEnvelope(unittest.TestCase):
+    def test_extension_index_stops_at_complete_chain_limit(self) -> None:
+        header = build_extension_header(
+            index=127,
+            parent_doc_hash=TEST_DOC_HASH,
+            root_doc_hash=TEST_ROOT_DOC_HASH,
+            chunking=_make_profile(),
+            input_origin="file",
+            input_roots=(),
+            created_at=123,
+        )
+        self.assertEqual(header.index, 127)
+        with self.assertRaisesRegex(ValueError, "MAX_EXTENSION_INDEX"):
+            build_extension_header(
+                index=128,
+                parent_doc_hash=TEST_DOC_HASH,
+                root_doc_hash=TEST_ROOT_DOC_HASH,
+                chunking=_make_profile(),
+                input_origin="file",
+                input_roots=(),
+                created_at=123,
+            )
+
+    def test_extension_timestamps_must_be_javascript_safe_integers(self) -> None:
+        with self.assertRaisesRegex(ValueError, "JavaScript safe integer range"):
+            build_extension_header(
+                index=1,
+                parent_doc_hash=TEST_DOC_HASH,
+                root_doc_hash=TEST_ROOT_DOC_HASH,
+                chunking=_make_profile(),
+                input_origin="file",
+                input_roots=(),
+                created_at=MAX_JS_SAFE_INTEGER + 1,
+            )
+        with self.assertRaisesRegex(ValueError, "JavaScript safe integer range"):
+            ExtensionFile(
+                path="empty.txt",
+                size=0,
+                sha256=hashlib.sha256(b"").digest(),
+                mtime=-(MAX_JS_SAFE_INTEGER + 1),
+                chunk_refs=(),
+            )
+
+    def test_decode_enforces_remaining_chain_chunk_budget_before_decompression(self) -> None:
+        encoded = _make_test_envelope().encode()
+        with self.assertRaisesRegex(ValueError, "remaining chain decoded-chunk budget"):
+            decode_extension_envelope(encoded, max_inline_chunk_bytes=1)
+
     def test_chain_id_derivation_matches_deterministic_vector(self) -> None:
         root_doc_hash = bytes(range(32))
         self.assertEqual(

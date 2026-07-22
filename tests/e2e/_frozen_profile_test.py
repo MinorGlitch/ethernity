@@ -46,7 +46,6 @@ from tests.e2e._mint_fixture_support import (
 from tests.test_support import (
     build_cli_env,
     cli_subprocess_timeout_seconds,
-    ensure_playwright_browsers,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -72,7 +71,6 @@ class FrozenProfileTestCase(unittest.TestCase):
     def setUpClass(cls) -> None:
         if not cls.PROFILE_NAME or cls.QR_PAYLOAD_CODEC not in {"raw", "base64"}:
             raise AssertionError("PROFILE_NAME and QR_PAYLOAD_CODEC must be configured")
-        ensure_playwright_browsers()
         index_path = cls._golden_root() / cls.PROFILE_NAME / "index.json"
         cls._index = json.loads(index_path.read_text(encoding="utf-8"))
         cls._passphrase = str(cls._index["passphrase"])
@@ -160,23 +158,19 @@ class FrozenProfileTestCase(unittest.TestCase):
                     is_single_file = len(expected_files) == 1
                     output_path = tmp_path / ("restored.bin" if is_single_file else "restored")
 
-                    cmd = [
-                        sys.executable,
-                        "-m",
-                        "ethernity.cli",
-                        "--config",
-                        str(_CONFIG_PATH),
-                        "recover",
+                    cmd = self._run_task_args(
+                        _CONFIG_PATH,
+                        "restore",
                         "--payloads-file",
-                        str(main_payloads),
+                        main_payloads,
                         "--output",
-                        str(output_path),
-                        "--quiet",
-                    ]
+                        output_path,
+                        "--yes",
+                    )
                     if shard_payload_count > 0:
                         cmd.extend(
                             [
-                                "--shard-payloads-file",
+                                "--recovery-payloads-file",
                                 str(scenario_root / "shard_payloads_threshold.txt"),
                             ]
                         )
@@ -238,20 +232,16 @@ class FrozenProfileTestCase(unittest.TestCase):
                     output_dir = tmp_path / "backup"
                     env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
 
-                    cmd = [
-                        sys.executable,
-                        "-m",
-                        "ethernity.cli",
-                        "--config",
-                        str(self._profile_config_path(tmp_path)),
+                    cmd = self._run_task_args(
+                        self._profile_config_path(tmp_path),
                         "backup",
                         *self._backup_args_for_scenario(str(scenario["id"]), self._source_root()),
                         "--design",
                         "forge",
                         "--output-dir",
-                        str(output_dir),
-                        "--quiet",
-                    ]
+                        output_dir,
+                        "--yes",
+                    )
                     result = _run_cli_subprocess(
                         cmd,
                         cwd=_REPO_ROOT,
@@ -298,14 +288,10 @@ class FrozenProfileTestCase(unittest.TestCase):
                         env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
                         scenario_root = self._profile_root() / scenario_id
                         output_dir = tmp_path / "minted"
-                        cmd = [
-                            sys.executable,
-                            "-m",
-                            "ethernity.cli",
-                            "--config",
-                            str(self._profile_config_path(tmp_path)),
+                        cmd = self._run_task_args(
+                            self._profile_config_path(tmp_path),
                             *self._mint_args(case, scenario_root, output_dir),
-                        ]
+                        )
                         result = _run_cli_subprocess(
                             cmd,
                             cwd=_REPO_ROOT,
@@ -339,14 +325,10 @@ class FrozenProfileTestCase(unittest.TestCase):
                         scenario_root = self._profile_root() / scenario_id
                         output_dir = tmp_path / "minted"
                         self._run_cli_command(
-                            [
-                                sys.executable,
-                                "-m",
-                                "ethernity.cli",
-                                "--config",
-                                str(self._profile_config_path(tmp_path)),
+                            self._run_task_args(
+                                self._profile_config_path(tmp_path),
                                 *self._mint_args(case, scenario_root, output_dir),
-                            ],
+                            ),
                             env=env,
                         )
                         shard_payloads_file = tmp_path / "minted_shard_payloads.txt"
@@ -360,21 +342,17 @@ class FrozenProfileTestCase(unittest.TestCase):
                             "restored.bin" if is_single_file else "restored"
                         )
                         self._run_cli_command(
-                            [
-                                sys.executable,
-                                "-m",
-                                "ethernity.cli",
-                                "--config",
-                                str(self._profile_config_path(tmp_path)),
-                                "recover",
+                            self._run_task_args(
+                                self._profile_config_path(tmp_path),
+                                "restore",
                                 "--payloads-file",
-                                str(scenario_root / "main_payloads.txt"),
-                                "--shard-payloads-file",
-                                str(shard_payloads_file),
+                                scenario_root / "main_payloads.txt",
+                                "--recovery-payloads-file",
+                                shard_payloads_file,
                                 "--output",
-                                str(recover_output),
-                                "--quiet",
-                            ],
+                                recover_output,
+                                "--yes",
+                            ),
                             env=env,
                         )
                         self._assert_recovered_hashes(recover_output, expected_files)
@@ -394,14 +372,10 @@ class FrozenProfileTestCase(unittest.TestCase):
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             first_output = tmp_path / "minted-signing-only"
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
                     *self._mint_args(followup_case, scenario_root, first_output),
-                ],
+                ),
                 env=env,
             )
             minted_signing_payloads = tmp_path / "minted_signing_payloads.txt"
@@ -414,28 +388,23 @@ class FrozenProfileTestCase(unittest.TestCase):
 
             second_output = tmp_path / "followup-passphrase-mint"
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
-                    "mint",
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
+                    "replace-recovery-docs",
                     "--payloads-file",
-                    str(scenario_root / "main_payloads.txt"),
-                    "--shard-payloads-file",
-                    str(scenario_root / "shard_payloads_threshold.txt"),
-                    "--signing-key-shard-payloads-file",
-                    str(minted_signing_payloads),
-                    "--shard-threshold",
+                    scenario_root / "main_payloads.txt",
+                    "--recovery-payloads-file",
+                    scenario_root / "shard_payloads_threshold.txt",
+                    "--signing-key-payloads-file",
+                    minted_signing_payloads,
+                    "--recovery-threshold",
                     "2",
-                    "--shard-count",
+                    "--recovery-count",
                     "3",
-                    "--no-signing-key-shards",
                     "--output-dir",
-                    str(second_output),
-                    "--quiet",
-                ],
+                    second_output,
+                    "--yes",
+                ),
                 env=env,
             )
 
@@ -445,21 +414,17 @@ class FrozenProfileTestCase(unittest.TestCase):
             )
             recover_output = tmp_path / "restored"
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
-                    "recover",
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
+                    "restore",
                     "--payloads-file",
-                    str(scenario_root / "main_payloads.txt"),
-                    "--shard-payloads-file",
-                    str(followup_shard_payloads),
+                    scenario_root / "main_payloads.txt",
+                    "--recovery-payloads-file",
+                    followup_shard_payloads,
                     "--output",
-                    str(recover_output),
-                    "--quiet",
-                ],
+                    recover_output,
+                    "--yes",
+                ),
                 env=env,
             )
             self._assert_recovered_hashes(
@@ -481,14 +446,10 @@ class FrozenProfileTestCase(unittest.TestCase):
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             first_output = tmp_path / "minted-signing-only"
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
                     *self._mint_args(mint_case, scenario_root, first_output),
-                ],
+                ),
                 env=env,
             )
 
@@ -500,26 +461,22 @@ class FrozenProfileTestCase(unittest.TestCase):
 
             replacement_output = tmp_path / "replacement-signing-only"
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
-                    "mint",
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
+                    "replace-recovery-docs",
                     "--payloads-file",
-                    str(scenario_root / "main_payloads.txt"),
-                    "--shard-payloads-file",
-                    str(scenario_root / "shard_payloads_threshold.txt"),
-                    "--signing-key-shard-payloads-file",
-                    str(provided_signing_payloads),
+                    scenario_root / "main_payloads.txt",
+                    "--recovery-payloads-file",
+                    scenario_root / "shard_payloads_threshold.txt",
+                    "--signing-key-payloads-file",
+                    provided_signing_payloads,
                     "--signing-key-replacement-count",
                     "1",
-                    "--no-passphrase-shards",
+                    "--no-passphrase-recovery",
                     "--output-dir",
-                    str(replacement_output),
-                    "--quiet",
-                ],
+                    replacement_output,
+                    "--yes",
+                ),
                 env=env,
             )
 
@@ -534,28 +491,23 @@ class FrozenProfileTestCase(unittest.TestCase):
 
             followup_output = tmp_path / "followup-passphrase-mint"
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
-                    "mint",
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
+                    "replace-recovery-docs",
                     "--payloads-file",
-                    str(scenario_root / "main_payloads.txt"),
-                    "--shard-payloads-file",
-                    str(scenario_root / "shard_payloads_threshold.txt"),
-                    "--signing-key-shard-payloads-file",
-                    str(remint_signing_payloads),
-                    "--shard-threshold",
+                    scenario_root / "main_payloads.txt",
+                    "--recovery-payloads-file",
+                    scenario_root / "shard_payloads_threshold.txt",
+                    "--signing-key-payloads-file",
+                    remint_signing_payloads,
+                    "--recovery-threshold",
                     "2",
-                    "--shard-count",
+                    "--recovery-count",
                     "3",
-                    "--no-signing-key-shards",
                     "--output-dir",
-                    str(followup_output),
-                    "--quiet",
-                ],
+                    followup_output,
+                    "--yes",
+                ),
                 env=env,
             )
 
@@ -566,21 +518,17 @@ class FrozenProfileTestCase(unittest.TestCase):
             )
             recover_output = tmp_path / "restored-from-replacement-authority"
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
-                    "recover",
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
+                    "restore",
                     "--payloads-file",
-                    str(scenario_root / "main_payloads.txt"),
-                    "--shard-payloads-file",
-                    str(followup_shard_payloads),
+                    scenario_root / "main_payloads.txt",
+                    "--recovery-payloads-file",
+                    followup_shard_payloads,
                     "--output",
-                    str(recover_output),
-                    "--quiet",
-                ],
+                    recover_output,
+                    "--yes",
+                ),
                 env=env,
             )
             self._assert_recovered_hashes(
@@ -607,25 +555,17 @@ class FrozenProfileTestCase(unittest.TestCase):
             first_output = tmp_path / "minted-signing-first"
             second_output = tmp_path / "minted-signing-second"
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
                     *self._mint_args(mint_case, scenario_root, first_output),
-                ],
+                ),
                 env=env,
             )
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
                     *self._mint_args(mint_case, scenario_root, second_output),
-                ],
+                ),
                 env=env,
             )
 
@@ -651,26 +591,22 @@ class FrozenProfileTestCase(unittest.TestCase):
             )
             replacement_output = tmp_path / "rejected-signing-replacement"
             result = _run_cli_subprocess(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
-                    "mint",
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
+                    "replace-recovery-docs",
                     "--payloads-file",
-                    str(scenario_root / "main_payloads.txt"),
-                    "--shard-payloads-file",
-                    str(scenario_root / "shard_payloads_threshold.txt"),
-                    "--signing-key-shard-payloads-file",
-                    str(mixed_signing_payloads),
+                    scenario_root / "main_payloads.txt",
+                    "--recovery-payloads-file",
+                    scenario_root / "shard_payloads_threshold.txt",
+                    "--signing-key-payloads-file",
+                    mixed_signing_payloads,
                     "--signing-key-replacement-count",
                     "1",
-                    "--no-passphrase-shards",
+                    "--no-passphrase-recovery",
                     "--output-dir",
-                    str(replacement_output),
-                    "--quiet",
-                ],
+                    replacement_output,
+                    "--yes",
+                ),
                 cwd=_REPO_ROOT,
                 env=env,
                 capture_output=True,
@@ -702,25 +638,17 @@ class FrozenProfileTestCase(unittest.TestCase):
             first_output = tmp_path / "minted-first"
             second_output = tmp_path / "minted-second"
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
                     *self._mint_args(mint_case, scenario_root, first_output),
-                ],
+                ),
                 env=env,
             )
             self._run_cli_command(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
                     *self._mint_args(mint_case, scenario_root, second_output),
-                ],
+                ),
                 env=env,
             )
 
@@ -743,21 +671,17 @@ class FrozenProfileTestCase(unittest.TestCase):
             self._write_scanned_payloads([first_shards[0], second_shards[1]], mixed_payloads)
             recover_output = tmp_path / "rejected-restore"
             result = _run_cli_subprocess(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(self._profile_config_path(tmp_path)),
-                    "recover",
+                self._run_task_args(
+                    self._profile_config_path(tmp_path),
+                    "restore",
                     "--payloads-file",
-                    str(scenario_root / "main_payloads.txt"),
-                    "--shard-payloads-file",
-                    str(mixed_payloads),
+                    scenario_root / "main_payloads.txt",
+                    "--recovery-payloads-file",
+                    mixed_payloads,
                     "--output",
-                    str(recover_output),
-                    "--quiet",
-                ],
+                    recover_output,
+                    "--yes",
+                ),
                 cwd=_REPO_ROOT,
                 env=env,
                 capture_output=True,
@@ -808,6 +732,18 @@ class FrozenProfileTestCase(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr.strip() or result.stdout.strip())
+
+    @staticmethod
+    def _run_task_args(config_path: Path, *args: object) -> list[str]:
+        return [
+            sys.executable,
+            "-m",
+            "ethernity",
+            "run",
+            "--config",
+            str(config_path),
+            *[str(arg) for arg in args],
+        ]
 
     def _assert_mint_hashes(self, output_dir: Path, snapshot: dict[str, Any]) -> None:
         expected_projections = cast(dict[str, list[dict[str, Any]]], snapshot["shard_projections"])
@@ -862,13 +798,15 @@ class FrozenProfileTestCase(unittest.TestCase):
         shard_set_labels: dict[str, str] = {}
         payload_hashes: dict[str, list[dict[str, Any]]] = {}
         for pdf_path in pdf_paths:
-            payload_hashes[pdf_path.name] = [
-                self._normalize_shard_projection(
+            projections: list[dict[str, Any]] = []
+            for frame in self._valid_scanned_frames([pdf_path]):
+                projection = self._normalize_shard_projection(
                     self._frame_to_shard_projection(frame),
                     shard_set_labels=shard_set_labels,
                 )
-                for frame in self._valid_scanned_frames([pdf_path])
-            ]
+                if projection not in projections:
+                    projections.append(projection)
+            payload_hashes[pdf_path.name] = projections
         return payload_hashes
 
     def _normalize_shard_projection(
@@ -1071,12 +1009,16 @@ class FrozenProfileTestCase(unittest.TestCase):
                 str(source_root / "standalone_secret.txt"),
                 "--passphrase",
                 self._passphrase,
+                "--recovery-count",
+                "0",
             ],
             "directory_no_shard": [
                 "--input-dir",
                 str(source_root / "directory_payload"),
                 "--passphrase",
                 self._passphrase,
+                "--recovery-count",
+                "0",
             ],
             "mixed_no_shard": [
                 "--input",
@@ -1087,15 +1029,17 @@ class FrozenProfileTestCase(unittest.TestCase):
                 str(source_root),
                 "--passphrase",
                 self._passphrase,
+                "--recovery-count",
+                "0",
             ],
             "sharded_embedded": [
                 "--input-dir",
                 str(source_root / "directory_payload"),
                 "--passphrase",
                 self._passphrase,
-                "--shard-threshold",
+                "--recovery-threshold",
                 "2",
-                "--shard-count",
+                "--recovery-count",
                 "3",
                 "--signing-key-mode",
                 "embedded",
@@ -1109,15 +1053,15 @@ class FrozenProfileTestCase(unittest.TestCase):
                 str(source_root),
                 "--passphrase",
                 self._passphrase,
-                "--shard-threshold",
+                "--recovery-threshold",
                 "2",
-                "--shard-count",
+                "--recovery-count",
                 "3",
                 "--signing-key-mode",
                 "sharded",
-                "--signing-key-shard-threshold",
+                "--signing-key-threshold",
                 "1",
-                "--signing-key-shard-count",
+                "--signing-key-count",
                 "2",
             ],
         }

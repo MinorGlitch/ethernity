@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-from ethernity.render.pdf_render import render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
 from ethernity.render.proofs import (
     RenderProofError,
     build_render_artifact_proof,
@@ -22,25 +22,34 @@ from ethernity.render.proofs import (
     validate_fallback_text_in_pdf,
     validate_pdf_has_pages,
     validate_render_artifact_proof,
+    validate_render_layout_proof,
     validate_text_in_pdf,
 )
 from ethernity.render.service import RenderService
 from ethernity.render.types import (
     FallbackSection,
     RenderArtifactProof,
+    RenderComponentLayoutProof,
     RenderFallbackProof,
     RenderInputs,
+    RenderLayoutProof,
     RenderLineage,
+    RenderPageLayoutProof,
+    RenderRectProof,
     RenderResult,
 )
 
 __all__ = [
     "FallbackSection",
     "RenderArtifactProof",
+    "RenderComponentLayoutProof",
     "RenderFallbackProof",
     "RenderInputs",
+    "RenderLayoutProof",
     "RenderLineage",
+    "RenderPageLayoutProof",
     "RenderProofError",
+    "RenderRectProof",
     "RenderResult",
     "RenderService",
     "build_render_artifact_proof",
@@ -50,5 +59,6 @@ __all__ = [
     "validate_fallback_text_in_pdf",
     "validate_pdf_has_pages",
     "validate_render_artifact_proof",
+    "validate_render_layout_proof",
     "validate_text_in_pdf",
 ]

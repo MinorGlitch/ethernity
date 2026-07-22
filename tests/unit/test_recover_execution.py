@@ -18,9 +18,9 @@ import unittest
 from ethernity.cli.features.recover.execution import decrypt_manifest_and_extract
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto import encrypt_bytes_with_passphrase
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import AuthPayload, derive_public_key, sign_auth
 from ethernity.formats.envelope_codec import build_manifest_and_payload, encode_envelope
 from ethernity.formats.envelope_types import PayloadPart

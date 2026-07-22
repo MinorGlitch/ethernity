@@ -19,7 +19,6 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-import questionary
 from rich.console import Console
 
 from ethernity.cli.shared import ui as ui_module, ui_api
@@ -28,7 +27,6 @@ from ethernity.cli.shared.ui.state import (
     THEME,
     UIContext,
     create_default_context,
-    format_hint,
     get_context,
     isatty,
 )
@@ -79,16 +77,6 @@ class TestContextState(unittest.TestCase):
         context = create_default_context()
         self.assertEqual(context.theme, THEME)
         self.assertTrue(context.animations_enabled)
-        self.assertIsNone(context.wizard_state)
-        self.assertFalse(context.compact_prompt_headers)
-        self.assertEqual(context.stage_prompt_count, 0)
-        self.assertIsNone(context.current_stage_title)
-        self.assertIsNone(context.current_stage_help_text)
-        self.assertEqual(context.current_stage_density, "minimal")
-        self.assertIsNone(context.current_substep_title)
-        self.assertIsNone(context.current_substep_help_text)
-        self.assertFalse(context.choice_navigation_hint_seen)
-        self.assertEqual(context.last_picker_dir, ".")
         self.assertIsNotNone(context.console)
         self.assertIsNotNone(context.console_err)
 
@@ -97,11 +85,6 @@ class TestContextState(unittest.TestCase):
 
 
 class TestFormatting(unittest.TestCase):
-    def test_format_hint_passthrough(self) -> None:
-        for text in ("Press Enter to continue", ""):
-            with self.subTest(text=text):
-                self.assertEqual(str(format_hint(text)), text)
-
     def test_format_auth_status_mapping(self) -> None:
         cases = (
             ("verified", False, "verified"),
@@ -156,6 +139,29 @@ class TestStatusOutput(unittest.TestCase):
         self.assertIn("Preparing payload...", output)
         self.assertNotIn("Preparing payload... \u2713", output)
 
+    def test_plain_status_preserves_unstyled_non_tty_output(self) -> None:
+        out = io.StringIO()
+        console = Console(file=out, force_terminal=False)
+
+        with mock.patch("ethernity.cli.shared.ui.runtime.isatty", return_value=False):
+            with ui_runtime.plain_status(
+                "Rendering document...",
+                console=console,
+            ) as live:
+                self.assertIsNone(live)
+
+        self.assertEqual(out.getvalue().strip(), "Rendering document...")
+
+    def test_plain_status_quiet_has_no_output(self) -> None:
+        out = io.StringIO()
+        with ui_runtime.plain_status(
+            "Rendering document...",
+            quiet=True,
+            console=Console(file=out, force_terminal=False),
+        ) as live:
+            self.assertIsNone(live)
+        self.assertEqual(out.getvalue(), "")
+
 
 class TestUIHelpers(unittest.TestCase):
     def _context(self, *, force_terminal: bool = False) -> UIContext:
@@ -171,155 +177,12 @@ class TestUIHelpers(unittest.TestCase):
         self.assertIs(ui_runtime._resolve_context(context), context)
         self.assertIs(ui_runtime._resolve_context(None), ui_runtime.DEFAULT_CONTEXT)
 
-    def test_clear_screen_uses_console_clear_on_windows(self) -> None:
-        context = SimpleNamespace(console=mock.MagicMock(is_terminal=True))
-        ui_runtime.clear_screen(context=context)
-        context.console.clear.assert_called_once()
-
-    def test_clear_screen_uses_console_clear_when_non_terminal(self) -> None:
-        context = SimpleNamespace(console=mock.MagicMock(is_terminal=False))
-        ui_runtime.clear_screen(context=context)
-        context.console.clear.assert_called_once()
-
-    def test_clear_screen_ignores_clear_errors(self) -> None:
-        context = SimpleNamespace(console=mock.MagicMock(is_terminal=False))
-        context.console.clear.side_effect = OSError("no tty")
-        ui_runtime.clear_screen(context=context)
-
     def test_configure_ui_toggles_flags(self) -> None:
         context = self._context(force_terminal=True)
         ui_module.configure_ui(no_color=True, no_animations=True, context=context)
         self.assertFalse(context.animations_enabled)
         self.assertTrue(context.console.no_color)
         self.assertTrue(context.console_err.no_color)
-
-    def test_wizard_flow_restores_previous_state(self) -> None:
-        context = self._context()
-        previous = ui_module.WizardState(name="old", total_steps=1, step=1)
-        context.wizard_state = previous
-        with ui_module.wizard_flow(
-            name="Recover", total_steps=4, quiet=False, context=context
-        ) as state:
-            self.assertEqual(state.name, "Recover")
-            self.assertEqual(state.total_steps, 4)
-            self.assertIs(context.wizard_state, state)
-        self.assertIs(context.wizard_state, previous)
-
-    @mock.patch("ethernity.cli.shared.ui.runtime.clear_screen")
-    def test_ui_screen_mode_sets_and_restores_state(
-        self,
-        clear_screen: mock.MagicMock,
-    ) -> None:
-        context = self._context()
-        previous = context.screen_mode
-        previous_compact = context.compact_prompt_headers
-        context.current_stage_title = "Previous"
-        context.current_stage_help_text = "hint"
-        context.current_stage_density = "dense"
-        context.current_substep_title = "Choose source"
-        context.current_substep_help_text = "Substep hint"
-        context.choice_navigation_hint_seen = True
-        context.stage_prompt_count = 4
-        with ui_module.ui_screen_mode(quiet=False, context=context):
-            self.assertTrue(context.screen_mode)
-            self.assertTrue(context.compact_prompt_headers)
-            self.assertEqual(context.stage_prompt_count, 0)
-            self.assertIsNone(context.current_stage_title)
-            self.assertIsNone(context.current_stage_help_text)
-            self.assertEqual(context.current_stage_density, "minimal")
-            self.assertIsNone(context.current_substep_title)
-            self.assertIsNone(context.current_substep_help_text)
-            self.assertFalse(context.choice_navigation_hint_seen)
-        self.assertEqual(context.screen_mode, previous)
-        self.assertEqual(context.compact_prompt_headers, previous_compact)
-        self.assertEqual(context.stage_prompt_count, 4)
-        self.assertEqual(context.current_stage_title, "Previous")
-        self.assertEqual(context.current_stage_help_text, "hint")
-        self.assertEqual(context.current_stage_density, "dense")
-        self.assertEqual(context.current_substep_title, "Choose source")
-        self.assertEqual(context.current_substep_help_text, "Substep hint")
-        self.assertTrue(context.choice_navigation_hint_seen)
-        clear_screen.assert_called_once_with(context=context)
-
-    @mock.patch("ethernity.cli.shared.ui.runtime.clear_screen")
-    def test_ui_screen_mode_quiet_skips_clear(
-        self,
-        clear_screen: mock.MagicMock,
-    ) -> None:
-        context = self._context()
-        context.screen_mode = False
-        context.compact_prompt_headers = False
-        context.stage_prompt_count = 2
-        context.current_stage_title = "Previous"
-        context.current_stage_help_text = "hint"
-        context.current_stage_density = "dense"
-        context.current_substep_title = "Choose source"
-        context.current_substep_help_text = "Substep hint"
-        context.choice_navigation_hint_seen = True
-        with ui_module.ui_screen_mode(quiet=True, context=context):
-            self.assertFalse(context.screen_mode)
-            self.assertFalse(context.compact_prompt_headers)
-            self.assertEqual(context.stage_prompt_count, 0)
-            self.assertIsNone(context.current_stage_title)
-            self.assertIsNone(context.current_stage_help_text)
-            self.assertEqual(context.current_stage_density, "minimal")
-            self.assertIsNone(context.current_substep_title)
-            self.assertIsNone(context.current_substep_help_text)
-            self.assertFalse(context.choice_navigation_hint_seen)
-        self.assertFalse(context.compact_prompt_headers)
-        self.assertEqual(context.stage_prompt_count, 2)
-        self.assertEqual(context.current_stage_title, "Previous")
-        self.assertEqual(context.current_stage_help_text, "hint")
-        self.assertEqual(context.current_stage_density, "dense")
-        self.assertEqual(context.current_substep_title, "Choose source")
-        self.assertEqual(context.current_substep_help_text, "Substep hint")
-        self.assertTrue(context.choice_navigation_hint_seen)
-        clear_screen.assert_not_called()
-
-    @mock.patch("ethernity.cli.shared.ui.runtime.clear_screen")
-    def test_wizard_stage_step_progression_and_help_text(
-        self,
-        clear_screen: mock.MagicMock,
-    ) -> None:
-        context = self._context()
-        context.console.print = mock.MagicMock()
-        context.wizard_state = ui_module.WizardState(
-            name="Recover", total_steps=3, step=0, quiet=False
-        )
-
-        with ui_module.wizard_stage("Input", help_text="Collect frames", context=context):
-            self.assertEqual(context.current_stage_title, "Input")
-            self.assertEqual(context.current_stage_help_text, "Collect frames")
-            self.assertEqual(context.current_stage_density, "minimal")
-        self.assertEqual(context.wizard_state.step, 1)
-        self.assertEqual(context.stage_prompt_count, 0)
-        self.assertIsNone(context.current_stage_title)
-        self.assertIsNone(context.current_stage_help_text)
-        self.assertEqual(context.current_stage_density, "minimal")
-        clear_screen.assert_not_called()
-
-        with ui_module.wizard_stage("Keys", density="dense", context=context):
-            self.assertEqual(context.current_stage_title, "Keys")
-            self.assertIsNone(context.current_stage_help_text)
-            self.assertEqual(context.current_stage_density, "dense")
-        self.assertEqual(context.wizard_state.step, 2)
-        self.assertIsNone(context.current_stage_title)
-        self.assertIsNone(context.current_stage_help_text)
-        self.assertEqual(context.current_stage_density, "minimal")
-        clear_screen.assert_called_once_with(context=context)
-        self.assertGreaterEqual(context.console.print.call_count, 3)
-
-    def test_wizard_substep_restores_previous_state(self) -> None:
-        context = self._context()
-        context.current_substep_title = "Previous"
-        context.current_substep_help_text = "hint"
-
-        with ui_module.wizard_substep("Choose source", help_text="Pick one", context=context):
-            self.assertEqual(context.current_substep_title, "Choose source")
-            self.assertEqual(context.current_substep_help_text, "Pick one")
-
-        self.assertEqual(context.current_substep_title, "Previous")
-        self.assertEqual(context.current_substep_help_text, "hint")
 
     def test_progress_quiet_returns_none(self) -> None:
         with ui_module.progress(quiet=True) as prog:
@@ -361,10 +224,9 @@ class TestUIHelpers(unittest.TestCase):
         live.update.assert_called_once()
 
     @mock.patch("ethernity.cli.shared.ui.runtime.isatty", return_value=True)
-    def test_status_animated_screen_mode_is_transient(self, _isatty: mock.MagicMock) -> None:
+    def test_status_animated_is_not_transient(self, _isatty: mock.MagicMock) -> None:
         context = self._context(force_terminal=True)
         context.animations_enabled = True
-        context.screen_mode = True
         context.console.file = mock.MagicMock()
         live = mock.MagicMock()
         live_cm = mock.MagicMock()
@@ -373,8 +235,8 @@ class TestUIHelpers(unittest.TestCase):
         with mock.patch("ethernity.cli.shared.ui.runtime.Live", return_value=live_cm) as live_ctor:
             with ui_module.status("Preparing...", quiet=False, context=context) as status_live:
                 self.assertIs(status_live, live)
-        self.assertTrue(live_ctor.call_args.kwargs["transient"])
-        live.update.assert_not_called()
+        self.assertFalse(live_ctor.call_args.kwargs["transient"])
+        live.update.assert_called_once()
 
     def test_build_table_and_panel_helpers(self) -> None:
         kv = ui_module.build_kv_table([("A", "1")], title="Meta")
@@ -435,65 +297,6 @@ class TestUIHelpers(unittest.TestCase):
         out = io.StringIO()
         Console(file=out, force_terminal=False, theme=THEME).print(single_dir)
         self.assertIn("a.txt", out.getvalue())
-
-    @mock.patch("ethernity.cli.shared.ui.home.prompt_choice_list", return_value="backup")
-    def test_prompt_home_action_quiet_and_non_quiet_paths(
-        self,
-        prompt_choice_list: mock.MagicMock,
-    ) -> None:
-        with mock.patch("ethernity.cli.shared.ui.home.console.print") as print_mock:
-            action_quiet = ui_module.prompt_home_action(quiet=True)
-            action_verbose = ui_module.prompt_home_action(quiet=False)
-        self.assertEqual(action_quiet, "backup")
-        self.assertEqual(action_verbose, "backup")
-        self.assertGreaterEqual(prompt_choice_list.call_count, 2)
-        items = prompt_choice_list.call_args.args[0]
-        self.assertIsInstance(items[0], questionary.Separator)
-        self.assertEqual(items[0].title, "Start")
-        choices = [
-            item
-            for item in items
-            if isinstance(item, questionary.Choice) and not isinstance(item, questionary.Separator)
-        ]
-        self.assertEqual(choices[0].title, "Create a backup")
-        self.assertEqual(choices[0].value, "backup")
-        self.assertEqual(
-            choices[0].description,
-            "Build a new paper backup set from your files.",
-        )
-        self.assertEqual(choices[1].title, "Recover from a backup")
-        self.assertEqual(choices[1].value, "recover")
-        self.assertEqual(choices[-1].title, "Print a recovery kit sheet")
-        self.assertEqual(choices[-1].value, "kit")
-        self.assertEqual(prompt_choice_list.call_args.kwargs["title"], "Get started")
-        self.assertIsNone(prompt_choice_list.call_args.kwargs["help_text"])
-        self.assertGreater(print_mock.call_count, 0)
-
-    def test_empty_recover_args(self) -> None:
-        args = ui_module.empty_recover_args(
-            config="cfg.toml",
-            paper="A4",
-            quiet=True,
-            debug_max_bytes=512,
-            debug_reveal_secrets=True,
-        )
-        self.assertEqual(args.config, "cfg.toml")
-        self.assertEqual(args.paper, "A4")
-        self.assertEqual(args.debug_max_bytes, 512)
-        self.assertTrue(args.debug_reveal_secrets)
-        self.assertTrue(args.quiet)
-
-    def test_empty_mint_args(self) -> None:
-        args = ui_module.empty_mint_args(
-            config="cfg.toml",
-            paper="A4",
-            design="forge",
-            quiet=True,
-        )
-        self.assertEqual(args.config, "cfg.toml")
-        self.assertEqual(args.paper, "A4")
-        self.assertEqual(args.design, "forge")
-        self.assertTrue(args.quiet)
 
 
 if __name__ == "__main__":

@@ -21,9 +21,8 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Sequence
+from typing import Literal, Sequence
 
-import cbor2
 from rich import box
 from rich.rule import Rule
 from rich.syntax import Syntax
@@ -36,17 +35,24 @@ from ethernity.cli.shared.ui_api import build_kv_table, console, console_err, pa
 from ethernity.core.models import DocumentPlan
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.formats.envelope_codec import encode_manifest
-from ethernity.formats.envelope_types import EnvelopeManifest
+from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
+from ethernity.formats.manifest_debug import (
+    decode_manifest_debug_value,
+    json_safe_debug_value,
+)
 from ethernity.render.recovery_lines import (
     format_grouped_lines as _format_grouped_lines,
     format_hex_lines as _format_hex_lines,
 )
 
-if TYPE_CHECKING:
-    from ethernity.formats.envelope_types import ManifestFile
-
-
 RenderMode = Literal["rich_tty", "plain"]
+
+__all__ = [
+    "DebugRenderOptions",
+    "normalize_debug_max_bytes",
+    "print_backup_debug",
+    "print_recover_debug",
+]
 
 
 @dataclass(frozen=True)
@@ -55,7 +61,9 @@ class DebugRenderOptions:
     reveal_secrets: bool
 
 
-def _normalize_debug_max_bytes(value: int | None) -> int | None:
+def normalize_debug_max_bytes(value: int | None) -> int | None:
+    """Convert non-positive debug limits to the unlimited sentinel."""
+
     if value is None or value <= 0:
         return None
     return value
@@ -63,7 +71,7 @@ def _normalize_debug_max_bytes(value: int | None) -> int | None:
 
 def _resolve_render_options(*, max_bytes: int | None, reveal_secrets: bool) -> DebugRenderOptions:
     return DebugRenderOptions(
-        max_bytes=_normalize_debug_max_bytes(max_bytes),
+        max_bytes=normalize_debug_max_bytes(max_bytes),
         reveal_secrets=reveal_secrets,
     )
 
@@ -136,27 +144,11 @@ def _format_masked_bytes_secret(secret: bytes) -> str:
 
 
 def _json_safe(value: object) -> object:
-    if isinstance(value, bytes):
-        return value.hex()
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
-    return value
+    return json_safe_debug_value(value)
 
 
 def _decode_manifest_raw(data: bytes) -> object | None:
-    try:
-        decoded = cbor2.loads(data)
-    except (ValueError, cbor2.CBORDecodeError):
-        decoded = None
-    if decoded is not None:
-        return _json_safe(decoded)
-    try:
-        decoded = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    return _json_safe(decoded)
+    return decode_manifest_debug_value(data)
 
 
 def _entry_path(entry: object) -> str:

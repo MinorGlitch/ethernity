@@ -16,20 +16,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Literal
 
-from ethernity.config import BackupDefaults, ExtendDefaults, RecoverDefaults
 from ethernity.encoding.framing import Frame
-
-
-@dataclass(frozen=True)
-class InputFile:
-    source_path: Path | None
-    relative_path: str
-    data: bytes
-    mtime: int | None
+from ethernity.workflows.shared.file_inputs import InputFile as InputFile
 
 
 @dataclass(frozen=True)
@@ -86,6 +77,7 @@ class RecoverArgs:
     fallback_file: str | None = None
     payloads_file: str | None = None
     scan: list[str] | None = None
+    frames: list[Frame] | None = None
     passphrase: str | None = None
     shard_fallback_file: list[str] | None = None
     shard_payloads_file: list[str] | None = None
@@ -99,6 +91,7 @@ class RecoverArgs:
     expected_head_doc_hash: str | None = None
     output: str | None = None
     allow_unsigned: bool = False
+    resource_intensive_compatibility_recovery: bool = False
     assume_yes: bool = False
     debug_max_bytes: int = 0
     debug_reveal_secrets: bool = False
@@ -161,36 +154,6 @@ class MintResult:
 
 
 @dataclass
-class ExtendArgs:
-    """Typed container for extend/inspect-extend command arguments."""
-
-    config: str | None = None
-    paper: str | None = None
-    design: str | None = None
-    root_dir: str | None = None
-    scan: list[str] | None = None
-    input: list[str] | None = None
-    input_dir: list[str] | None = None
-    base_dir: str | None = None
-    layout_debug_dir: str | None = None
-    qr_chunk_size: int | None = None
-    passphrase: str | None = None
-    shard_fallback_file: list[str] | None = None
-    shard_payloads_file: list[str] | None = None
-    shard_scan: list[str] | None = None
-    shard_frames: list[Frame] | None = None
-    unlock_policy: Literal["self-contained", "reuse-root"] | None = None
-    shard_threshold: int | None = None
-    shard_count: int | None = None
-    signing_key_mode: Literal["not-stored", "sharded"] | None = None
-    signing_key_shard_threshold: int | None = None
-    signing_key_shard_count: int | None = None
-    expected_head_doc_hash: str | None = None
-    allow_stale_head: bool = False
-    quiet: bool = False
-
-
-@dataclass
 class CompactArgs:
     """Typed container for compact command arguments."""
 
@@ -213,37 +176,3 @@ class CompactArgs:
     expected_head_doc_hash: str | None = None
     allow_stale_head: bool = False
     quiet: bool = False
-
-
-@dataclass
-class ConfigGetArgs:
-    """Typed container for API config get arguments."""
-
-    config: str | None = None
-
-
-@dataclass
-class ConfigSetArgs:
-    """Typed container for API config set arguments."""
-
-    config: str | None = None
-    input_json: str | None = None
-
-
-@dataclass
-class CliContextState:
-    """Typed shared CLI state stored on `typer.Context.obj`."""
-
-    config: str | None = None
-    config_explicit: bool = False
-    paper: str | None = None
-    design: str | None = None
-    debug: bool = False
-    debug_max_bytes: int = 0
-    debug_reveal_secrets: bool = False
-    quiet: bool = False
-    no_color: bool = False
-    no_animations: bool = False
-    backup_defaults: BackupDefaults = field(default_factory=BackupDefaults)
-    recover_defaults: RecoverDefaults = field(default_factory=RecoverDefaults)
-    extend_defaults: ExtendDefaults = field(default_factory=ExtendDefaults)

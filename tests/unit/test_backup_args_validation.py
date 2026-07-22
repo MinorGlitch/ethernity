@@ -15,7 +15,7 @@
 
 import unittest
 
-from ethernity.cli.shared.plan import _validate_backup_args
+from ethernity.cli.shared.plan import validate_backup_args
 from ethernity.cli.shared.types import BackupArgs
 
 
@@ -23,19 +23,19 @@ class TestBackupArgsValidation(unittest.TestCase):
     def test_qr_chunk_size_zero_rejected(self) -> None:
         args = BackupArgs(qr_chunk_size=0)
         with self.assertRaises(ValueError) as ctx:
-            _validate_backup_args(args)
+            validate_backup_args(args)
         self.assertIn("qr chunk size", str(ctx.exception).lower())
 
     def test_qr_chunk_size_negative_rejected(self) -> None:
         args = BackupArgs(qr_chunk_size=-1)
         with self.assertRaises(ValueError) as ctx:
-            _validate_backup_args(args)
+            validate_backup_args(args)
         self.assertIn("qr chunk size", str(ctx.exception).lower())
 
     def test_shard_count_over_255_rejected(self) -> None:
         args = BackupArgs(shard_threshold=2, shard_count=256)
         with self.assertRaises(ValueError) as ctx:
-            _validate_backup_args(args)
+            validate_backup_args(args)
         self.assertIn("shard count", str(ctx.exception).lower())
 
     def test_signing_key_shard_count_over_255_rejected(self) -> None:
@@ -47,12 +47,25 @@ class TestBackupArgsValidation(unittest.TestCase):
             signing_key_shard_count=256,
         )
         with self.assertRaises(ValueError) as ctx:
-            _validate_backup_args(args)
+            validate_backup_args(args)
         self.assertIn("signing key shard count", str(ctx.exception).lower())
 
     def test_base_dir_existence_is_not_validated_in_preflight(self) -> None:
         args = BackupArgs(base_dir="~/definitely-missing")
-        _validate_backup_args(args)
+        validate_backup_args(args)
+
+    def test_directly_printed_passphrase_rejects_control_characters(self) -> None:
+        with self.assertRaisesRegex(ValueError, "manually enterable printable text"):
+            validate_backup_args(BackupArgs(passphrase="alpha\tbeta"))
+
+    def test_sharded_passphrase_preserves_exact_control_characters(self) -> None:
+        validate_backup_args(
+            BackupArgs(
+                passphrase="alpha\tbeta",
+                shard_threshold=2,
+                shard_count=3,
+            )
+        )
 
 
 if __name__ == "__main__":

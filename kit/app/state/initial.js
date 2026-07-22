@@ -16,8 +16,11 @@
  */
 
 import { cloneShardFrames, cloneShardSets } from "../shard_store.js";
+import { cloneDocuments } from "../documents/store.js";
+import { readEmbeddedKitMetadata } from "../kit_anchor.js";
 
 export function createBaseState() {
+  const kitMetadata = readEmbeddedKitMetadata();
   return {
     revision: 0,
     documents: new Map(),
@@ -66,10 +69,13 @@ export function createBaseState() {
     shardPayloadText: "",
     agePassphrase: "",
     extensionTargetText: "latest",
-    expectedHeadDocHashText: "",
+    expectedHeadDocHashText: kitMetadata?.anchored ? kitMetadata.expectedLatestHeadHashHex : "",
+    freshnessUnknownAcknowledged: false,
+    trustedKitAnchored: kitMetadata?.anchored === true,
     decryptStatus: { lines: [], type: "" },
     decryptRequestId: 0,
     isDecrypting: false,
+    intensiveRecoveryTarget: null,
     isAddingFrames: false,
     isAddingShards: false,
     recoveryComplete: false,
@@ -106,16 +112,7 @@ export function cloneState(state) {
   const activeShardSet = state.activeShardSetKey ? shardSets.get(state.activeShardSetKey) : null;
   return {
     ...state,
-    documents: new Map(
-      Array.from(state.documents.entries(), ([docIdHex, record]) => [
-        docIdHex,
-        {
-          ...record,
-          docId: record.docId.slice(),
-          mainFrames: new Map(record.mainFrames),
-        },
-      ]),
-    ),
+    documents: cloneDocuments(state.documents),
     shardSets,
     mainFrames: new Map(state.mainFrames),
     shardFrames: activeShardSet ? activeShardSet.shardFrames : cloneShardFrames(state.shardFrames),

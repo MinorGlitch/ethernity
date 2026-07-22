@@ -22,14 +22,15 @@ from typing import Any
 
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import CommandError
+from ethernity.formats.envelope_summary import manifest_summary_payload
 
 BlockingIssue = dict[str, object]
 
 
 def blocking_issue(
-    *,
     code: str,
     message: str,
+    *,
     details: Mapping[str, object] | None = None,
 ) -> BlockingIssue:
     """Build the stable blocking issue shape used by inspect/preflight APIs."""
@@ -127,6 +128,7 @@ __all__ = [
     "blocking_issue",
     "blocking_issue_from_exception",
     "inspect_result_payload",
+    "manifest_summary_payload",
     "normalize_blocking_issues",
     "stable_blocking_issue_code",
 ]

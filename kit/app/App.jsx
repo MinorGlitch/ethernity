@@ -38,6 +38,7 @@ import { FrameCollector } from "./components/FrameCollector.jsx";
 import { RecoveredFiles } from "./components/RecoveredFiles.jsx";
 import { ShardCollector } from "./components/ShardCollector.jsx";
 import { StepShell } from "./components/StepShell.jsx";
+import { SCANNER_ENABLED } from "#kit-scanner-panel";
 import { initialState, reducer } from "./state/reducer.js";
 import {
   selectActionState,
@@ -99,6 +100,8 @@ export function App() {
     updateField(dispatch, getState, "extensionTargetText", event.currentTarget.value);
   const handleExpectedHeadDocHashChange = (event) =>
     updateField(dispatch, getState, "expectedHeadDocHashText", event.currentTarget.value);
+  const handleFreshnessUnknownAcknowledgedChange = (event) =>
+    updateField(dispatch, getState, "freshnessUnknownAcknowledged", event.currentTarget.checked);
 
   const handleAddPayloads = () => addPayloads(dispatch, getState);
   const handleScannedPayload = (scanned) => addScannedPayload(dispatch, getState, scanned);
@@ -111,6 +114,8 @@ export function App() {
   const handleDecrypt = () => decryptCiphertext(dispatch, getState);
   const handleDecryptRootOnly = () =>
     decryptCiphertext(dispatch, getState, { extensionTarget: "root" });
+  const handleIntensiveDecrypt = () =>
+    decryptCiphertext(dispatch, getState, { allowResourceIntensiveScrypt: true });
   const handleExtract = () => extractEnvelope(dispatch, getState);
   const handleDownloadEnvelope = () => downloadEnvelope(dispatch, getState);
   const handleClearOutput = () => clearOutput(dispatch, getState);
@@ -209,7 +214,12 @@ export function App() {
         </section>
       ) : null}
       <section class="workspace">
-        <StepShell title="Collect backup" summary="Paste backup text or scan QR payloads.">
+        <StepShell
+          title="Collect backup"
+          summary={
+            SCANNER_ENABLED ? "Paste backup text or scan QR payloads." : "Paste backup text."
+          }
+        >
           <FrameCollector
             payloadText={state.payloadText}
             frameStatus={state.frameStatus}
@@ -256,14 +266,19 @@ export function App() {
             decryptStatus={state.decryptStatus}
             extensionTarget={state.extensionTargetText}
             expectedHeadDocHash={state.expectedHeadDocHashText}
+            expectedHeadReadOnly={state.trustedKitAnchored}
+            freshnessUnknownAcknowledged={state.freshnessUnknownAcknowledged}
             onPassphraseChange={handlePassphraseChange}
             onExtensionTargetChange={handleExtensionTargetChange}
             onExpectedHeadDocHashChange={handleExpectedHeadDocHashChange}
+            onFreshnessUnknownAcknowledgedChange={handleFreshnessUnknownAcknowledgedChange}
             onDecrypt={handleDecrypt}
+            onDecryptIntensive={state.intensiveRecoveryTarget ? handleIntensiveDecrypt : null}
             onDecryptRootOnly={actionState.hasMultipleDocuments ? handleDecryptRootOnly : null}
             canDecrypt={actionState.canDecryptCiphertext}
             canDecryptRootOnly={actionState.canDecryptRootOnly}
-            hasMultipleDocuments={actionState.hasMultipleDocuments}
+            decryptDisabledReason={actionState.decryptDisabledReason}
+            rootOnlyDisabledReason={actionState.rootOnlyDisabledReason}
             isComplete={actionState.hasOutput || Boolean(state.decryptedEnvelope)}
             isDecrypting={state.isDecrypting}
             onExtract={handleExtract}

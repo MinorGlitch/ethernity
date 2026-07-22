@@ -275,6 +275,8 @@ def encode_shard_payload(payload: ShardPayload) -> bytes:
         "sig": signature,
     }
     if version == SHARD_VERSION:
+        if shard_set_id is None:
+            raise ValueError("shard set_id is required for shard version 2")
         data["set_id"] = shard_set_id
     return dumps_canonical(data)
 

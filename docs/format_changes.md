@@ -1,206 +1,101 @@
-# Format Changes
+# Format Compatibility History
 
-This document tracks format evolution over time.
+This ledger records compatibility-relevant differences between Ethernity releases and finalized
+release targets. It is not a development diary. A version heading without a date is frozen for that
+release but not yet tagged. Git history records the order in which the work was developed.
 
-`docs/format.md` remains the single normative specification. This file is a change ledger and
-release-facing summary, not a replacement for normative text.
+The [core format specification](format.md) defines interoperable bytes and recovery semantics. The
+[extension operations and publication profile](extension_publication_profile.md) defines the
+v1.2 product rules for publishing and operating extension chains.
 
-## Update Policy
+## Update policy
 
-For any format-related addition or change:
+For each compatibility-relevant change:
 
-1. Update `docs/format.md` when wire format, validation behavior, or interoperability requirements
-   change.
-2. Update `docs/format_notes.md` only for rationale and operational guidance (non-normative).
-3. Add an entry here describing the delta and compatibility impact.
-4. Add or update tests that cover must-pass and must-reject behavior for the change.
+1. Update the applicable normative document.
+2. During development, record the change under **Next release**, including old-reader and
+   new-reader behavior.
+3. Keep implementation inventories, test inventories, and in-branch chronology out of this ledger.
+4. At release freeze, replace **Next release** with the product version. After tagging, append the
+   tag date to that version heading.
 
-## Entry Template
+Editorial changes with no artifact or decoder impact do not belong here.
 
-Use this template for each change entry:
+## v1.2.0
 
-```md
-## YYYY-MM-DD - <short change title>
+### Extension envelope v2 and operations profile v1
 
-- Type: <wire-format | validation | editorial | notes-only>
-- Normative spec updated: <yes/no>
-- Sections changed: <for example: 5, 10, 17, 18.3>
+- Type: wire format and product profile
+- Normative surface: core extension format, authenticated chain selection and replay, and extension
+  operations/publication profile
 - Compatibility:
-  - Old decoders reading new artifacts: <yes/no/partial + short note>
-  - New decoders reading old artifacts: <yes/no/partial + short note>
-- Version/profile bump required: <yes/no + rationale>
-- Implementation refs:
-  - <path>
-- Test refs:
-  - <path>
-- Security impact:
-  - <none or short note>
-```
+  - Older readers cannot decode extension envelope v2 or operate an extension publication tree.
+  - v1.2 readers continue to decode standalone root envelope v1, AUTH payload v1, shard payloads v1
+    and v2, and existing QR/fallback transports.
+  - No extension envelope v2 artifact was part of a released Ethernity version before v1.2.
+- Versioning: extension documents use outer envelope version 2 and header schema version 1. Root
+  backups remain standalone envelope version 1.
+- Summary:
+  - Adds authenticated, append-only add-or-replace extension chains with deterministic ancestry,
+    content-defined chunking, replay, resource bounds, and offline fork detection.
+  - Adds content-addressed recovery that derives identity and order from ciphertext, AUTH, and
+    decrypted headers rather than filenames or directory order.
+  - Adds a v1.2 operations profile for canonical publication, shard custody policy, selected
+    recovery, replacement shard minting, compaction, chain-bound recovery kits, and journaled
+    atomic publication with authenticated repair.
+  - Freezes FastCDC-style algorithm 1 with cross-language conformance vectors.
+- Security impact: extension membership is bound to root-authorized signatures and decrypted
+  ancestry. Publication is fail-closed, serialized by one kernel-owned advisory lock, flushes every
+  staged regular file, and uses directory flushing where the platform exposes it. Restart repair
+  authenticates the chain and transaction snapshot before acting. Browser recovery no longer
+  silently selects the latest supplied state:
+  it requires a chain-bound-kit head pin, a manually entered expected head, or an explicit
+  freshness-unknown acknowledgement. Only a separately stored chain-bound kit supports the
+  **Matched trusted kit** identity claim; unanchored sets are reported as internally consistent.
+  Untrusted PDF/image parsing and age decryption now run in disposable resource-bounded workers.
+  Public scrypt stanzas are preflighted against per-stanza and cumulative KDF budgets; exceptional
+  legacy work requires the explicit resource-intensive compatibility recovery operation, while
+  excessive parameters remain a hard rejection.
+- Conformance evidence: the frozen v1.2 extension golden suite covers Python and browser recovery.
 
-## Versioning Guidance
+### Core interoperability clarifications
 
-- Bump version/profile when an older decoder could misinterpret bytes, accept invalid data, or fail
-  security-critical validation under the new behavior.
-- No bump is typically needed for editorial clarifications, rationale-only notes, or strict fail-
-  closed checks that preserve safe rejection semantics.
-
-## Entries
-
-## 2026-06-07 - Accept rendered fallback line labels in manual input
-
-- Type: validation
-- Normative spec updated: yes
-- Sections changed: 11
+- Type: decoder and cryptographic validation
+- Normative surface: authority binding, AUTH cardinality, Shamir field representation, payload
+  length, path syntax, and fallback text decoding
 - Compatibility:
-  - Old decoders reading new artifacts: yes (artifact bytes are unchanged; only manual text input
-    tolerance changed)
-  - New decoders reading old artifacts: yes
-- Version/profile bump required: no (this accepts a display-only transcription prefix and keeps
-  malformed non-z-base-32 content fail-closed)
-- Implementation refs:
-  - `src/ethernity/cli/shared/io/fallback_parser.py`
-  - `kit/lib/encoding.js`
-- Test refs:
-  - `tests/unit/test_fallback_parser.py`
-  - `kit/tests/encoding_cbor_path_zip_state.test.mjs`
-- Security impact:
-  - Preserves strict z-base-32 validation after removing only an exact dotted rendered line label
+  - Artifact bytes are unchanged; older readers can still read all generated artifacts.
+  - The Shamir rules freeze the existing GF(2^128) big-endian representation and direct index
+    mapping; existing shard bytes are unchanged.
+  - v1.2 readers deterministically remove one dotted rendered line label, collapse identical AUTH
+    carrier copies, reject conflicting AUTH payloads, require exact raw payload length, and enforce
+    the existing POSIX path restrictions.
+  - Authenticated recovery now states the already-enforced equality chain from root AUTH through an
+    embedded or reconstructed signing seed, shards, and extension AUTH payloads.
+- Versioning: no format-version bump; these rules make existing decoder and trust boundaries
+  independently implementable without changing serialized fields.
+- Security impact: readers fail closed on authority substitution, ambiguous AUTH selection,
+  trailing raw payload bytes, and incompatible path interpretation.
 
-## 2026-04-09 - Add extension-envelope chain, compaction, and recovery profile
+## v1.1.0 (2026-03-29)
 
-- Type: feature/profile
-- Normative spec updated: yes
-- Sections changed: 2, 3, 7, 12, 19, 20, 21
+### Signed shard-set identifiers
+
+- Type: wire format
+- Normative surface: shard payload and Shamir reconstruction
 - Compatibility:
-  - Old decoders reading new artifacts: no for extension envelopes and extension-chain exports;
-    Version 1-only decoders reject outer envelope version 2 and do not understand extension-chain
-    publication or replay.
-  - New decoders reading old artifacts: yes for Version 1 root backups and existing shard/AUTH
-    payloads; no previous shipped Version 2 extension artifacts existed on the release base.
-- Version/profile bump required: yes (the format now defines extension envelopes with outer
-  envelope `VERSION = 2`, authenticated chain replay, selected recovery, minting, and compaction).
-- Implementation refs:
-  - `src/ethernity/formats/extension_envelope.py`
-  - `src/ethernity/formats/extension_chunking.py`
-  - `src/ethernity/extensions/build.py`
-  - `src/ethernity/extensions/chain.py`
-  - `src/ethernity/extensions/discovery.py`
-  - `src/ethernity/extensions/published.py`
-  - `src/ethernity/extensions/recovery.py`
-  - `src/ethernity/extensions/staging.py`
-  - `src/ethernity/cli/shared/io/inputs.py`
-  - `src/ethernity/cli/shared/root_shard_policy.py`
-  - `src/ethernity/cli/features/extend/`
-  - `src/ethernity/cli/features/recover/`
-  - `src/ethernity/cli/features/mint/`
-  - `src/ethernity/cli/features/compact/`
-  - `kit/app/extension_envelope.js`
-  - `kit/app/extension_recovery.js`
-- Test refs:
-  - `tests/unit/test_extension_envelope.py`
-  - `tests/unit/test_extension_build.py`
-  - `tests/unit/test_extension_chain.py`
-  - `tests/unit/test_extension_discovery.py`
-  - `tests/unit/test_extension_published.py`
-  - `tests/unit/test_extension_staging.py`
-  - `tests/unit/test_extend_service.py`
-  - `tests/unit/test_extend_inspection.py`
-  - `tests/unit/test_recover_chain.py`
-  - `tests/unit/test_compact_service.py`
-  - `tests/unit/test_input_files.py`
-  - `tests/integration/test_integration_extensions.py`
-  - `tests/e2e/test_end_to_end_v1_2_extension_golden.py`
-  - `kit/tests/extension_recovery.test.mjs`
-  - `kit/tests/v1_2_extension_frozen_e2e.test.mjs`
-- In-branch profile decisions consolidated into this release entry:
-  - Root backups remain standalone Version 1 envelopes; extension documents use outer envelope
-    Version 2 and carry encrypted header/body content separately from the root.
-  - Extension AUTH is transported beside the ciphertext, must bind to the extension `doc_hash`,
-    and must be signed by the root-derived signing authority for authenticated replay.
-  - Extension headers carry sequential index, root hash, parent hash, timestamp, chunking profile,
-    and input provenance; unknown header/body keys are rejected for Version 2.
-  - Extension file recipes are complete replacements for listed paths only. Deletes, renames, and
-    tombstones are unsupported; omitted paths inherit their previous logical state.
-  - Algorithm 1 FastCDC-style chunking is locked by the first validated extension and enforced for
-    extension recipes and virtual root chunk replay.
-  - Inline chunks must be referenced by files in the same envelope and must be newly introduced
-    relative to virtual root chunks and earlier extensions.
-  - Latest reconstructed state is bounded by `MAX_MANIFEST_FILES` and
-    `MAX_DECOMPRESSED_PAYLOAD_BYTES`, and synthetic replay manifests use
-    `input_origin = "directory"` with `input_roots = ["reconstructed-state"]`.
-  - Content-import recovery identifies roots and extensions from recovered ciphertext, AUTH, and
-    decrypted headers, not from filenames or directory order.
-  - Chain IDs are deterministic metadata derived from the authenticated root document hash with
-    `CHAIN_ID_PERSONALIZATION`; they are not serialized authority and caller-supplied `chain_id`
-    values must not be trusted as chain membership evidence.
-  - Published export trees and append workflows distinguish recovery-valid carrier sets from
-    append-valid canonical layouts; scan-mode append emits loose extension bundles unless the full
-    canonical prefix is present.
-  - Canonical published extension directories and artifact filenames have an explicit decimal index,
-    document id, and shard share filename grammar for interoperable append-valid export trees.
-  - Recursive backup-export scans exclude unpublished `extensions/.staging-*` workspaces and reject
-    extension-like stale top-level entries under `extensions/`.
-  - Root-only and selected-prefix recovery are explicit selection modes. Default recovery replays
-    the latest supplied authenticated extension and reports freshness as supplied-carriers-only.
-  - Extension recovery documents are human fallback documents. Append readiness requires the
-    required recovery-document PDF to be present and loadable, but visible fallback text in PDF or
-    image files is not parsed or bound as authoritative content-import, discovery, or replay data.
-  - Extension publish and mint paths fail closed when carriers, shard sets, chain ancestry, or
-    authenticated replay cannot be validated.
-  - Compaction shard policy inheritance is content-first and authenticated. Filename prefixes and
-    unsigned shard metadata cannot select checkpoint policy; compaction preserves root shard policy,
-    sealed/unsealed state, and any unsealed root signing seed without mutating the original carriers.
-- Related branch hardening consolidated with this release entry:
-  - Selected input bounds are preflighted before reading so oversized file counts, source bytes,
-    symlinks, and non-regular inputs cannot bypass existing resource limits.
-- Security impact:
-  - Adds append-only authenticated extension replay while preserving Version 1 root compatibility.
-  - Prevents unsigned or root-authority-mismatched extension replay in the shipped CLI/API profile.
-  - Keeps chain membership tied to ciphertext hashes, verified AUTH, and decrypted ancestry rather
-    than filesystem labels or stale export-tree layout.
-  - Makes publication atomic through staged artifacts, carrier validation, and chain-head
-    revalidation before promotion.
+  - Version-1-only shard readers reject newly encoded shard payload v2.
+  - Current readers accept legacy shard payload v1, but legacy sets cannot guarantee detection of
+    mixed exact-quorum shares from distinct sets.
+- Versioning: new shard payloads use version 2 and include a signed 16-byte `set_id`.
+- Security impact: readers can reject mixed exact-threshold shard sets before reconstruction or
+  replacement minting.
 
-## 2026-03-11 - Add signed shard-set identifiers to shard payloads
+## v1.0.0 (2026-03-04)
 
-- Type: wire-format
-- Normative spec updated: yes
-- Sections changed: 9, 15.3, 15.4
-- Compatibility:
-  - Old decoders reading new artifacts: no (new shard payloads use version 2 and are rejected by
-    version-1-only decoders)
-  - New decoders reading old artifacts: partial (legacy version 1 shards remain readable, but they
-    do not carry `set_id` and therefore cannot guarantee exact-quorum mixed-set detection)
-- Version/profile bump required: yes (older decoders would otherwise miss a security-critical
-  shard-set consistency check)
-- Implementation refs:
-  - `src/ethernity/crypto/signing.py`
-  - `src/ethernity/crypto/sharding.py`
-  - `src/ethernity/cli/features/recover/key_recovery.py`
-  - `src/ethernity/cli/shared/recovery_prompts.py`
-  - `src/ethernity/cli/features/mint/workflow.py`
-- Test refs:
-  - `tests/unit/test_signing.py`
-  - `tests/unit/test_sharding.py`
-  - `tests/unit/test_recover_keys.py`
-  - `tests/unit/test_recover_shard_prompts.py`
-  - `tests/unit/test_cli_flow_prompts.py`
-- Security impact:
-  - Prevents version 2 shard payloads from silently accepting mixed exact-threshold shard sets
-    during recovery or replacement minting
+### Initial public format baseline
 
-## 2026-03-06 - Format change tracking structure introduced
-
-- Type: editorial
-- Normative spec updated: no
-- Sections changed: none
-- Compatibility:
-  - Old decoders reading new artifacts: unchanged
-  - New decoders reading old artifacts: unchanged
-- Version/profile bump required: no (documentation process only)
-- Implementation refs:
-  - N/A
-- Test refs:
-  - N/A
-- Security impact:
-  - none
+- Type: compatibility baseline
+- Released surface: standalone envelope v1, manifest v1, frame v1, AUTH payload v1, shard payload
+  v1, QR transport, fallback text, age encryption, BIP-39 passphrases, and Shamir recovery
+- Compatibility: this release establishes the baseline against which later entries are described.

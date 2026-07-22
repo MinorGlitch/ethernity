@@ -28,7 +28,6 @@ from typing import Any, cast
 
 from tooling.document_inspector_app import MODE_PAYLOADS, inspect_pasted_text
 
-from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload
 from ethernity.crypto.signing import AuthPayload, decode_auth_payload, encode_auth_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType, decode_frame, encode_frame
@@ -48,11 +47,23 @@ def _run_cli_subprocess(*args: Any, **kwargs: Any) -> subprocess.CompletedProces
 
 
 class TestStableV1_2ExtensionGolden(unittest.TestCase):
-    def test_fixture_index_was_built_by_current_builder(self) -> None:
+    def test_fixture_index_describes_frozen_compatibility_matrix(self) -> None:
         index = json.loads((_FIXTURE_ROOT / "index.json").read_text(encoding="utf-8"))
+        self.assertNotIn("builder_sha256", index)
+        self.assertEqual(index["version"], "1.2.0")
+        self.assertEqual(index["passphrase"], "stable-v1_2-extension-passphrase")
         self.assertEqual(
-            index["builder_sha256"],
-            self._sha256_file(_FIXTURE_ROOT / "build_golden.py"),
+            index["profiles"],
+            {
+                "base64": {
+                    "path": "base64/index.json",
+                    "qr_payload_codec": "base64",
+                },
+                "raw": {
+                    "path": "raw/index.json",
+                    "qr_payload_codec": "raw",
+                },
+            },
         )
 
     def test_frozen_artifact_hashes_match_snapshots(self) -> None:
@@ -131,22 +142,31 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                         selector_args=["--extension-doc-hash", latest_hash],
                     )
 
-    def test_api_inspect_reports_latest_head_and_file_count(self) -> None:
+    def test_restore_json_preview_accepts_payload_recovery_inputs(self) -> None:
         for scenario_root, snapshot in self._snapshots():
             with self.subTest(scenario=str(snapshot["scenario_id"]), profile=snapshot["profile"]):
-                events = self._run_api_inspect(scenario_root, snapshot)
-                result = events[-1]
-                latest_key = self._latest_state_key(snapshot)
-                expected_index = None if latest_key == "root" else int(latest_key.rsplit("_", 1)[1])
-                self.assertEqual(result["command"], "recover")
-                self.assertEqual(result["operation"], "inspect")
-                self.assertEqual(result["blocking_issues"], [])
-                self.assertEqual(result["selected_extension_index"], expected_index)
-                self.assertEqual(result["freshness_scope"], "supplied_carriers_only")
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    result = self._run(
+                        self._run_task_args(
+                            "restore",
+                            "--payloads-file",
+                            scenario_root / snapshot["payload_fixtures"]["chain"]["text"],
+                            "--output",
+                            Path(tmpdir) / "recovered",
+                            "--preview",
+                            "--json",
+                            *self._unlock_args(scenario_root, snapshot, state_key=None),
+                        )
+                    )
                 self.assertEqual(
-                    result["source_summary"]["file_count"],
-                    len(cast(dict[str, Any], snapshot["states"])[latest_key]),
+                    result.returncode,
+                    0,
+                    msg=result.stderr.strip() or result.stdout.strip(),
                 )
+                payload = json.loads(result.stdout)
+                self.assertEqual(payload["task"], "restore")
+                self.assertEqual(payload["status"], "preview")
+                self.assertTrue(payload["ready"])
 
     def test_document_inspector_trusts_complete_chain_and_refuses_extension_only(self) -> None:
         scenario_root = _FIXTURE_ROOT / "base64" / "large_raw_two_extension_chain"
@@ -173,34 +193,23 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
         self.assertIsNotNone(extension_result.trust_diagnostic)
         self.assertEqual(extension_result.trust_diagnostic.status, "refused")
 
-    def test_api_inspect_refuses_extension_only_payloads_as_untrusted(self) -> None:
+    def test_restore_refuses_extension_only_payloads_as_untrusted(self) -> None:
         scenario_root = _FIXTURE_ROOT / "base64" / "large_raw_two_extension_chain"
         snapshot = self._snapshot_at(scenario_root / "snapshot.json")
         result = self._run(
-            [
-                sys.executable,
-                "-m",
-                "ethernity.cli",
-                "--config",
-                str(DEFAULT_CONFIG_PATH),
-                "api",
-                "inspect",
-                "recover",
+            self._run_task_args(
+                "restore",
                 "--payloads-file",
-                str(scenario_root / snapshot["payload_fixtures"]["extension_01"]["text"]),
+                scenario_root / snapshot["payload_fixtures"]["extension_01"]["text"],
                 "--passphrase",
                 str(snapshot["passphrase"]),
-            ]
+                "--output",
+                tempfile.gettempdir(),
+                "--yes",
+            )
         )
-        self.assertEqual(result.returncode, 0, msg=result.stderr.strip() or result.stdout.strip())
-        events = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
-        final = events[-1]
-        self.assertEqual(final["source_summary"], None)
-        self.assertEqual(
-            [issue["code"] for issue in final["blocking_issues"]],
-            ["RECOVERY_HEAD_UNTRUSTED"],
-        )
-        self.assertIn("root backup", final["blocking_issues"][0]["message"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("root backup", result.stderr or result.stdout)
 
     def test_golden_auth_mutations_fail_closed(self) -> None:
         scenario_root = _FIXTURE_ROOT / "base64" / "gzip_replacement_chain"
@@ -246,22 +255,17 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                     payloads = Path(tmpdir) / "payloads.txt"
                     output = Path(tmpdir) / "recovered"
                     self._write_payload_frames(payloads, mutated_frames)
-                    cmd = [
-                        sys.executable,
-                        "-m",
-                        "ethernity.cli",
-                        "--config",
-                        str(DEFAULT_CONFIG_PATH),
-                        "recover",
+                    cmd = self._run_task_args(
+                        "restore",
                         "--payloads-file",
-                        str(payloads),
+                        payloads,
                         "--passphrase",
                         str(snapshot["passphrase"]),
                         "--output",
-                        str(output),
-                        "--quiet",
+                        output,
+                        "--yes",
                         *selector_args,
-                    ]
+                    )
                     result = self._run(cmd)
                     self.assertNotEqual(
                         result.returncode,
@@ -289,22 +293,17 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                         payloads,
                         self._mutated_main_frames(frames, doc_id_hex=doc_id),
                     )
-                    cmd = [
-                        sys.executable,
-                        "-m",
-                        "ethernity.cli",
-                        "--config",
-                        str(DEFAULT_CONFIG_PATH),
-                        "recover",
+                    cmd = self._run_task_args(
+                        "restore",
                         "--payloads-file",
-                        str(payloads),
+                        payloads,
                         "--passphrase",
                         str(snapshot["passphrase"]),
                         "--output",
-                        str(output),
-                        "--quiet",
+                        output,
+                        "--yes",
                         *selector_args,
-                    ]
+                    )
                     result = self._run(cmd)
                     self.assertNotEqual(
                         result.returncode,
@@ -323,23 +322,18 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
             tmp_path = Path(tmpdir)
             root_source = tmp_path / "root-source"
             root_chain = tmp_path / "root-chain"
-            recover_root = [
-                sys.executable,
-                "-m",
-                "ethernity.cli",
-                "--config",
-                str(DEFAULT_CONFIG_PATH),
-                "recover",
+            recover_root = self._run_task_args(
+                "restore",
                 "--payloads-file",
-                str(scenario_root / snapshot["payload_fixtures"]["root"]["text"]),
+                scenario_root / snapshot["payload_fixtures"]["root"]["text"],
                 "--passphrase",
                 str(snapshot["passphrase"]),
                 "--extension-index",
                 "0",
                 "--output",
-                str(root_source),
-                "--quiet",
-            ]
+                root_source,
+                "--yes",
+            )
             self._run_ok(recover_root)
             shutil.copytree(scenario_root / str(snapshot["chain_dir"]), root_chain)
             shutil.rmtree(root_chain / "extensions")
@@ -347,27 +341,24 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                 "different extension index 1\n",
                 encoding="utf-8",
             )
-            create_duplicate = [
-                sys.executable,
-                "-m",
-                "ethernity.cli",
-                "--config",
-                str(DEFAULT_CONFIG_PATH),
-                "extend",
-                "--root-dir",
-                str(root_chain),
+            create_duplicate = self._run_task_args(
+                "add-files",
+                "--backup-folder",
+                root_chain,
                 "--input-dir",
-                str(root_source),
+                root_source,
                 "--base-dir",
-                str(root_source),
+                root_source,
                 "--passphrase",
                 str(snapshot["passphrase"]),
                 "--design",
                 "forge",
-                "--shard-count",
-                "0",
-                "--quiet",
-            ]
+                "--recovery-threshold",
+                "1",
+                "--recovery-count",
+                "1",
+                "--yes",
+            )
             self._run_ok(create_duplicate)
             original_ext = next(
                 (scenario_root / str(snapshot["chain_dir"]) / "extensions" / "01").glob(
@@ -375,25 +366,20 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                 )
             )
             duplicate_ext = next((root_chain / "extensions" / "01").glob("qr_document-*.pdf"))
-            recover = [
-                sys.executable,
-                "-m",
-                "ethernity.cli",
-                "--config",
-                str(DEFAULT_CONFIG_PATH),
-                "recover",
+            recover = self._run_task_args(
+                "restore",
                 "--scan",
-                str(root_chain / "qr_document.pdf"),
+                root_chain / "qr_document.pdf",
                 "--scan",
-                str(original_ext),
+                original_ext,
                 "--scan",
-                str(duplicate_ext),
+                duplicate_ext,
                 "--passphrase",
                 str(snapshot["passphrase"]),
                 "--output",
-                str(tmp_path / "recovered"),
-                "--quiet",
-            ]
+                tmp_path / "recovered",
+                "--yes",
+            )
             result = self._run(recover)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(
@@ -407,21 +393,16 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "recovered"
             self._run_ok(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(DEFAULT_CONFIG_PATH),
-                    "recover",
+                self._run_task_args(
+                    "restore",
                     "--scan",
-                    str(scenario_root / str(snapshot["chain_dir"])),
+                    scenario_root / str(snapshot["chain_dir"]),
                     "--passphrase",
                     str(snapshot["passphrase"]),
                     "--output",
-                    str(output),
-                    "--quiet",
-                ]
+                    output,
+                    "--yes",
+                )
             )
             self._assert_output_hashes(
                 output,
@@ -462,7 +443,7 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "recovered"
             cmd = self._recover_payload_cmd(scenario_root, snapshot, output)
-            cmd.extend(["--expected-head-doc-hash", str(snapshot["root_doc_hash"])])
+            cmd.extend(["--expected-head", str(snapshot["root_doc_hash"])])
             result = self._run(cmd)
             self.assertNotEqual(result.returncode, 0)
             normalized_error = " ".join((result.stderr or result.stdout).lower().split())
@@ -482,21 +463,16 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
 
             default_output = tmp_path / "default"
             default = self._run(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(DEFAULT_CONFIG_PATH),
-                    "recover",
+                self._run_task_args(
+                    "restore",
                     "--scan",
-                    str(copied),
+                    copied,
                     "--passphrase",
                     str(snapshot["passphrase"]),
                     "--output",
-                    str(default_output),
-                    "--quiet",
-                ]
+                    default_output,
+                    "--yes",
+                )
             )
             self.assertNotEqual(default.returncode, 0)
             normalized_error = " ".join(default.stderr.lower().split())
@@ -504,23 +480,18 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
 
             prior_output = tmp_path / "prior"
             prior = self._run(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(DEFAULT_CONFIG_PATH),
-                    "recover",
+                self._run_task_args(
+                    "restore",
                     "--scan",
-                    str(copied),
+                    copied,
                     "--passphrase",
                     str(snapshot["passphrase"]),
                     "--extension-index",
                     "1",
                     "--output",
-                    str(prior_output),
-                    "--quiet",
-                ]
+                    prior_output,
+                    "--yes",
+                )
             )
             self.assertEqual(prior.returncode, 0, msg=prior.stderr.strip() or prior.stdout.strip())
             self._assert_output_hashes(
@@ -529,21 +500,16 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
             )
 
             compact = self._run(
-                [
-                    sys.executable,
-                    "-m",
-                    "ethernity.cli",
-                    "--config",
-                    str(DEFAULT_CONFIG_PATH),
-                    "compact",
-                    "--root-dir",
-                    str(copied),
+                self._run_task_args(
+                    "rebuild",
+                    "--backup-folder",
+                    copied,
                     "--passphrase",
                     str(snapshot["passphrase"]),
                     "--output-dir",
-                    str(tmp_path / "compacted"),
-                    "--quiet",
-                ]
+                    tmp_path / "compacted",
+                    "--yes",
+                )
             )
             self.assertNotEqual(compact.returncode, 0)
             compact_error = " ".join(compact.stderr.lower().split())
@@ -558,28 +524,22 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             mint_dir = tmp_path / "minted"
-            mint = [
-                sys.executable,
-                "-m",
-                "ethernity.cli",
-                "--config",
-                str(DEFAULT_CONFIG_PATH),
-                "mint",
+            mint = self._run_task_args(
+                "replace-recovery-docs",
                 "--scan",
-                str(scenario_root / str(snapshot["chain_dir"])),
+                scenario_root / str(snapshot["chain_dir"]),
                 "--passphrase",
                 str(snapshot["passphrase"]),
-                "--expected-head-doc-hash",
+                "--expected-head",
                 latest_hash,
                 "--output-dir",
-                str(mint_dir),
-                "--shard-threshold",
+                mint_dir,
+                "--recovery-threshold",
                 "2",
-                "--shard-count",
+                "--recovery-count",
                 "3",
-                "--no-signing-key-shards",
-                "--quiet",
-            ]
+                "--yes",
+            )
             self._run_ok(mint)
             minted_shards = sorted(mint_dir.glob("shard-*.pdf"))
             self.assertEqual(len(minted_shards), 3)
@@ -589,21 +549,16 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
             )
 
             output = tmp_path / "recovered"
-            recover = [
-                sys.executable,
-                "-m",
-                "ethernity.cli",
-                "--config",
-                str(DEFAULT_CONFIG_PATH),
-                "recover",
+            recover = self._run_task_args(
+                "restore",
                 "--scan",
-                str(scenario_root / str(snapshot["chain_dir"])),
+                scenario_root / str(snapshot["chain_dir"]),
                 "--output",
-                str(output),
-                "--quiet",
-            ]
+                output,
+                "--yes",
+            )
             for shard_path in minted_shards[:2]:
-                recover.extend(["--shard-scan", str(shard_path)])
+                recover.extend(["--recovery-document", str(shard_path)])
             self._run_ok(recover)
             self._assert_output_hashes(
                 output,
@@ -618,42 +573,34 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
         shard_text = snapshot["shard_fixtures"]["extension"]["text"]
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
+            source_chain = tmp_path / "source-chain"
+            shutil.copytree(scenario_root / str(snapshot["chain_dir"]), source_chain)
             compacted = tmp_path / "compacted"
-            compact = [
-                sys.executable,
-                "-m",
-                "ethernity.cli",
-                "--config",
-                str(DEFAULT_CONFIG_PATH),
-                "compact",
-                "--root-dir",
-                str(scenario_root / str(snapshot["chain_dir"])),
-                "--shard-payloads-file",
-                str(scenario_root / shard_text),
+            compact = self._run_task_args(
+                "rebuild",
+                "--backup-folder",
+                source_chain,
+                "--recovery-payloads-file",
+                scenario_root / shard_text,
                 "--output-dir",
-                str(compacted),
-                "--quiet",
-            ]
+                compacted,
+                "--yes",
+            )
             self._run_ok(compact)
             compacted_shards = sorted(compacted.glob("shard-*.pdf"))
             self.assertEqual(len(compacted_shards), 3)
 
             output = tmp_path / "recovered"
-            recover = [
-                sys.executable,
-                "-m",
-                "ethernity.cli",
-                "--config",
-                str(DEFAULT_CONFIG_PATH),
-                "recover",
+            recover = self._run_task_args(
+                "restore",
                 "--scan",
-                str(compacted),
+                compacted,
                 "--output",
-                str(output),
-                "--quiet",
-            ]
+                output,
+                "--yes",
+            )
             for shard_path in compacted_shards[:2]:
-                recover.extend(["--shard-scan", str(shard_path)])
+                recover.extend(["--recovery-document", str(shard_path)])
             self._run_ok(recover)
             self._assert_output_hashes(
                 output,
@@ -717,17 +664,12 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "recovered"
-            cmd = [
-                sys.executable,
-                "-m",
-                "ethernity.cli",
-                "--config",
-                str(DEFAULT_CONFIG_PATH),
-                "recover",
+            cmd = self._run_task_args(
+                "restore",
                 "--output",
-                str(output),
-                "--quiet",
-            ]
+                output,
+                "--yes",
+            )
             for rel_path in cast(list[str], snapshot["scan_paths"]):
                 cmd.extend(["--scan", str(scenario_root / rel_path)])
             cmd.extend(self._unlock_args(scenario_root, snapshot, state_key=state_key))
@@ -743,41 +685,16 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
         output: Path,
         state_key: str | None = None,
     ) -> list[str]:
-        cmd = [
-            sys.executable,
-            "-m",
-            "ethernity.cli",
-            "--config",
-            str(DEFAULT_CONFIG_PATH),
-            "recover",
+        cmd = self._run_task_args(
+            "restore",
             "--payloads-file",
-            str(scenario_root / snapshot["payload_fixtures"]["chain"]["text"]),
+            scenario_root / snapshot["payload_fixtures"]["chain"]["text"],
             "--output",
-            str(output),
-            "--quiet",
-        ]
+            output,
+            "--yes",
+        )
         cmd.extend(self._unlock_args(scenario_root, snapshot, state_key=state_key))
         return cmd
-
-    def _run_api_inspect(
-        self, scenario_root: Path, snapshot: dict[str, Any]
-    ) -> list[dict[str, Any]]:
-        cmd = [
-            sys.executable,
-            "-m",
-            "ethernity.cli",
-            "--config",
-            str(DEFAULT_CONFIG_PATH),
-            "api",
-            "inspect",
-            "recover",
-            "--payloads-file",
-            str(scenario_root / snapshot["payload_fixtures"]["chain"]["text"]),
-        ]
-        cmd.extend(self._unlock_args(scenario_root, snapshot, state_key=None))
-        result = self._run(cmd)
-        self.assertEqual(result.returncode, 0, msg=result.stderr.strip() or result.stdout.strip())
-        return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
 
     def _unlock_args(
         self,
@@ -790,18 +707,18 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
         if state_key == "root":
             if "root" in shard_fixtures:
                 return [
-                    "--shard-payloads-file",
+                    "--recovery-payloads-file",
                     str(scenario_root / shard_fixtures["root"]["text"]),
                 ]
             return ["--passphrase", str(snapshot["passphrase"])]
         if "extension" in shard_fixtures:
             return [
-                "--shard-payloads-file",
+                "--recovery-payloads-file",
                 str(scenario_root / shard_fixtures["extension"]["text"]),
             ]
         if "root" in shard_fixtures:
             return [
-                "--shard-payloads-file",
+                "--recovery-payloads-file",
                 str(scenario_root / shard_fixtures["root"]["text"]),
             ]
         return ["--passphrase", str(snapshot["passphrase"])]
@@ -846,6 +763,10 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                 text=True,
                 check=False,
             )
+
+    @staticmethod
+    def _run_task_args(*args: object) -> list[str]:
+        return [sys.executable, "-m", "ethernity", "run", *[str(arg) for arg in args]]
 
     def _assert_output_hashes(self, output: Path, expected_hashes: dict[str, str]) -> None:
         if output.is_file():

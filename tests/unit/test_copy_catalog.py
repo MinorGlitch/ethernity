@@ -15,10 +15,60 @@
 
 import unittest
 
-from ethernity.render.copy_catalog import build_copy_bundle
+from ethernity.render.copy_catalog import build_copy_bundle, build_instruction_copy
 
 
 class TestCopyCatalog(unittest.TestCase):
+    def test_instruction_copy_preserves_canonical_document_instructions(self) -> None:
+        expected_lines = {
+            "main": (
+                "Record all segment labels for this document set.",
+                "Scan segments in any order; capture each label once.",
+                "Use Recovery Document text fallback only if scanning fails.",
+            ),
+            "recovery": (
+                "This document contains recovery keys and full text fallback.",
+                "Keep it separate from the main document.",
+                "Fallback includes AUTH + MAIN sections; keep the labels when transcribing.",
+            ),
+            "kit": (
+                "Scan every QR code left to right, top to bottom.",
+                (
+                    "QR #1 is the shell. Paste it first, then paste every remaining QR in "
+                    "order (no separators)."
+                ),
+                "Save the result as recovery_kit.bundle.html.",
+                "Open that file in a browser (offline) to run the kit.",
+            ),
+        }
+
+        for doc_type, lines in expected_lines.items():
+            with self.subTest(doc_type=doc_type):
+                instructions = build_instruction_copy(doc_type=doc_type, context={})
+                self.assertEqual(instructions.label, "Instructions")
+                self.assertEqual(instructions.lines, lines)
+
+        self.assertEqual(
+            build_instruction_copy(doc_type="kit_index", context={}).lines,
+            expected_lines["kit"],
+        )
+
+    def test_shard_instruction_copy_formats_context_for_both_shard_types(self) -> None:
+        context = {"shard_index": "2", "shard_total": 5.0, "shard_threshold": 3}
+        expected_lines = (
+            (
+                "This document contains shard 2 of 5. Possession of this shard alone is "
+                "insufficient for recovery."
+            ),
+            "Recovery requires 3/5 shards. Store separately from other shards to prevent",
+            "unauthorized reassembly.",
+        )
+
+        for doc_type in ("shard", "signing_key_shard"):
+            with self.subTest(doc_type=doc_type):
+                instructions = build_instruction_copy(doc_type=doc_type, context=context)
+                self.assertEqual(instructions.lines, expected_lines)
+
     def test_main_bundle_contains_canonical_copy(self) -> None:
         copy = build_copy_bundle(doc_type="main", context={})
         self.assertEqual(copy["title"], "Main Document")
@@ -153,6 +203,8 @@ class TestCopyCatalog(unittest.TestCase):
     def test_unknown_doc_type_raises(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported render doc_type"):
             build_copy_bundle(doc_type="unknown", context={})
+        with self.assertRaisesRegex(ValueError, "unsupported render doc_type"):
+            build_instruction_copy(doc_type="unknown", context={})
 
 
 if __name__ == "__main__":

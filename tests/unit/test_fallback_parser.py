@@ -17,12 +17,12 @@ import unittest
 from unittest import mock
 
 from ethernity.cli.shared.io.fallback_parser import (
-    _is_valid_zbase32_line,
     detect_fallback_section,
     filter_fallback_lines,
     parse_fallback_frame,
     split_fallback_sections,
 )
+from ethernity.encoding.fallback_text import _is_valid_zbase32_line
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 
@@ -40,6 +40,7 @@ class TestIsValidZbase32Line(unittest.TestCase):
     def test_invalid_characters(self) -> None:
         self.assertFalse(_is_valid_zbase32_line("ybndr 0123"))  # digits
         self.assertFalse(_is_valid_zbase32_line("ybndr @#$%"))  # special chars
+        self.assertFalse(_is_valid_zbase32_line("\N{KELVIN SIGN}"))
 
 
 class TestFilterFallbackLines(unittest.TestCase):
@@ -111,16 +112,14 @@ class TestFilterFallbackLines(unittest.TestCase):
 
     def test_parse_fallback_frame_rejects_line_limit_overflow(self) -> None:
         lines = ["ybndr", "fghej", "kmcpq"]
-        with mock.patch("ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_LINES", 2):
+        with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_LINES", 2):
             with self.assertRaisesRegex(ValueError, "MAX_FALLBACK_LINES"):
                 parse_fallback_frame(lines, label="fallback")
 
     def test_parse_fallback_frame_rejects_normalized_char_limit_overflow(self) -> None:
         lines = ["ybnd r", "fghe j"]
-        with mock.patch("ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_LINES", 10):
-            with mock.patch(
-                "ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_NORMALIZED_CHARS", 9
-            ):
+        with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_LINES", 10):
+            with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_NORMALIZED_CHARS", 9):
                 with self.assertRaisesRegex(ValueError, "MAX_FALLBACK_NORMALIZED_CHARS"):
                     parse_fallback_frame(lines, label="fallback")
 
@@ -135,9 +134,9 @@ class TestFilterFallbackLines(unittest.TestCase):
         )
         line = encode_zbase32(encode_frame(frame))
         normalized_chars = len(line.replace(" ", "").replace("-", ""))
-        with mock.patch("ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_LINES", 1):
+        with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_LINES", 1):
             with mock.patch(
-                "ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_NORMALIZED_CHARS",
+                "ethernity.encoding.fallback_text.MAX_FALLBACK_NORMALIZED_CHARS",
                 normalized_chars,
             ):
                 parsed = parse_fallback_frame([line], label="fallback")
@@ -149,6 +148,7 @@ class TestFilterFallbackLines(unittest.TestCase):
         self.assertEqual(detect_fallback_section("Shard Frame"), "key")
         self.assertEqual(detect_fallback_section("Key Frame"), "key")
         self.assertIsNone(detect_fallback_section("zzmain framezz"))
+        self.assertIsNone(detect_fallback_section("\N{KELVIN SIGN}ey Frame"))
 
     def test_split_fallback_sections_rejects_non_empty_content_before_first_header(self) -> None:
         with self.assertRaisesRegex(ValueError, "before the first marked fallback section"):

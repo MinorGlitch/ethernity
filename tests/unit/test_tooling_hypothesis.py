@@ -17,8 +17,9 @@ from __future__ import annotations
 
 from hypothesis import given, settings, strategies as st
 
-from ethernity.cli.shared.io.fallback_parser import _is_valid_zbase32_line, filter_fallback_lines
+from ethernity.cli.shared.io.fallback_parser import filter_fallback_lines
 from ethernity.encoding.cbor import dumps_canonical, loads_canonical
+from ethernity.encoding.fallback_text import _is_valid_zbase32_line
 from ethernity.encoding.framing import (
     DOC_ID_LEN,
     Frame,

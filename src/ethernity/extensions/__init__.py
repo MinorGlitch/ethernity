@@ -17,15 +17,18 @@
 """Curated public helpers for extension build, discovery, staging, layout, and replay."""
 
 from ethernity.extensions.build import (
-    BuiltExtensionDocument,
     ExtensionBuildStats,
-    build_extension_document,
+    SelectedInputScope,
+    VerifiedExtensionCandidate,
+    build_extension,
     build_virtual_chunk_source,
     default_extension_chunker,
 )
 from ethernity.extensions.chain import (
     AuthenticatedExtensionChainLink,
+    ExtensionReplayError,
     LogicalFileState,
+    ValidatedChainState,
     extract_root_logical_state,
     reconstruct_authenticated_latest_logical_state,
     validate_authenticated_extension_chain,
@@ -68,21 +71,24 @@ from ethernity.extensions.staging import (
 )
 
 __all__ = [
-    "BuiltExtensionDocument",
     "EXTENSIONS_DIR_NAME",
     "DiscoveredExtensionDirectory",
     "DiscoveredExtensionMainCarrier",
     "DiscoveredExtensionShardCarrier",
     "ValidatedExtensionDiscovery",
     "ExtensionBuildStats",
+    "ExtensionReplayError",
     "AuthenticatedExtensionChainLink",
     "ExtensionMainArtifactName",
     "ExtensionPublishLayout",
     "ExtensionPublishPolicy",
     "ExtensionShardArtifactName",
     "LogicalFileState",
+    "ValidatedChainState",
+    "VerifiedExtensionCandidate",
     "PlannedStagedExtensionArtifacts",
-    "build_extension_document",
+    "SelectedInputScope",
+    "build_extension",
     "build_extension_main_filename",
     "build_extension_shard_filename",
     "build_staging_dir_name",

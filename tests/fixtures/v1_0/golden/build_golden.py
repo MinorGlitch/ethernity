@@ -29,9 +29,6 @@ import tempfile
 from pathlib import Path
 from typing import Any, cast
 
-from ethernity.cli.bootstrap.startup import (
-    ensure_playwright_browsers as _ensure_playwright_browsers,
-)
 from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.sharding import decode_shard_payload
 from ethernity.encoding.chunking import reassemble_payload
@@ -86,6 +83,8 @@ def _scenario_definitions(source_root: Path) -> list[dict[str, object]]:
                 str(source_root / "standalone_secret.txt"),
                 "--passphrase",
                 PASS_PHRASE,
+                "--recovery-count",
+                "0",
             ],
             "expected_relative_paths": ["standalone_secret.txt"],
             "expected_source_root": source_root,
@@ -98,6 +97,8 @@ def _scenario_definitions(source_root: Path) -> list[dict[str, object]]:
                 str(source_root / "directory_payload"),
                 "--passphrase",
                 PASS_PHRASE,
+                "--recovery-count",
+                "0",
             ],
             "expected_relative_paths": [
                 "alpha.txt",
@@ -118,6 +119,8 @@ def _scenario_definitions(source_root: Path) -> list[dict[str, object]]:
                 str(source_root),
                 "--passphrase",
                 PASS_PHRASE,
+                "--recovery-count",
+                "0",
             ],
             "expected_relative_paths": [
                 "mixed_input.txt",
@@ -135,9 +138,9 @@ def _scenario_definitions(source_root: Path) -> list[dict[str, object]]:
                 str(source_root / "directory_payload"),
                 "--passphrase",
                 PASS_PHRASE,
-                "--shard-threshold",
+                "--recovery-threshold",
                 "2",
-                "--shard-count",
+                "--recovery-count",
                 "3",
                 "--signing-key-mode",
                 "embedded",
@@ -161,15 +164,15 @@ def _scenario_definitions(source_root: Path) -> list[dict[str, object]]:
                 str(source_root),
                 "--passphrase",
                 PASS_PHRASE,
-                "--shard-threshold",
+                "--recovery-threshold",
                 "2",
-                "--shard-count",
+                "--recovery-count",
                 "3",
                 "--signing-key-mode",
                 "sharded",
-                "--signing-key-shard-threshold",
+                "--signing-key-threshold",
                 "1",
-                "--signing-key-shard-count",
+                "--signing-key-count",
                 "2",
             ],
             "expected_relative_paths": [
@@ -190,7 +193,8 @@ def _run_cli(repo_root: Path, args: list[str], xdg_config_home: Path, config_pat
     cmd = [
         sys.executable,
         "-m",
-        "ethernity.cli",
+        "ethernity",
+        "run",
         "--config",
         str(config_path),
         *args,
@@ -288,18 +292,18 @@ def _shard_projections_by_file(pdf_paths: list[Path]) -> dict[str, list[dict[str
         projections: list[dict[str, object]] = []
         for frame in _valid_scanned_frames(pdf_path):
             payload = decode_shard_payload(frame.data)
-            projections.append(
-                {
-                    "doc_id": frame.doc_id.hex(),
-                    "share_index": payload.share_index,
-                    "threshold": payload.threshold,
-                    "share_count": payload.share_count,
-                    "key_type": payload.key_type,
-                    "secret_len": payload.secret_len,
-                    "doc_hash": payload.doc_hash.hex(),
-                    "sign_pub": payload.sign_pub.hex(),
-                }
-            )
+            projection = {
+                "doc_id": frame.doc_id.hex(),
+                "share_index": payload.share_index,
+                "threshold": payload.threshold,
+                "share_count": payload.share_count,
+                "key_type": payload.key_type,
+                "secret_len": payload.secret_len,
+                "doc_hash": payload.doc_hash.hex(),
+                "sign_pub": payload.sign_pub.hex(),
+            }
+            if projection not in projections:
+                projections.append(projection)
         shard_projections[pdf_path.name] = projections
     return shard_projections
 
@@ -375,8 +379,6 @@ def _write_mint_snapshot(
 def _generate_mint_golden() -> None:
     repo_root = Path(__file__).resolve().parents[4]
     golden_root = repo_root / "tests" / "fixtures" / "v1_0" / "golden"
-    os.environ.pop("ETHERNITY_SKIP_PLAYWRIGHT_INSTALL", None)
-    _ensure_playwright_browsers(quiet=True)
 
     with tempfile.TemporaryDirectory() as xdg_tmp:
         xdg_config_home = Path(xdg_tmp)
@@ -409,9 +411,6 @@ def _generate_full_golden() -> None:
     repo_root = Path(__file__).resolve().parents[4]
     source_root = repo_root / "tests" / "fixtures" / "v1_0" / "source"
     golden_root = repo_root / "tests" / "fixtures" / "v1_0" / "golden"
-
-    os.environ.pop("ETHERNITY_SKIP_PLAYWRIGHT_INSTALL", None)
-    _ensure_playwright_browsers(quiet=True)
 
     for child in golden_root.iterdir():
         if child.name in {"build_golden.py", "README.md"}:
@@ -463,7 +462,7 @@ def _generate_full_golden() -> None:
                     "forge",
                     "--output-dir",
                     str(backup_dir),
-                    "--quiet",
+                    "--yes",
                 ]
                 _run_cli(repo_root, backup_args, xdg_config_home, profile_config_path)
 

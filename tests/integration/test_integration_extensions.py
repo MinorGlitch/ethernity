@@ -21,22 +21,26 @@ from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
 
-from ethernity.cli import run_compact, run_extend
-from ethernity.cli.features.backup.orchestrator import run_backup_command
+from ethernity.cli.features.backup.service import execute_prepared_backup, prepare_backup_run
+from ethernity.cli.features.compact.service import run_compact
 from ethernity.cli.features.mint.workflow import execute_mint
-from ethernity.cli.features.recover.orchestrator import run_recover_command
+from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.cli.shared.io.frames import recovery_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.cli.shared.types import BackupArgs, CompactArgs, ExtendArgs, MintArgs, RecoverArgs
-from ethernity.config.paths import DEFAULT_CONFIG_PATH, SUPPORTED_TEMPLATE_DESIGNS
+from ethernity.cli.shared.types import BackupArgs, CompactArgs, MintArgs, RecoverArgs
+from ethernity.config.paths import DEFAULT_CONFIG_PATH, SUPPORTED_RENDER_STYLES
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.render import FallbackSection
-from ethernity.render.fallback import fallback_lines_from_sections
-from tests.test_support import ensure_playwright_browsers, suppress_output, temp_env
+from ethernity.render.fallback_text import fallback_lines_from_sections
+from ethernity.workflows.extension.errors import ExtensionWorkflowError
+from ethernity.workflows.extension.planning import _inspect_root_recovery
+from ethernity.workflows.extension.request import ExtensionRequest
+from ethernity.workflows.extension.service import run_extend
+from tests.test_support import suppress_output, temp_env
 
 TEST_PASSPHRASE = "extension-integration-passphrase"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -48,9 +52,79 @@ _V1_0_PASSPHRASE = "stable-v1-baseline-passphrase"
 
 
 class TestIntegrationExtensions(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        ensure_playwright_browsers()
+    def test_valid_bip39_is_canonical_across_backup_and_exact_first_recovery(self) -> None:
+        spaced = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
+        canonical = " ".join(["abandon"] * 11 + ["about"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup"
+            recovered_dir = tmp_path / "recovered"
+            source_dir.mkdir()
+            (source_dir / "secret.txt").write_text("canonical", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                with suppress_output():
+                    backup_args = BackupArgs(
+                        config=str(DEFAULT_CONFIG_PATH),
+                        input_dir=[str(source_dir)],
+                        base_dir=str(source_dir),
+                        output_dir=str(root_dir),
+                        passphrase=spaced,
+                        design="ledger",
+                        quiet=True,
+                    )
+                    result = execute_prepared_backup(prepare_backup_run(backup_args))
+                    recover_args = RecoverArgs(
+                        config=str(DEFAULT_CONFIG_PATH),
+                        scan=[str(root_dir)],
+                        passphrase=spaced,
+                        output=str(recovered_dir),
+                        assume_yes=True,
+                        quiet=True,
+                    )
+                    execute_recover_plan(
+                        prepare_recover_plan(recover_args),
+                        quiet=True,
+                    )
+
+            self.assertEqual(result.passphrase_used, canonical)
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {"secret.txt": b"canonical"},
+            )
+
+    def test_strict_root_fallback_audit_accepts_frozen_v1_profiles(self) -> None:
+        cases = (
+            ("v1_0", "raw", "stable-v1-baseline-passphrase"),
+            ("v1_0", "base64", "stable-v1-baseline-passphrase"),
+            ("v1_1", "raw", "stable-v1_1-golden-passphrase"),
+            ("v1_1", "base64", "stable-v1_1-golden-passphrase"),
+        )
+        for version, profile, passphrase in cases:
+            with self.subTest(version=version, profile=profile):
+                root_dir = (
+                    _REPO_ROOT
+                    / "tests"
+                    / "fixtures"
+                    / version
+                    / "golden"
+                    / profile
+                    / "sharded_signing_sharded"
+                    / "backup"
+                )
+                recovery = _inspect_root_recovery(
+                    root_dir,
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
+                        passphrase=passphrase,
+                        quiet=True,
+                    ),
+                    extension_inventory=None,
+                )
+
+                self.assertEqual(recovery.inspection.auth_status, "verified")
+                self.assertTrue(recovery.inspection.unlock.satisfied)
 
     def test_extend_recover_latest_and_select_prior_extension(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -147,7 +221,7 @@ class TestIntegrationExtensions(unittest.TestCase):
 
                 (source_dir / "alpha.txt").write_text("blocked-third-alpha", encoding="utf-8")
                 blocked_extension_dir = root_dir / "extensions" / "03"
-                with self.assertRaises(ApiCommandError) as ctx:
+                with self.assertRaises(ExtensionWorkflowError) as ctx:
                     self._run_extend(source_dir=source_dir, root_dir=root_dir)
                 self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
                 self.assertFalse(blocked_extension_dir.exists())
@@ -330,19 +404,17 @@ class TestIntegrationExtensions(unittest.TestCase):
 
                 self.assertEqual(len(extension.shard_paths), 3)
                 with suppress_output():
-                    exit_code = run_recover_command(
-                        RecoverArgs(
-                            config=str(DEFAULT_CONFIG_PATH),
-                            scan=[str(root_dir)],
-                            shard_scan=[str(path) for path in extension.shard_paths[:2]],
-                            output=str(recovered_dir),
-                            allow_unsigned=False,
-                            assume_yes=True,
-                            quiet=True,
-                        )
+                    args = RecoverArgs(
+                        config=str(DEFAULT_CONFIG_PATH),
+                        scan=[str(root_dir)],
+                        shard_scan=[str(path) for path in extension.shard_paths[:2]],
+                        output=str(recovered_dir),
+                        allow_unsigned=False,
+                        assume_yes=True,
+                        quiet=True,
                     )
+                    execute_recover_plan(prepare_recover_plan(args), quiet=args.quiet)
 
-            self.assertEqual(exit_code, 0)
             self.assertEqual(
                 self._snapshot_tree(recovered_dir),
                 {
@@ -523,7 +595,7 @@ class TestIntegrationExtensions(unittest.TestCase):
             )
 
     def test_extension_recovery_document_renders_for_supported_designs(self) -> None:
-        for design in SUPPORTED_TEMPLATE_DESIGNS:
+        for design in SUPPORTED_RENDER_STYLES:
             with self.subTest(design=design):
                 with tempfile.TemporaryDirectory() as tmpdir:
                     tmp_path = Path(tmpdir)
@@ -551,6 +623,50 @@ class TestIntegrationExtensions(unittest.TestCase):
                         self._snapshot_tree(recovered_dir),
                         {"alpha.txt": expected_alpha.encode("utf-8")},
                     )
+
+    def test_maritime_sharded_extension_variants_render_recovery_metadata(self) -> None:
+        cases = (
+            ("sharded-embedded", None, None, None),
+            ("sharded-signing-key", "sharded", 2, 3),
+        )
+        for variant, signing_key_mode, signing_key_threshold, signing_key_count in cases:
+            with self.subTest(variant=variant):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp_path = Path(tmpdir)
+                    source_dir = tmp_path / "source"
+                    root_dir = tmp_path / "backup-root"
+                    source_dir.mkdir()
+                    (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+                    with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                        self._run_backup(
+                            source_dir=source_dir,
+                            root_dir=root_dir,
+                            design="maritime",
+                        )
+                        (source_dir / "alpha.txt").write_text(
+                            f"extension-alpha-{variant}",
+                            encoding="utf-8",
+                        )
+                        extension = self._run_extend(
+                            source_dir=source_dir,
+                            root_dir=root_dir,
+                            design="maritime",
+                            shard_threshold=2,
+                            shard_count=3,
+                            signing_key_mode=signing_key_mode,
+                            signing_key_shard_threshold=signing_key_threshold,
+                            signing_key_shard_count=signing_key_count,
+                        )
+
+                    self.assertEqual(len(extension.shard_paths), 3)
+                    self.assertEqual(
+                        len(extension.signing_key_shard_paths),
+                        3 if signing_key_mode == "sharded" else 0,
+                    )
+                    reader = PdfReader(extension.recovery_document_path)
+                    recovery_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                    self.assertIn("EXTENSION SHARD QUORUM", recovery_text)
 
     def test_extend_forge_generated_folder_allows_second_extension(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -915,10 +1031,39 @@ class TestIntegrationExtensions(unittest.TestCase):
 
                 (source_dir / "alpha.txt").write_text("blocked-alpha", encoding="utf-8")
                 blocked_extension_dir = root_dir / "extensions" / "02"
-                with self.assertRaises(ApiCommandError) as ctx:
+                with self.assertRaises(ExtensionWorkflowError) as ctx:
                     self._run_extend(source_dir=source_dir, root_dir=root_dir)
                 self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
                 self.assertFalse(blocked_extension_dir.exists())
+
+    def test_corrupt_published_extension_shards_block_later_append(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+                self.assertTrue(extension.shard_paths)
+                for shard_path in extension.shard_paths:
+                    Path(shard_path).write_bytes(b"not a PDF")
+
+                (source_dir / "alpha.txt").write_text("blocked-alpha", encoding="utf-8")
+                with self.assertRaises(ExtensionWorkflowError) as ctx:
+                    self._run_extend(source_dir=source_dir, root_dir=root_dir)
+
+                self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
+                self.assertIn("shard", str(ctx.exception).lower())
+                self.assertFalse((root_dir / "extensions" / "02").exists())
 
     def test_blank_present_extension_carrier_fails_closed_across_flows(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1109,21 +1254,21 @@ class TestIntegrationExtensions(unittest.TestCase):
         shard_count: int | None = None,
     ) -> None:
         with suppress_output():
-            exit_code = run_backup_command(
-                BackupArgs(
-                    config=str(DEFAULT_CONFIG_PATH),
-                    input_dir=[str(source_dir)],
-                    base_dir=str(source_dir),
-                    output_dir=str(root_dir),
-                    passphrase=TEST_PASSPHRASE,
-                    design=design,
-                    sealed=sealed,
-                    shard_threshold=shard_threshold,
-                    shard_count=shard_count,
-                    quiet=True,
-                )
+            args = BackupArgs(
+                config=str(DEFAULT_CONFIG_PATH),
+                input_dir=[str(source_dir)],
+                base_dir=str(source_dir),
+                output_dir=str(root_dir),
+                passphrase=TEST_PASSPHRASE,
+                design=design,
+                sealed=sealed,
+                shard_threshold=shard_threshold,
+                shard_count=shard_count,
+                quiet=True,
             )
-        self.assertEqual(exit_code, 0)
+            result = execute_prepared_backup(prepare_backup_run(args))
+        self.assertTrue(Path(result.qr_path).exists())
+        self.assertTrue(Path(result.recovery_path).exists())
 
     def _run_compact(
         self,
@@ -1155,8 +1300,8 @@ class TestIntegrationExtensions(unittest.TestCase):
         source_dir: Path,
         root_dir: Path,
         design: str | None = None,
-        shard_threshold: int | None = None,
-        shard_count: int | None = 0,
+        shard_threshold: int | None = 2,
+        shard_count: int | None = 3,
         passphrase: str = TEST_PASSPHRASE,
         unlock_policy: str | None = None,
         signing_key_mode: str | None = None,
@@ -1170,14 +1315,14 @@ class TestIntegrationExtensions(unittest.TestCase):
     ):
         with suppress_output():
             return run_extend(
-                ExtendArgs(
-                    config=str(DEFAULT_CONFIG_PATH),
-                    root_dir=str(root_dir),
-                    scan=scan,
-                    input_dir=[str(source_dir)],
-                    base_dir=str(source_dir),
+                ExtensionRequest(
+                    config_path=str(DEFAULT_CONFIG_PATH),
+                    publish_root=str(root_dir),
+                    scan_paths=tuple(scan or ()),
+                    input_directories=(str(source_dir),),
+                    base_directory=str(source_dir),
                     passphrase=passphrase,
-                    shard_scan=shard_scan,
+                    shard_scan_paths=tuple(shard_scan or ()),
                     design=design,
                     shard_threshold=shard_threshold,
                     shard_count=shard_count,
@@ -1187,7 +1332,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                     signing_key_shard_count=signing_key_shard_count,
                     expected_head_doc_hash=expected_head_doc_hash,
                     allow_stale_head=allow_stale_head,
-                    layout_debug_dir=(
+                    layout_debug_directory=(
                         str(layout_debug_dir) if layout_debug_dir is not None else None
                     ),
                     quiet=True,
@@ -1203,8 +1348,8 @@ class TestIntegrationExtensions(unittest.TestCase):
         expected_validated_head_index: int,
         blocked_extension_dir: Path,
         expected_failure_fragment: str = "missing required MAIN documents",
-    ) -> ApiCommandError:
-        with self.assertRaises(ApiCommandError) as ctx:
+    ) -> ExtensionWorkflowError:
+        with self.assertRaises(ExtensionWorkflowError) as ctx:
             self._run_extend(source_dir=source_dir, root_dir=root_dir)
 
         exc = ctx.exception
@@ -1242,24 +1387,22 @@ class TestIntegrationExtensions(unittest.TestCase):
         auth_payloads_file: str | None = None,
     ) -> None:
         with suppress_output():
-            exit_code = run_recover_command(
-                RecoverArgs(
-                    config=str(DEFAULT_CONFIG_PATH),
-                    fallback_file=fallback_file,
-                    payloads_file=payloads_file,
-                    scan=[str(root_dir)] if scan is None else scan,
-                    passphrase=passphrase,
-                    shard_scan=shard_scan,
-                    auth_payloads_file=auth_payloads_file,
-                    extension_index=extension_index,
-                    extension_doc_hash=extension_doc_hash,
-                    output=str(output_dir),
-                    allow_unsigned=False,
-                    assume_yes=True,
-                    quiet=True,
-                )
+            args = RecoverArgs(
+                config=str(DEFAULT_CONFIG_PATH),
+                fallback_file=fallback_file,
+                payloads_file=payloads_file,
+                scan=[str(root_dir)] if scan is None else scan,
+                passphrase=passphrase,
+                shard_scan=shard_scan,
+                auth_payloads_file=auth_payloads_file,
+                extension_index=extension_index,
+                extension_doc_hash=extension_doc_hash,
+                output=str(output_dir),
+                allow_unsigned=False,
+                assume_yes=True,
+                quiet=True,
             )
-        self.assertEqual(exit_code, 0)
+            execute_recover_plan(prepare_recover_plan(args), quiet=args.quiet)
 
     def _write_split_payload_files(
         self,

@@ -19,55 +19,54 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from ethernity.cli.features.recover.input_collection import (
-    RECOVERY_QR_TEXT_LABEL,
-    RECOVERY_SCAN_LABEL,
-)
+from ethernity.cli.features.recover import inputs as recover_inputs
+from ethernity.cli.features.recover.constants import RECOVERY_SCAN_LABEL
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
-    _resolve_recovery_keys,
     passphrase_from_shard_frames,
     resolve_auth_payload,
+    resolve_recovery_keys,
     validated_shard_payloads_from_frames,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext, normalize_doc_hash_hex
-from ethernity.cli.shared.io.fallback_parser import format_fallback_error
-from ethernity.cli.shared.io.frames import (
-    _auth_frames_from_fallback,
-    _auth_frames_from_payloads,
-    _dedupe_auth_frames,
-    _dedupe_frames,
-    _frame_from_fallback,
-    _frames_from_fallback,
-    _frames_from_payloads,
-    _split_main_and_auth_frames,
-    format_recovery_input_error,
-    format_shard_input_error,
-    recovery_frames_from_scan,
-    shard_frames_from_scan,
-)
-from ethernity.cli.shared.log import _warn
-from ethernity.cli.shared.paths import expanduser_cli_path, expanduser_cli_paths
+from ethernity.cli.shared.inspection import blocking_issue
+from ethernity.cli.shared.log import warn
+from ethernity.cli.shared.paths import expanduser_cli_path
 from ethernity.cli.shared.types import RecoverArgs
 from ethernity.config import load_app_config
-from ethernity.crypto.passphrases import (
-    normalize_bip39_mnemonic,
-    validate_mnemonic_checksum_if_bip39,
+from ethernity.crypto.document_identity import (
+    doc_id_and_hash_from_ciphertext,
+    normalize_doc_hash_hex,
 )
 from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload
 from ethernity.crypto.signing import AuthPayload, decode_auth_payload, verify_auth
 from ethernity.encoding.chunking import reassemble_payload
+from ethernity.encoding.frame_sets import (
+    deduplicate_auth_frames,
+    deduplicate_frame_slots,
+    split_main_and_auth_frames,
+)
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.recovery import (
     DecodedExtensionLink,
+    DecodedImportSession,
     ImportedRecoveryDocument,
     decode_imported_extension_link,
     imported_documents_from_recovery_frames,
     select_root_import_document,
+    select_root_import_session,
+)
+from ethernity.workflows.recovery.inspection import (
+    RecoveryInspectionNotice,
+    inspect_recovery_inputs as _inspect_recovery_inputs,
+    select_root_import_document_from_passphrase_shards as _select_root_from_shards,
+)
+from ethernity.workflows.recovery.models import (
+    PassphraseShardRootSelection,
+    RecoveryInspection,
+    RecoveryUnlockStatus,
 )
 
 
@@ -91,57 +90,13 @@ class RecoveryPlan:
     shard_fallback_files: tuple[str, ...]
     shard_payloads_file: tuple[str, ...]
     shard_scan: tuple[str, ...]
+    resource_intensive_compatibility_recovery: bool = False
     root_dir: str | None = None
     extension_index: int | None = None
     extension_doc_hash: str | None = None
     expected_head_doc_hash: str | None = None
     import_documents: tuple[ImportedRecoveryDocument, ...] = ()
-
-
-@dataclass(frozen=True)
-class RecoveryUnlockStatus:
-    """Unlock readiness for API inspection flows."""
-
-    mode: Literal["missing", "passphrase", "shards"]
-    passphrase_provided: bool
-    validated_shard_count: int
-    required_shard_threshold: int | None
-    satisfied: bool
-    resolved_passphrase: str | None = None
-    shard_share_count: int | None = None
-    blocking_issues: tuple[dict[str, Any], ...] = ()
-
-
-@dataclass(frozen=True)
-class RecoveryInspection:
-    """Best-effort recovery inspection state used by API inspect flows."""
-
-    ciphertext: bytes
-    doc_id: bytes
-    doc_hash: bytes
-    auth_payload: AuthPayload | None
-    auth_status: str
-    allow_unsigned: bool
-    input_label: str | None
-    input_detail: str | None
-    main_frames: tuple[Frame, ...]
-    auth_frames: tuple[Frame, ...]
-    shard_frames: tuple[Frame, ...]
-    shard_fallback_files: tuple[str, ...]
-    shard_payloads_file: tuple[str, ...]
-    shard_scan: tuple[str, ...]
-    unlock: RecoveryUnlockStatus
-    blocking_issues: tuple[dict[str, Any], ...]
-    source_frames: tuple[Frame, ...] = ()
-    source_extra_auth_frames: tuple[Frame, ...] = ()
-
-
-@dataclass(frozen=True)
-class PassphraseShardRootSelection:
-    root_document: ImportedRecoveryDocument
-    target_document: ImportedRecoveryDocument
-    target_shard_frames: tuple[Frame, ...]
-    unlock: RecoveryUnlockStatus
+    decoded_import_session: DecodedImportSession | None = None
 
 
 def resolve_recover_config(args: RecoverArgs) -> object:
@@ -180,19 +135,21 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
     allow_unsigned = args.allow_unsigned
     quiet = args.quiet
 
-    frames, input_label, input_detail, _root_dir = _frames_from_args(
+    frames, input_label, input_detail, _root_dir = recover_inputs.load_recovery_frames(
         args,
         allow_unsigned=allow_unsigned,
         quiet=quiet,
     )
-    extra_auth_frames = _extra_auth_frames_from_args(
+    extra_auth_frames = recover_inputs.load_extra_auth_frames(
         args,
         allow_unsigned=allow_unsigned,
         quiet=quiet,
     )
-    shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = _shard_frames_from_args(
-        args,
-        quiet=quiet,
+    shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
+        recover_inputs.load_shard_frames(
+            args,
+            quiet=quiet,
+        )
     )
     source_frames = tuple(frames)
     source_extra_auth_frames = tuple(extra_auth_frames)
@@ -207,7 +164,7 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
             try:
                 root_document = select_root_import_document(
                     import_documents,
-                    passphrase=normalize_bip39_mnemonic(args.passphrase),
+                    passphrase=args.passphrase,
                     debug=False,
                 )
             except Exception as exc:
@@ -327,19 +284,21 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
     allow_unsigned = args.allow_unsigned
     quiet = args.quiet
 
-    frames, input_label, input_detail, _root_dir = _frames_from_args(
+    frames, input_label, input_detail, _root_dir = recover_inputs.load_recovery_frames(
         args,
         allow_unsigned=allow_unsigned,
         quiet=quiet,
     )
-    extra_auth_frames = _extra_auth_frames_from_args(
+    extra_auth_frames = recover_inputs.load_extra_auth_frames(
         args,
         allow_unsigned=allow_unsigned,
         quiet=quiet,
     )
-    shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = _shard_frames_from_args(
-        args,
-        quiet=quiet,
+    shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
+        recover_inputs.load_shard_frames(
+            args,
+            quiet=quiet,
+        )
     )
     return build_recovery_plan(
         frames=frames,
@@ -362,34 +321,6 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
     )
 
 
-def plan_from_inspection(args: RecoverArgs, inspection: RecoveryInspection) -> RecoveryPlan:
-    """Build a full recovery plan from an already-materialized API inspection."""
-
-    validate_recover_args(args)
-    resolve_recover_config(args)
-    frames = list(inspection.source_frames or (*inspection.main_frames, *inspection.auth_frames))
-    extra_auth_frames = list(inspection.source_extra_auth_frames)
-    return build_recovery_plan(
-        frames=frames,
-        extra_auth_frames=extra_auth_frames,
-        shard_frames=list(inspection.shard_frames),
-        passphrase=args.passphrase,
-        allow_unsigned=inspection.allow_unsigned,
-        input_label=inspection.input_label,
-        input_detail=inspection.input_detail,
-        shard_fallback_files=list(inspection.shard_fallback_files),
-        shard_payloads_file=list(inspection.shard_payloads_file),
-        shard_scan=list(inspection.shard_scan),
-        output_path=expanduser_cli_path(args.output),
-        root_dir=None,
-        extension_index=args.extension_index,
-        extension_doc_hash=args.extension_doc_hash,
-        expected_head_doc_hash=args.expected_head_doc_hash,
-        args=args,
-        quiet=args.quiet,
-    )
-
-
 def inspect_recovery_inputs(
     *,
     frames: list[Frame],
@@ -404,58 +335,26 @@ def inspect_recovery_inputs(
     shard_scan: list[str],
     quiet: bool,
 ) -> RecoveryInspection:
-    """Assemble best-effort recovery inspection state from decoded frames."""
+    """Compatibility adapter for workflow-owned recovery inspection."""
 
-    if not frames:
-        hint = "Check the input path and try again."
-        if input_label == RECOVERY_SCAN_LABEL:
-            hint = "Check the scan path and image quality, then try again."
-        raise ValueError(f"no backup data found. {hint}")
-
-    deduped = _dedupe_frames(frames)
-    main_frames, auth_frames = _split_main_and_auth_frames(deduped)
-    if extra_auth_frames:
-        auth_frames = _dedupe_auth_frames([*auth_frames, *extra_auth_frames])
-
-    ciphertext = reassemble_payload(main_frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
-    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
-    auth_payload, auth_status, auth_blocking_issues = _inspect_auth_payload(
-        auth_frames,
-        doc_id=doc_id,
-        doc_hash=doc_hash,
-        allow_unsigned=allow_unsigned,
-        require_auth=not allow_unsigned,
-        quiet=quiet,
-    )
-    unlock = _inspect_unlock_status(
-        passphrase=passphrase,
+    return _inspect_recovery_inputs(
+        frames=frames,
+        extra_auth_frames=extra_auth_frames,
         shard_frames=shard_frames,
-        doc_id=doc_id,
-        doc_hash=doc_hash,
-        sign_pub=auth_payload.sign_pub if auth_payload is not None else None,
-        allow_unsigned=allow_unsigned,
-    )
-    if auth_blocking_issues and unlock.satisfied:
-        unlock = replace(unlock, satisfied=False, resolved_passphrase=None)
-    blocking_issues = [*auth_blocking_issues, *unlock.blocking_issues]
-    return RecoveryInspection(
-        ciphertext=ciphertext,
-        doc_id=doc_id,
-        doc_hash=doc_hash,
-        auth_payload=auth_payload,
-        auth_status=auth_status,
+        passphrase=passphrase,
         allow_unsigned=allow_unsigned,
         input_label=input_label,
         input_detail=input_detail,
-        main_frames=tuple(main_frames),
-        auth_frames=tuple(auth_frames),
-        shard_frames=tuple(shard_frames),
-        shard_fallback_files=tuple(shard_fallback_files),
-        shard_payloads_file=tuple(shard_payloads_file),
-        shard_scan=tuple(shard_scan),
-        unlock=unlock,
-        blocking_issues=tuple(blocking_issues),
+        shard_fallback_files=shard_fallback_files,
+        shard_payloads_file=shard_payloads_file,
+        shard_scan=shard_scan,
+        quiet=quiet,
+        _notice_sink=lambda notice: _warn_inspection_notice(notice, quiet=quiet),
     )
+
+
+def _warn_inspection_notice(notice: RecoveryInspectionNotice, *, quiet: bool) -> None:
+    warn(notice.message, quiet=quiet, code=notice.code, details=notice.details)
 
 
 def build_recovery_plan(
@@ -494,14 +393,15 @@ def build_recovery_plan(
     if len(import_documents) > 1:
         import_shard_unlock: RecoveryUnlockStatus | None = None
         import_passphrase: str | None = None
+        decoded_import_session: DecodedImportSession | None = None
         if passphrase:
-            import_passphrase = normalize_bip39_mnemonic(passphrase)
-            validate_mnemonic_checksum_if_bip39(import_passphrase)
-            root_document = select_root_import_document(
+            import_passphrase = passphrase
+            decoded_import_session = select_root_import_session(
                 import_documents,
                 passphrase=import_passphrase,
                 debug=False,
             )
+            root_document = decoded_import_session.root_document
         elif shard_frames:
             selection = select_root_import_document_from_passphrase_shards(
                 import_documents,
@@ -511,13 +411,15 @@ def build_recovery_plan(
             )
             root_document = selection.root_document
             import_shard_unlock = selection.unlock
+            decoded_import_session = getattr(selection, "decoded_import_session", None)
         elif args is not None:
             import_passphrase = _resolve_recovery_passphrase_from_args(args)
-            root_document = select_root_import_document(
+            decoded_import_session = select_root_import_session(
                 import_documents,
                 passphrase=import_passphrase,
                 debug=False,
             )
+            root_document = decoded_import_session.root_document
         else:
             raise ValueError(
                 "passphrase is required when recovery input contains multiple MAIN documents"
@@ -551,20 +453,25 @@ def build_recovery_plan(
             quiet=quiet,
         )
         if import_shard_unlock is None:
-            return replace(root_plan, import_documents=import_documents)
+            return replace(
+                root_plan,
+                import_documents=import_documents,
+                decoded_import_session=decoded_import_session,
+            )
         return replace(
             root_plan,
             import_documents=import_documents,
+            decoded_import_session=decoded_import_session,
             shard_frames=tuple(shard_frames),
             shard_fallback_files=tuple(shard_fallback_files),
             shard_payloads_file=tuple(shard_payloads_file),
             shard_scan=tuple(shard_scan),
         )
 
-    deduped = _dedupe_frames(frames)
-    main_frames, auth_frames = _split_main_and_auth_frames(deduped)
+    deduped = deduplicate_frame_slots(frames)
+    main_frames, auth_frames = split_main_and_auth_frames(deduped)
     if extra_auth_frames:
-        auth_frames = _dedupe_auth_frames([*auth_frames, *extra_auth_frames])
+        auth_frames = deduplicate_auth_frames([*auth_frames, *extra_auth_frames])
 
     ciphertext = reassemble_payload(main_frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
     doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
@@ -605,6 +512,9 @@ def build_recovery_plan(
         shard_fallback_files=tuple(shard_fallback_files),
         shard_payloads_file=tuple(shard_payloads_file),
         shard_scan=tuple(shard_scan),
+        resource_intensive_compatibility_recovery=(
+            args.resource_intensive_compatibility_recovery if args is not None else False
+        ),
         root_dir=root_dir,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
@@ -643,60 +553,14 @@ def select_root_import_document_from_passphrase_shards(
     allow_unsigned: bool,
     quiet: bool,
 ) -> PassphraseShardRootSelection:
-    candidates = _select_import_documents_bound_to_passphrase_shards(
+    """Compatibility adapter for workflow-owned imported-root selection."""
+
+    return _select_root_from_shards(
         documents,
         shard_frames=shard_frames,
-    )
-    last_unlock_failure: str | None = None
-    for target_document, target_shard_frames in candidates:
-        target_auth_payload, _target_auth_status = resolve_auth_payload(
-            list(target_document.auth_frames),
-            doc_id=target_document.doc_id,
-            doc_hash=target_document.doc_hash,
-            allow_unsigned=allow_unsigned,
-            require_auth=not allow_unsigned,
-            quiet=quiet,
-        )
-        unlock = _inspect_unlock_status(
-            passphrase=None,
-            shard_frames=list(target_shard_frames),
-            doc_id=target_document.doc_id,
-            doc_hash=target_document.doc_hash,
-            sign_pub=target_auth_payload.sign_pub if target_auth_payload is not None else None,
-            allow_unsigned=allow_unsigned,
-        )
-        if not unlock.satisfied or unlock.resolved_passphrase is None:
-            last_unlock_failure = _unlock_failure_message(unlock)
-            continue
-        root_document = select_root_import_document(
-            documents,
-            passphrase=unlock.resolved_passphrase,
-            debug=False,
-        )
-        root_auth_payload, _root_auth_status = resolve_auth_payload(
-            list(root_document.auth_frames),
-            doc_id=root_document.doc_id,
-            doc_hash=root_document.doc_hash,
-            allow_unsigned=allow_unsigned,
-            require_auth=not allow_unsigned,
-            quiet=quiet,
-        )
-        _verify_shard_target_belongs_to_selected_root(
-            target_document=target_document,
-            root_document=root_document,
-            passphrase=unlock.resolved_passphrase,
-            root_auth_payload=root_auth_payload,
-            allow_unsigned=allow_unsigned,
-            quiet=quiet,
-        )
-        return PassphraseShardRootSelection(
-            root_document=root_document,
-            target_document=target_document,
-            target_shard_frames=target_shard_frames,
-            unlock=unlock,
-        )
-    raise ValueError(
-        last_unlock_failure or "shard payloads do not match any imported recovery document"
+        allow_unsigned=allow_unsigned,
+        quiet=quiet,
+        _notice_sink=lambda notice: _warn_inspection_notice(notice, quiet=quiet),
     )
 
 
@@ -736,6 +600,7 @@ def _verify_shard_target_belongs_to_selected_root(
     root_document: ImportedRecoveryDocument,
     passphrase: str,
     root_auth_payload: AuthPayload | None,
+    decoded_import_session: DecodedImportSession,
     allow_unsigned: bool,
     quiet: bool,
 ) -> None:
@@ -755,6 +620,7 @@ def _verify_shard_target_belongs_to_selected_root(
             expected_sign_pub=root_auth_payload.sign_pub,
             quiet=quiet,
             debug=False,
+            decoded_import_session=decoded_import_session,
         )
     except ValueError as exc:
         raise ValueError(
@@ -797,8 +663,8 @@ def _inspect_unselected_import_documents(
     unlock: RecoveryUnlockStatus,
 ) -> RecoveryInspection:
     candidate = import_documents[0]
-    deduped = _dedupe_frames([*frames, *extra_auth_frames])
-    main_frames, auth_frames = _split_main_and_auth_frames(deduped)
+    deduped = deduplicate_frame_slots([*frames, *extra_auth_frames])
+    main_frames, auth_frames = split_main_and_auth_frames(deduped)
     auth_status = _ambiguous_import_auth_status(auth_frames, allow_unsigned=allow_unsigned)
     blocking_issues = [
         *_ambiguous_import_auth_blockers(auth_frames, allow_unsigned=allow_unsigned),
@@ -840,7 +706,7 @@ def _ambiguous_import_auth_blockers(
     if auth_frames or allow_unsigned:
         return ()
     return (
-        _blocking_issue(
+        blocking_issue(
             api_codes.AUTH_PAYLOAD_MISSING,
             "missing AUTH payload; provide AUTH input to check readiness",
         ),
@@ -915,7 +781,7 @@ def _import_root_selection_blocker(
     *,
     import_documents: tuple[ImportedRecoveryDocument, ...],
 ) -> dict[str, Any]:
-    return _blocking_issue(
+    return blocking_issue(
         code,
         message,
         details={
@@ -924,19 +790,6 @@ def _import_root_selection_blocker(
             "candidate_doc_ids": [document.doc_id.hex() for document in import_documents],
         },
     )
-
-
-def _blocking_issue(
-    code: str,
-    message: str,
-    *,
-    details: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return {
-        "code": code,
-        "message": message,
-        "details": details or {},
-    }
 
 
 def _inspect_auth_payload(
@@ -954,14 +807,14 @@ def _inspect_auth_payload(
                 None,
                 "missing",
                 (
-                    _blocking_issue(
+                    blocking_issue(
                         api_codes.AUTH_PAYLOAD_MISSING,
                         "missing AUTH payload; provide AUTH input to check readiness",
                     ),
                 ),
             )
         if allow_unsigned:
-            _warn(
+            warn(
                 "no auth payload provided; skipping auth verification",
                 quiet=quiet,
                 code=api_codes.AUTH_PAYLOAD_MISSING,
@@ -972,13 +825,13 @@ def _inspect_auth_payload(
         return (
             None,
             "invalid",
-            (_blocking_issue("AUTH_PAYLOAD_MULTIPLE", "multiple auth payloads provided"),),
+            (blocking_issue("AUTH_PAYLOAD_MULTIPLE", "multiple auth payloads provided"),),
         )
 
     frame = auth_frames[0]
     if frame.doc_id != doc_id:
         if allow_unsigned:
-            _warn(
+            warn(
                 "auth payload doc_id mismatch; verification skipped",
                 quiet=quiet,
                 code=api_codes.AUTH_PAYLOAD_INVALID,
@@ -989,7 +842,7 @@ def _inspect_auth_payload(
             None,
             "invalid",
             (
-                _blocking_issue(
+                blocking_issue(
                     "AUTH_PAYLOAD_DOC_ID_MISMATCH",
                     "auth payload doc_id does not match ciphertext",
                 ),
@@ -1000,7 +853,7 @@ def _inspect_auth_payload(
             None,
             "invalid",
             (
-                _blocking_issue(
+                blocking_issue(
                     "AUTH_PAYLOAD_FRAME_INVALID",
                     "auth payload must be a single-frame payload",
                 ),
@@ -1011,7 +864,7 @@ def _inspect_auth_payload(
         payload = decode_auth_payload(frame.data)
     except ValueError as exc:
         if allow_unsigned:
-            _warn(
+            warn(
                 f"invalid auth payload; verification skipped: {exc}",
                 quiet=quiet,
                 code=api_codes.AUTH_PAYLOAD_INVALID,
@@ -1022,7 +875,7 @@ def _inspect_auth_payload(
             None,
             "invalid",
             (
-                _blocking_issue(
+                blocking_issue(
                     api_codes.AUTH_PAYLOAD_INVALID,
                     f"invalid auth payload: {exc}",
                     details={"reason": str(exc)},
@@ -1031,7 +884,7 @@ def _inspect_auth_payload(
         )
     if payload.doc_hash != doc_hash:
         if allow_unsigned:
-            _warn(
+            warn(
                 "auth doc_hash mismatch; verification skipped",
                 quiet=quiet,
                 code=api_codes.AUTH_DOC_HASH_MISMATCH,
@@ -1041,7 +894,7 @@ def _inspect_auth_payload(
             None,
             "ignored",
             (
-                _blocking_issue(
+                blocking_issue(
                     api_codes.AUTH_DOC_HASH_MISMATCH,
                     "auth doc_hash does not match ciphertext",
                 ),
@@ -1049,7 +902,7 @@ def _inspect_auth_payload(
         )
     if not verify_auth(doc_hash, sign_pub=payload.sign_pub, signature=payload.signature):
         if allow_unsigned:
-            _warn(
+            warn(
                 "auth signature verification failed; verification skipped",
                 quiet=quiet,
                 code=api_codes.AUTH_SIGNATURE_INVALID,
@@ -1059,7 +912,7 @@ def _inspect_auth_payload(
             None,
             "ignored",
             (
-                _blocking_issue(
+                blocking_issue(
                     api_codes.AUTH_SIGNATURE_INVALID,
                     "invalid auth signature",
                 ),
@@ -1099,7 +952,7 @@ def _inspect_unlock_status(
                 satisfied=False,
                 shard_share_count=exc.share_count,
                 blocking_issues=(
-                    _blocking_issue(
+                    blocking_issue(
                         "PASSPHRASE_SHARDS_UNDER_QUORUM",
                         f"need at least {exc.threshold} shard(s) to recover passphrase",
                         details={
@@ -1117,7 +970,7 @@ def _inspect_unlock_status(
                 required_shard_threshold=None,
                 satisfied=False,
                 blocking_issues=(
-                    _blocking_issue(
+                    blocking_issue(
                         "PASSPHRASE_SHARDS_INVALID",
                         str(exc),
                     ),
@@ -1130,58 +983,23 @@ def _inspect_unlock_status(
             expected_sign_pub=sign_pub,
             allow_unsigned=allow_unsigned,
         )
-        normalized_recovered = normalize_bip39_mnemonic(recovered)
-        try:
-            validate_mnemonic_checksum_if_bip39(normalized_recovered)
-        except ValueError as exc:
-            return RecoveryUnlockStatus(
-                mode="shards",
-                passphrase_provided=False,
-                validated_shard_count=len(shard_payloads),
-                required_shard_threshold=shard_payloads[0].threshold if shard_payloads else None,
-                satisfied=False,
-                shard_share_count=shard_payloads[0].share_count if shard_payloads else None,
-                blocking_issues=(
-                    _blocking_issue(
-                        "PASSPHRASE_INVALID",
-                        str(exc),
-                    ),
-                ),
-            )
         return RecoveryUnlockStatus(
             mode="shards",
             passphrase_provided=False,
             validated_shard_count=len(shard_payloads),
             required_shard_threshold=shard_payloads[0].threshold if shard_payloads else None,
             satisfied=True,
-            resolved_passphrase=normalized_recovered,
+            resolved_passphrase=recovered,
             shard_share_count=shard_payloads[0].share_count if shard_payloads else None,
         )
     if passphrase:
-        normalized_passphrase = normalize_bip39_mnemonic(passphrase)
-        try:
-            validate_mnemonic_checksum_if_bip39(normalized_passphrase)
-        except ValueError as exc:
-            return RecoveryUnlockStatus(
-                mode="passphrase",
-                passphrase_provided=True,
-                validated_shard_count=0,
-                required_shard_threshold=None,
-                satisfied=False,
-                blocking_issues=(
-                    _blocking_issue(
-                        "PASSPHRASE_INVALID",
-                        str(exc),
-                    ),
-                ),
-            )
         return RecoveryUnlockStatus(
             mode="passphrase",
             passphrase_provided=True,
             validated_shard_count=0,
             required_shard_threshold=None,
             satisfied=True,
-            resolved_passphrase=normalized_passphrase,
+            resolved_passphrase=passphrase,
         )
     return RecoveryUnlockStatus(
         mode="missing",
@@ -1190,7 +1008,7 @@ def _inspect_unlock_status(
         required_shard_threshold=None,
         satisfied=False,
         blocking_issues=(
-            _blocking_issue(
+            blocking_issue(
                 "PASSPHRASE_REQUIRED",
                 "passphrase or passphrase shard inputs are required to decrypt this backup",
             ),
@@ -1220,164 +1038,13 @@ def _resolve_passphrase(
             expected_sign_pub=sign_pub,
             allow_unsigned=allow_unsigned,
         )
-        normalized_recovered = normalize_bip39_mnemonic(recovered)
-        validate_mnemonic_checksum_if_bip39(normalized_recovered)
-        return normalized_recovered
+        return recovered
     if passphrase:
-        normalized_passphrase = normalize_bip39_mnemonic(passphrase)
-        validate_mnemonic_checksum_if_bip39(normalized_passphrase)
-        return normalized_passphrase
+        return passphrase
     if args is not None:
         return _resolve_recovery_passphrase_from_args(args)
     raise ValueError("passphrase is required for recovery")
 
 
 def _resolve_recovery_passphrase_from_args(args: RecoverArgs) -> str:
-    recovered = _resolve_recovery_keys(args)
-    normalized_recovered = normalize_bip39_mnemonic(recovered)
-    validate_mnemonic_checksum_if_bip39(normalized_recovered)
-    return normalized_recovered
-
-
-def _frames_from_args(
-    args: RecoverArgs,
-    *,
-    allow_unsigned: bool,
-    quiet: bool,
-) -> tuple[list[Frame], str | None, str | None, Path | None]:
-    """Load primary recovery frames from fallback text, payload lists, scans, or mixed inputs."""
-
-    fallback_file = expanduser_cli_path(args.fallback_file)
-    payloads_file = expanduser_cli_path(args.payloads_file)
-    scan = expanduser_cli_paths(list(args.scan or []))
-    sources: list[tuple[str, str, list[Frame]]] = []
-
-    if fallback_file:
-        try:
-            sources.append(
-                (
-                    "Recovery text",
-                    fallback_file,
-                    _frames_from_fallback(
-                        fallback_file,
-                        allow_invalid_auth=allow_unsigned,
-                        quiet=quiet,
-                    ),
-                )
-            )
-        except ValueError as exc:
-            message = str(exc).lower()
-            if fallback_file == "-" and "no recovery lines found" in message:
-                raise ValueError(
-                    "No recovery input found on stdin. Use --fallback-file, --payloads-file, "
-                    "--scan, or provide non-empty stdin."
-                ) from exc
-            raise ValueError(format_fallback_error(exc, context="Recovery text")) from exc
-    if payloads_file:
-        try:
-            sources.append(
-                (
-                    RECOVERY_QR_TEXT_LABEL,
-                    payloads_file,
-                    _frames_from_payloads(payloads_file),
-                )
-            )
-        except ValueError as exc:
-            raise ValueError(format_recovery_input_error(exc)) from exc
-    if scan:
-        scan_detail = ", ".join(scan)
-        try:
-            if args.extension_index == 0:
-                scan_frames = recovery_frames_from_scan(
-                    scan,
-                    quiet=quiet,
-                    include_extension_carriers=False,
-                )
-            elif args.extension_index is not None:
-                scan_frames = recovery_frames_from_scan(
-                    scan,
-                    quiet=quiet,
-                    extension_carrier_max_index=args.extension_index,
-                )
-            else:
-                scan_frames = recovery_frames_from_scan(scan, quiet=quiet)
-            sources.append(
-                (
-                    RECOVERY_SCAN_LABEL,
-                    scan_detail,
-                    scan_frames,
-                )
-            )
-        except ValueError as exc:
-            raise ValueError(format_recovery_input_error(exc)) from exc
-    if not sources:
-        raise ValueError("either --fallback-file, --payloads-file, or --scan is required")
-    if len(sources) == 1:
-        input_label, input_detail, frames = sources[0]
-    else:
-        input_label = "Recovery inputs"
-        input_detail = "; ".join(f"{label}: {detail}" for label, detail, _frames in sources)
-        frames = [frame for _label, _detail, source_frames in sources for frame in source_frames]
-    return frames, input_label, input_detail, None
-
-
-def _extra_auth_frames_from_args(
-    args: RecoverArgs,
-    *,
-    allow_unsigned: bool,
-    quiet: bool,
-) -> list[Frame]:
-    """Load extra AUTH frames from optional auth-specific inputs."""
-
-    auth_fallback_file = expanduser_cli_path(args.auth_fallback_file)
-    auth_payloads_file = expanduser_cli_path(args.auth_payloads_file)
-    if auth_fallback_file and auth_payloads_file:
-        raise ValueError("use either --auth-fallback-file or --auth-payloads-file, not both")
-    extra_auth_frames: list[Frame] = list(args.auth_frames or [])
-    if auth_fallback_file:
-        try:
-            extra_auth_frames.extend(
-                _auth_frames_from_fallback(
-                    auth_fallback_file,
-                    allow_invalid_auth=allow_unsigned,
-                    quiet=quiet,
-                )
-            )
-        except ValueError as exc:
-            raise ValueError(format_fallback_error(exc, context="Auth recovery text")) from exc
-    if auth_payloads_file:
-        extra_auth_frames.extend(_auth_frames_from_payloads(auth_payloads_file))
-    return extra_auth_frames
-
-
-def _shard_frames_from_args(
-    args: RecoverArgs,
-    *,
-    quiet: bool,
-) -> tuple[list[Frame], list[str], list[str], list[str]]:
-    """Load shard frames from shard fallback and payload inputs."""
-
-    shard_fallback_files = expanduser_cli_paths(list(args.shard_fallback_file or []))
-    shard_payloads_file = expanduser_cli_paths(list(args.shard_payloads_file or []))
-    shard_scan = expanduser_cli_paths(list(args.shard_scan or []))
-    shard_frames: list[Frame] = list(args.shard_frames or [])
-    for path in shard_fallback_files:
-        try:
-            shard_frames.append(_frame_from_fallback(path))
-        except ValueError as exc:
-            raise ValueError(format_fallback_error(exc, context="Shard recovery text")) from exc
-    for path in shard_payloads_file:
-        try:
-            shard_frames.extend(_frames_from_payloads(path, label="shard text lines"))
-        except ValueError as exc:
-            raise ValueError(format_shard_input_error(exc)) from exc
-    if shard_scan:
-        try:
-            shard_frames.extend(shard_frames_from_scan(shard_scan, quiet=quiet))
-        except ValueError as exc:
-            raise ValueError(format_shard_input_error(exc)) from exc
-    if (
-        args.shard_frames or shard_fallback_files or shard_payloads_file or shard_scan
-    ) and not shard_frames:
-        raise ValueError("no shard text lines found; check shard inputs and try again")
-    return shard_frames, shard_fallback_files, shard_payloads_file, shard_scan
+    return resolve_recovery_keys(args)

@@ -25,9 +25,10 @@ from ethernity.cli.features.compact.service import (
     run_compact,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_from_doc_hash
+from ethernity.cli.shared.io.frames import NoQrFramesError
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import BackupResult, CompactArgs, RecoverArgs
+from ethernity.crypto.document_identity import doc_id_from_doc_hash
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase, split_signing_seed
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType
@@ -219,7 +220,7 @@ class TestCompactService(unittest.TestCase):
                 return_value=SimpleNamespace(),
             ),
             mock.patch(
-                "ethernity.cli.features.compact.service.apply_template_design",
+                "ethernity.cli.features.compact.service.apply_render_style",
                 side_effect=lambda config, _design: config,
             ),
             mock.patch(
@@ -259,7 +260,7 @@ class TestCompactService(unittest.TestCase):
             infer_root_publish_policy.call_args.kwargs["source_scan"],
             ("root.pdf", "extension-01.pdf"),
         )
-        self.assertIsNone(run_backup_mock.call_args.kwargs.get("promote_lock_dir"))
+        self.assertIsNone(run_backup_mock.call_args.kwargs.get("promote_lock_path"))
         self.assertIsNone(run_backup_mock.call_args.kwargs.get("prepare_promotion"))
 
     def test_run_compact_rejects_output_dir_equal_to_root_dir(self) -> None:
@@ -398,7 +399,7 @@ class TestCompactService(unittest.TestCase):
             def _scan_one(paths: list[str]) -> list[Frame]:
                 path = Path(paths[0])
                 if path == recovery_document:
-                    raise ValueError(
+                    raise NoQrFramesError(
                         f"scan failed: explicit scan input contains no QR codes: {path}"
                     )
                 if path == shard_document:
@@ -574,7 +575,7 @@ class TestCompactService(unittest.TestCase):
                     return_value=SimpleNamespace(),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.compact.service.apply_template_design",
+                    "ethernity.cli.features.compact.service.apply_render_style",
                     side_effect=lambda config, _design: config,
                 ),
                 mock.patch(
@@ -666,7 +667,7 @@ class TestCompactService(unittest.TestCase):
                     return_value=SimpleNamespace(),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.compact.service.apply_template_design",
+                    "ethernity.cli.features.compact.service.apply_render_style",
                     side_effect=lambda config, _design: config,
                 ),
                 mock.patch(
@@ -832,7 +833,7 @@ class TestCompactService(unittest.TestCase):
                     return_value=SimpleNamespace(),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.compact.service.apply_template_design",
+                    "ethernity.cli.features.compact.service.apply_render_style",
                     side_effect=lambda config, _design: config,
                 ),
                 mock.patch(
@@ -1012,7 +1013,7 @@ class TestCompactService(unittest.TestCase):
         side_effect=lambda config, _size: config,
     )
     @mock.patch(
-        "ethernity.cli.features.compact.service.apply_template_design",
+        "ethernity.cli.features.compact.service.apply_render_style",
         side_effect=lambda config, _design: config,
     )
     @mock.patch(
@@ -1066,7 +1067,7 @@ class TestCompactService(unittest.TestCase):
         recover_chain_entries: mock.MagicMock,
         _infer_root_publish_policy: mock.MagicMock,
         load_app_config: mock.MagicMock,
-        apply_template_design: mock.MagicMock,
+        apply_render_style: mock.MagicMock,
         apply_qr_chunk_size_override: mock.MagicMock,
         plan_backup_from_args: mock.MagicMock,
         run_backup_mock: mock.MagicMock,
@@ -1114,7 +1115,7 @@ class TestCompactService(unittest.TestCase):
             "compaction_checkpoint",
         )
         self.assertEqual(
-            run_backup_mock.call_args.kwargs["promote_lock_dir"],
+            run_backup_mock.call_args.kwargs["promote_lock_path"],
             Path("/tmp/root") / "extensions" / ".chain.lock",
         )
         self.assertTrue(callable(run_backup_mock.call_args.kwargs["prepare_promotion"]))
@@ -1167,7 +1168,7 @@ class TestCompactService(unittest.TestCase):
 
             def _run_backup_with_promotion_validation(**kwargs):
                 self.assertEqual(
-                    kwargs["promote_lock_dir"],
+                    kwargs["promote_lock_path"],
                     root_dir / "extensions" / ".chain.lock",
                 )
                 self.assertTrue(callable(kwargs["prepare_promotion"]))
@@ -1191,7 +1192,7 @@ class TestCompactService(unittest.TestCase):
                     return_value=SimpleNamespace(),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.compact.service.apply_template_design",
+                    "ethernity.cli.features.compact.service.apply_render_style",
                     side_effect=lambda config, _design: config,
                 ),
                 mock.patch(
@@ -1248,7 +1249,7 @@ class TestCompactService(unittest.TestCase):
         side_effect=lambda config, _size: config,
     )
     @mock.patch(
-        "ethernity.cli.features.compact.service.apply_template_design",
+        "ethernity.cli.features.compact.service.apply_render_style",
         side_effect=lambda config, _design: config,
     )
     @mock.patch(
@@ -1302,7 +1303,7 @@ class TestCompactService(unittest.TestCase):
         _recover_chain_entries: mock.MagicMock,
         infer_root_publish_policy: mock.MagicMock,
         _load_app_config: mock.MagicMock,
-        _apply_template_design: mock.MagicMock,
+        _apply_render_style: mock.MagicMock,
         _apply_qr_chunk_size_override: mock.MagicMock,
         _plan_backup_from_args: mock.MagicMock,
         _run_backup_mock: mock.MagicMock,
@@ -1338,7 +1339,7 @@ class TestCompactService(unittest.TestCase):
         side_effect=lambda config, _size: config,
     )
     @mock.patch(
-        "ethernity.cli.features.compact.service.apply_template_design",
+        "ethernity.cli.features.compact.service.apply_render_style",
         side_effect=lambda config, _design: config,
     )
     @mock.patch(
@@ -1392,7 +1393,7 @@ class TestCompactService(unittest.TestCase):
         _recover_chain_entries: mock.MagicMock,
         infer_root_publish_policy: mock.MagicMock,
         _load_app_config: mock.MagicMock,
-        _apply_template_design: mock.MagicMock,
+        _apply_render_style: mock.MagicMock,
         _apply_qr_chunk_size_override: mock.MagicMock,
         _plan_backup_from_args: mock.MagicMock,
         run_backup_mock: mock.MagicMock,

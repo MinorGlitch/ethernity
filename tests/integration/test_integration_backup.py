@@ -17,17 +17,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.cli import run_backup_command
+from ethernity.cli.features.backup.service import execute_prepared_backup, prepare_backup_run
 from ethernity.cli.shared.types import BackupArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
-from tests.test_support import ensure_playwright_browsers, suppress_output, temp_env
+from tests.test_support import suppress_output, temp_env
 
 
 class TestIntegrationBackup(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        ensure_playwright_browsers()
-
     def test_backup_command_passphrase(self) -> None:
         payload = b"backup integration payload"
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -61,10 +57,12 @@ class TestIntegrationBackup(unittest.TestCase):
                     quiet=True,
                 )
                 with suppress_output():
-                    run_backup_command(args)
+                    result = execute_prepared_backup(prepare_backup_run(args))
 
                 qr_path = output_dir / "qr_document.pdf"
                 recovery_path = output_dir / "recovery_document.pdf"
+                self.assertEqual(Path(result.qr_path), qr_path)
+                self.assertEqual(Path(result.recovery_path), recovery_path)
                 self.assertTrue(qr_path.exists())
                 self.assertTrue(recovery_path.exists())
                 self.assertTrue(qr_path.read_bytes().startswith(b"%PDF"))

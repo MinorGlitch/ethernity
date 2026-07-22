@@ -35,6 +35,7 @@ from ethernity.core.validation import (
     require_non_negative_int,
     require_positive_int,
 )
+from ethernity.crypto.document_identity import DOC_HASH_LEN
 from ethernity.encoding.cbor import dumps_canonical, loads_canonical
 
 AUTH_VERSION = 1
@@ -45,7 +46,6 @@ ED25519_PUB_DER_PREFIX = bytes.fromhex("302a300506032b6570032100")
 ED25519_PUB_LEN = 32
 ED25519_SEED_LEN = 32
 ED25519_SIG_LEN = 64
-DOC_HASH_LEN = 32
 SHARD_SET_ID_LEN = 16
 
 

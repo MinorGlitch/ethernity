@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Load and validate per-design render style metadata from `style.json`."""
+"""Load and validate the live per-design capabilities from ``style.json``."""
 
 from __future__ import annotations
 
@@ -23,115 +23,155 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from ethernity.render.doc_types import DOC_TYPES
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
+from ethernity.render.designs import resolve_design_directory
 
-@dataclass(frozen=True)
-class HeaderStyle:
-    """Header spacing/thickness overrides loaded from template style."""
-
-    meta_row_gap_mm: float
-    stack_gap_mm: float
-    divider_thickness_mm: float
-
-
-@dataclass(frozen=True)
-class ContentOffsetStyle:
-    """Content offset overrides scoped to document types."""
-
-    divider_gap_extra_mm: float
-    doc_types: frozenset[str]
-
-
-@dataclass(frozen=True)
-class RecoveryFallbackLayout:
-    line_height_floor_mm: float
-    first_page_footer_reserve_mm: float
-    continuation_footer_reserve_mm: float
-    meta_baseline_lines: int
-    meta_extra_line_mm: float
-    meta_section_overhead_mm: float
-    first_page_text_width_bonus_mm: float
-    continuation_text_width_bonus_mm: float
-
-
-@dataclass(frozen=True)
-class ShardFallbackLayout:
-    line_height_floor_mm: float
-    first_page_payload_zone_height_mm: float
-    continuation_payload_zone_height_mm: float
-
-
-@dataclass(frozen=True)
-class FallbackLayoutProfile:
-    recovery: RecoveryFallbackLayout
-    shard: ShardFallbackLayout
-    signing_key_shard: ShardFallbackLayout
+_STYLE_CONTEXT_PATH = "path"
+_STYLE_TOP_LEVEL_KEYS = frozenset({"name", "capabilities"})
+_BOOL_CAPABILITY_FIELDS = (
+    "recovery_first_page_single_section",
+    "recovery_kit_index_document",
+)
+_CAPABILITY_KEYS = frozenset({*_BOOL_CAPABILITY_FIELDS, "main_qr_grid_size_mm"})
 
 
 @dataclass(frozen=True)
 class TemplateCapabilities:
-    """Boolean and numeric feature toggles for template behavior."""
+    """Design-specific behavior still consumed by the active render pipeline."""
 
-    inject_forge_copy: bool = False
     recovery_first_page_single_section: bool = False
-    repeat_primary_qr_on_shard_continuation: bool = False
-    advanced_fallback_layout: bool = False
-    extra_main_first_page_qr_slot: bool = False
-    uniform_main_qr_capacity: bool = False
-    repeat_main_instructions_on_all_pages: bool = False
     recovery_kit_index_document: bool = False
     main_qr_grid_size_mm: float | None = None
-    main_qr_grid_max_cols: int | None = None
-    fallback_layout: FallbackLayoutProfile | None = None
-    recovery_line_groups_bonus: int = 0
-    recovery_first_page_bonus_lines: int = 0
-    recovery_first_page_bonus_lines_per_extra_section: int = 0
-    recovery_continuation_bonus_lines: int = 0
-    recovery_main_section_start_reserved_lines: int = 0
-    recovery_quorumless_line_groups_bonus: int = 0
-    recovery_quorumless_first_page_bonus_lines: int = 0
-    recovery_quorumless_continuation_bonus_lines: int = 0
-    shard_line_groups_bonus: int = 0
-    shard_first_page_estimate_bonus_lines: int = 0
-    shard_first_page_bonus_lines: int = 0
-    signing_key_shard_line_groups_bonus: int = 0
-    signing_key_shard_first_page_estimate_bonus_lines: int = 0
-    signing_key_shard_first_page_bonus_lines: int = 0
 
 
 @dataclass(frozen=True)
 class TemplateStyle:
-    """Parsed template style bundle for a design directory."""
+    """Validated style metadata for one render design."""
 
     name: str
-    header: HeaderStyle
-    content_offset: ContentOffsetStyle
     capabilities: TemplateCapabilities
 
 
-DEFAULT_TEMPLATE_STYLE = TemplateStyle(
-    name="ledger",
-    header=HeaderStyle(meta_row_gap_mm=1.2, stack_gap_mm=0.0, divider_thickness_mm=0.6),
-    content_offset=ContentOffsetStyle(divider_gap_extra_mm=0.0, doc_types=frozenset()),
-    capabilities=TemplateCapabilities(),
-)
+class _TemplateCapabilitiesData(BaseModel):
+    """Pydantic boundary model for the optional ``capabilities`` object."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    recovery_first_page_single_section: bool = False
+    recovery_kit_index_document: bool = False
+    main_qr_grid_size_mm: float | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_object(cls, value: object, info: ValidationInfo) -> object:
+        path = _context_path(info)
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(f"invalid 'capabilities' object in {path}")
+        _reject_unknown_keys(
+            value,
+            allowed_keys=_CAPABILITY_KEYS,
+            section="capabilities",
+            path=path,
+        )
+        return value
+
+    @field_validator(*_BOOL_CAPABILITY_FIELDS, mode="before")
+    @classmethod
+    def _validate_bool(cls, value: object, info: ValidationInfo) -> bool:
+        if isinstance(value, bool):
+            return value
+        raise ValueError(f"missing or invalid '{info.field_name}' boolean in {_context_path(info)}")
+
+    @field_validator("main_qr_grid_size_mm", mode="before")
+    @classmethod
+    def _validate_optional_positive_number(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> float | None:
+        if value is None:
+            return None
+        return _require_positive_number_value(
+            value,
+            key=info.field_name,
+            path=_context_path(info),
+        )
+
+    def to_public(self) -> TemplateCapabilities:
+        return TemplateCapabilities(
+            recovery_first_page_single_section=self.recovery_first_page_single_section,
+            recovery_kit_index_document=self.recovery_kit_index_document,
+            main_qr_grid_size_mm=self.main_qr_grid_size_mm,
+        )
 
 
-def load_template_style(template_path: str | Path) -> TemplateStyle:
-    """Load the style for the directory that owns a template file."""
+class _TemplateStyleData(BaseModel):
+    """Pydantic boundary model for raw ``style.json`` content."""
 
-    template_dir = Path(template_path).parent.resolve()
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+    capabilities: _TemplateCapabilitiesData = Field(default_factory=_TemplateCapabilitiesData)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_object(cls, value: object, info: ValidationInfo) -> object:
+        path = _context_path(info)
+        if not isinstance(value, dict):
+            raise ValueError(f"template style must be a JSON object: {path}")
+        _reject_unknown_keys(
+            value,
+            allowed_keys=_STYLE_TOP_LEVEL_KEYS,
+            section="template style",
+            path=path,
+        )
+        return value
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _validate_name(cls, value: object, info: ValidationInfo) -> str:
+        if isinstance(value, str) and value.strip():
+            return value
+        raise ValueError(f"missing or invalid 'name' string in {_context_path(info)}")
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def _validate_capabilities(cls, value: object, info: ValidationInfo) -> object:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(f"invalid 'capabilities' object in {_context_path(info)}")
+        return value
+
+    def to_public(self) -> TemplateStyle:
+        return TemplateStyle(name=self.name, capabilities=self.capabilities.to_public())
+
+
+def load_template_style(design: str | Path) -> TemplateStyle:
+    """Load the style for a render design name, directory, or manifest path."""
+
+    template_dir = resolve_design_directory(design)
     return _load_style_for_dir(template_dir)
 
 
 @lru_cache(maxsize=32)
 def _load_style_for_dir(template_dir: Path) -> TemplateStyle:
-    """Load and validate `style.json` for a template directory."""
+    """Load and validate ``style.json`` for a template directory."""
 
     style_path = template_dir / "style.json"
     if not style_path.is_file():
-        return DEFAULT_TEMPLATE_STYLE
+        raise ValueError(f"missing template style file: {style_path}")
 
     try:
         raw = style_path.read_text(encoding="utf-8")
@@ -143,487 +183,47 @@ def _load_style_for_dir(template_dir: Path) -> TemplateStyle:
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid JSON in template style file: {style_path}") from exc
 
+    return _load_style_data(data, path=style_path).to_public()
+
+
+def _load_style_data(data: object, *, path: Path) -> _TemplateStyleData:
     if not isinstance(data, dict):
-        raise ValueError(f"template style must be a JSON object: {style_path}")
-    _reject_unknown_keys(
-        data,
-        allowed_keys=frozenset({"name", "header", "content_offset", "capabilities"}),
-        section="template style",
-        path=style_path,
-    )
-
-    name = _require_str(data, "name", path=style_path)
-    header_data = _require_dict(data, "header", path=style_path)
-    _reject_unknown_keys(
-        header_data,
-        allowed_keys=frozenset({"meta_row_gap_mm", "stack_gap_mm", "divider_thickness_mm"}),
-        section="header",
-        path=style_path,
-    )
-    header = HeaderStyle(
-        meta_row_gap_mm=_require_number(header_data, "meta_row_gap_mm", path=style_path),
-        stack_gap_mm=_require_number(header_data, "stack_gap_mm", path=style_path),
-        divider_thickness_mm=_require_number(header_data, "divider_thickness_mm", path=style_path),
-    )
-
-    offset_data = _require_dict(data, "content_offset", path=style_path)
-    _reject_unknown_keys(
-        offset_data,
-        allowed_keys=frozenset({"divider_gap_extra_mm", "doc_types"}),
-        section="content_offset",
-        path=style_path,
-    )
-    divider_gap_extra_mm = _require_number(offset_data, "divider_gap_extra_mm", path=style_path)
-    doc_types_list = _require_list_of_str(offset_data, "doc_types", path=style_path)
-    normalized_doc_types: list[str] = []
-    for doc_type in doc_types_list:
-        normalized = doc_type.strip().lower()
-        if normalized not in DOC_TYPES:
-            raise ValueError(f"unknown doc type '{doc_type}' in {style_path}")
-        normalized_doc_types.append(normalized)
-    capabilities = _parse_capabilities(data.get("capabilities"), path=style_path)
-
-    return TemplateStyle(
-        name=name,
-        header=header,
-        content_offset=ContentOffsetStyle(
-            divider_gap_extra_mm=divider_gap_extra_mm,
-            doc_types=frozenset(normalized_doc_types),
-        ),
-        capabilities=capabilities,
-    )
+        raise ValueError(f"template style must be a JSON object: {path}")
+    try:
+        return _TemplateStyleData.model_validate(data, context={_STYLE_CONTEXT_PATH: path})
+    except ValidationError as exc:
+        raise ValueError(_style_validation_message(exc, path=path)) from exc
 
 
-def _parse_capabilities(value: object, *, path: Path) -> TemplateCapabilities:
-    """Parse the `capabilities` section from a template style file."""
-
-    if value is None:
-        return TemplateCapabilities()
-    if not isinstance(value, dict):
-        raise ValueError(f"invalid 'capabilities' object in {path}")
-    _reject_legacy_capability_keys(value, path=path)
-    _reject_unknown_keys(
-        value,
-        allowed_keys=frozenset(
-            {
-                "inject_forge_copy",
-                "recovery_first_page_single_section",
-                "repeat_primary_qr_on_shard_continuation",
-                "advanced_fallback_layout",
-                "extra_main_first_page_qr_slot",
-                "uniform_main_qr_capacity",
-                "repeat_main_instructions_on_all_pages",
-                "recovery_kit_index_document",
-                "main_qr_grid_size_mm",
-                "main_qr_grid_max_cols",
-                "fallback_layout",
-                "recovery_line_groups_bonus",
-                "recovery_first_page_bonus_lines",
-                "recovery_first_page_bonus_lines_per_extra_section",
-                "recovery_continuation_bonus_lines",
-                "recovery_main_section_start_reserved_lines",
-                "recovery_quorumless_line_groups_bonus",
-                "recovery_quorumless_first_page_bonus_lines",
-                "recovery_quorumless_continuation_bonus_lines",
-                "shard_line_groups_bonus",
-                "shard_first_page_estimate_bonus_lines",
-                "shard_first_page_bonus_lines",
-                "signing_key_shard_line_groups_bonus",
-                "signing_key_shard_first_page_estimate_bonus_lines",
-                "signing_key_shard_first_page_bonus_lines",
-            }
-        ),
-        section="capabilities",
-        path=path,
-    )
-    advanced_fallback_layout = _optional_bool(
-        value,
-        "advanced_fallback_layout",
-        default=False,
-        path=path,
-    )
-    fallback_layout = _optional_fallback_layout_profile(
-        value,
-        "fallback_layout",
-        default=None,
-        path=path,
-    )
-    if advanced_fallback_layout and fallback_layout is None:
-        raise ValueError(
-            "missing required 'fallback_layout' object when "
-            "'advanced_fallback_layout' is enabled in "
-            f"{path}"
-        )
-
-    return TemplateCapabilities(
-        inject_forge_copy=_optional_bool(
-            value,
-            "inject_forge_copy",
-            default=False,
-            path=path,
-        ),
-        recovery_first_page_single_section=_optional_bool(
-            value,
-            "recovery_first_page_single_section",
-            default=False,
-            path=path,
-        ),
-        repeat_primary_qr_on_shard_continuation=_optional_bool(
-            value,
-            "repeat_primary_qr_on_shard_continuation",
-            default=False,
-            path=path,
-        ),
-        advanced_fallback_layout=advanced_fallback_layout,
-        extra_main_first_page_qr_slot=_optional_bool(
-            value,
-            "extra_main_first_page_qr_slot",
-            default=False,
-            path=path,
-        ),
-        uniform_main_qr_capacity=_optional_bool(
-            value,
-            "uniform_main_qr_capacity",
-            default=False,
-            path=path,
-        ),
-        repeat_main_instructions_on_all_pages=_optional_bool(
-            value,
-            "repeat_main_instructions_on_all_pages",
-            default=False,
-            path=path,
-        ),
-        recovery_kit_index_document=_optional_bool(
-            value,
-            "recovery_kit_index_document",
-            default=False,
-            path=path,
-        ),
-        main_qr_grid_size_mm=_optional_positive_number(
-            value,
-            "main_qr_grid_size_mm",
-            default=None,
-            path=path,
-        ),
-        main_qr_grid_max_cols=_optional_positive_int(
-            value,
-            "main_qr_grid_max_cols",
-            default=None,
-            path=path,
-        ),
-        fallback_layout=fallback_layout,
-        recovery_line_groups_bonus=_optional_non_negative_int(
-            value, "recovery_line_groups_bonus", default=0, path=path
-        ),
-        recovery_first_page_bonus_lines=_optional_non_negative_int(
-            value, "recovery_first_page_bonus_lines", default=0, path=path
-        ),
-        recovery_first_page_bonus_lines_per_extra_section=_optional_non_negative_int(
-            value,
-            "recovery_first_page_bonus_lines_per_extra_section",
-            default=0,
-            path=path,
-        ),
-        recovery_continuation_bonus_lines=_optional_non_negative_int(
-            value, "recovery_continuation_bonus_lines", default=0, path=path
-        ),
-        recovery_main_section_start_reserved_lines=_optional_non_negative_int(
-            value,
-            "recovery_main_section_start_reserved_lines",
-            default=0,
-            path=path,
-        ),
-        recovery_quorumless_line_groups_bonus=_optional_non_negative_int(
-            value, "recovery_quorumless_line_groups_bonus", default=0, path=path
-        ),
-        recovery_quorumless_first_page_bonus_lines=_optional_non_negative_int(
-            value,
-            "recovery_quorumless_first_page_bonus_lines",
-            default=0,
-            path=path,
-        ),
-        recovery_quorumless_continuation_bonus_lines=_optional_non_negative_int(
-            value,
-            "recovery_quorumless_continuation_bonus_lines",
-            default=0,
-            path=path,
-        ),
-        shard_line_groups_bonus=_optional_non_negative_int(
-            value, "shard_line_groups_bonus", default=0, path=path
-        ),
-        shard_first_page_estimate_bonus_lines=_optional_non_negative_int(
-            value, "shard_first_page_estimate_bonus_lines", default=0, path=path
-        ),
-        shard_first_page_bonus_lines=_optional_non_negative_int(
-            value, "shard_first_page_bonus_lines", default=0, path=path
-        ),
-        signing_key_shard_line_groups_bonus=_optional_non_negative_int(
-            value, "signing_key_shard_line_groups_bonus", default=0, path=path
-        ),
-        signing_key_shard_first_page_estimate_bonus_lines=_optional_non_negative_int(
-            value,
-            "signing_key_shard_first_page_estimate_bonus_lines",
-            default=0,
-            path=path,
-        ),
-        signing_key_shard_first_page_bonus_lines=_optional_non_negative_int(
-            value, "signing_key_shard_first_page_bonus_lines", default=0, path=path
-        ),
-    )
+def _context_path(info: ValidationInfo) -> Path:
+    context = info.context
+    if isinstance(context, dict):
+        value = context.get(_STYLE_CONTEXT_PATH)
+        if isinstance(value, Path):
+            return value
+    return Path("style.json")
 
 
-def _optional_fallback_layout_profile(
-    data: dict[str, object],
-    key: str,
-    *,
-    default: FallbackLayoutProfile | None,
-    path: Path,
-) -> FallbackLayoutProfile | None:
-    if key not in data:
-        return default
-    raw = data.get(key)
-    if not isinstance(raw, dict):
-        raise ValueError(f"missing or invalid '{key}' object in {path}")
-    _reject_unknown_keys(
-        raw,
-        allowed_keys=frozenset({"recovery", "shard", "signing_key_shard"}),
-        section="fallback_layout",
-        path=path,
-    )
-    return FallbackLayoutProfile(
-        recovery=_parse_recovery_fallback_layout(raw, path=path),
-        shard=_parse_shard_fallback_layout(raw, key="shard", path=path),
-        signing_key_shard=_parse_shard_fallback_layout(raw, key="signing_key_shard", path=path),
-    )
+def _style_validation_message(exc: ValidationError, *, path: Path) -> str:
+    error = exc.errors()[0]
+    context_error = error.get("ctx", {}).get("error")
+    if isinstance(context_error, ValueError):
+        return str(context_error)
+
+    loc = tuple(error.get("loc", ()))
+    field = str(loc[-1]) if loc else "template style"
+    if field == "main_qr_grid_size_mm":
+        return f"missing or invalid '{field}' positive number in {path}"
+    if field == "name":
+        return f"missing or invalid 'name' string in {path}"
+    if field == "capabilities":
+        return f"invalid 'capabilities' object in {path}"
+    return f"invalid template style in {path}"
 
 
-def _parse_recovery_fallback_layout(
-    data: dict[str, object],
-    *,
-    path: Path,
-) -> RecoveryFallbackLayout:
-    raw = _require_dict(data, "recovery", path=path)
-    _reject_unknown_keys(
-        raw,
-        allowed_keys=frozenset(
-            {
-                "line_height_floor_mm",
-                "first_page_footer_reserve_mm",
-                "continuation_footer_reserve_mm",
-                "meta_baseline_lines",
-                "meta_extra_line_mm",
-                "meta_section_overhead_mm",
-                "first_page_text_width_bonus_mm",
-                "continuation_text_width_bonus_mm",
-            }
-        ),
-        section="fallback_layout.recovery",
-        path=path,
-    )
-    line_height_floor_mm = _require_positive_number(raw, "line_height_floor_mm", path=path)
-    first_page_footer_reserve_mm = _require_non_negative_number(
-        raw, "first_page_footer_reserve_mm", path=path
-    )
-    continuation_footer_reserve_mm = _require_non_negative_number(
-        raw,
-        "continuation_footer_reserve_mm",
-        path=path,
-    )
-    meta_baseline_lines = _require_non_negative_int(raw, "meta_baseline_lines", path=path)
-    meta_extra_line_mm = _require_non_negative_number(raw, "meta_extra_line_mm", path=path)
-    meta_section_overhead_mm = _require_non_negative_number(
-        raw, "meta_section_overhead_mm", path=path
-    )
-    first_page_text_width_bonus_mm = _require_number(
-        raw,
-        "first_page_text_width_bonus_mm",
-        path=path,
-    )
-    continuation_text_width_bonus_mm = _require_number(
-        raw,
-        "continuation_text_width_bonus_mm",
-        path=path,
-    )
-    return RecoveryFallbackLayout(
-        line_height_floor_mm=line_height_floor_mm,
-        first_page_footer_reserve_mm=first_page_footer_reserve_mm,
-        continuation_footer_reserve_mm=continuation_footer_reserve_mm,
-        meta_baseline_lines=meta_baseline_lines,
-        meta_extra_line_mm=meta_extra_line_mm,
-        meta_section_overhead_mm=meta_section_overhead_mm,
-        first_page_text_width_bonus_mm=first_page_text_width_bonus_mm,
-        continuation_text_width_bonus_mm=continuation_text_width_bonus_mm,
-    )
-
-
-def _parse_shard_fallback_layout(
-    data: dict[str, object],
-    *,
-    key: str,
-    path: Path,
-) -> ShardFallbackLayout:
-    raw = _require_dict(data, key, path=path)
-    _reject_unknown_keys(
-        raw,
-        allowed_keys=frozenset(
-            {
-                "line_height_floor_mm",
-                "first_page_payload_zone_height_mm",
-                "continuation_payload_zone_height_mm",
-            }
-        ),
-        section=f"fallback_layout.{key}",
-        path=path,
-    )
-    return ShardFallbackLayout(
-        line_height_floor_mm=_require_positive_number(raw, "line_height_floor_mm", path=path),
-        first_page_payload_zone_height_mm=_require_non_negative_number(
-            raw,
-            "first_page_payload_zone_height_mm",
-            path=path,
-        ),
-        continuation_payload_zone_height_mm=_require_non_negative_number(
-            raw,
-            "continuation_payload_zone_height_mm",
-            path=path,
-        ),
-    )
-
-
-def _reject_legacy_capability_keys(data: dict[str, object], *, path: Path) -> None:
-    removed_keys = ("wide_recovery_fallback_lines",)
-    present = [key for key in removed_keys if key in data]
-    if not present:
-        return
-    present_text = ", ".join(sorted(present))
-    raise ValueError(f"legacy capability keys removed: {present_text}; remove them from {path}")
-
-
-def _require_dict(data: dict[str, object], key: str, *, path: Path) -> dict[str, object]:
-    """Require a JSON object field."""
-
-    value = data.get(key)
-    if isinstance(value, dict):
-        return value
-    raise ValueError(f"missing or invalid '{key}' object in {path}")
-
-
-def _require_str(data: dict[str, object], key: str, *, path: Path) -> str:
-    """Require a non-empty string field."""
-
-    value = data.get(key)
-    if isinstance(value, str) and value.strip():
-        return value
-    raise ValueError(f"missing or invalid '{key}' string in {path}")
-
-
-def _require_number(data: dict[str, object], key: str, *, path: Path) -> float:
-    """Require a numeric field and normalize to float."""
-
-    value = data.get(key)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"missing or invalid '{key}' number in {path}")
-    return float(value)
-
-
-def _require_positive_number(data: dict[str, object], key: str, *, path: Path) -> float:
-    value = data.get(key)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise ValueError(f"missing or invalid '{key}' positive number in {path}")
-    return float(value)
-
-
-def _require_non_negative_number(data: dict[str, object], key: str, *, path: Path) -> float:
-    value = data.get(key)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-        raise ValueError(f"missing or invalid '{key}' non-negative number in {path}")
-    return float(value)
-
-
-def _require_non_negative_int(data: dict[str, object], key: str, *, path: Path) -> int:
-    value = data.get(key)
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError(f"missing or invalid '{key}' non-negative integer in {path}")
-    return value
-
-
-def _require_list_of_str(data: dict[str, object], key: str, *, path: Path) -> list[str]:
-    """Require a list of strings (or return an empty list when omitted)."""
-
-    value = data.get(key)
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError(f"'{key}' must be a list in {path}")
-    for idx, entry in enumerate(value):
-        if not isinstance(entry, str):
-            raise ValueError(f"'{key}[{idx}]' must be a string in {path}")
-    return [str(entry) for entry in value]
-
-
-def _optional_bool(
-    data: dict[str, object],
-    key: str,
-    *,
-    default: bool,
-    path: Path,
-) -> bool:
-    """Read an optional boolean capability with validation."""
-
-    if key not in data:
-        return default
-    value = data.get(key)
-    if isinstance(value, bool):
-        return value
-    raise ValueError(f"missing or invalid '{key}' boolean in {path}")
-
-
-def _optional_positive_int(
-    data: dict[str, object],
-    key: str,
-    *,
-    default: int | None,
-    path: Path,
-) -> int | None:
-    """Read an optional positive integer capability."""
-
-    if key not in data:
-        return default
-    value = data.get(key)
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"missing or invalid '{key}' positive integer in {path}")
-    return value
-
-
-def _optional_non_negative_int(
-    data: dict[str, object],
-    key: str,
-    *,
-    default: int,
-    path: Path,
-) -> int:
-    """Read an optional non-negative integer capability."""
-
-    if key not in data:
-        return default
-    value = data.get(key)
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError(f"missing or invalid '{key}' non-negative integer in {path}")
-    return value
-
-
-def _optional_positive_number(
-    data: dict[str, object],
-    key: str,
-    *,
-    default: float | None,
-    path: Path,
-) -> float | None:
-    """Read an optional positive numeric capability."""
-
-    if key not in data:
-        return default
-    value = data.get(key)
+def _require_positive_number_value(value: object, *, key: str | None, path: Path) -> float:
+    if key is None:
+        key = "number"
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
         raise ValueError(f"missing or invalid '{key}' positive number in {path}")
     return float(value)
@@ -644,12 +244,4 @@ def _reject_unknown_keys(
         raise ValueError(f"unknown key(s) in {section} ({unknown_text}) in {path}")
 
 
-__all__ = [
-    "DEFAULT_TEMPLATE_STYLE",
-    "FallbackLayoutProfile",
-    "RecoveryFallbackLayout",
-    "ShardFallbackLayout",
-    "TemplateCapabilities",
-    "TemplateStyle",
-    "load_template_style",
-]
+__all__ = ["TemplateCapabilities", "TemplateStyle", "load_template_style"]

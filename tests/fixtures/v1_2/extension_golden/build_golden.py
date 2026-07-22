@@ -16,26 +16,37 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
+from pypdf import PdfReader
+
+from ethernity import render as render_module
+from ethernity.config import load_app_config
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import decrypt_bytes
-from ethernity.crypto.sharding import decode_shard_payload
+from ethernity.crypto.sharding import (
+    KEY_TYPE_SIGNING_SEED,
+    decode_shard_payload,
+)
 from ethernity.encoding.chunking import reassemble_payload
-from ethernity.encoding.framing import FrameType, decode_frame
+from ethernity.encoding.framing import Frame, FrameType, decode_frame, encode_frame
 from ethernity.encoding.qr_payloads import (
     QR_PAYLOAD_CODEC_BASE64,
+    QR_PAYLOAD_CODEC_RAW,
+    QrPayloadCodec,
     decode_qr_payload,
     encode_qr_payload,
 )
@@ -43,6 +54,16 @@ from ethernity.formats.envelope_codec import decode_any_envelope, extract_payloa
 from ethernity.formats.extension_envelope import ExtensionEnvelope
 from ethernity.formats.extension_envelope_constants import CHUNK_CODEC_GZIP, CHUNK_CODEC_RAW
 from ethernity.qr.scan import scan_qr_payloads
+from ethernity.render.doc_types import DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD
+from ethernity.render.proofs import (
+    validate_fallback_render_proof,
+    validate_fallback_text_in_pdf,
+    validate_pdf_has_pages,
+    validate_render_artifact_proof,
+    validate_render_layout_proof,
+)
+from ethernity.render.service import RenderService
+from ethernity.render.types import RenderLineage
 
 PASS_PHRASE = "stable-v1_2-extension-passphrase"
 V1_0_PASS_PHRASE = "stable-v1-baseline-passphrase"
@@ -50,6 +71,10 @@ FIXED_MTIME = 1_700_200_000
 BINARY_PAYLOADS_MAGIC = b"EQPB"
 BINARY_PAYLOADS_VERSION = 1
 PROFILES = (("base64", "base64"), ("raw", "raw"))
+_CREATED_TIMESTAMP_RE = re.compile(
+    r"GENERATED\s*\(UTC\)\s*:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+UTC)",
+    re.IGNORECASE,
+)
 
 
 def _scenarios() -> tuple[dict[str, Any], ...]:
@@ -111,7 +136,7 @@ def _run_cli(repo_root: Path, args: list[str], *, config_path: Path, xdg_home: P
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = str(xdg_home)
     result = subprocess.run(
-        [sys.executable, "-m", "ethernity.cli", "--config", str(config_path), *args],
+        [sys.executable, "-m", "ethernity", "run", "--config", str(config_path), *args],
         cwd=repo_root,
         env=env,
         capture_output=True,
@@ -188,10 +213,12 @@ def _backup(
         design,
         "--output-dir",
         str(chain_dir),
-        "--quiet",
+        "--yes",
     ]
     if shards is not None:
-        args.extend(["--shard-threshold", str(shards[0]), "--shard-count", str(shards[1])])
+        args.extend(["--recovery-threshold", str(shards[0]), "--recovery-count", str(shards[1])])
+    else:
+        args.extend(["--recovery-count", "0"])
     _run_cli(repo_root, args, config_path=config_path, xdg_home=xdg_home)
 
 
@@ -212,8 +239,8 @@ def _extend(
     extra_args: tuple[str, ...] = (),
 ) -> None:
     args = [
-        "extend",
-        "--root-dir",
+        "add-files",
+        "--backup-folder",
         str(root_dir),
         "--input-dir",
         str(source_dir),
@@ -221,7 +248,7 @@ def _extend(
         str(source_dir),
         "--design",
         design,
-        "--quiet",
+        "--yes",
     ]
     for scan in scans:
         args.extend(["--scan", str(scan)])
@@ -230,17 +257,17 @@ def _extend(
     if unlock_policy is not None:
         args.extend(["--unlock-policy", unlock_policy])
     if shard_threshold is not None:
-        args.extend(["--shard-threshold", str(shard_threshold)])
+        args.extend(["--recovery-threshold", str(shard_threshold)])
     if shard_count is not None:
-        args.extend(["--shard-count", str(shard_count)])
+        args.extend(["--recovery-count", str(shard_count)])
     if signing_key_shards:
         args.extend(
             [
                 "--signing-key-mode",
                 "sharded",
-                "--signing-key-shard-threshold",
+                "--signing-key-threshold",
                 "1",
-                "--signing-key-shard-count",
+                "--signing-key-count",
                 "2",
             ]
         )
@@ -643,20 +670,20 @@ def _shard_projection(pdfs: list[Path]) -> dict[str, Any]:
             set_id = None if payload.shard_set_id is None else payload.shard_set_id.hex()
             if set_id is not None:
                 set_id = labels.setdefault(set_id, f"set-{len(labels) + 1}")
-            rows.append(
-                {
-                    "doc_id": frame.doc_id.hex(),
-                    "version": payload.version,
-                    "share_index": payload.share_index,
-                    "threshold": payload.threshold,
-                    "share_count": payload.share_count,
-                    "key_type": payload.key_type,
-                    "secret_len": payload.secret_len,
-                    "doc_hash": payload.doc_hash.hex(),
-                    "sign_pub": payload.sign_pub.hex(),
-                    "set_id": set_id,
-                }
-            )
+            row = {
+                "doc_id": frame.doc_id.hex(),
+                "version": payload.version,
+                "share_index": payload.share_index,
+                "threshold": payload.threshold,
+                "share_count": payload.share_count,
+                "key_type": payload.key_type,
+                "secret_len": payload.secret_len,
+                "doc_hash": payload.doc_hash.hex(),
+                "sign_pub": payload.sign_pub.hex(),
+                "set_id": set_id,
+            }
+            if row not in rows:
+                rows.append(row)
         out[pdf.name] = rows
     return out
 
@@ -838,11 +865,196 @@ def _generate_scenario(
     return {"id": str(scenario["id"]), "path": f"{scenario['id']}/snapshot.json"}
 
 
+def _refresh_shard_carriers(golden_root: Path, values: list[str]) -> None:
+    """Re-render frozen shard PDFs while preserving their exact machine-readable frames."""
+
+    scenario_roots: set[Path] = set()
+    for value in values:
+        path = _resolve_fixture_path(golden_root, value)
+        scenario_root = _scenario_root_for(path, golden_root=golden_root)
+        _refresh_shard_carrier(path, scenario_root=scenario_root)
+        scenario_roots.add(scenario_root)
+        print(f"refreshed {path.relative_to(golden_root).as_posix()}")
+    for scenario_root in sorted(scenario_roots):
+        _refresh_snapshot_artifact_hashes(scenario_root)
+
+
+def _resolve_fixture_path(golden_root: Path, value: str) -> Path:
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = golden_root / candidate
+    path = candidate.resolve(strict=True)
+    try:
+        path.relative_to(golden_root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"fixture carrier must be under {golden_root}: {path}") from exc
+    if path.suffix.lower() != ".pdf":
+        raise ValueError(f"fixture carrier must be a PDF: {path}")
+    return path
+
+
+def _scenario_root_for(path: Path, *, golden_root: Path) -> Path:
+    for parent in path.parents:
+        if parent == golden_root:
+            break
+        if (parent / "snapshot.json").is_file():
+            return parent
+    raise ValueError(f"fixture carrier is not inside a scenario with snapshot.json: {path}")
+
+
+def _refresh_shard_carrier(path: Path, *, scenario_root: Path) -> None:
+    _require_forge_shard_carrier(path)
+    original_frame = _single_distinct_frame(path)
+    if original_frame.frame_type != FrameType.KEY_DOCUMENT:
+        raise ValueError(f"fixture shard carrier must contain a KEY_DOCUMENT frame: {path}")
+    shard = decode_shard_payload(original_frame.data)
+    lineage = _lineage_for_shard_carrier(path, scenario_root=scenario_root)
+    snapshot = json.loads((scenario_root / "snapshot.json").read_text(encoding="utf-8"))
+    qr_codec_value = str(snapshot["qr_payload_codec"])
+    if qr_codec_value not in {QR_PAYLOAD_CODEC_RAW, QR_PAYLOAD_CODEC_BASE64}:
+        raise ValueError(f"unsupported frozen QR payload codec: {qr_codec_value}")
+    qr_codec = cast(QrPayloadCodec, qr_codec_value)
+
+    config = load_app_config(DEFAULT_CONFIG_PATH)
+    render_service = RenderService(config)
+    temporary_path = path.with_name(f".{path.name}.refresh.pdf")
+    inputs = render_service.shard_inputs(
+        original_frame,
+        temporary_path,
+        shard_index=shard.share_index,
+        shard_total=shard.share_count,
+        shard_threshold=shard.threshold,
+        qr_payloads=render_service.build_qr_payloads([original_frame], codec=qr_codec),
+        doc_type=(
+            DOC_TYPE_SIGNING_KEY_SHARD
+            if shard.key_type == KEY_TYPE_SIGNING_SEED
+            else DOC_TYPE_SHARD
+        ),
+        design_name="forge",
+        lineage=lineage,
+    )
+    inputs = replace(
+        inputs,
+        context={
+            **inputs.context,
+            "created_timestamp_utc": _created_timestamp_from_pdf(path),
+        },
+    )
+    try:
+        result = render_module.render_frames_to_pdf(inputs)
+        if result.artifact_proof is None:
+            raise RuntimeError(f"refreshed fixture is missing artifact proof: {path}")
+        reader = validate_pdf_has_pages(temporary_path, artifact_label=f"refreshed {path.name}")
+        validate_render_artifact_proof(
+            artifact_label=f"refreshed {path.name}",
+            inputs=inputs,
+            artifact_proof=result.artifact_proof,
+        )
+        validate_render_layout_proof(
+            artifact_label=f"refreshed {path.name}",
+            layout_proof=result.layout_proof,
+            expected_page_count=len(reader.pages),
+        )
+        fallback_sections = tuple(inputs.fallback_sections or ())
+        fallback_proof = result.artifact_proof.fallback_proof or result.fallback_proof
+        validate_fallback_render_proof(
+            artifact_label=f"refreshed {path.name}",
+            frames=tuple(section.frame for section in fallback_sections),
+            fallback_proof=fallback_proof,
+        )
+        validate_fallback_text_in_pdf(
+            artifact_label=f"refreshed {path.name}",
+            reader=reader,
+            fallback_sections=fallback_sections,
+            fallback_proof=fallback_proof,
+        )
+        refreshed_frame = _single_distinct_frame(temporary_path)
+        if encode_frame(refreshed_frame) != encode_frame(original_frame):
+            raise RuntimeError(f"refreshed fixture changed its canonical QR frame: {path}")
+        temporary_path.replace(path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def _single_distinct_frame(path: Path) -> Frame:
+    distinct = {encode_frame(frame): frame for frame in _frames_from_pdf(path)}
+    if len(distinct) != 1:
+        raise ValueError(f"fixture shard carrier must contain one distinct frame: {path}")
+    return next(iter(distinct.values()))
+
+
+def _lineage_for_shard_carrier(path: Path, *, scenario_root: Path) -> RenderLineage:
+    relative_parts = path.relative_to(scenario_root).parts
+    for index, part in enumerate(relative_parts[:-1]):
+        if part == "extensions" and index + 1 < len(relative_parts):
+            return RenderLineage(kind="extension", extension_index=int(relative_parts[index + 1]))
+        match = re.fullmatch(r"extension-(\d+)-[0-9a-f]+", part, flags=re.IGNORECASE)
+        if match is not None:
+            return RenderLineage(kind="extension", extension_index=int(match.group(1)))
+    return RenderLineage(kind="root_backup")
+
+
+def _created_timestamp_from_pdf(path: Path) -> str:
+    text = _pdf_text(path)
+    matches = {" ".join(match.split()) for match in _CREATED_TIMESTAMP_RE.findall(text)}
+    if len(matches) != 1:
+        raise ValueError(f"fixture carrier must contain one generated UTC timestamp: {path}")
+    return next(iter(matches))
+
+
+def _require_forge_shard_carrier(path: Path) -> None:
+    normalized = " ".join(_pdf_text(path).upper().split())
+    forge_markers = (
+        "THE FORGE // SECURE OFFLINE STORAGE",
+        "FORGE V2.1",
+    )
+    if not any(marker in normalized for marker in forge_markers):
+        raise ValueError(f"shard refresh currently supports Forge fixture carriers only: {path}")
+
+
+def _pdf_text(path: Path) -> str:
+    reader = PdfReader(str(path))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+
+def _refresh_snapshot_artifact_hashes(scenario_root: Path) -> None:
+    snapshot_path = scenario_root / "snapshot.json"
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    existing_paths = set(snapshot["artifact_hashes"])
+    refreshed_hashes = _artifact_hashes(scenario_root)
+    if set(refreshed_hashes) != existing_paths:
+        raise ValueError(
+            f"refresh changed the frozen artifact inventory for {scenario_root}: "
+            f"expected {sorted(existing_paths)}, got {sorted(refreshed_hashes)}"
+        )
+    snapshot["artifact_hashes"] = refreshed_hashes
+    snapshot_path.write_text(
+        json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--refresh-shard-carriers",
+        nargs="+",
+        metavar="PDF",
+        help=(
+            "re-render existing frozen shard PDFs from their exact QR frames and refresh "
+            "scenario artifact hashes instead of rebuilding encrypted scenarios"
+        ),
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[4]
     golden_root = repo_root / "tests" / "fixtures" / "v1_2" / "extension_golden"
-    builder_sha256 = _sha256_file(Path(__file__).resolve())
-    ensure_playwright_browsers(quiet=True)
+    args = _parse_args()
+    if args.refresh_shard_carriers:
+        _refresh_shard_carriers(golden_root, args.refresh_shard_carriers)
+        return
     for child in golden_root.iterdir():
         if child.name in {"README.md", "build_golden.py"}:
             continue
@@ -854,7 +1066,6 @@ def main() -> None:
     base_config = DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
     index: dict[str, Any] = {
         "version": "1.2.0",
-        "builder_sha256": builder_sha256,
         "passphrase": PASS_PHRASE,
         "profiles": {},
     }

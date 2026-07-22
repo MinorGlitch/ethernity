@@ -37,11 +37,71 @@ class TestAgeCli(unittest.TestCase):
         plaintext = decrypt_bytes(ciphertext, passphrase="secret")
         self.assertEqual(plaintext, data)
 
+    def test_valid_bip39_input_is_canonicalized_once_for_encryption_and_recovery(self) -> None:
+        data = b"payload"
+        spaced = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
+        canonical = " ".join(["abandon"] * 11 + ["about"])
+
+        ciphertext, passphrase = encrypt_bytes_with_passphrase(data, passphrase=spaced)
+
+        self.assertEqual(passphrase, canonical)
+        self.assertEqual(decrypt_bytes(ciphertext, passphrase=spaced), data)
+
+    def test_invalid_checksum_wordlist_phrase_remains_an_exact_custom_secret(self) -> None:
+        data = b"payload"
+        exact = "  " + "  ".join(["abandon"] * 11 + ["above"]) + "  "
+
+        ciphertext, passphrase = encrypt_bytes_with_passphrase(data, passphrase=exact)
+
+        self.assertEqual(passphrase, exact)
+        self.assertEqual(decrypt_bytes(ciphertext, passphrase=exact), data)
+
+    def test_recovery_tries_exact_legacy_secret_before_canonical_fallback(self) -> None:
+        data = b"legacy"
+        exact = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
+        ciphertext = age_runtime._encrypt_with_pyrage(data, exact)
+
+        with mock.patch.object(
+            age_runtime,
+            "_decrypt_with_pyrage",
+            wraps=age_runtime._decrypt_with_pyrage,
+        ) as decrypt_exact:
+            plaintext = decrypt_bytes(ciphertext, passphrase=exact)
+
+        self.assertEqual(plaintext, data)
+        self.assertEqual(decrypt_exact.call_count, 1)
+        self.assertEqual(decrypt_exact.call_args.args[1], exact)
+
+    def test_recovery_does_not_try_canonical_candidate_for_malformed_ciphertext(self) -> None:
+        exact = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
+
+        with mock.patch.object(
+            age_runtime,
+            "_decrypt_with_pyrage",
+            side_effect=AgeError(backend="pyrage", detail="failed to fill whole buffer"),
+        ) as decrypt_candidate:
+            with self.assertRaisesRegex(ValueError, "decryption failed"):
+                decrypt_bytes(b"malformed", passphrase=exact)
+
+        decrypt_candidate.assert_called_once_with(b"malformed", exact)
+
     def test_decrypt_wrong_passphrase_raises(self) -> None:
         data = b"payload"
         ciphertext, _ = encrypt_bytes_with_passphrase(data, passphrase="secret")
         with self.assertRaises(ValueError):
             decrypt_bytes(ciphertext, passphrase="other")
+
+    def test_decrypt_preserves_resource_policy_rejection(self) -> None:
+        with mock.patch.object(
+            age_runtime,
+            "preflight_age_scrypt",
+            side_effect=ValueError("RESOURCE_INTENSIVE_COMPATIBILITY_REQUIRED"),
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "RESOURCE_INTENSIVE_COMPATIBILITY_REQUIRED",
+            ):
+                decrypt_bytes(b"age document", passphrase="secret")
 
     def test_decrypt_wrong_passphrase_debug_includes_details(self) -> None:
         data = b"payload"
@@ -59,19 +119,25 @@ class TestAgeCli(unittest.TestCase):
         self.assertIn("boom", str(ctx.exception))
 
     def test_decrypt_wraps_pyrage_error(self) -> None:
+        ciphertext, _passphrase = encrypt_bytes_with_passphrase(b"payload", passphrase="secret")
         with mock.patch.object(
-            age_runtime.pyrage_passphrase, "decrypt", side_effect=ValueError("boom")
+            age_runtime,
+            "run_disposable_worker",
+            side_effect=age_runtime.DisposableWorkerError("boom"),
         ):
             with self.assertRaises(AgeError) as ctx:
-                decrypt_bytes(b"ciphertext", passphrase="secret", debug=True)
+                decrypt_bytes(ciphertext, passphrase="secret", debug=True)
         self.assertIn("boom", str(ctx.exception))
 
     def test_decrypt_non_debug_is_generic(self) -> None:
+        ciphertext, _passphrase = encrypt_bytes_with_passphrase(b"payload", passphrase="secret")
         with mock.patch.object(
-            age_runtime.pyrage_passphrase, "decrypt", side_effect=ValueError("boom")
+            age_runtime,
+            "run_disposable_worker",
+            side_effect=age_runtime.DisposableWorkerError("boom"),
         ):
             with self.assertRaises(ValueError) as ctx:
-                decrypt_bytes(b"ciphertext", passphrase="secret")
+                decrypt_bytes(ciphertext, passphrase="secret")
         self.assertIn("decryption failed", str(ctx.exception))
 
 

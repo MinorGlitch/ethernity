@@ -11,14 +11,12 @@ import {
 } from "../app/state/initial.js";
 import { reducer } from "../app/state/reducer.js";
 import { decodeCanonicalCbor, decodeCbor, encodeCbor } from "../lib/cbor.js";
+import { bytesEqual, concatBytes, hexToBytes } from "../lib/bytes.js";
 import {
-  bytesEqual,
   bytesToUnpaddedBase64,
-  concatBytes,
   decodePayloadString,
   decodeZBase32,
   filterZBase32Lines,
-  hexToBytes,
   readUvarint,
 } from "../lib/encoding.js";
 import { validateManifestPath } from "../lib/path_validation.js";
@@ -44,8 +42,10 @@ test("encoding primitives enforce strict payload and varint rules", () => {
   assert.throws(() => decodeZBase32("yb"), /non-canonical tail bits/);
   assert.throws(() => decodeZBase32("!"), /invalid z-base-32 character/);
   assert.throws(() => filterZBase32Lines("yy\nhello\n8x\n"), /outside the z-base-32 alphabet/);
-  assert.deepEqual(filterZBase32Lines("01. yy\n12.yy\n"), ["yy", "yy"]);
+  assert.deepEqual(filterZBase32Lines("01. yy\r12.yy\r\n3. yy\n"), ["yy", "yy", "yy"]);
   assert.throws(() => filterZBase32Lines("01 yy\n"), /outside the z-base-32 alphabet/);
+  assert.throws(() => filterZBase32Lines("01. \u212a\n"), /outside the z-base-32 alphabet/);
+  assert.throws(() => decodeZBase32("\u212a"), /invalid z-base-32 character/);
 
   assert.throws(() => readUvarint(Uint8Array.of(0x80), 0), /truncated varint/);
   assert.throws(

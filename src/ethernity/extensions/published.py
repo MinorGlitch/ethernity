@@ -21,20 +21,23 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ethernity.core.bounds import MAX_RECOVERY_DECODED_CHUNK_BYTES
+from ethernity.crypto import sharding as sharding_module
+from ethernity.crypto.document_identity import doc_id_from_doc_hash
+from ethernity.encoding.frame_sets import deduplicate_identical_frames
+from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import errors as extension_errors
 from ethernity.extensions.chain import (
-    LogicalFileState,
-    build_chain_available_chunks,
+    ExtensionReplayError,
     extract_root_logical_state,
     reconstruct_authenticated_latest_logical_state,
-    validate_authenticated_extension_chain,
 )
 from ethernity.extensions.discovery import (
     DiscoveredExtensionMainCarrier,
+    DiscoveredExtensionShardCarrier,
     discover_validated_extension_directories,
     payload_main_carriers,
 )
-from ethernity.extensions.identity import doc_id_from_doc_hash
 from ethernity.extensions.recovery import (
     DecodedExtensionLink,
     ImportedRecoveryDocument,
@@ -43,13 +46,13 @@ from ethernity.extensions.recovery import (
     RecoveryHeadTrustRefusal,
     RecoveryReplayFailure,
     decode_authenticated_extension_link,
-    locate_replay_failure,
     resolve_required_auth_payload,
+    validated_head_details,
 )
 from ethernity.formats import EnvelopeManifest
-from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 
 PublishedCarrierReader = Callable[[DiscoveredExtensionMainCarrier], ImportedRecoveryDocument]
+PublishedShardFramesReader = Callable[[DiscoveredExtensionShardCarrier], list[Frame]]
 PublishedRecoveryDocumentValidator = Callable[
     [DiscoveredExtensionMainCarrier, ImportedRecoveryDocument, bytes],
     None,
@@ -60,6 +63,7 @@ def inspect_published_extension_inventory(
     root_dir: Path,
     *,
     read_carrier_document: PublishedCarrierReader,
+    read_shard_frames: PublishedShardFramesReader,
     validate_recovery_document_carrier: PublishedRecoveryDocumentValidator,
 ) -> RecoveryExtensionInventory:
     discovery = discover_validated_extension_directories(root_dir)
@@ -69,8 +73,11 @@ def inspect_published_extension_inventory(
         try:
             document, auth_sign_pub = _scan_published_extension_payload_carriers(
                 item_dir_name=item.dir_name,
+                filename_doc_id_hex=item.doc_id_hex,
                 main_carriers=tuple(item.main_carriers),
                 read_carrier_document=read_carrier_document,
+                shard_carriers=tuple(item.shard_carriers),
+                read_shard_frames=read_shard_frames,
                 validate_recovery_document_carrier=validate_recovery_document_carrier,
             )
         except ValueError as exc:
@@ -82,9 +89,7 @@ def inspect_published_extension_inventory(
             )
             break
         extensions.append(
-            ImportedRecoveryDocument(
-                doc_id=document.doc_id,
-                doc_hash=document.doc_hash,
+            ImportedRecoveryDocument.from_ciphertext(
                 ciphertext=document.ciphertext,
                 auth_frames=document.auth_frames,
                 source_label=item.dir_name,
@@ -113,8 +118,11 @@ def inspect_published_extension_inventory(
 def _scan_published_extension_payload_carriers(
     *,
     item_dir_name: str,
+    filename_doc_id_hex: str,
     main_carriers: tuple[DiscoveredExtensionMainCarrier, ...],
     read_carrier_document: PublishedCarrierReader,
+    shard_carriers: tuple[DiscoveredExtensionShardCarrier, ...],
+    read_shard_frames: PublishedShardFramesReader,
     validate_recovery_document_carrier: PublishedRecoveryDocumentValidator,
 ) -> tuple[ImportedRecoveryDocument, bytes]:
     document: ImportedRecoveryDocument | None = None
@@ -141,6 +149,11 @@ def _scan_published_extension_payload_carriers(
             )
     if document is None or auth_sign_pub is None:
         raise ValueError(f"extension {item_dir_name} MAIN carriers could not be reconstructed")
+    if filename_doc_id_hex != document.doc_id.hex():
+        raise ValueError(
+            f"extension {item_dir_name} canonical filename doc_id {filename_doc_id_hex} "
+            f"does not match derived ciphertext doc_id {document.doc_id.hex()}"
+        )
     recovery_document_carrier = _required_published_extension_main_carrier(
         item_dir_name=item_dir_name,
         main_carriers=main_carriers,
@@ -156,7 +169,67 @@ def _scan_published_extension_payload_carriers(
         raise ValueError(
             f"extension {item_dir_name} recovery_document carrier could not be validated: {exc}"
         ) from exc
+    _validate_published_extension_shard_carriers(
+        item_dir_name=item_dir_name,
+        shard_carriers=shard_carriers,
+        read_shard_frames=read_shard_frames,
+        document=document,
+        expected_sign_pub=auth_sign_pub,
+    )
     return document, auth_sign_pub
+
+
+def _validate_published_extension_shard_carriers(
+    *,
+    item_dir_name: str,
+    shard_carriers: tuple[DiscoveredExtensionShardCarrier, ...],
+    read_shard_frames: PublishedShardFramesReader,
+    document: ImportedRecoveryDocument,
+    expected_sign_pub: bytes,
+) -> None:
+    payloads_by_type: dict[str, list[sharding_module.ShardPayload]] = {}
+    for carrier in shard_carriers:
+        try:
+            frames = deduplicate_identical_frames(read_shard_frames(carrier))
+            if len(frames) != 1:
+                raise ValueError("carrier must contain exactly one shard payload")
+            frame = frames[0]
+            if frame.frame_type != FrameType.KEY_DOCUMENT:
+                raise ValueError("carrier must contain a KEY_DOCUMENT frame")
+            if frame.doc_id != document.doc_id:
+                raise ValueError("shard frame doc_id does not match extension ciphertext")
+            if frame.index != 0 or frame.total != 1:
+                raise ValueError("shard payload must use one frame")
+            payload = sharding_module.decode_shard_payload(frame.data)
+            expected_key_type = (
+                sharding_module.KEY_TYPE_PASSPHRASE
+                if carrier.doc_type == "shard"
+                else sharding_module.KEY_TYPE_SIGNING_SEED
+            )
+            if payload.key_type != expected_key_type:
+                raise ValueError("shard key type does not match artifact role")
+            if payload.share_index != carrier.share_index:
+                raise ValueError("shard share_index does not match artifact filename")
+            if payload.share_count != carrier.share_count:
+                raise ValueError("shard share_count does not match artifact filename")
+            if payload.doc_hash != document.doc_hash:
+                raise ValueError("shard doc_hash does not match extension ciphertext")
+            if payload.sign_pub != expected_sign_pub:
+                raise ValueError("shard signing authority does not match extension AUTH")
+        except Exception as exc:
+            raise ValueError(
+                f"extension {item_dir_name} {carrier.doc_type} carrier "
+                f"{carrier.filename} could not be validated: {exc}"
+            ) from exc
+        payloads_by_type.setdefault(carrier.doc_type, []).append(payload)
+
+    for doc_type, payloads in payloads_by_type.items():
+        try:
+            sharding_module.validate_shard_set_consistency(payloads)
+        except ValueError as exc:
+            raise ValueError(
+                f"extension {item_dir_name} {doc_type} carrier set could not be validated: {exc}"
+            ) from exc
 
 
 def _required_published_extension_main_carrier(
@@ -220,22 +293,6 @@ def discovered_extension_indices(inventory: RecoveryExtensionInventory) -> tuple
     return tuple(indices)
 
 
-def available_extensions_from_inventory(
-    inventory: RecoveryExtensionInventory,
-) -> tuple[dict[str, object], ...]:
-    if inventory.failure is not None:
-        return ()
-    return tuple(
-        {
-            "index": item.index,
-            "dir_name": item.dir_name,
-            "doc_id": item.doc_id_hex,
-            "doc_hash": item.doc_hash.hex(),
-        }
-        for item in inventory.extensions
-    )
-
-
 def inspect_published_extension_chain(
     *,
     manifest: EnvelopeManifest,
@@ -289,6 +346,7 @@ def inspect_published_extension_chain(
         )
 
     links: list[DecodedExtensionLink] = []
+    remaining_inline_chunk_bytes = MAX_RECOVERY_DECODED_CHUNK_BYTES
     for item in inventory.extensions:
         try:
             decoded = decode_authenticated_extension_link(
@@ -297,7 +355,9 @@ def inspect_published_extension_chain(
                 expected_sign_pub=expected_sign_pub,
                 quiet=quiet,
                 debug=debug,
+                max_inline_chunk_bytes=remaining_inline_chunk_bytes,
             )
+            _validate_published_extension_header_index(item=item, decoded=decoded)
         except ValueError as exc:
             head_index, head_hash, head_auth, head_verified = validated_head_details(
                 root_doc_hash,
@@ -323,6 +383,7 @@ def inspect_published_extension_chain(
                 validated_head_auth_status=head_auth,
                 validated_head_root_authority_verified=head_verified,
             )
+        remaining_inline_chunk_bytes -= decoded.link.document.inline_chunk_raw_bytes
         links.append(decoded)
 
     if not links:
@@ -342,11 +403,6 @@ def inspect_published_extension_chain(
         )
 
     try:
-        locked_chunking = validate_authenticated_extension_chain(
-            root_doc_hash=root_doc_hash,
-            expected_sign_pub=expected_sign_pub,
-            extensions=tuple(item.link for item in links),
-        )
         latest_state = reconstruct_authenticated_latest_logical_state(
             manifest,
             payload,
@@ -354,18 +410,21 @@ def inspect_published_extension_chain(
             expected_sign_pub=expected_sign_pub,
             extensions=tuple(item.link for item in links),
         )
-    except ValueError as exc:
-        failure, validated_links = locate_replay_failure(
-            root_manifest=manifest,
-            payload=payload,
-            root_doc_hash=root_doc_hash,
-            expected_sign_pub=expected_sign_pub,
-            selected_links=tuple(links),
+        locked_chunking = links[0].link.document.header.chunking
+    except ExtensionReplayError as exc:
+        validated_link = next(
+            (
+                item
+                for item in links
+                if item.link.document.header.index == exc.last_validated_head_index
+                and item.link.doc_hash == exc.last_validated_head_hash
+            ),
+            None,
         )
-        head_index, head_hash, head_auth, head_verified = validated_head_details(
-            root_doc_hash,
-            validated_links,
-        )
+        head_index = exc.last_validated_head_index
+        head_hash = exc.last_validated_head_hash.hex()
+        head_auth = None if validated_link is None else validated_link.auth_status
+        head_verified = None if validated_link is None else validated_link.root_authority_verified
         return RecoveryChainInspection(
             inventory=inventory,
             links=tuple(links),
@@ -375,9 +434,10 @@ def inspect_published_extension_chain(
                 code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
                 message=str(exc),
                 details={
-                    "stage": "chain",
-                    "failure_head_index": failure.link.document.header.index,
-                    "failure_head_doc_hash": failure.link.doc_hash.hex(),
+                    "stage": "replay",
+                    "failure_stage": exc.failure_phase,
+                    "failure_head_index": exc.failing_index,
+                    "failure_head_doc_hash": exc.failing_hash.hex(),
                     "validated_head_index": head_index,
                     "validated_head_doc_hash": head_hash,
                 },
@@ -402,19 +462,20 @@ def inspect_published_extension_chain(
     )
 
 
-def validated_head_details(
-    root_doc_hash: bytes,
-    links: list[DecodedExtensionLink] | tuple[DecodedExtensionLink, ...],
-) -> tuple[int, str, str | None, bool | None]:
-    if not links:
-        return 0, root_doc_hash.hex(), None, None
-    latest = links[-1]
-    return (
-        latest.link.document.header.index,
-        latest.link.doc_hash.hex(),
-        latest.auth_status,
-        latest.root_authority_verified,
-    )
+def _validate_published_extension_header_index(
+    *,
+    item: ImportedRecoveryDocument,
+    decoded: DecodedExtensionLink,
+) -> None:
+    filename_index = item.extension_index
+    if filename_index is None:
+        raise ValueError("published extension is missing its canonical filename index")
+    header_index = decoded.link.document.header.index
+    if filename_index != header_index:
+        raise ValueError(
+            f"canonical filename index {filename_index} does not match decrypted "
+            f"header index {header_index}"
+        )
 
 
 def root_head_root_authority_verified(
@@ -455,18 +516,10 @@ def sorted_chunk_items(chunk_map: dict[bytes, bytes]) -> tuple[tuple[bytes, byte
     return tuple((chunk_id, chunk_map[chunk_id]) for chunk_id in sorted(chunk_map))
 
 
-def chain_available_chunks_for_root(
-    root_state: tuple[LogicalFileState, ...],
-    chunking: ExtensionChunkingProfile,
-) -> tuple[tuple[bytes, bytes], ...]:
-    return sorted_chunk_items(build_chain_available_chunks(root_state, chunking))
-
-
 __all__ = [
     "PublishedCarrierReader",
-    "available_extensions_from_inventory",
+    "PublishedShardFramesReader",
     "available_extensions_from_recovery_chain",
-    "chain_available_chunks_for_root",
     "discovered_extension_indices",
     "extension_carrier_scan_failure",
     "extension_chain_present",
@@ -474,5 +527,4 @@ __all__ = [
     "inspect_published_extension_inventory",
     "root_head_root_authority_verified",
     "sorted_chunk_items",
-    "validated_head_details",
 ]

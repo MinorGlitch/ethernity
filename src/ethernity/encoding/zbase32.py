@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Iterable
 
 ZBASE32_ALPHABET = "ybndrfg8ejkmcpqxot1uwisza345h769"
-ZBASE32_LOOKUP = {ch: idx for idx, ch in enumerate(ZBASE32_ALPHABET)}
+ZBASE32_LOOKUP: dict[str, int] = {ch: idx for idx, ch in enumerate(ZBASE32_ALPHABET)}
 
 
 def decode_fallback_lines(lines: Iterable[str]) -> bytes:
@@ -68,6 +68,8 @@ def decode_zbase32(text: str) -> bytes:
     for char in text:
         if char.isspace() or char == "-":
             continue
+        if not char.isascii():
+            raise ValueError(f"invalid z-base-32 character: {char!r}")
         normalized_char = char.lower()
         value = ZBASE32_LOOKUP.get(normalized_char)
         if value is None:

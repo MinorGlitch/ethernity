@@ -35,8 +35,10 @@ htmlcov/
 # Node tooling
 node_modules/
 
-# Kit build outputs (dev only, canonical bundle is in src/ethernity/resources/kit/)
+# Kit build outputs
 kit/dist/
+src/ethernity/resources/kit/recovery_kit*.bundle.html
+test-debug/
 backup-*/
 generated_backups/
 generated_backups_input.txt

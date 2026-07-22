@@ -15,9 +15,11 @@
 
 """Config loaders, path resolution, and installer helpers."""
 
-from ethernity.config.api_patch import (
+from ethernity.config.api.contracts import (
     ApiConfigSnapshot,
     ConfigPatchError,
+)
+from ethernity.config.api.service import (
     apply_api_config_patch,
     get_api_config_snapshot,
 )
@@ -28,8 +30,8 @@ from ethernity.config.install import (
     ONBOARDING_FIELD_QR_CHUNK_SIZE,
     ONBOARDING_FIELD_QR_ERROR_CORRECTION,
     ONBOARDING_FIELD_QR_PAYLOAD_CODEC,
+    ONBOARDING_FIELD_RENDER_STYLE,
     ONBOARDING_FIELD_SHARDING,
-    ONBOARDING_FIELD_TEMPLATE_DESIGN,
     ONBOARDING_FIELDS,
     apply_first_run_defaults,
     clear_first_run_onboarding_marker,
@@ -37,29 +39,24 @@ from ethernity.config.install import (
     first_run_onboarding_marker_path,
     first_run_onboarding_needed,
     init_user_config,
-    list_template_designs,
+    list_render_styles,
     mark_first_run_onboarding_complete,
     resolve_api_defaults_config_path,
     resolve_config_path,
     resolve_config_snapshot_path,
-    resolve_template_design_path,
+    resolve_render_style_path,
     resolve_writable_config_path,
     user_config_needs_init,
 )
 from ethernity.config.load import (
-    apply_template_design,
+    apply_render_style,
     build_qr_config,
     load_app_config,
     load_cli_defaults,
 )
 from ethernity.config.paths import (
-    DEFAULT_KIT_TEMPLATE_PATH,
     DEFAULT_PAPER_SIZE,
-    DEFAULT_RECOVERY_TEMPLATE_PATH,
-    DEFAULT_SHARD_TEMPLATE_PATH,
-    DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
-    DEFAULT_TEMPLATE_PATH,
-    DEFAULT_TEMPLATE_STYLE,
+    DEFAULT_RENDER_STYLE,
 )
 from ethernity.config.types import (
     AppConfig,
@@ -99,17 +96,12 @@ __all__ = [
     "RuntimeDefaults",
     "SigningKeyMode",
     "UiDefaults",
-    "DEFAULT_KIT_TEMPLATE_PATH",
     "DEFAULT_PAPER_SIZE",
-    "DEFAULT_RECOVERY_TEMPLATE_PATH",
-    "DEFAULT_SHARD_TEMPLATE_PATH",
-    "DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH",
-    "DEFAULT_TEMPLATE_PATH",
-    "DEFAULT_TEMPLATE_STYLE",
+    "DEFAULT_RENDER_STYLE",
     "resolve_api_defaults_config_path",
     "resolve_config_snapshot_path",
     "resolve_config_path",
-    "resolve_template_design_path",
+    "resolve_render_style_path",
     "resolve_writable_config_path",
     "ONBOARDING_FIELDS",
     "ONBOARDING_FIELD_BACKUP_OUTPUT_DIR",
@@ -119,18 +111,18 @@ __all__ = [
     "ONBOARDING_FIELD_QR_ERROR_CORRECTION",
     "ONBOARDING_FIELD_QR_PAYLOAD_CODEC",
     "ONBOARDING_FIELD_SHARDING",
-    "ONBOARDING_FIELD_TEMPLATE_DESIGN",
+    "ONBOARDING_FIELD_RENDER_STYLE",
     "apply_first_run_defaults",
     "clear_first_run_onboarding_marker",
     "first_run_onboarding_configured_fields",
     "first_run_onboarding_marker_path",
     "first_run_onboarding_needed",
     "init_user_config",
-    "list_template_designs",
+    "list_render_styles",
     "mark_first_run_onboarding_complete",
     "user_config_needs_init",
     "apply_api_config_patch",
-    "apply_template_design",
+    "apply_render_style",
     "build_qr_config",
     "get_api_config_snapshot",
     "load_app_config",

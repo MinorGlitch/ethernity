@@ -19,6 +19,18 @@ from __future__ import annotations
 # 1 MiB maximum ciphertext size for v1 profile.
 MAX_CIPHERTEXT_BYTES = 1_048_576
 
+# Root plus extension documents admitted to one recovery/append session.
+MAX_RECOVERY_DOCUMENTS = 128
+
+# Aggregate ciphertext admitted across one root-plus-extension chain.
+MAX_RECOVERY_CIPHERTEXT_BYTES = 64 * MAX_CIPHERTEXT_BYTES
+
+# Largest integer represented exactly by both Python and JavaScript runtimes.
+MAX_JS_SAFE_INTEGER = 9_007_199_254_740_991
+
+# A complete chain includes one root document, so extension indexes stop one below the document cap.
+MAX_EXTENSION_INDEX = MAX_RECOVERY_DOCUMENTS - 1
+
 # MAIN frame data cap (single-frame fallback MAIN compatibility).
 MAX_MAIN_FRAME_DATA_BYTES = 1_048_576
 
@@ -55,19 +67,27 @@ MAX_RECOVERY_TEXT_BYTES = 10_485_760
 # Maximum normalized raw payload bytes allowed after manifest-signaled decode.
 MAX_DECOMPRESSED_PAYLOAD_BYTES = 67_108_864  # 64 MiB
 
+# Cumulative inline chunk bytes decoded while replaying one extension chain.
+MAX_RECOVERY_DECODED_CHUNK_BYTES = 4 * MAX_DECOMPRESSED_PAYLOAD_BYTES
+
 
 __all__ = [
     "MAX_AUTH_CBOR_BYTES",
     "MAX_CIPHERTEXT_BYTES",
     "MAX_DECOMPRESSED_PAYLOAD_BYTES",
+    "MAX_EXTENSION_INDEX",
     "MAX_FALLBACK_LINES",
     "MAX_FALLBACK_NORMALIZED_CHARS",
     "MAX_MAIN_FRAME_DATA_BYTES",
     "MAX_MAIN_FRAME_TOTAL",
     "MAX_MANIFEST_CBOR_BYTES",
     "MAX_MANIFEST_FILES",
+    "MAX_JS_SAFE_INTEGER",
     "MAX_PATH_BYTES",
     "MAX_QR_PAYLOAD_CHARS",
     "MAX_RECOVERY_TEXT_BYTES",
+    "MAX_RECOVERY_CIPHERTEXT_BYTES",
+    "MAX_RECOVERY_DECODED_CHUNK_BYTES",
+    "MAX_RECOVERY_DOCUMENTS",
     "MAX_SHARD_CBOR_BYTES",
 ]

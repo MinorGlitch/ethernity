@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ethernity.core.validation import (
+    normalize_input_root_label,
     normalize_manifest_path,
     require_bool,
     require_bytes,
@@ -34,6 +35,7 @@ from ethernity.core.validation import (
     require_non_empty_str,
     require_non_negative_int,
     require_str,
+    validate_input_origin_roots,
 )
 from ethernity.encoding.cbor import dumps_canonical
 
@@ -129,8 +131,15 @@ class EnvelopeManifest:
             require_length(self.signing_seed, SIGNING_SEED_LEN, label="seed")
         if self.input_origin not in {"file", "directory", "mixed"}:
             raise ValueError("manifest input_origin must be one of: file, directory, mixed")
-        normalized_roots = tuple(_normalize_root_label(root) for root in self.input_roots)
-        _validate_input_origin_roots(self.input_origin, normalized_roots)
+        normalized_roots = tuple(
+            normalize_input_root_label(root, label="manifest input_root")
+            for root in self.input_roots
+        )
+        validate_input_origin_roots(
+            self.input_origin,
+            normalized_roots,
+            label="manifest input_roots",
+        )
         payload_codec = require_str(self.payload_codec, label="manifest payload_codec")
         if payload_codec not in {PAYLOAD_CODEC_RAW, PAYLOAD_CODEC_GZIP}:
             raise ValueError("manifest payload_codec must be one of: raw, gzip")
@@ -251,8 +260,12 @@ class EnvelopeManifest:
             raise ValueError("manifest payload_codec must be one of: raw, gzip")
         normalized_roots: list[str] = []
         for root in input_roots:
-            normalized_roots.append(_normalize_root_label(root))
-        _validate_input_origin_roots(input_origin, tuple(normalized_roots))
+            normalized_roots.append(normalize_input_root_label(root, label="manifest input_root"))
+        validate_input_origin_roots(
+            input_origin,
+            tuple(normalized_roots),
+            label="manifest input_roots",
+        )
         if sealed:
             if signing_seed is not None:
                 raise ValueError("manifest seed must be null for sealed manifests")
@@ -505,23 +518,3 @@ def _validate_path_prefixes(value: object) -> tuple[str, ...]:
         seen_prefixes.add(normalized)
         normalized_prefixes.append(normalized)
     return tuple(normalized_prefixes)
-
-
-def _normalize_root_label(value: object) -> str:
-    """Normalize and validate a manifest input root label."""
-
-    root = normalize_manifest_path(value, label="manifest input_root")
-    if "/" in root or "\\" in root:
-        raise ValueError("manifest input_root must be a leaf label without path separators")
-    return root
-
-
-def _validate_input_origin_roots(input_origin: str, input_roots: tuple[str, ...]) -> None:
-    """Validate `input_origin` and `input_roots` combinations."""
-
-    if input_origin == "file":
-        if input_roots:
-            raise ValueError("manifest input_roots must be empty when input_origin is file")
-        return
-    if not input_roots:
-        raise ValueError("manifest input_roots must be non-empty for directory or mixed input")
