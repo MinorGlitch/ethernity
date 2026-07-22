@@ -4,41 +4,9 @@ on:
   push:
     branches:
       - master
-    paths:
-      - "src/**"
-      - "kit/**"
-      - "tests/**"
-      - "scripts/**"
-      - "docs/**"
-      - "tooling/**"
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".github/dependabot.yml"
-      - ".pre-commit-config.yaml"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "ethernity.spec"
-      - "README_PYPI.md"
-      - "LICENSE"
   pull_request:
     branches:
       - master
-    paths:
-      - "src/**"
-      - "kit/**"
-      - "tests/**"
-      - "scripts/**"
-      - "docs/**"
-      - "tooling/**"
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".github/dependabot.yml"
-      - ".pre-commit-config.yaml"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "ethernity.spec"
-      - "README_PYPI.md"
-      - "LICENSE"
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * 1"
@@ -48,7 +16,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
@@ -140,12 +108,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            python-version: "3.11"
           - os: macos-latest
             python-version: "3.11"
           - os: windows-latest
             python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.12"
           - os: ubuntu-latest
             python-version: "3.13"
     steps:
@@ -224,14 +192,22 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=45
 
-  package:
+  kit-bundles:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
+      - name: Verify generated bundles are not committed
+        run: |
+          TRACKED="$(git ls-files -- \
+            src/ethernity/resources/kit/recovery_kit.bundle.html \
+            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html)"
+          if [ -n "$TRACKED" ]; then
+            echo "ERROR: recovery kit bundles are generated release artifacts and must not be committed."
+            echo "$TRACKED"
+            exit 1
+          fi
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
@@ -260,6 +236,30 @@ jobs:
               exit 1
             fi
           done
+      - name: Upload generated kit bundles
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recovery-kit-bundles
+          path: |
+            src/ethernity/resources/kit/recovery_kit.bundle.html
+            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
+          if-no-files-found: error
+          retention-days: 1
+
+  package:
+    needs: kit-bundles
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Download generated kit bundles
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: recovery-kit-bundles
+          path: src/ethernity/resources/kit
       - name: Build wheel and sdist
         run: uv build --wheel --sdist --out-dir dist
       - name: Verify package contents
@@ -282,6 +282,7 @@ jobs:
           test -d "$SMOKE_OUT/recovered"
 
   kit-verify:
+    needs: kit-bundles
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -295,34 +296,21 @@ jobs:
           cache: "npm"
           cache-dependency-path: kit/package-lock.json
 
-      - name: Verify generated bundles are not committed
-        run: |
-          TRACKED="$(git ls-files -- \
-            src/ethernity/resources/kit/recovery_kit.bundle.html \
-            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html)"
-          if [ -n "$TRACKED" ]; then
-            echo "ERROR: recovery kit bundles are generated release artifacts and must not be committed."
-            echo "$TRACKED"
-            exit 1
-          fi
-
       - name: Install kit dependencies
         working-directory: kit
         run: npm ci
 
-      - name: Install kit gzip compressor
-        run: sudo apt-get update && sudo apt-get install --yes libdeflate-tools
-
-      - name: Generate kit bundles
-        working-directory: kit
-        run: node build_kit.mjs
+      - name: Download generated kit bundles
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: recovery-kit-bundles
+          path: src/ethernity/resources/kit
 
       - name: Verify build output
         run: |
           echo "Build completed successfully"
           ls -la src/ethernity/resources/kit/recovery_kit.bundle.html
           ls -la src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
-          ls -la kit/dist/
 
       - name: Run kit tests
         working-directory: kit
@@ -338,14 +326,74 @@ jobs:
       - name: Run kit interoperability tests
         run: uv run pytest tests/unit/test_kit_vectors.py tests/unit/test_kit_interop.py -v
 
-  pip-audit:
+  python-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
         uses: ./.github/actions/setup-python
-      - name: Pip audit
-        run: uv run pip-audit
+      - name: Export locked runtime dependencies
+        run: |
+          uv export \
+            --frozen \
+            --no-dev \
+            --no-emit-project \
+            --format requirements-txt \
+            --output-file "${RUNNER_TEMP}/runtime-requirements.txt"
+      - name: Audit locked runtime dependencies
+        run: |
+          uv run pip-audit \
+            --require-hashes \
+            --no-deps \
+            --requirement "${RUNNER_TEMP}/runtime-requirements.txt"
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: kit/package-lock.json
+      - name: Audit npm dependencies
+        working-directory: kit
+        run: npm audit --audit-level=high
+
+  ci-gate:
+    if: ${{ always() }}
+    needs:
+      - lint
+      - format
+      - typecheck
+      - typos
+      - kit-lint
+      - render-visual
+      - test
+      - e2e
+      - coverage
+      - tooling-coverage
+      - kit-bundles
+      - package
+      - kit-verify
+      - python-audit
+      - npm-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job to succeed
+        env:
+          NEEDS_CONTEXT: ${{ toJSON(needs) }}
+        run: |
+          failures="$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key)=\(.value.result)"' <<< "$NEEDS_CONTEXT")"
+          if [ -n "$failures" ]; then
+            echo "Required CI jobs did not succeed:"
+            echo "$failures"
+            exit 1
+          fi
+          echo "All required CI jobs succeeded."

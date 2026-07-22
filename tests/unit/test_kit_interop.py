@@ -174,14 +174,16 @@ class TestKitInterop(unittest.TestCase):
             ],
         }
 
-        for name, extension_target, expected in (
+        for name, extension_target, freshness_unknown_acknowledged, expected in (
             (
-                "missing selector defaults to latest",
+                "missing selector with freshness acknowledgement defaults to latest",
                 None,
+                True,
                 {
                     "selected_extension_index": 1,
                     "selected_extension_doc_hash": extension_doc_hash.hex(),
                     "freshness_scope": "supplied_carriers_only",
+                    "freshness_decision": "supplied_pages_freshness_unknown",
                     "replay_target": "latest",
                     "input_roots": ["reconstructed-state"],
                     "files": {
@@ -192,11 +194,16 @@ class TestKitInterop(unittest.TestCase):
             ),
             (
                 "root selector",
-                "root",
+                {
+                    "kind": "root",
+                    "expected_head_doc_hash_hex": root_doc_hash.hex(),
+                },
+                False,
                 {
                     "selected_extension_index": None,
                     "selected_extension_doc_hash": None,
                     "freshness_scope": None,
+                    "freshness_decision": "manual_expected_head",
                     "replay_target": "root",
                     "input_roots": ["vault"],
                     "files": {"plain.txt": b"root value"},
@@ -204,11 +211,17 @@ class TestKitInterop(unittest.TestCase):
             ),
             (
                 "index selector",
-                {"kind": "index", "index": 1},
+                {
+                    "kind": "index",
+                    "index": 1,
+                    "expected_head_doc_hash_hex": extension_doc_hash.hex(),
+                },
+                False,
                 {
                     "selected_extension_index": 1,
                     "selected_extension_doc_hash": extension_doc_hash.hex(),
                     "freshness_scope": "supplied_carriers_only",
+                    "freshness_decision": "manual_expected_head",
                     "replay_target": "extension",
                     "input_roots": ["reconstructed-state"],
                     "files": {
@@ -220,10 +233,12 @@ class TestKitInterop(unittest.TestCase):
             (
                 "doc_hash selector",
                 {"kind": "doc_hash", "doc_hash_hex": extension_doc_hash.hex()},
+                False,
                 {
                     "selected_extension_index": 1,
                     "selected_extension_doc_hash": extension_doc_hash.hex(),
                     "freshness_scope": "supplied_carriers_only",
+                    "freshness_decision": "manual_expected_head",
                     "replay_target": "extension",
                     "input_roots": ["reconstructed-state"],
                     "files": {
@@ -237,11 +252,19 @@ class TestKitInterop(unittest.TestCase):
                 selected_fixture = dict(fixture)
                 if extension_target is not None:
                     selected_fixture["extension_target"] = extension_target
+                selected_fixture["freshness_unknown_acknowledged"] = freshness_unknown_acknowledged
                 result = self._recover_documents_with_kit(selected_fixture)
                 self._assert_recover_documents_result(result, expected)
 
         missing_index = self._recover_documents_with_kit_raw(
-            {**fixture, "extension_target": {"kind": "index", "index": 2}}
+            {
+                **fixture,
+                "extension_target": {
+                    "kind": "index",
+                    "index": 2,
+                    "expected_head_doc_hash_hex": "f" * 64,
+                },
+            }
         )
         self.assertNotEqual(missing_index.returncode, 0)
         self.assertIn("extension index target was not supplied: 2", missing_index.stderr)
@@ -266,6 +289,7 @@ class TestKitInterop(unittest.TestCase):
             expected["selected_extension_doc_hash"],
         )
         self.assertEqual(result["freshness_scope"], expected["freshness_scope"])
+        self.assertEqual(result["freshness_decision"], expected["freshness_decision"])
         self.assertEqual(result["replay_target"], expected["replay_target"])
         self.assertEqual(result["manifest"]["input_origin"], "directory")
         self.assertEqual(result["manifest"]["input_roots"], expected["input_roots"])
