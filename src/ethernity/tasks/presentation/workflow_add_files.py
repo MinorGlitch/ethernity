@@ -79,7 +79,7 @@ def add_files_unlock_policy_summary(state: AddFilesTaskState) -> str:
 
 def add_files_recovery_summary(state: AddFilesTaskState) -> str:
     if state.recovery_document_count == 0:
-        return "No new recovery sheets"
+        return "Reuse original recovery sheets"
     if state.recovery_document_threshold is not None and state.recovery_document_count is not None:
         return (
             f"{state.recovery_document_count} recovery sheets; "
@@ -90,7 +90,7 @@ def add_files_recovery_summary(state: AddFilesTaskState) -> str:
 
 def add_files_recovery_control_value(state: AddFilesTaskState) -> str:
     if state.recovery_document_count == 0:
-        return "none"
+        return "original"
     if state.recovery_document_threshold is not None and state.recovery_document_count is not None:
         return "custom"
     return "default"

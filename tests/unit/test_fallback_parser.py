@@ -17,12 +17,12 @@ import unittest
 from unittest import mock
 
 from ethernity.cli.shared.io.fallback_parser import (
-    _is_valid_zbase32_line,
     detect_fallback_section,
     filter_fallback_lines,
     parse_fallback_frame,
     split_fallback_sections,
 )
+from ethernity.encoding.fallback_text import _is_valid_zbase32_line
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 

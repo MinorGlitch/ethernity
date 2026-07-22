@@ -152,7 +152,7 @@ def _fit_with_shrink(
 ) -> TextFitResult:
     resolved_min_size = _resolve_min_size(style, min_size_pt)
     current_size = style.size_pt
-    while current_size >= resolved_min_size:
+    while True:
         candidate_style = replace(style, size_pt=current_size)
         lines = _wrap_text(surface, text, candidate_style, max_width_mm=max_width_mm)
         if max_lines is None or len(lines) <= max_lines:
@@ -163,7 +163,12 @@ def _fit_with_shrink(
                 policy=TextFitPolicy.SHRINK,
                 line_height_multiplier=line_height_multiplier,
             )
-        current_size = round(current_size - _SHRINK_STEP_PT, 2)
+        if current_size == resolved_min_size:
+            break
+        current_size = max(
+            resolved_min_size,
+            round(current_size - _SHRINK_STEP_PT, 2),
+        )
     raise TextFitError(
         "text cannot shrink enough to fit",
         {

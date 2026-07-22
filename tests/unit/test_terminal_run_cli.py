@@ -10,6 +10,7 @@ import ethernity.cli as legacy_cli
 import ethernity.main as root_entrypoint
 from ethernity.main import main
 from ethernity.run.cli import cli
+from ethernity.tasks.doctor import DoctorTaskState
 from ethernity.tasks.models import TaskExecutionResult
 
 
@@ -369,6 +370,7 @@ def test_run_restore_yes_executes_task_model(monkeypatch) -> None:
             "secret",
             "--output",
             "recovered",
+            "--resource-intensive-compatibility-recovery",
             "--yes",
         ],
     )
@@ -379,6 +381,8 @@ def test_run_restore_yes_executes_task_model(monkeypatch) -> None:
     assert calls[0].auth_text_file == Path("auth.txt")
     assert calls[0].to_recover_args().auth_fallback_file == "auth.txt"
     assert calls[0].passphrase == "secret"
+    assert calls[0].resource_intensive_compatibility_recovery
+    assert calls[0].to_recover_args().resource_intensive_compatibility_recovery
     assert "Recovered files written." in result.output
 
 
@@ -438,7 +442,7 @@ def test_run_add_files_yes_executes_task_model(monkeypatch) -> None:
     assert len(calls) == 1
     assert str(calls[0].backup_folder) == "backup-out"
     assert calls[0].qr_chunk_size == 384
-    assert calls[0].to_extend_args().qr_chunk_size == 384
+    assert calls[0].to_extension_request().qr_chunk_size == 384
     assert "Added files as backup update 01." in result.output
 
 
@@ -593,9 +597,63 @@ def test_run_print_kit_preview_uses_task_model() -> None:
     )
 
     assert result.exit_code == 0
-    assert "Recovery kit" in result.output
-    assert "Recovery kit to create" in result.output
+    assert "Unanchored rescue kit" in result.output
+    assert "Unanchored rescue kit to create" in result.output
     assert "kit.pdf" in result.output
+
+
+def test_run_doctor_inspection_executes_without_destructive_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    calls: list[DoctorTaskState] = []
+
+    def fake_execute(self: DoctorTaskState) -> TaskExecutionResult:
+        calls.append(self)
+        return TaskExecutionResult(ok=True, message="Inspection complete.")
+
+    monkeypatch.setattr(DoctorTaskState, "execute", fake_execute)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "doctor",
+            "--backup-folder",
+            str(tmp_path),
+            "--passphrase",
+            "secret",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert not calls[0].repair
+
+
+def test_run_doctor_repair_requires_yes(tmp_path: Path, monkeypatch) -> None:
+    calls: list[DoctorTaskState] = []
+
+    def fake_execute(self: DoctorTaskState) -> TaskExecutionResult:
+        calls.append(self)
+        return TaskExecutionResult(ok=True, message="Repair complete.")
+
+    monkeypatch.setattr(DoctorTaskState, "execute", fake_execute)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "doctor",
+            "--backup-folder",
+            str(tmp_path),
+            "--passphrase",
+            "secret",
+            "--repair",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--yes" in result.output
+    assert calls == []
 
 
 def test_run_print_kit_yes_executes_task_model(monkeypatch) -> None:

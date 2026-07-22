@@ -250,6 +250,34 @@ class TestDirectPdfForgeKit(unittest.TestCase):
                 )
             )
 
+    def test_letter_kit_index_continuation_starts_after_measured_header(self) -> None:
+        with TemporaryDirectory() as tmp:
+            inputs = _kit_index_inputs(
+                Path(tmp) / "kit-index-letter.pdf",
+                row_count=20,
+                paper_size="LETTER",
+            )
+            surface = FpdfSurface(
+                page_width_mm=LETTER_WIDTH_MM,
+                page_height_mm=LETTER_HEIGHT_MM,
+            )
+            packaged_direct_pdf_assets().register_fonts(surface)
+
+            plan = build_forge_kit_index_direct_plan(surface, inputs)
+
+            self.assertGreater(len(plan.page_plans), 1)
+            for page in plan.page_plans[1:]:
+                header_rule = next(
+                    item for item in page.plans if item.component_id.endswith("-header-rule")
+                )
+                continuation_panel = next(
+                    item for item in page.plans if item.component_id.endswith("-continuation-panel")
+                )
+                self.assertLessEqual(
+                    header_rule.proof.rect.bottom_mm + 2.0,
+                    continuation_panel.proof.rect.y_mm,
+                )
+
     def test_build_kit_index_plan_uses_inventory_rows(self) -> None:
         with TemporaryDirectory() as tmp:
             inputs = _kit_index_inputs(Path(tmp) / "kit_index.pdf", row_count=6)

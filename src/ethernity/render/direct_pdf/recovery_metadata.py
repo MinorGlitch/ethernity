@@ -135,6 +135,7 @@ def paginate_recovery_passphrase(
     style: TextStyle,
     guidance_style: TextStyle | None = None,
     max_width_mm: float,
+    continuation_width_mm: float | None = None,
     inline_height_mm: float,
     continuation_height_mm: float,
     line_height_multiplier: float = 1.15,
@@ -150,6 +151,11 @@ def paginate_recovery_passphrase(
 
     if max_width_mm <= 0:
         raise ValueError("recovery passphrase printable width must be positive")
+    resolved_continuation_width_mm = (
+        max_width_mm if continuation_width_mm is None else continuation_width_mm
+    )
+    if resolved_continuation_width_mm <= 0:
+        raise ValueError("recovery passphrase continuation width must be positive")
     if inline_height_mm <= 0:
         raise ValueError("recovery passphrase inline height must be positive")
     if continuation_height_mm <= 0:
@@ -221,7 +227,16 @@ def paginate_recovery_passphrase(
                     "recovery passphrase inline area must fit guidance and one value line"
                 )
             inline_lines = wrapped_literal_lines[:inline_line_count]
-            overflow_lines = wrapped_literal_lines[inline_line_count:]
+            consumed_token_count = sum(len(line.split(" ")) for line in inline_lines)
+            remaining_text = " ".join(raw_passphrase.split(" ")[consumed_token_count:])
+            overflow_lines = fit_text_to_width(
+                surface,
+                remaining_text,
+                style,
+                max_width_mm=resolved_continuation_width_mm,
+                policy=TextFitPolicy.WRAP,
+                line_height_multiplier=line_height_multiplier,
+            ).lines
             page_lines = tuple(
                 overflow_lines[index : index + continuation_capacity]
                 for index in range(0, len(overflow_lines), continuation_capacity)
@@ -268,11 +283,13 @@ def paginate_recovery_passphrase(
     if json_parts_inline_capacity < 1:
         raise ValueError("recovery passphrase inline area must fit guidance and one value line")
 
-    encoded_fragments = _split_json_fragments(
+    encoded_fragments, inline_fragment_count = _split_json_fragments(
         surface,
         raw_passphrase,
         style=style,
-        max_width_mm=max_width_mm,
+        inline_width_mm=max_width_mm,
+        continuation_width_mm=resolved_continuation_width_mm,
+        inline_fragment_capacity=json_parts_inline_capacity,
     )
     total_parts = len(encoded_fragments)
     parts = tuple(
@@ -283,12 +300,17 @@ def paginate_recovery_passphrase(
         )
         for index, encoded in enumerate(encoded_fragments, start=1)
     )
-    if any(surface.measure_text_width(part.line_text, style) > max_width_mm for part in parts):
-        raise ValueError("numbered recovery passphrase part exceeds the printable width")
-
-    inline_part_count = min(json_parts_inline_capacity, max(1, len(parts) - 1))
-    inline_parts = parts[:inline_part_count]
-    overflow_parts = parts[inline_part_count:]
+    inline_parts = parts[:inline_fragment_count]
+    overflow_parts = parts[inline_fragment_count:]
+    if any(
+        surface.measure_text_width(part.line_text, style) > max_width_mm for part in inline_parts
+    ):
+        raise ValueError("numbered inline recovery passphrase part exceeds the printable width")
+    if any(
+        surface.measure_text_width(part.line_text, style) > resolved_continuation_width_mm
+        for part in overflow_parts
+    ):
+        raise ValueError("numbered recovery passphrase continuation part exceeds printable width")
     page_parts = tuple(
         overflow_parts[index : index + continuation_capacity]
         for index in range(0, len(overflow_parts), continuation_capacity)
@@ -359,20 +381,25 @@ def _split_json_fragments(
     passphrase: str,
     *,
     style: TextStyle,
-    max_width_mm: float,
-) -> tuple[str, ...]:
+    inline_width_mm: float,
+    continuation_width_mm: float,
+    inline_fragment_capacity: int,
+) -> tuple[tuple[str, ...], int]:
     if not passphrase:
-        return (json.dumps("", ensure_ascii=True),)
+        return (json.dumps("", ensure_ascii=True),), 1
 
     fragments: list[str] = []
     start = 0
     while start < len(passphrase):
+        fragment_width_mm = (
+            inline_width_mm if len(fragments) < inline_fragment_capacity else continuation_width_mm
+        )
         end = _maximum_fitting_end(
             surface,
             passphrase,
             start=start,
             style=style,
-            max_width_mm=max_width_mm,
+            max_width_mm=fragment_width_mm,
         )
         if end <= start:
             character = passphrase[start]
@@ -386,7 +413,7 @@ def _split_json_fragments(
                 f"recovery passphrase exceeds practical {_MAX_PART_COUNT}-part PDF limit"
             )
         start = end
-    return tuple(fragments)
+    return tuple(fragments), min(len(fragments), inline_fragment_capacity)
 
 
 def _maximum_fitting_end(

@@ -18,6 +18,18 @@ from ethernity.render.direct_pdf.components import (
     TextAlign,
     TextBox,
 )
+from ethernity.render.direct_pdf.fallback_layout import (
+    FallbackPage as _FallbackPage,
+    FallbackSectionLines as _FallbackSectionLines,
+    FallbackTitleEntry as _FallbackTitleEntry,
+    ResponsiveFallbackPageProfile,
+    ResponsiveFallbackSpec,
+    build_fallback_proof as _build_fallback_proof,
+    fallback_entries as _fallback_entries,
+    fallback_sections as _fallback_sections,
+    paginate_fallback_entries as _paginate_fallback_entries,
+    resolve_responsive_fallback_pagination,
+)
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
     DirectPdfPagePlan,
@@ -38,22 +50,14 @@ from ethernity.render.direct_pdf.responsive_layout import (
     resolve_grid,
 )
 from ethernity.render.direct_pdf.structured_common import (
-    FallbackPage as _FallbackPage,
-    FallbackSectionLines as _FallbackSectionLines,
-    FallbackTitleEntry as _FallbackTitleEntry,
     QrPage as _QrPage,
     QrPayloadItem as _QrPayloadItem,
     StructuredContext as _ArchiveContext,
     StructuredDirectPlan as ArchiveDirectPlan,
     StructuredPlanBuilder,
     build_artifact_proof as build_render_artifact_proof,
-    build_fallback_proof as _build_fallback_proof,
     build_structured_context as _build_archive_context,
     component_prefix as _component_prefix,
-    fallback_capacity as _fallback_capacity,
-    fallback_entries as _fallback_entries,
-    fallback_sections as _fallback_sections,
-    paginate_fallback_entries as _paginate_fallback_entries,
     paginate_qr_items as _paginate_qr_items,
     positive_int as _positive_int,
     qr_image as _qr_image,
@@ -76,7 +80,10 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
-from ethernity.render.recovery_meta import RecoveryMeta, recovery_passphrase_display
+from ethernity.render.recovery_meta import (
+    RecoveryMeta,
+    recovery_passphrase_display,
+)
 from ethernity.render.template_style import load_template_style
 from ethernity.render.types import RenderInputs, RenderResult
 
@@ -102,8 +109,11 @@ _QR_IMAGE_SIZE_MM = 50.5
 _KIT_QR_CARD_SIZE_MM = 56.5
 _KIT_QR_IMAGE_SIZE_MM = 44.0
 _FALLBACK_GROUP_SIZE = 4
-_FALLBACK_LINE_LENGTH = 88
 _FALLBACK_ROW_HEIGHT_MM = 4.25
+_RECOVERY_FALLBACK_BODY_SIZE_PT = 6.6
+_RECOVERY_FALLBACK_LEFT_INSET_MM = 2.6
+_RECOVERY_FALLBACK_RIGHT_INSET_MM = 2.4
+_RECOVERY_FALLBACK_LINE_SAFETY_MM = 0.2
 _SHARD_FALLBACK_COLUMNS = 2
 _SHARD_FALLBACK_COLUMN_GAP_MM = 4.0
 _SHARD_FALLBACK_ROW_HEIGHT_MM = 2.9
@@ -129,6 +139,7 @@ _RECOVERY_INSTRUCTIONS_HEIGHT_MM = 15.0
 _RECOVERY_INSTRUCTIONS_HEADING_GAP_MM = 2.5
 _RECOVERY_HEADING_FALLBACK_OFFSET_MM = 12.5
 _RECOVERY_META_VALUE_PADDING_MM = 0.2
+_RECOVERY_SIGNING_KEY_MIN_SIZE_PT = 6.0
 
 
 @dataclass(frozen=True)
@@ -151,6 +162,15 @@ class _ArchiveRecoveryGeometry:
     fallback_area: PdfRect
     validation_area: PdfRect
     footer_rule_y_mm: float
+
+
+@dataclass(frozen=True)
+class _ArchiveRecoveryMetadataRow:
+    label: str
+    values: tuple[str, ...]
+    guidance: str = ""
+    visible: bool = True
+    grouped_signing_key: bool = False
 
 
 @dataclass(frozen=True)
@@ -252,14 +272,21 @@ def _archive_recovery_geometry(
         content_rect.width_mm,
         validation_height_mm,
     )
-    metadata_rects = _archive_recovery_metadata_rects(
-        surface,
+    metadata_rows = _archive_recovery_metadata_rows(
         recovery_meta,
-        content_rect=content_rect,
         doc_id=context.doc_id,
         created_timestamp_utc=context.created_timestamp_utc,
     )
-    metadata_bottom_mm = max(rect.bottom_mm for rect in metadata_rects)
+    metadata_rects = _archive_recovery_metadata_rects(
+        surface,
+        metadata_rows,
+        content_rect=content_rect,
+    )
+    metadata_bottom_mm = max(
+        rect.bottom_mm
+        for row, rect in zip(metadata_rows, metadata_rects, strict=True)
+        if row.visible
+    )
     header_rule_y_mm = max(
         _RECOVERY_HEADER_RULE_MIN_Y_MM,
         metadata_bottom_mm + _RECOVERY_META_RULE_CLEARANCE_MM,
@@ -299,53 +326,48 @@ def _archive_recovery_geometry(
 
 def _archive_recovery_metadata_rects(
     surface: PdfSurface,
-    recovery_meta: RecoveryMeta,
+    rows: Sequence[_ArchiveRecoveryMetadataRow],
     *,
     content_rect: PdfRect,
-    doc_id: str,
-    created_timestamp_utc: str,
 ) -> tuple[PdfRect, ...]:
-    passphrase = recovery_passphrase_display(recovery_meta)
-    values = (
-        ((doc_id,), ""),
-        ((created_timestamp_utc,), ""),
-        ((recovery_meta.quorum_value or "",), ""),
-        (tuple(recovery_meta.signing_pub_lines), ""),
-        (passphrase.value_lines, passphrase.guidance),
-    )
     reference_positions = (
-        PdfRect(14.0, 26.0, 42.0, 10.0),
-        PdfRect(59.0, 26.0, 42.0, 10.0),
-        PdfRect(104.0, 26.0, 42.0, 10.0),
-        PdfRect(149.0, 26.0, 47.0, 18.0),
-        PdfRect(14.0, 38.4, 90.0, 8.0),
+        PdfRect(14.0, 26.0, 22.0, 10.0),
+        PdfRect(38.0, 26.0, 28.0, 10.0),
+        PdfRect(68.0, 26.0, 63.0, 10.0),
+        PdfRect(133.0, 26.0, 63.0, 10.0),
+        PdfRect(68.0, 26.0, 63.0, 10.0),
     )
+    if len(rows) != len(reference_positions):
+        raise ValueError("Archive recovery metadata rows must match reference positions")
     width_scale = content_rect.width_mm / _REFERENCE_CONTENT_WIDTH_MM
     positions: list[PdfRect] = []
-    value_style = _mono_style(size_pt=6.4, bold=True, color=_INK)
     guidance_style = _body_style(size_pt=6.0, color=_INK_SOFT)
-    for (value_lines, guidance), reference_rect in zip(
-        values,
+    for row, reference_rect in zip(
+        rows,
         reference_positions,
         strict=True,
     ):
         width_mm = reference_rect.width_mm * width_scale
         value_width_mm = width_mm
-        text = "\n".join(value for value in value_lines if value)
+        value_lines = _archive_recovery_metadata_value_lines(row)
+        value_style = _archive_recovery_metadata_value_style(row)
+        text = "\n".join(value_lines)
         fit = fit_text_to_width(
             surface,
             text,
             value_style,
             max_width_mm=value_width_mm,
-            policy=TextFitPolicy.WRAP,
+            max_lines=2 if row.grouped_signing_key else None,
+            policy=(TextFitPolicy.SHRINK if row.grouped_signing_key else TextFitPolicy.WRAP),
+            min_size_pt=(_RECOVERY_SIGNING_KEY_MIN_SIZE_PT if row.grouped_signing_key else None),
             line_height_multiplier=1.08,
         )
         guidance_height_mm = 0.0
-        if guidance:
+        if row.guidance:
             guidance_height_mm = (
                 fit_text_to_width(
                     surface,
-                    guidance,
+                    row.guidance,
                     guidance_style,
                     max_width_mm=value_width_mm,
                     policy=TextFitPolicy.WRAP,
@@ -365,6 +387,51 @@ def _archive_recovery_metadata_rects(
             )
         )
     return tuple(positions)
+
+
+def _archive_recovery_metadata_value_lines(
+    row: _ArchiveRecoveryMetadataRow,
+) -> tuple[str, ...]:
+    values = tuple(value for value in row.values if value)
+    if not row.grouped_signing_key:
+        return values
+    return tuple(values)
+
+
+def _archive_recovery_metadata_value_style(row: _ArchiveRecoveryMetadataRow) -> TextStyle:
+    if row.grouped_signing_key:
+        return _mono_style(size_pt=6.4, bold=True, color=_INK)
+    return _mono_style(size_pt=6.4, bold=True, color=_INK)
+
+
+def _archive_recovery_metadata_rows(
+    recovery_meta: RecoveryMeta,
+    *,
+    doc_id: str,
+    created_timestamp_utc: str,
+) -> tuple[_ArchiveRecoveryMetadataRow, ...]:
+    passphrase = recovery_passphrase_display(recovery_meta)
+    return (
+        _ArchiveRecoveryMetadataRow("Document ID", (doc_id,)),
+        _ArchiveRecoveryMetadataRow("Created (UTC)", (created_timestamp_utc,)),
+        _ArchiveRecoveryMetadataRow(
+            recovery_meta.quorum_label or "Shard Quorum",
+            (recovery_meta.quorum_value,) if recovery_meta.quorum_value else (),
+            visible=bool(recovery_meta.quorum_value),
+        ),
+        _ArchiveRecoveryMetadataRow(
+            "Signing Key",
+            tuple(recovery_meta.signing_pub_lines),
+            visible=bool(recovery_meta.signing_pub_lines),
+            grouped_signing_key=True,
+        ),
+        _ArchiveRecoveryMetadataRow(
+            passphrase.label,
+            passphrase.value_lines,
+            passphrase.guidance,
+            visible=bool(passphrase.value_lines),
+        ),
+    )
 
 
 def _archive_single_geometry(inputs: RenderInputs) -> _ArchiveSingleGeometry:
@@ -557,22 +624,32 @@ def build_archive_recovery_direct_plan(
         if passphrase_pagination.continuation_pages
         else geometry
     )
-    sections = _fallback_sections(
-        inputs.fallback_sections or (),
+    fallback_spec = ResponsiveFallbackSpec(
         group_size=_FALLBACK_GROUP_SIZE,
-        line_length=_FALLBACK_LINE_LENGTH,
+        row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
+        body_style=_mono_style(size_pt=_RECOVERY_FALLBACK_BODY_SIZE_PT, color=_INK),
+        number_style=_mono_style(size_pt=_RECOVERY_FALLBACK_BODY_SIZE_PT, color=_INK),
+        content_left_inset_mm=_RECOVERY_FALLBACK_LEFT_INSET_MM,
+        content_right_inset_mm=_RECOVERY_FALLBACK_RIGHT_INSET_MM,
+        vertical_reserved_mm=4.0,
+        number_gap_mm=0.0,
+        inline_number=True,
+        safety_mm=_RECOVERY_FALLBACK_LINE_SAFETY_MM,
     )
-    fallback_pages = _paginate_fallback_entries(
-        _fallback_entries(sections),
-        capacity=_fallback_capacity(
-            geometry.fallback_area,
-            row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
+    fallback_pagination = resolve_responsive_fallback_pagination(
+        surface,
+        inputs.fallback_sections or (),
+        first_profile=ResponsiveFallbackPageProfile(
+            area=geometry.fallback_area,
+            spec=fallback_spec,
         ),
-        continuation_capacity=_fallback_capacity(
-            continuation_geometry.fallback_area,
-            row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
+        continuation_profile=ResponsiveFallbackPageProfile(
+            area=continuation_geometry.fallback_area,
+            spec=fallback_spec,
         ),
     )
+    sections = fallback_pagination.sections
+    fallback_pages = fallback_pagination.pages
     total_pages = len(fallback_pages) + len(passphrase_pagination.continuation_pages)
     fallback_page_plans = tuple(
         _build_recovery_page(
@@ -629,17 +706,20 @@ def _paginate_archive_passphrase(
 ) -> RecoveryPassphrasePagination:
     page = resolve_page_geometry(inputs)
     content_width_mm = page.width_mm - 2 * _CONTENT_X_MM
-    passphrase_width_mm = 90.0 * (content_width_mm / _REFERENCE_CONTENT_WIDTH_MM)
+    width_scale = content_width_mm / _REFERENCE_CONTENT_WIDTH_MM
+    inline_width_mm = 45.0 * width_scale
+    continuation_width_mm = 90.0 * width_scale
     style = _mono_style(size_pt=6.4, bold=True, color=_INK)
     guidance_style = _body_style(size_pt=6.0, color=_INK_SOFT)
-    value_rect = _passphrase_continuation_value_rect(page, passphrase_width_mm)
+    value_rect = _passphrase_continuation_value_rect(page, continuation_width_mm)
     return paginate_recovery_passphrase(
         surface,
         recovery_meta,
         style=style,
         guidance_style=guidance_style,
-        max_width_mm=passphrase_width_mm,
-        inline_height_mm=4.0 * surface.line_height(style, multiplier=1.08),
+        max_width_mm=inline_width_mm,
+        continuation_width_mm=continuation_width_mm,
+        inline_height_mm=12.0 * surface.line_height(style, multiplier=1.08),
         continuation_height_mm=value_rect.height_mm,
         line_height_multiplier=1.08,
     )
@@ -942,12 +1022,15 @@ def _build_recovery_page(
             page_rect=geometry.page.rect,
         )
     )
+    metadata_value_ids = tuple(
+        plan.component_id for plan in plans if plan.component_id.startswith(f"{prefix}-meta-value-")
+    )
     constraints = (
         SeparationConstraint(
             constraint_id=f"{prefix}-metadata-header-rule-clearance",
             first=ComponentGroup(
                 group_id=f"{prefix}-metadata-values",
-                component_ids=tuple(f"{prefix}-meta-value-{index}" for index in range(5)),
+                component_ids=metadata_value_ids,
             ),
             second=ComponentGroup(
                 group_id=f"{prefix}-header-rule-for-metadata",
@@ -1687,29 +1770,25 @@ def _recovery_meta_grid_plans(
     prefix: str,
     positions: Sequence[PdfRect],
 ) -> list[PaintPlan]:
-    passphrase = recovery_passphrase_display(recovery_meta)
-    rows = (
-        ("Document ID", (context.doc_id,), ""),
-        ("Created (UTC)", (context.created_timestamp_utc,), ""),
-        (
-            recovery_meta.quorum_label or "Shard Quorum",
-            (recovery_meta.quorum_value or "",),
-            "",
-        ),
-        ("Signing Key", tuple(recovery_meta.signing_pub_lines), ""),
-        (passphrase.label, passphrase.value_lines, passphrase.guidance),
+    rows = _archive_recovery_metadata_rows(
+        recovery_meta,
+        doc_id=context.doc_id,
+        created_timestamp_utc=context.created_timestamp_utc,
     )
     if len(positions) != len(rows):
         raise ValueError("Archive recovery metadata positions must match metadata rows")
     plans: list[PaintPlan] = []
     for index, (row, rect) in enumerate(zip(rows, positions, strict=True)):
-        label, values, guidance = row
+        if not row.visible:
+            continue
+        value_style = _archive_recovery_metadata_value_style(row)
+        value_lines = _archive_recovery_metadata_value_lines(row)
         value_y_mm = rect.y_mm + 2.7
-        if guidance:
+        if row.guidance:
             guidance_style = _body_style(size_pt=6.0, color=_INK_SOFT)
             guidance_fit = fit_text_to_width(
                 surface,
-                guidance,
+                row.guidance,
                 guidance_style,
                 max_width_mm=rect.width_mm,
                 policy=TextFitPolicy.WRAP,
@@ -1718,7 +1797,7 @@ def _recovery_meta_grid_plans(
             plans.append(
                 TextBox(
                     component_id=f"{prefix}-meta-guidance-{index}",
-                    text=guidance,
+                    text=row.guidance,
                     style=guidance_style,
                     policy=TextFitPolicy.WRAP,
                     line_height_multiplier=1.1,
@@ -1736,7 +1815,7 @@ def _recovery_meta_grid_plans(
         plans.append(
             TextBox(
                 component_id=f"{prefix}-meta-label-{index}",
-                text=label.upper(),
+                text=row.label.upper(),
                 style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_mm=0.12),
                 policy=TextFitPolicy.SHRINK,
                 min_size_pt=6.0,
@@ -1745,9 +1824,12 @@ def _recovery_meta_grid_plans(
         plans.append(
             TextBox(
                 component_id=f"{prefix}-meta-value-{index}",
-                text="\n".join(value for value in values if value),
-                style=_mono_style(size_pt=6.4, bold=True, color=_INK),
-                policy=TextFitPolicy.WRAP,
+                text="\n".join(value_lines),
+                style=value_style,
+                policy=(TextFitPolicy.SHRINK if row.grouped_signing_key else TextFitPolicy.WRAP),
+                min_size_pt=(
+                    _RECOVERY_SIGNING_KEY_MIN_SIZE_PT if row.grouped_signing_key else None
+                ),
                 line_height_multiplier=1.08,
             ).plan(
                 surface,
@@ -1995,10 +2077,20 @@ def _fallback_entry_plans(
                 TextBox(
                     component_id=f"{prefix}-fallback-line-{entry.section_index}-{entry.line_number}",
                     text=f"{page_entry.display_line_number:02d}. {entry.text}",
-                    style=_mono_style(size_pt=6.6, color=_INK),
+                    style=_mono_style(size_pt=_RECOVERY_FALLBACK_BODY_SIZE_PT, color=_INK),
                     policy=TextFitPolicy.SHRINK,
                     min_size_pt=6.5,
-                ).plan(surface, PdfRect(area.x_mm + 2.6, y_mm, area.width_mm - 5.0, 3.2))
+                ).plan(
+                    surface,
+                    PdfRect(
+                        area.x_mm + _RECOVERY_FALLBACK_LEFT_INSET_MM,
+                        y_mm,
+                        area.width_mm
+                        - _RECOVERY_FALLBACK_LEFT_INSET_MM
+                        - _RECOVERY_FALLBACK_RIGHT_INSET_MM,
+                        3.2,
+                    ),
+                )
             )
     return plans
 

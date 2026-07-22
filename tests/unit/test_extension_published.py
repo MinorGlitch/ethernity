@@ -16,6 +16,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from ethernity.cli.shared import api_codes
 from ethernity.crypto import sharding as sharding_module
@@ -80,6 +81,7 @@ class TestPublishedExtensionInventory(unittest.TestCase):
             sign_pub = derive_public_key(signing_seed)
             (extension_dir / f"qr_document-01-{doc_id_hex}.pdf").write_bytes(b"qr")
             (extension_dir / f"recovery_document-01-{doc_id_hex}.pdf").write_bytes(b"recovery")
+            (extension_dir / f"recovery_kit-01-{doc_id_hex}.pdf").write_bytes(b"kit")
             payloads = sharding_module.split_passphrase(
                 "secret",
                 threshold=2,
@@ -122,13 +124,64 @@ class TestPublishedExtensionInventory(unittest.TestCase):
                 read_shard_frames=lambda _carrier: [],
                 validate_recovery_document_carrier=lambda _carrier, _document, _sign_pub: None,
             )
+            wrong_share_index = inspect_published_extension_inventory(
+                root_dir,
+                read_carrier_document=lambda _carrier: _imported_document(
+                    doc_id=doc_id,
+                    doc_hash=doc_hash,
+                    signing_seed=signing_seed,
+                ),
+                read_shard_frames=lambda carrier: [
+                    frames_by_index[2 if carrier.share_index == 1 else 1]
+                ],
+                validate_recovery_document_carrier=lambda _carrier, _document, _sign_pub: None,
+            )
+            three_share_payloads = sharding_module.split_passphrase(
+                "secret",
+                threshold=2,
+                shares=3,
+                doc_hash=doc_hash,
+                sign_priv=signing_seed,
+                sign_pub=sign_pub,
+            )
+            three_share_frames = {
+                payload.share_index: Frame(
+                    version=1,
+                    frame_type=FrameType.KEY_DOCUMENT,
+                    doc_id=doc_id,
+                    index=0,
+                    total=1,
+                    data=sharding_module.encode_shard_payload(payload),
+                )
+                for payload in three_share_payloads
+            }
+            wrong_share_count = inspect_published_extension_inventory(
+                root_dir,
+                read_carrier_document=lambda _carrier: _imported_document(
+                    doc_id=doc_id,
+                    doc_hash=doc_hash,
+                    signing_seed=signing_seed,
+                ),
+                read_shard_frames=lambda carrier: [three_share_frames[carrier.share_index]],
+                validate_recovery_document_carrier=lambda _carrier, _document, _sign_pub: None,
+            )
 
         self.assertIsNone(inventory.failure)
         self.assertIsNotNone(corrupted.failure)
         assert corrupted.failure is not None
         self.assertIn("must contain exactly one shard payload", corrupted.failure.message)
+        assert wrong_share_index.failure is not None
+        self.assertIn(
+            "shard share_index does not match artifact filename",
+            wrong_share_index.failure.message,
+        )
+        assert wrong_share_count.failure is not None
+        self.assertIn(
+            "shard share_count does not match artifact filename",
+            wrong_share_count.failure.message,
+        )
 
-    def test_inventory_identity_comes_from_carrier_content_not_filename(self) -> None:
+    def test_inventory_rejects_filename_doc_id_that_differs_from_carrier_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir)
             extension_dir = root_dir / "extensions" / "01"
@@ -139,6 +192,7 @@ class TestPublishedExtensionInventory(unittest.TestCase):
             (extension_dir / f"recovery_document-01-{stale_doc_id_hex}.pdf").write_bytes(
                 b"recovery"
             )
+            (extension_dir / f"recovery_kit-01-{stale_doc_id_hex}.pdf").write_bytes(b"kit")
 
             signing_seed = b"\x33" * 32
 
@@ -153,10 +207,11 @@ class TestPublishedExtensionInventory(unittest.TestCase):
                 validate_recovery_document_carrier=lambda _carrier, _document, _sign_pub: None,
             )
 
-        self.assertIsNone(inventory.failure)
-        self.assertEqual(len(inventory.extensions), 1)
-        self.assertEqual(inventory.extensions[0].doc_id, content_doc_id)
-        self.assertEqual(inventory.latest_head_doc_hash, content_doc_hash.hex())
+        self.assertEqual(inventory.extensions, ())
+        self.assertIsNotNone(inventory.failure)
+        assert inventory.failure is not None
+        self.assertIn("canonical filename doc_id deadbeefcafebabe", inventory.failure.message)
+        self.assertIn(content_doc_id.hex(), inventory.failure.message)
 
     def test_inventory_validates_recovery_document_against_qr_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -164,10 +219,12 @@ class TestPublishedExtensionInventory(unittest.TestCase):
             extension_dir = root_dir / "extensions" / "01"
             extension_dir.mkdir(parents=True)
             doc_id, doc_hash = doc_id_and_hash_from_ciphertext(b"ciphertext")
+            doc_id_hex = doc_id.hex()
             signing_seed = b"\x33" * 32
-            (extension_dir / "qr_document-01-cafebabedeadbeef.pdf").write_bytes(b"qr")
-            recovery_path = extension_dir / "recovery_document-01-cafebabedeadbeef.pdf"
+            (extension_dir / f"qr_document-01-{doc_id_hex}.pdf").write_bytes(b"qr")
+            recovery_path = extension_dir / f"recovery_document-01-{doc_id_hex}.pdf"
             recovery_path.write_bytes(b"recovery")
+            (extension_dir / f"recovery_kit-01-{doc_id_hex}.pdf").write_bytes(b"kit")
             calls: list[tuple[str, bytes, bytes, bytes]] = []
 
             def _validate(carrier, document, sign_pub):
@@ -210,9 +267,11 @@ class TestPublishedExtensionInventory(unittest.TestCase):
             extension_dir = root_dir / "extensions" / "01"
             extension_dir.mkdir(parents=True)
             doc_id, doc_hash = doc_id_and_hash_from_ciphertext(b"ciphertext")
+            doc_id_hex = doc_id.hex()
             signing_seed = b"\x33" * 32
-            (extension_dir / "qr_document-01-cafebabedeadbeef.pdf").write_bytes(b"qr")
-            (extension_dir / "recovery_document-01-cafebabedeadbeef.pdf").write_bytes(b"recovery")
+            (extension_dir / f"qr_document-01-{doc_id_hex}.pdf").write_bytes(b"qr")
+            (extension_dir / f"recovery_document-01-{doc_id_hex}.pdf").write_bytes(b"recovery")
+            (extension_dir / f"recovery_kit-01-{doc_id_hex}.pdf").write_bytes(b"kit")
 
             def _reject(_carrier, _document, _sign_pub):
                 raise ValueError("stale recovery document")
@@ -231,6 +290,57 @@ class TestPublishedExtensionInventory(unittest.TestCase):
         self.assertIsNotNone(inventory.failure)
         self.assertEqual(inventory.failure.head_index, 1)
         self.assertIn("stale recovery document", inventory.failure.message)
+
+    def test_published_chain_rejects_filename_index_that_differs_from_decrypted_header(
+        self,
+    ) -> None:
+        signing_seed = b"\x33" * 32
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="a.txt", data=b"root", mtime=1),),
+            sealed=False,
+            signing_seed=signing_seed,
+            input_origin="file",
+            input_roots=(),
+        )
+        extension = ImportedRecoveryDocument.from_ciphertext(
+            ciphertext=b"extension-01",
+            auth_frames=(),
+            source_label="01",
+            extension_index=1,
+            extension_dir_name="01",
+        )
+        inventory = RecoveryExtensionInventory(
+            extensions=(extension,),
+            latest_head_index=1,
+            latest_head_doc_hash=extension.doc_hash.hex(),
+            latest_head_dir_name="01",
+        )
+        decoded = mock.Mock()
+        decoded.link.document.header.index = 2
+
+        with mock.patch(
+            "ethernity.extensions.published.decode_authenticated_extension_link",
+            return_value=decoded,
+        ):
+            inspection = inspect_published_extension_chain(
+                manifest=manifest,
+                payload=payload,
+                root_doc_hash=b"\x44" * 32,
+                passphrase="secret",
+                expected_sign_pub=derive_public_key(signing_seed),
+                root_auth_status="verified",
+                quiet=True,
+                debug=False,
+                inventory=inventory,
+            )
+
+        self.assertIsNotNone(inspection.refusal)
+        assert inspection.refusal is not None
+        self.assertIn(
+            "canonical filename index 1 does not match decrypted header index 2",
+            inspection.refusal.message,
+        )
+        self.assertEqual(inspection.links, ())
 
     def test_published_chain_refuses_extensions_when_root_auth_is_not_verified(self) -> None:
         manifest, payload = build_manifest_and_payload(

@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import time
 import zlib
 from collections.abc import Mapping, Sequence
@@ -50,7 +51,7 @@ from ethernity.encoding.cbor import dumps_canonical, loads_canonical
 from ethernity.encoding.varint import decode_uvarint, encode_uvarint
 from ethernity.formats.envelope_constants import MAGIC
 from ethernity.formats.envelope_types import MAX_MANIFEST_FILES
-from ethernity.formats.extension_chunking import require_canonical_chunk_refs
+from ethernity.formats.extension_chunking import require_canonical_chunk_boundary
 from ethernity.formats.extension_envelope_constants import (
     CHAIN_ID_PERSONALIZATION,
     CHUNK_ALGORITHM_FASTCDC,
@@ -546,25 +547,9 @@ class ExtensionEnvelope:
         reconstructed: list[tuple[ExtensionFile, bytes]] = []
         total_reconstructed = 0
         for file_entry in self.files:
-            payload = bytearray()
-            for chunk_ref in file_entry.chunk_refs:
-                resolved = chunk_bytes.get(chunk_ref.chunk_id)
-                if resolved is None:
-                    raise ValueError("extension file references unresolved chunk_id")
-                if len(resolved) != chunk_ref.uncompressed_len:
-                    raise ValueError("extension chunk_ref length does not match resolved chunk")
-                payload.extend(resolved)
-            file_bytes = bytes(payload)
-            if len(file_bytes) != file_entry.size:
-                raise ValueError("extension reconstructed file size mismatch")
-            if hashlib.sha256(file_bytes).digest() != file_entry.sha256:
-                raise ValueError(f"extension file sha256 mismatch for {file_entry.path}")
-            require_canonical_chunk_refs(
-                tuple(
-                    (chunk_ref.chunk_id, chunk_ref.uncompressed_len)
-                    for chunk_ref in file_entry.chunk_refs
-                ),
-                file_bytes,
+            file_bytes = _reconstruct_extension_file_bytes(
+                file_entry,
+                chunk_bytes,
                 self.header.chunking,
             )
             total_reconstructed += len(file_bytes)
@@ -641,6 +626,42 @@ class ExtensionEnvelope:
             files=tuple(ExtensionFile.from_cbor(item) for item in files_raw),
             chunks=tuple(ExtensionChunkRecord.from_cbor(item) for item in chunks_raw),
         )
+
+
+def _reconstruct_extension_file_bytes(
+    file_entry: ExtensionFile,
+    available_chunks: Mapping[bytes, bytes],
+    chunking: ExtensionChunkingProfile,
+) -> bytes:
+    """Resolve into one bounded sink while hashing and validating declared boundaries."""
+
+    sink = io.BytesIO()
+    file_hasher = hashlib.sha256()
+    resolved_size = 0
+    final_ref_index = len(file_entry.chunk_refs) - 1
+    for index, chunk_ref in enumerate(file_entry.chunk_refs):
+        resolved = available_chunks.get(chunk_ref.chunk_id)
+        if resolved is None:
+            raise ValueError(f"extension file references unresolved chunk_id: {file_entry.path}")
+        if len(resolved) != chunk_ref.uncompressed_len:
+            raise ValueError("extension chunk_ref length does not match resolved chunk")
+        next_resolved_size = resolved_size + len(resolved)
+        if next_resolved_size > file_entry.size:
+            raise ValueError("extension file chunk_refs exceed declared file size")
+        require_canonical_chunk_boundary(
+            memoryview(resolved),
+            chunking,
+            is_final=index == final_ref_index,
+        )
+        file_hasher.update(resolved)
+        sink.write(resolved)
+        resolved_size = next_resolved_size
+
+    if resolved_size != file_entry.size:
+        raise ValueError("extension reconstructed file size mismatch")
+    if file_hasher.digest() != file_entry.sha256:
+        raise ValueError(f"extension file sha256 mismatch for {file_entry.path}")
+    return sink.getvalue()
 
 
 def build_extension_header(

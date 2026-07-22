@@ -31,9 +31,10 @@ import {
 } from "../app/extensions/envelope.js";
 import { defaultExtensionChunker } from "../app/extensions/chunking.js";
 import {
-  recoverLatestFromEncryptedDocuments,
-  recoverLatestFromPlaintextDocuments,
+  recoverLatestFromEncryptedDocuments as recoverEncryptedCore,
+  recoverLatestFromPlaintextDocuments as recoverPlaintextCore,
 } from "../app/extensions/recovery.js";
+import { readEnvelopeVersion } from "../app/envelope.js";
 import { addFrame } from "../app/frames_apply.js";
 import { collectedRecoveryDocuments } from "../app/frames_cipher.js";
 import { decodeFrame } from "../app/frames_protocol.js";
@@ -258,8 +259,9 @@ function buildEnvelope(version, firstSection, secondSection) {
   ]);
 }
 
-function createStore() {
+function createStore({ freshnessUnknownAcknowledged = true } = {}) {
   let state = createInitialState();
+  state.freshnessUnknownAcknowledged = freshnessUnknownAcknowledged;
   return {
     dispatch(action) {
       state = reducer(state, action);
@@ -282,6 +284,88 @@ function documentFromPlaintext({ docId, ciphertextSeed, plaintext, signPub = ROO
     plaintext,
     authPayload: { version: 1, docHash, signPub, signature: SIGNATURE },
   };
+}
+
+function explicitPlaintextFreshness(documents, options = {}) {
+  const target = options.extensionTarget ?? "latest";
+  if (
+    options.recoveryAnchor ||
+    options.freshnessUnknownAcknowledged === true ||
+    target?.expectedHeadDocHashHex
+  ) {
+    return options;
+  }
+  if (target === "latest" || target?.kind === "latest") {
+    return { ...options, freshnessUnknownAcknowledged: true };
+  }
+  if (target?.kind === "doc_hash") {
+    return options;
+  }
+  if (target === "root" || target?.kind === "root" || target?.index === 0) {
+    const root = documents.find(
+      (document) => readEnvelopeVersion(document.plaintext) === ENVELOPE_VERSION,
+    );
+    return {
+      ...options,
+      extensionTarget: { kind: "root", expectedHeadDocHashHex: root?.docHashHex },
+    };
+  }
+  if (target?.kind === "index") {
+    const selected = documents.find((document) => {
+      if (readEnvelopeVersion(document.plaintext) !== EXTENSION_ENVELOPE_VERSION) return false;
+      return decodeExtensionEnvelopeHeader(document.plaintext).index === target.index;
+    });
+    return {
+      ...options,
+      extensionTarget: { ...target, expectedHeadDocHashHex: selected?.docHashHex },
+    };
+  }
+  return options;
+}
+
+function recoverLatestFromPlaintextDocuments(documents, options = {}) {
+  return recoverPlaintextCore(documents, explicitPlaintextFreshness(documents, options));
+}
+
+function recoverLatestFromEncryptedDocuments(documents, passphrase, decrypt, options = {}) {
+  const target = options.extensionTarget ?? "latest";
+  if (
+    !options.recoveryAnchor &&
+    !options.freshnessUnknownAcknowledged &&
+    (target === "latest" || target?.kind === "latest")
+  ) {
+    return recoverEncryptedCore(documents, passphrase, decrypt, {
+      ...options,
+      freshnessUnknownAcknowledged: true,
+    });
+  }
+  if (!options.recoveryAnchor && !target?.expectedHeadDocHashHex) {
+    if (target === "root" || target?.kind === "root" || target?.index === 0) {
+      const root = documents[0];
+      return recoverEncryptedCore(documents, passphrase, decrypt, {
+        ...options,
+        extensionTarget: {
+          kind: "root",
+          expectedHeadDocHashHex:
+            root.docHashHex ?? bytesToHex(root.docHash ?? blake2b256(root.ciphertext)),
+        },
+      });
+    }
+    if (target?.kind === "index") {
+      const selected = documents.find((document) => {
+        if (!document.plaintext) return false;
+        if (readEnvelopeVersion(document.plaintext) !== EXTENSION_ENVELOPE_VERSION) return false;
+        return decodeExtensionEnvelopeHeader(document.plaintext).index === target.index;
+      });
+      if (selected) {
+        return recoverEncryptedCore(documents, passphrase, decrypt, {
+          ...options,
+          extensionTarget: { ...target, expectedHeadDocHashHex: selected.docHashHex },
+        });
+      }
+    }
+  }
+  return recoverEncryptedCore(documents, passphrase, decrypt, options);
 }
 
 function addSingleFrameDocument(
@@ -807,6 +891,113 @@ test("browser recovery replays the latest supplied authenticated extension chain
       ["a.txt", 222],
       ["b.txt", 333],
     ],
+  );
+});
+
+test("browser recovery rejects silent latest without a freshness decision", async () => {
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x11),
+    plaintext: buildRootPlaintext([{ path: "a.txt", data: new TextEncoder().encode("root") }]),
+  });
+
+  await assert.rejects(
+    () => recoverPlaintextCore([root], { verifySignature: verifiedSignature }),
+    /latest recovery requires an expected head hash or explicit freshness-unknown acknowledgement/u,
+  );
+});
+
+test("browser recovery labels explicitly acknowledged latest as internally consistent", async () => {
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x12),
+    plaintext: buildRootPlaintext([{ path: "a.txt", data: new TextEncoder().encode("root") }]),
+  });
+
+  const result = await recoverPlaintextCore([root], {
+    verifySignature: verifiedSignature,
+    freshnessUnknownAcknowledged: true,
+  });
+
+  assert.equal(result.freshnessDecision, "supplied_pages_freshness_unknown");
+  assert.equal(result.trustBasis, "internally_consistent");
+});
+
+test("chain-bound kit recovery enforces root, signing authority, and latest head anchors", async () => {
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x18),
+    plaintext: buildRootPlaintext([{ path: "a.txt", data: textEncoder.encode("root") }]),
+  });
+  const extension = documentFromPlaintext({
+    docId: EXT1_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x28),
+    plaintext: buildExtensionPlaintext({
+      index: 1,
+      parentDocHash: root.docHash,
+      rootDocHash: root.docHash,
+      files: [{ path: "a.txt", data: textEncoder.encode("one") }],
+    }),
+  });
+  const anchor = {
+    rootDocumentHashHex: root.docHashHex,
+    rootSigningPublicKeyFingerprintHex: bytesToHex(sha256(ROOT_SIGN_PUB)),
+    expectedLatestHeadHashHex: extension.docHashHex,
+  };
+
+  const result = await recoverLatestFromPlaintextDocuments([root, extension], {
+    verifySignature: verifiedSignature,
+    extensionTarget: {
+      kind: "latest",
+      expectedHeadDocHashHex: anchor.expectedLatestHeadHashHex,
+    },
+    recoveryAnchor: anchor,
+  });
+  assert.equal(result.selectedExtensionDocHash, extension.docHashHex);
+  assert.equal(result.freshnessDecision, "trusted_kit");
+  assert.equal(result.trustBasis, "matched_trusted_kit");
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromPlaintextDocuments([root, extension], {
+        verifySignature: verifiedSignature,
+        recoveryAnchor: { ...anchor, rootDocumentHashHex: "00".repeat(32) },
+      }),
+    /root backup does not match the recovery kit anchor/u,
+  );
+  await assert.rejects(
+    () =>
+      recoverLatestFromPlaintextDocuments([root, extension], {
+        verifySignature: verifiedSignature,
+        recoveryAnchor: {
+          ...anchor,
+          rootSigningPublicKeyFingerprintHex: "00".repeat(32),
+        },
+      }),
+    /root signing authority does not match the recovery kit anchor/u,
+  );
+});
+
+test("chain-bound kit refuses root-only recovery when it pins an extension head", async () => {
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x19),
+    plaintext: buildRootPlaintext([{ path: "a.txt", data: new TextEncoder().encode("root") }]),
+  });
+  const anchor = {
+    rootDocumentHashHex: root.docHashHex,
+    rootSigningPublicKeyFingerprintHex: bytesToHex(sha256(ROOT_SIGN_PUB)),
+    expectedLatestHeadHashHex: "ff".repeat(32),
+  };
+
+  await assert.rejects(
+    () =>
+      recoverPlaintextCore([root], {
+        verifySignature: verifiedSignature,
+        extensionTarget: "root",
+        recoveryAnchor: anchor,
+      }),
+    /root-only recovery refused because the trusted kit pins a non-root head/u,
   );
 });
 
@@ -1790,13 +1981,19 @@ test("browser decrypt action recovers latest supplied extension status", async (
     [["a.txt", "extension"]],
   );
   assert.equal(
+    finalState.decryptStatus.lines.includes("Replay target: latest supplied extension 1."),
+    true,
+  );
+  assert.equal(
     finalState.decryptStatus.lines.includes(
-      "Replay target: latest supplied authenticated extension 1.",
+      "Freshness: unknown beyond supplied pages; explicit acknowledgement used.",
     ),
     true,
   );
   assert.equal(
-    finalState.decryptStatus.lines.includes("Freshness scope: supplied carriers only."),
+    finalState.decryptStatus.lines.includes(
+      "Trust: Internally consistent — signatures agree with keys carried by the supplied set.",
+    ),
     true,
   );
 });
@@ -2040,6 +2237,7 @@ test("browser decrypt action can recover root only from multiple supplied docume
   state.agePassphrase = "pw";
   const rootCiphertext = Uint8Array.of(0x1c);
   const extCiphertext = Uint8Array.of(0x2c);
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(rootCiphertext));
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
@@ -2084,6 +2282,7 @@ test("browser decrypt action can recover root only with incomplete extension fra
   const state = store.getState();
   state.agePassphrase = "pw";
   const rootCiphertext = Uint8Array.of(0x1d);
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(rootCiphertext));
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
@@ -2125,6 +2324,7 @@ test("browser decrypt action reports ignored AUTH-only frames for root-only reco
   const state = store.getState();
   state.agePassphrase = "pw";
   const rootCiphertext = Uint8Array.of(0x1f);
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(rootCiphertext));
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
@@ -2170,6 +2370,7 @@ test("browser decrypt action can recover selected extension with incomplete late
   state.extensionTargetText = "1";
   const rootCiphertext = Uint8Array.of(0x35);
   const ext1Ciphertext = Uint8Array.of(0x36);
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(ext1Ciphertext));
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
@@ -2210,7 +2411,7 @@ test("browser decrypt action can recover selected extension with incomplete late
   assert.equal(finalState.recoveryComplete, true);
   assert.equal(finalState.decryptStatus.type, "ok");
   assert.equal(
-    finalState.decryptStatus.lines.includes("Replay target: supplied authenticated extension 1."),
+    finalState.decryptStatus.lines.includes("Replay target: supplied extension 1."),
     true,
   );
   assert.equal(
@@ -2303,6 +2504,7 @@ test("browser action state blocks latest recovery for AUTH-only extension record
   );
 
   assert.equal(selectActionState(state).canDecryptCiphertext, false);
+  state.expectedHeadDocHashText = "aa".repeat(32);
   state.extensionTargetText = "root";
   assert.equal(selectActionState(state).canDecryptCiphertext, true);
   state.extensionTargetText = "1";
@@ -2316,6 +2518,7 @@ test("browser decrypt action accepts extension target input by index", async () 
   state.extensionTargetText = "1";
   const rootCiphertext = Uint8Array.of(0x3c);
   const ext1Ciphertext = Uint8Array.of(0x4c);
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(ext1Ciphertext));
   const ext2Ciphertext = Uint8Array.of(0x5c);
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
@@ -2351,7 +2554,7 @@ test("browser decrypt action accepts extension target input by index", async () 
   assert.equal(finalState.recoveryComplete, true);
   assert.equal(finalState.decryptStatus.type, "ok");
   assert.equal(
-    finalState.decryptStatus.lines.includes("Replay target: supplied authenticated extension 1."),
+    finalState.decryptStatus.lines.includes("Replay target: supplied extension 1."),
     true,
   );
   assert.deepEqual(
@@ -2498,8 +2701,12 @@ test("browser decrypt action accepts dedicated expected head doc hash", async ()
   assert.equal(finalState.recoveryComplete, true);
   assert.equal(finalState.decryptStatus.type, "ok");
   assert.equal(
+    finalState.decryptStatus.lines.includes("Replay target: latest supplied extension 1."),
+    true,
+  );
+  assert.equal(
     finalState.decryptStatus.lines.includes(
-      "Replay target: latest supplied authenticated extension 1.",
+      "Freshness: matched the manually entered expected head hash.",
     ),
     true,
   );
@@ -3083,6 +3290,22 @@ test("encrypted file download is disabled for multi-document scans", () => {
   );
 });
 
+test("browser action state requires an explicit latest freshness decision", () => {
+  const state = createInitialState();
+  state.agePassphrase = "pw";
+  addSingleFrameDocument(state, { ciphertext: Uint8Array.of(0xa0) });
+
+  const blocked = selectActionState(state);
+  assert.equal(blocked.canDecryptCiphertext, false);
+  assert.equal(
+    blocked.decryptDisabledReason,
+    "Enter an expected head hash or acknowledge unknown freshness.",
+  );
+
+  state.freshnessUnknownAcknowledged = true;
+  assert.equal(selectActionState(state).canDecryptCiphertext, true);
+});
+
 test("multi-document collection waits for incomplete extensions before latest recovery", () => {
   const state = createInitialState();
   state.agePassphrase = "pw";
@@ -3100,6 +3323,7 @@ test("multi-document collection waits for incomplete extensions before latest re
     ),
   );
 
+  state.expectedHeadDocHashText = bytesToHex(blake2b256(Uint8Array.of(0xa3)));
   const latestActionState = selectActionState(state);
   assert.equal(selectFrameCollectionComplete(state), false);
   assert.equal(latestActionState.canDecryptCiphertext, false);

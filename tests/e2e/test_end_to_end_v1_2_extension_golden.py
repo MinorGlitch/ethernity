@@ -353,8 +353,10 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                 str(snapshot["passphrase"]),
                 "--design",
                 "forge",
+                "--recovery-threshold",
+                "1",
                 "--recovery-count",
-                "0",
+                "1",
                 "--yes",
             )
             self._run_ok(create_duplicate)
@@ -571,11 +573,13 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
         shard_text = snapshot["shard_fixtures"]["extension"]["text"]
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
+            source_chain = tmp_path / "source-chain"
+            shutil.copytree(scenario_root / str(snapshot["chain_dir"]), source_chain)
             compacted = tmp_path / "compacted"
             compact = self._run_task_args(
                 "rebuild",
                 "--backup-folder",
-                scenario_root / str(snapshot["chain_dir"]),
+                source_chain,
                 "--recovery-payloads-file",
                 scenario_root / shard_text,
                 "--output-dir",

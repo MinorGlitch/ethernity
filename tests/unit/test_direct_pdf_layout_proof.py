@@ -47,6 +47,24 @@ class TestDirectPdfLayoutProof(unittest.TestCase):
         self.assertEqual(proof.pages[0].components[1].policy, "fail")
         self.assertEqual(proof.pages[0].components[1].line_count, 1)
 
+    def test_build_direct_layout_proof_identifies_text_components(self) -> None:
+        surface = FpdfSurface(page_width_mm=80, page_height_mm=80)
+        text = TextBox(
+            component_id="title",
+            text="Measured title",
+            style=TextStyle(family="Helvetica", size_pt=10),
+            policy=TextFitPolicy.FAIL,
+        ).plan(surface, PdfRect(8, 10, 40, 8))
+        page = build_page_plan(
+            page_number=1,
+            rect=PdfRect(0, 0, 80, 80),
+            plans=(text,),
+        )
+
+        proof = build_direct_layout_proof((page,))
+
+        self.assertEqual(proof.pages[0].components[0].component_type, "text")
+
     def test_build_direct_layout_proof_serializes_separation_constraint_results(self) -> None:
         surface = FpdfSurface(page_width_mm=80, page_height_mm=80)
         left = Panel(component_id="left", stroke=PdfColor(0, 0, 0)).plan(

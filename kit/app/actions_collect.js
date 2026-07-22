@@ -44,6 +44,7 @@ const RECOVERY_INPUT_FIELDS = new Set([
   "agePassphrase",
   "extensionTargetText",
   "expectedHeadDocHashText",
+  "freshnessUnknownAcknowledged",
 ]);
 
 function parsedMainAccepted(base, before, added) {

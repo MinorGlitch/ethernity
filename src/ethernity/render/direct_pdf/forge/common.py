@@ -98,6 +98,14 @@ class ForgePageLayout:
         return self.regions.safe.x_mm + (self.regions.safe.width_mm - width_mm) / 2.0
 
 
+@dataclass(frozen=True)
+class ForgeHeaderPlan:
+    """Measured Forge header chrome and its physical lower boundary."""
+
+    plans: tuple[PaintPlan, ...]
+    bottom_mm: float
+
+
 def build_forge_page_layout(page: PageGeometry) -> ForgePageLayout:
     """Resolve Forge safe/header/body/footer regions from physical page dimensions."""
 
@@ -126,6 +134,7 @@ def build_forge_content_constraints(
     content_component_ids: tuple[str, ...],
     header_clearance_mm: float = 1.5,
     footer_clearance_mm: float = 3.0,
+    header_bottom_mm: float | None = None,
 ) -> tuple[SeparationConstraint, ...]:
     """Prove that declared body components stay clear of Forge shell regions."""
 
@@ -134,13 +143,23 @@ def build_forge_content_constraints(
         group_id=f"{prefix}-semantic-content",
         component_ids=content_component_ids,
     )
+    header_region = layout.regions.header
+    if header_bottom_mm is not None:
+        if header_bottom_mm < header_region.y_mm:
+            raise ValueError("Forge measured header bottom precedes the header region")
+        header_region = PdfRect(
+            header_region.x_mm,
+            header_region.y_mm,
+            header_region.width_mm,
+            max(header_region.height_mm, header_bottom_mm - header_region.y_mm),
+        )
     return (
         SeparationConstraint(
             constraint_id=f"{prefix}-content-after-header",
             first=content,
             second=LayoutRegion(
                 region_id=f"{prefix}-header-safe-region",
-                rect=layout.regions.header,
+                rect=header_region,
             ),
             minimum_clearance_mm=header_clearance_mm,
         ),
@@ -422,6 +441,44 @@ def build_forge_header_plans(
     return plans
 
 
+def build_forge_header_plan(
+    surface: PdfSurface,
+    context: ForgeShellContext,
+    *,
+    page_label: str,
+    page_number: int,
+    component_base: str,
+    classification_default: str,
+    kicker_text: str | None = None,
+    icon_text: str | None = None,
+    classification_override: str | None = None,
+    title_default: str = "Document",
+    subtitle_default: str = "",
+    page_rect: PdfRect,
+) -> ForgeHeaderPlan:
+    """Build Forge header plans together with their measured lower boundary."""
+
+    plans = tuple(
+        build_forge_header_plans(
+            surface,
+            context,
+            page_label=page_label,
+            page_number=page_number,
+            component_base=component_base,
+            classification_default=classification_default,
+            kicker_text=kicker_text,
+            icon_text=icon_text,
+            classification_override=classification_override,
+            title_default=title_default,
+            subtitle_default=subtitle_default,
+            page_rect=page_rect,
+        )
+    )
+    prefix = component_prefix(component_base, page_number)
+    header_rule = next(plan for plan in plans if plan.component_id == f"{prefix}-header-rule")
+    return ForgeHeaderPlan(plans=plans, bottom_mm=header_rule.proof.rect.bottom_mm)
+
+
 def build_forge_footer_plans(
     surface: PdfSurface,
     context: ForgeShellContext,
@@ -510,10 +567,12 @@ __all__ = [
     "FORGE_SYMBOLS_FONT",
     "FORGE_WHITE",
     "ForgePageLayout",
+    "ForgeHeaderPlan",
     "ForgeShellContext",
     "build_forge_content_constraints",
     "build_forge_footer_plans",
     "build_forge_header_plans",
+    "build_forge_header_plan",
     "build_forge_page_layout",
     "build_forge_shell_context",
     "explicit_creation_date",

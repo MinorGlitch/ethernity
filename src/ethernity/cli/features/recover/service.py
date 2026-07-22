@@ -36,6 +36,7 @@ from ethernity.cli.shared.events import (
 from ethernity.cli.shared.io.outputs import single_entry_uses_directory_output
 from ethernity.cli.shared.paths import display_parent_path
 from ethernity.cli.shared.types import RecoverArgs
+from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 
 
@@ -65,7 +66,12 @@ def prepare_recover_plan(
     *,
     event_sink: EventSink | None = None,
 ) -> RecoveryPlan:
-    with event_session(event_sink):
+    with (
+        event_session(event_sink),
+        recovery_kdf_budget(
+            allow_resource_intensive_compatibility=(args.resource_intensive_compatibility_recovery)
+        ),
+    ):
         emit_phase(phase="plan", label="Resolving recovery inputs")
         plan = plan_from_args(args)
         emit_progress(
@@ -92,7 +98,12 @@ def execute_recover_plan(
     emit_file_artifacts: bool = True,
     event_sink: EventSink | None = None,
 ) -> RecoverExecutionResult:
-    with event_session(event_sink):
+    with (
+        event_session(event_sink),
+        recovery_kdf_budget(
+            allow_resource_intensive_compatibility=(plan.resource_intensive_compatibility_recovery)
+        ),
+    ):
         file_payloads: list[dict[str, object]] = []
 
         def _on_file_written(

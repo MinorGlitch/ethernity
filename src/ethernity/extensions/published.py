@@ -28,9 +28,9 @@ from ethernity.encoding.frame_sets import deduplicate_identical_frames
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import errors as extension_errors
 from ethernity.extensions.chain import (
+    ExtensionReplayError,
     extract_root_logical_state,
     reconstruct_authenticated_latest_logical_state,
-    validate_authenticated_extension_chain,
 )
 from ethernity.extensions.discovery import (
     DiscoveredExtensionMainCarrier,
@@ -46,7 +46,6 @@ from ethernity.extensions.recovery import (
     RecoveryHeadTrustRefusal,
     RecoveryReplayFailure,
     decode_authenticated_extension_link,
-    locate_replay_failure,
     resolve_required_auth_payload,
     validated_head_details,
 )
@@ -74,6 +73,7 @@ def inspect_published_extension_inventory(
         try:
             document, auth_sign_pub = _scan_published_extension_payload_carriers(
                 item_dir_name=item.dir_name,
+                filename_doc_id_hex=item.doc_id_hex,
                 main_carriers=tuple(item.main_carriers),
                 read_carrier_document=read_carrier_document,
                 shard_carriers=tuple(item.shard_carriers),
@@ -118,6 +118,7 @@ def inspect_published_extension_inventory(
 def _scan_published_extension_payload_carriers(
     *,
     item_dir_name: str,
+    filename_doc_id_hex: str,
     main_carriers: tuple[DiscoveredExtensionMainCarrier, ...],
     read_carrier_document: PublishedCarrierReader,
     shard_carriers: tuple[DiscoveredExtensionShardCarrier, ...],
@@ -148,6 +149,11 @@ def _scan_published_extension_payload_carriers(
             )
     if document is None or auth_sign_pub is None:
         raise ValueError(f"extension {item_dir_name} MAIN carriers could not be reconstructed")
+    if filename_doc_id_hex != document.doc_id.hex():
+        raise ValueError(
+            f"extension {item_dir_name} canonical filename doc_id {filename_doc_id_hex} "
+            f"does not match derived ciphertext doc_id {document.doc_id.hex()}"
+        )
     recovery_document_carrier = _required_published_extension_main_carrier(
         item_dir_name=item_dir_name,
         main_carriers=main_carriers,
@@ -351,6 +357,7 @@ def inspect_published_extension_chain(
                 debug=debug,
                 max_inline_chunk_bytes=remaining_inline_chunk_bytes,
             )
+            _validate_published_extension_header_index(item=item, decoded=decoded)
         except ValueError as exc:
             head_index, head_hash, head_auth, head_verified = validated_head_details(
                 root_doc_hash,
@@ -396,11 +403,6 @@ def inspect_published_extension_chain(
         )
 
     try:
-        locked_chunking = validate_authenticated_extension_chain(
-            root_doc_hash=root_doc_hash,
-            expected_sign_pub=expected_sign_pub,
-            extensions=tuple(item.link for item in links),
-        )
         latest_state = reconstruct_authenticated_latest_logical_state(
             manifest,
             payload,
@@ -408,18 +410,21 @@ def inspect_published_extension_chain(
             expected_sign_pub=expected_sign_pub,
             extensions=tuple(item.link for item in links),
         )
-    except ValueError as exc:
-        failure, validated_links = locate_replay_failure(
-            root_manifest=manifest,
-            payload=payload,
-            root_doc_hash=root_doc_hash,
-            expected_sign_pub=expected_sign_pub,
-            selected_links=tuple(links),
+        locked_chunking = links[0].link.document.header.chunking
+    except ExtensionReplayError as exc:
+        validated_link = next(
+            (
+                item
+                for item in links
+                if item.link.document.header.index == exc.last_validated_head_index
+                and item.link.doc_hash == exc.last_validated_head_hash
+            ),
+            None,
         )
-        head_index, head_hash, head_auth, head_verified = validated_head_details(
-            root_doc_hash,
-            validated_links,
-        )
+        head_index = exc.last_validated_head_index
+        head_hash = exc.last_validated_head_hash.hex()
+        head_auth = None if validated_link is None else validated_link.auth_status
+        head_verified = None if validated_link is None else validated_link.root_authority_verified
         return RecoveryChainInspection(
             inventory=inventory,
             links=tuple(links),
@@ -429,9 +434,10 @@ def inspect_published_extension_chain(
                 code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
                 message=str(exc),
                 details={
-                    "stage": "chain",
-                    "failure_head_index": failure.link.document.header.index,
-                    "failure_head_doc_hash": failure.link.doc_hash.hex(),
+                    "stage": "replay",
+                    "failure_stage": exc.failure_phase,
+                    "failure_head_index": exc.failing_index,
+                    "failure_head_doc_hash": exc.failing_hash.hex(),
                     "validated_head_index": head_index,
                     "validated_head_doc_hash": head_hash,
                 },
@@ -454,6 +460,22 @@ def inspect_published_extension_chain(
         validated_head_auth_status=latest.auth_status,
         validated_head_root_authority_verified=latest.root_authority_verified,
     )
+
+
+def _validate_published_extension_header_index(
+    *,
+    item: ImportedRecoveryDocument,
+    decoded: DecodedExtensionLink,
+) -> None:
+    filename_index = item.extension_index
+    if filename_index is None:
+        raise ValueError("published extension is missing its canonical filename index")
+    header_index = decoded.link.document.header.index
+    if filename_index != header_index:
+        raise ValueError(
+            f"canonical filename index {filename_index} does not match decrypted "
+            f"header index {header_index}"
+        )
 
 
 def root_head_root_authority_verified(

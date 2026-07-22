@@ -9,6 +9,7 @@ from ethernity.render import render_frames_to_pdf
 from ethernity.render.direct_pdf.archive import (
     build_archive_kit_direct_plan,
     build_archive_main_direct_plan,
+    build_archive_recovery_direct_plan,
     build_archive_shard_direct_plan,
     build_archive_signing_key_shard_direct_plan,
     render_archive_kit_direct_pdf,
@@ -18,7 +19,12 @@ from ethernity.render.direct_pdf.archive import (
     render_archive_signing_key_shard_direct_pdf,
 )
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
-from ethernity.render.direct_pdf.page_geometry import A4_HEIGHT_MM, A4_WIDTH_MM
+from ethernity.render.direct_pdf.page_geometry import (
+    A4_HEIGHT_MM,
+    A4_WIDTH_MM,
+    LETTER_HEIGHT_MM,
+    LETTER_WIDTH_MM,
+)
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
@@ -28,6 +34,7 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
 from ethernity.render.proofs import (
+    extract_pdf_text,
     validate_fallback_text_in_pdf,
     validate_pdf_has_pages,
     validate_render_artifact_proof,
@@ -50,6 +57,11 @@ _RECOVERY_PASSPHRASES = (
     ("typical", _TWENTY_FOUR_WORD_PASSPHRASE),
     ("worst-case", _WORST_CASE_TWENTY_FOUR_WORD_PASSPHRASE),
 )
+
+_PAPER_DIMENSIONS = {
+    "A4": (A4_WIDTH_MM, A4_HEIGHT_MM),
+    "LETTER": (LETTER_WIDTH_MM, LETTER_HEIGHT_MM),
+}
 
 
 def _frames(frame_type: FrameType, count: int, *, label: str) -> tuple[Frame, ...]:
@@ -345,6 +357,72 @@ class TestDirectPdfArchive(unittest.TestCase):
                 expected_text=("RECOVERY DOCUMENT", "FALLBACK BLOCKS", "AUTH FRAME"),
             )
 
+    def test_recovery_fallback_uses_measured_width_and_available_rows(self) -> None:
+        page_sizes = (
+            (PaperSize("A4", "A4", 210.0, 297.0), 6),
+            (PaperSize("LETTER", "Letter", 215.9, 279.4), 6),
+            (PaperSize("FUTURE-RECOVERY", "Future recovery", 260.0, 360.0), 3),
+        )
+        longest_rows: dict[str, int] = {}
+        with TemporaryDirectory() as tmp:
+            for page_size, maximum_pages in page_sizes:
+                with self.subTest(page_size=page_size.name):
+                    base_inputs = _recovery_inputs(
+                        Path(tmp) / f"recovery-capacity-{page_size.name}.pdf",
+                        auth_size=512,
+                        main_size=12_000,
+                    )
+                    inputs = replace(
+                        base_inputs,
+                        context={**base_inputs.context, "paper_size": page_size.name},
+                        page_size=page_size,
+                    )
+                    surface = FpdfSurface(
+                        page_width_mm=page_size.width_mm,
+                        page_height_mm=page_size.height_mm,
+                    )
+                    packaged_direct_pdf_assets().register_fonts(surface)
+
+                    plan = build_archive_recovery_direct_plan(surface, inputs)
+
+                    self.assertLessEqual(len(plan.page_plans), maximum_pages)
+                    lines = [
+                        item
+                        for page_plan in plan.page_plans
+                        for item in page_plan.plans
+                        if "-fallback-line-" in item.component_id
+                    ]
+                    longest_row = max(len(item.lines[0].text) for item in lines)
+                    longest_rows[page_size.name] = longest_row
+                    full_rows = [item for item in lines if len(item.lines[0].text) == longest_row]
+                    self.assertGreaterEqual(
+                        min(
+                            item.proof.used_rect.width_mm / item.proof.rect.width_mm
+                            for item in full_rows
+                        ),
+                        0.95,
+                    )
+                    for page_plan in plan.page_plans[:-1]:
+                        panel = next(
+                            item
+                            for item in page_plan.plans
+                            if item.component_id.endswith("-fallback-panel")
+                        )
+                        fallback_content = [
+                            item
+                            for item in page_plan.plans
+                            if "-fallback-title-" in item.component_id
+                            or "-fallback-line-" in item.component_id
+                        ]
+                        unused_height_mm = panel.proof.rect.bottom_mm - max(
+                            item.proof.used_rect.bottom_mm for item in fallback_content
+                        )
+                        self.assertGreaterEqual(unused_height_mm, 0.0)
+                        self.assertLessEqual(unused_height_mm, 2 * 4.25)
+
+        self.assertLessEqual(longest_rows["A4"], longest_rows["LETTER"])
+        self.assertLess(longest_rows["LETTER"], longest_rows["FUTURE-RECOVERY"])
+
     def test_public_render_fits_24_word_passphrase_on_a4_and_letter(self) -> None:
         with TemporaryDirectory() as tmp:
             for phrase_name, phrase in _RECOVERY_PASSPHRASES:
@@ -387,7 +465,8 @@ class TestDirectPdfArchive(unittest.TestCase):
                                 for component in page.components
                                 if component.component_id.endswith("-meta-value-4")
                             )
-                            self.assertEqual(passphrase.line_count, 4)
+                            self.assertGreaterEqual(passphrase.line_count, 4)
+                            self.assertLessEqual(passphrase.line_count, 8)
                             self.assertGreaterEqual(passphrase.font_size_pt or 0.0, 6.4)
                             constraint_ids = {
                                 constraint.constraint_id
@@ -407,10 +486,127 @@ class TestDirectPdfArchive(unittest.TestCase):
                                     "-validation-footer-clearance",
                                 }.issubset(constraint_ids)
                             )
-                        validate_text_in_pdf(
-                            artifact_label="public Archive 24-word recovery document",
-                            reader=reader,
-                            expected_text=recovery_meta.passphrase_lines,
+                        extracted_text = " ".join(extract_pdf_text(reader).split())
+                        self.assertIn(
+                            " ".join(recovery_meta.passphrase_lines),
+                            extracted_text,
+                        )
+
+    def test_recovery_metadata_keeps_credential_and_grouped_signing_key_on_one_row(
+        self,
+    ) -> None:
+        cases = (
+            (
+                "passphrase",
+                build_recovery_meta(
+                    passphrase="demo-render-passphrase",
+                    quorum_threshold=None,
+                    quorum_shares=None,
+                    signing_pub=b"\x31" * 32,
+                ),
+                "archive-recovery-p1-meta-label-4",
+                "archive-recovery-p1-meta-label-2",
+                26.0,
+            ),
+            (
+                "quorum",
+                build_recovery_meta(
+                    passphrase=None,
+                    quorum_threshold=2,
+                    quorum_shares=3,
+                    signing_pub=b"\x31" * 32,
+                ),
+                "archive-recovery-p1-meta-label-2",
+                "archive-recovery-p1-meta-label-4",
+                26.0,
+            ),
+        )
+        with TemporaryDirectory() as tmp:
+            for (
+                case_name,
+                recovery_meta,
+                expected_label,
+                omitted_label,
+                signing_key_y_mm,
+            ) in cases:
+                for paper_size, (width_mm, height_mm) in _PAPER_DIMENSIONS.items():
+                    with self.subTest(case=case_name, paper_size=paper_size):
+                        inputs = replace(
+                            _recovery_inputs(
+                                Path(tmp) / f"archive-{case_name}-{paper_size.lower()}.pdf",
+                                paper_size=paper_size,
+                            ),
+                            recovery_meta=recovery_meta,
+                        )
+                        surface = FpdfSurface(
+                            page_width_mm=width_mm,
+                            page_height_mm=height_mm,
+                        )
+                        packaged_direct_pdf_assets().register_fonts(surface)
+
+                        plan = build_archive_recovery_direct_plan(surface, inputs)
+
+                        first_page = plan.page_plans[0]
+                        component_ids = {item.component_id for item in first_page.plans}
+                        self.assertIn(expected_label, component_ids)
+                        self.assertNotIn(omitted_label, component_ids)
+                        signing_key = next(
+                            item
+                            for item in first_page.plans
+                            if item.component_id == "archive-recovery-p1-meta-value-3"
+                        )
+                        signing_label = next(
+                            item
+                            for item in first_page.plans
+                            if item.component_id == "archive-recovery-p1-meta-label-3"
+                        )
+                        self.assertEqual(
+                            "".join(
+                                token for line in signing_key.lines for token in line.text.split()
+                            ),
+                            "31" * 32,
+                        )
+                        self.assertEqual(
+                            tuple(
+                                len(token)
+                                for line in signing_key.lines
+                                for token in line.text.split()
+                            ),
+                            (4,) * 16,
+                        )
+                        self.assertEqual(len(signing_key.lines), 2)
+                        self.assertEqual(signing_key.fit.style.size_pt, 6.4)
+                        self.assertFalse(signing_key.proof.overflow)
+                        width_scale = (width_mm - 28.0) / 182.0
+                        signing_x_mm = 14.0 + (133.0 - 14.0) * width_scale
+                        signing_width_mm = 63.0 * width_scale
+                        self.assertAlmostEqual(signing_label.proof.rect.x_mm, signing_x_mm)
+                        self.assertAlmostEqual(signing_label.proof.rect.y_mm, signing_key_y_mm)
+                        self.assertAlmostEqual(signing_label.proof.rect.width_mm, signing_width_mm)
+                        self.assertAlmostEqual(signing_key.proof.rect.x_mm, signing_x_mm)
+                        self.assertAlmostEqual(signing_key.proof.rect.y_mm, signing_key_y_mm + 2.7)
+                        self.assertAlmostEqual(signing_key.proof.rect.width_mm, signing_width_mm)
+
+                        document_id = next(
+                            item
+                            for item in first_page.plans
+                            if item.component_id == "archive-recovery-p1-meta-value-0"
+                        )
+                        created = next(
+                            item
+                            for item in first_page.plans
+                            if item.component_id == "archive-recovery-p1-meta-value-1"
+                        )
+                        self.assertAlmostEqual(document_id.proof.rect.width_mm, 22.0 * width_scale)
+                        self.assertAlmostEqual(created.proof.rect.width_mm, 28.0 * width_scale)
+                        credential = next(
+                            item for item in first_page.plans if item.component_id == expected_label
+                        )
+                        self.assertAlmostEqual(credential.proof.rect.y_mm, 26.0)
+                        self.assertAlmostEqual(credential.proof.rect.width_mm, 63.0 * width_scale)
+                        self.assertLessEqual(
+                            credential.proof.rect.right_mm,
+                            signing_key.proof.rect.x_mm,
                         )
 
     def test_public_render_paginates_100_word_literal_passphrase(self) -> None:

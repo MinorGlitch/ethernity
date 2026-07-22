@@ -79,7 +79,7 @@ from ethernity.tasks.quorum import MAX_SHARDS
     "--recovery-count",
     "recovery_document_count",
     type=click.IntRange(min=0, max=MAX_SHARDS),
-    help="How many new recovery documents to create.",
+    help="New recovery documents; 0 is valid only with --unlock-policy reuse-root.",
 )
 @click.option(
     "--recovery-threshold",

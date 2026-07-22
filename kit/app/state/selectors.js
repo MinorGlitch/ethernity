@@ -259,6 +259,19 @@ export function selectActionState(state) {
   const hasEnvelope = Boolean(state.decryptedEnvelope);
   const documentCount = state.documents?.size ?? 0;
   const hasMultipleDocuments = documentCount > 1;
+  const targetText = String(state.extensionTargetText ?? "")
+    .trim()
+    .toLowerCase();
+  const latestTarget = targetText === "" || targetText === "latest";
+  const documentHashTarget = /^[0-9a-f]{64}$/.test(targetText);
+  const hasExpectedHead = String(state.expectedHeadDocHashText ?? "").trim().length > 0;
+  const freshnessDecisionReady =
+    hasExpectedHead ||
+    documentHashTarget ||
+    (latestTarget && state.freshnessUnknownAcknowledged === true);
+  const freshnessDisabledReason = latestTarget
+    ? "Enter an expected head hash or acknowledge unknown freshness."
+    : "Enter the expected head hash for the selected target.";
   const canDownloadCipher =
     !hasMultipleDocuments &&
     state.total &&
@@ -269,13 +282,27 @@ export function selectActionState(state) {
     downloadCipherDisabledReason: hasMultipleDocuments
       ? "Encrypted file download is only available for one backup document."
       : "Add all backup data first.",
-    canDecryptCiphertext: state.agePassphrase.length > 0 && ciphertextSource.available,
+    canDecryptCiphertext:
+      state.agePassphrase.length > 0 && ciphertextSource.available && freshnessDecisionReady,
     canDecryptRootOnly:
-      state.agePassphrase.length > 0 && hasMultipleDocuments && rootOnlyCiphertextSource.available,
+      state.agePassphrase.length > 0 && rootOnlyCiphertextSource.available && hasExpectedHead,
+    decryptDisabledReason:
+      state.agePassphrase.length === 0
+        ? "Enter your passphrase to unlock."
+        : !ciphertextSource.available
+          ? "Add backup data first (Step 1)."
+          : freshnessDisabledReason,
+    rootOnlyDisabledReason:
+      state.agePassphrase.length === 0
+        ? "Enter your passphrase to unlock."
+        : !rootOnlyCiphertextSource.available
+          ? "Add backup data first (Step 1)."
+          : "Enter the expected root head hash.",
     canExtractEnvelope: hasEnvelope,
     canDownloadEnvelope: hasEnvelope,
     canCopyResult: Boolean(state.recoveredShardSecret),
     hasMultipleDocuments,
+    freshnessDecisionReady,
     hasOutput: state.extractedFiles.length > 0,
   };
 }

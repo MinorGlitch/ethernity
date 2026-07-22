@@ -14,6 +14,7 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import contextlib
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -188,6 +189,25 @@ class TestKitFlowHelpers(unittest.TestCase):
         self.assertIn(b'const f="brotli"', shell)
         self.assertIn(b"new DecompressionStream(f)", shell)
 
+    def test_chain_bound_shell_embeds_all_recovery_anchors(self) -> None:
+        anchor = kit_module.KitAnchor(
+            root_document_hash=b"r" * 32,
+            root_signing_public_key=b"s" * 32,
+            expected_latest_head_hash=b"h" * 32,
+        )
+
+        shell = kit_module._kit_shell_payload(
+            chunk_count=1,
+            metadata=anchor.as_json_object(),
+        )
+
+        self.assertIn(b"ethernity-chain-bound-recovery", shell)
+        self.assertIn((b"r" * 32).hex().encode("ascii"), shell)
+        self.assertIn((b"h" * 32).hex().encode("ascii"), shell)
+        self.assertIn(hashlib.sha256(b"s" * 32).hexdigest().encode("ascii"), shell)
+        self.assertIn(b"supported_extension_envelope_versions", shell)
+        self.assertIn(b"supported_extension_schema_versions", shell)
+
     def test_extract_kit_bundle_loader_metadata_accepts_minified_comma_declarations(
         self,
     ) -> None:
@@ -312,7 +332,12 @@ class TestRenderKitDocument(unittest.TestCase):
         self.assertEqual(result.output_path, Path(kit_module.DEFAULT_KIT_OUTPUT))
         self.assertEqual(result.chunk_count, 2)
         self.assertEqual(result.chunk_size, 256)
-        build_kit_qr_payloads.assert_called_once_with(b"bundle-bytes", 256, config.qr_config)
+        build_kit_qr_payloads.assert_called_once_with(
+            b"bundle-bytes",
+            256,
+            config.qr_config,
+            embedded_metadata=kit_module._kit_metadata(None),
+        )
         render_frames_to_pdf.assert_called_once_with("inputs")
 
     @mock.patch("ethernity.cli.features.kit.workflow.render_frames_to_pdf")
@@ -406,7 +431,12 @@ class TestRenderKitDocument(unittest.TestCase):
             quiet=True,
         )
 
-        build_kit_qr_payloads.assert_called_once_with(b"bundle-bytes", huge, config.qr_config)
+        build_kit_qr_payloads.assert_called_once_with(
+            b"bundle-bytes",
+            huge,
+            config.qr_config,
+            embedded_metadata=kit_module._kit_metadata(None),
+        )
         render_frames_to_pdf.assert_called_once_with("inputs")
 
     @mock.patch("ethernity.cli.features.kit.workflow._load_kit_bundle")

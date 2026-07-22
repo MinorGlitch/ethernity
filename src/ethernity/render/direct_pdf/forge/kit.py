@@ -23,6 +23,7 @@ from ethernity.render.direct_pdf.forge.common import (
     ForgeShellContext,
     build_forge_content_constraints,
     build_forge_footer_plans,
+    build_forge_header_plan,
     build_forge_header_plans,
     build_forge_page_layout,
     build_forge_shell_context,
@@ -105,6 +106,7 @@ class _ForgeKitIndexGeometry:
     first_page_row_capacity: int
     continuation_row_capacity: int
     first_table_top_mm: float
+    continuation_panel_top_mm: float
     continuation_table_top_mm: float
     first_custody_top_mm: float
 
@@ -139,10 +141,24 @@ def _forge_kit_geometry(inputs: RenderInputs) -> _ForgeKitGeometry:
     return _ForgeKitGeometry(layout=layout, qr_grid=grid)
 
 
-def _forge_kit_index_geometry(inputs: RenderInputs) -> _ForgeKitIndexGeometry:
+def _forge_kit_index_geometry(
+    surface: PdfSurface,
+    inputs: RenderInputs,
+    context: ForgeShellContext,
+) -> _ForgeKitIndexGeometry:
     layout = build_forge_page_layout(resolve_page_geometry(inputs))
     first_table_top_mm = layout.regions.body.y_mm + 81.5
-    continuation_table_top_mm = layout.regions.body.y_mm + 20.0
+    header = build_forge_header_plan(
+        surface,
+        context,
+        page_label="PAGE 1 / 1",
+        page_number=1,
+        component_base=_KIT_INDEX_COMPONENT_BASE,
+        classification_default="Authorized Personnel Only",
+        page_rect=layout.page.rect,
+    )
+    continuation_panel_top_mm = header.bottom_mm + 2.0
+    continuation_table_top_mm = continuation_panel_top_mm + 16.0
     custody_height_mm = 59.5
     first_custody_top_mm = layout.regions.body.bottom_mm - custody_height_mm
     first_table_body_top_mm = first_table_top_mm + 10.0
@@ -161,6 +177,7 @@ def _forge_kit_index_geometry(inputs: RenderInputs) -> _ForgeKitIndexGeometry:
         first_page_row_capacity=first_capacity,
         continuation_row_capacity=continuation_capacity,
         first_table_top_mm=first_table_top_mm,
+        continuation_panel_top_mm=continuation_panel_top_mm,
         continuation_table_top_mm=continuation_table_top_mm,
         first_custody_top_mm=first_custody_top_mm,
     )
@@ -268,8 +285,8 @@ def build_forge_kit_index_direct_plan(
     """Build measured direct-PDF plans and render proof for Forge kit-index inputs."""
 
     _validate_kit_index_inputs(inputs)
-    geometry = _forge_kit_index_geometry(inputs)
     context = build_forge_shell_context(inputs, doc_type=DOC_TYPE_KIT_INDEX)
+    geometry = _forge_kit_index_geometry(surface, inputs, context)
     rows = _inventory_rows(inputs)
     pages = _paginate_inventory_rows(rows, geometry=geometry)
     page_plans = tuple(
@@ -1025,6 +1042,7 @@ def _build_index_page(
                 context,
                 layout=geometry.layout,
                 page_number=page.page_number,
+                top_mm=geometry.continuation_panel_top_mm,
             )
         )
     table_top_mm = (
@@ -1168,6 +1186,7 @@ def _index_continuation_plans(
     *,
     layout: ForgePageLayout,
     page_number: int,
+    top_mm: float,
 ) -> list[PaintPlan]:
     prefix = component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
     return [
@@ -1180,7 +1199,7 @@ def _index_continuation_plans(
             surface,
             PdfRect(
                 layout.regions.safe.x_mm,
-                layout.regions.body.y_mm + 4.0,
+                top_mm,
                 layout.regions.safe.width_mm,
                 9.0,
             ),
@@ -1196,7 +1215,7 @@ def _index_continuation_plans(
             surface,
             PdfRect(
                 layout.regions.safe.x_mm + 4.0,
-                layout.regions.body.y_mm + 6.5,
+                top_mm + 2.5,
                 layout.regions.safe.width_mm - 8.0,
                 4.5,
             ),

@@ -214,7 +214,8 @@ class TaskMutationActions(TaskPathMutationActions):
         if not normalized or normalized in {"default", "defaults"}:
             self.add_files_state.recovery_document_threshold = None
             self.add_files_state.recovery_document_count = None
-        elif normalized in {"none", "off", "0"}:
+        elif normalized in {"original", "reuse-root", "0"}:
+            self.add_files_state.unlock_policy = "reuse-root"
             self.add_files_state.recovery_document_threshold = None
             self.add_files_state.recovery_document_count = 0
         elif counts := parse_threshold_count(normalized):
@@ -225,7 +226,7 @@ class TaskMutationActions(TaskPathMutationActions):
             self.add_files_state.recovery_document_threshold = threshold
         else:
             self.notify(
-                f"Use default, none, or required/total sheets from 1 to {MAX_SHARDS}.",
+                f"Use default, original, or required/total sheets from 1 to {MAX_SHARDS}.",
                 severity="error",
             )
             return

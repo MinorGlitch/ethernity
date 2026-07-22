@@ -63,6 +63,10 @@ RESTORE_AUTH_OPTIONS = (
     ("Trusted signatures required", "require-signed"),
     ("Allow unsigned legacy backups", "allow-unsigned"),
 )
+RESTORE_RESOURCE_OPTIONS = (
+    ("Standard bounded recovery", "bounded"),
+    ("Resource-intensive compatibility recovery", "resource-intensive-compatibility"),
+)
 AUTH_MATERIAL_OPTIONS = (
     ("Loaded backup", "auto"),
     ("Signature text file", "text"),
@@ -75,7 +79,7 @@ ADD_FILES_UNLOCK_POLICY_OPTIONS = (
 )
 ADD_FILES_RECOVERY_OPTIONS = (
     ("From settings", "default"),
-    ("No new sheets", "none"),
+    ("Use original sheets", "original"),
     ("Custom quorum", "custom"),
 )
 ADD_FILES_SIGNING_KEY_OPTIONS = (

@@ -22,7 +22,7 @@ from ethernity.tasks.kit import KitVariant, PrintKitTaskState
     type=click.Choice(["lean", "scanner"]),
     default="lean",
     show_default=True,
-    help="Recovery kit variant.",
+    help="Unanchored rescue kit variant.",
 )
 @click.option(
     "--paper",
@@ -50,7 +50,7 @@ def print_kit(
     yes: bool,
     json_output: bool,
 ) -> None:
-    """Create a printable recovery kit PDF."""
+    """Create a printable unanchored rescue kit PDF (expert rescue operation)."""
 
     state = PrintKitTaskState(
         output_path=output_path or PrintKitTaskState().output_path,
@@ -65,7 +65,7 @@ def print_kit(
         preview=preview,
         yes=yes,
         json_output=json_output,
-        not_ready_message="Recovery kit is not ready.",
+        not_ready_message="Unanchored rescue kit is not ready.",
     )
 
 

@@ -69,13 +69,41 @@ async function restoreScenario(snapshotPath, { extensionTarget = "latest" } = {}
   assert.equal(added, snapshot.payload_fixtures.chain.frame_count);
 
   const documents = collectedRecoveryDocuments(state);
+  const targetWithFreshness = explicitFixtureTarget(snapshot, extensionTarget);
   const result = await recoverLatestFromEncryptedDocuments(
     documents,
     snapshot.passphrase,
     decryptAgePassphrase,
-    { extensionTarget, allowResourceIntensiveScrypt: true },
+    {
+      extensionTarget: targetWithFreshness.extensionTarget,
+      freshnessUnknownAcknowledged: targetWithFreshness.freshnessUnknownAcknowledged,
+      allowResourceIntensiveScrypt: true,
+    },
   );
   return { result, snapshot };
+}
+
+function explicitFixtureTarget(snapshot, extensionTarget) {
+  if (extensionTarget === "latest") {
+    return { extensionTarget, freshnessUnknownAcknowledged: true };
+  }
+  if (extensionTarget === "root") {
+    return {
+      extensionTarget: { kind: "root", expectedHeadDocHashHex: snapshot.root_doc_hash },
+      freshnessUnknownAcknowledged: false,
+    };
+  }
+  if (extensionTarget?.kind === "index" && !extensionTarget.expectedHeadDocHashHex) {
+    const key = `extension_${String(extensionTarget.index).padStart(2, "0")}`;
+    return {
+      extensionTarget: {
+        ...extensionTarget,
+        expectedHeadDocHashHex: snapshot.extension_doc_hashes[key],
+      },
+      freshnessUnknownAcknowledged: false,
+    };
+  }
+  return { extensionTarget, freshnessUnknownAcknowledged: false };
 }
 
 async function recoverPassphraseFromShardFixture(snapshotPath, { payloadName, shardName }) {
@@ -119,7 +147,7 @@ async function restoreScenarioWithPassphrase(snapshotPath, passphrase) {
     documents,
     passphrase,
     decryptAgePassphrase,
-    { allowResourceIntensiveScrypt: true },
+    { freshnessUnknownAcknowledged: true, allowResourceIntensiveScrypt: true },
   );
   return { result, snapshot };
 }

@@ -23,6 +23,7 @@ import importlib
 import io
 import os
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
@@ -37,6 +38,11 @@ from ethernity.extensions.layout import (
     parse_extension_dir_name,
     parse_extension_main_filename,
     parse_extension_shard_filename,
+)
+from ethernity.security.resource_worker import (
+    DisposableWorkerError,
+    WorkerLimits,
+    run_disposable_worker,
 )
 
 
@@ -122,6 +128,11 @@ MAX_SCAN_PDF_IMAGES = 8192
 MAX_SCAN_PDF_IMAGE_BYTES = 32 * 1024 * 1024
 MAX_SCAN_IMAGE_PIXELS = 100_000_000
 MAX_SCAN_QR_PAYLOADS = 8192
+MAX_SCAN_WORKER_MEMORY_BYTES = 1024 * 1024 * 1024
+MAX_SCAN_WORKER_CPU_SECONDS = 30
+MAX_SCAN_WORKER_WALL_SECONDS = 45.0
+MAX_SCAN_TOTAL_WALL_SECONDS = 180.0
+MAX_SCAN_WORKER_OUTPUT_BYTES = 32 * 1024 * 1024
 
 
 def _module(name: str, default: Any) -> Any:
@@ -188,6 +199,7 @@ def scan_qr_payloads_with_sources(
     decoder = _load_decoder()
     payloads: list[ScannedQrPayload] = []
     scan_file_count = 0
+    started_at = time.monotonic()
     for scan_input in _expand_paths(
         paths,
         include_extension_carriers=include_extension_carriers,
@@ -197,7 +209,20 @@ def scan_qr_payloads_with_sources(
         scan_file_count += 1
         if scan_file_count > MAX_SCAN_INPUT_FILES:
             raise QrScanError(f"scan inputs exceed MAX_SCAN_INPUT_FILES ({MAX_SCAN_INPUT_FILES})")
-        source_payloads = _scan_one_path(path, decoder)
+        elapsed = time.monotonic() - started_at
+        remaining_wall_seconds = MAX_SCAN_TOTAL_WALL_SECONDS - elapsed
+        if remaining_wall_seconds <= 0:
+            raise QrScanError(
+                f"scan exceeded MAX_SCAN_TOTAL_WALL_SECONDS ({MAX_SCAN_TOTAL_WALL_SECONDS:g})"
+            )
+        source_payloads = (
+            _scan_one_path_disposable(
+                path,
+                wall_seconds=min(MAX_SCAN_WORKER_WALL_SECONDS, remaining_wall_seconds),
+            )
+            if decoder.name == "zxingcpp"
+            else _scan_one_path(path, decoder)
+        )
         if (
             include_extension_carriers
             and is_published_extension_payload_carrier(path)
@@ -236,6 +261,30 @@ def _scan_one_path(path: Path, decoder: QrDecoder) -> list[bytes]:
     if suffix in _IMAGE_SUFFIXES:
         return _scan_image(path, decoder)
     raise QrScanError(f"unsupported scan file content: {path}")
+
+
+def _scan_one_path_disposable(path: Path, *, wall_seconds: float) -> list[bytes]:
+    """Parse and decode one untrusted file in a disposable subprocess."""
+
+    try:
+        return run_disposable_worker(
+            "QR scan",
+            _scan_one_path_worker,
+            (str(path),),
+            limits=WorkerLimits(
+                memory_bytes=MAX_SCAN_WORKER_MEMORY_BYTES,
+                cpu_seconds=MAX_SCAN_WORKER_CPU_SECONDS,
+                wall_seconds=wall_seconds,
+                output_bytes=MAX_SCAN_WORKER_OUTPUT_BYTES,
+            ),
+        )
+    except DisposableWorkerError as exc:
+        raise QrScanError(str(exc)) from exc
+
+
+def _scan_one_path_worker(path_text: str) -> list[bytes]:
+    path = Path(path_text)
+    return _scan_one_path(path, _load_decoder())
 
 
 def _load_decoder() -> QrDecoder:

@@ -20,15 +20,20 @@ from __future__ import annotations
 
 import gzip
 import hashlib
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ethernity.core.validation import normalize_manifest_path, require_non_negative_int
+from ethernity.extensions.chain import (
+    LogicalFileState,
+    ValidatedChainState,
+    _replay_extension_candidate,
+    _require_validated_chain_state,
+)
 from ethernity.formats.extension_chunking import (
     Chunker,
-    canonical_chunk_refs_for_bytes,
     default_extension_chunker,
 )
 from ethernity.formats.extension_envelope import (
@@ -51,9 +56,18 @@ class ExtensionBuildStats:
 
 
 @dataclass(frozen=True)
-class BuiltExtensionDocument:
+class _BuiltExtensionDocument:
     document: ExtensionEnvelope
     stats: ExtensionBuildStats
+
+
+@dataclass(frozen=True)
+class VerifiedExtensionCandidate:
+    """Extension document proven replayable against an authenticated chain state."""
+
+    document: ExtensionEnvelope
+    stats: ExtensionBuildStats
+    resulting_state: tuple[LogicalFileState, ...]
 
 
 class ExtensionInputFile(Protocol):
@@ -67,7 +81,71 @@ class ExtensionInputFile(Protocol):
     def mtime(self) -> int | None: ...
 
 
-def build_extension_document(
+class SelectedInputScope(Protocol):
+    """Neutral input-scope contract consumed by the extension domain builder."""
+
+    @property
+    def input_files(self) -> Sequence[ExtensionInputFile]: ...
+
+    @property
+    def input_origin(self) -> str: ...
+
+    @property
+    def input_roots(self) -> Sequence[str]: ...
+
+    def contains_path(self, path: str) -> bool: ...
+
+
+def build_extension(
+    chain: ValidatedChainState,
+    changes: SelectedInputScope,
+) -> VerifiedExtensionCandidate:
+    """Build and replay-verify an extension against authenticated chain state."""
+
+    _require_validated_chain_state(chain)
+    current_files = {item.path: item for item in chain.logical_state}
+    desired_files = {item.relative_path: item for item in changes.input_files}
+    missing_paths = tuple(
+        sorted(
+            path
+            for path in current_files
+            if path not in desired_files and changes.contains_path(path)
+        )
+    )
+    if missing_paths:
+        raise ValueError("selected input scope would remove files; extensions cannot delete paths")
+    input_files = tuple(
+        item
+        for item in changes.input_files
+        if item.relative_path not in current_files
+        or current_files[item.relative_path].data != item.data
+        or current_files[item.relative_path].mtime != item.mtime
+    )
+    if not input_files:
+        raise ValueError("extension requires at least one changed or new file")
+
+    built = _build_extension_document(
+        index=chain.head_index + 1,
+        parent_doc_hash=chain.head_doc_hash,
+        root_doc_hash=chain.root_doc_hash,
+        chunking=chain.chunking,
+        input_files=input_files,
+        input_origin=changes.input_origin,
+        input_roots=changes.input_roots,
+        chunker=default_extension_chunker,
+        existing_file_sizes={item.path: item.size for item in chain.logical_state},
+        existing_chunks=dict(chain.available_chunks),
+        existing_logical_bytes=sum(item.size for item in chain.logical_state),
+    )
+    resulting_state = _replay_extension_candidate(chain, built.document)
+    return VerifiedExtensionCandidate(
+        document=built.document,
+        stats=built.stats,
+        resulting_state=resulting_state,
+    )
+
+
+def _build_extension_document(
     *,
     index: int,
     parent_doc_hash: bytes,
@@ -79,9 +157,8 @@ def build_extension_document(
     chunker: Chunker,
     existing_file_sizes: Mapping[str, int],
     existing_chunks: Mapping[bytes, bytes] | None = None,
-    existing_chunk_ids: Collection[bytes] | None = None,
     existing_logical_bytes: int = 0,
-) -> BuiltExtensionDocument:
+) -> _BuiltExtensionDocument:
     """Build a validated extension envelope from changed/new input files."""
 
     normalized_files = tuple(
@@ -98,9 +175,8 @@ def build_extension_document(
 
     files: list[ExtensionFile] = []
     known_chunks = _normalize_chunk_map(existing_chunks)
-    known_chunk_ids = _normalize_chunk_ids(existing_chunk_ids)
-    known_chunk_ids.update(known_chunks)
-    chunk_payloads: dict[bytes, bytes] = {}
+    known_chunk_ids = set(known_chunks)
+    chunk_records: dict[bytes, ExtensionChunkRecord] = {}
     logical_bytes = 0
     total_logical_bytes = require_non_negative_int(
         existing_logical_bytes,
@@ -135,13 +211,13 @@ def build_extension_document(
 
     for item in normalized_files:
         logical_bytes += len(item.data)
-        chunk_refs, item_new_chunks, item_reused_chunks = _chunk_refs_for_file(
+        chunk_refs, file_sha256, item_new_chunks, item_reused_chunks = _chunk_refs_for_file(
             data=item.data,
             chunking=chunking,
             chunker=chunker,
             known_chunks=known_chunks,
             known_chunk_ids=known_chunk_ids,
-            emitted_chunks=chunk_payloads,
+            emitted_chunks=chunk_records,
         )
         new_chunks += item_new_chunks
         reused_chunks += item_reused_chunks
@@ -149,16 +225,13 @@ def build_extension_document(
             ExtensionFile(
                 path=item.relative_path,
                 size=len(item.data),
-                sha256=hashlib.sha256(item.data).digest(),
+                sha256=file_sha256,
                 mtime=item.mtime,
                 chunk_refs=chunk_refs,
             )
         )
 
-    chunks = tuple(
-        _build_chunk_record(chunk_id=chunk_id, chunk_bytes=chunk_payloads[chunk_id])
-        for chunk_id in sorted(chunk_payloads)
-    )
+    chunks = tuple(chunk_records[chunk_id] for chunk_id in sorted(chunk_records))
 
     document = ExtensionEnvelope(
         header=build_extension_header(
@@ -172,7 +245,7 @@ def build_extension_document(
         files=tuple(files),
         chunks=chunks,
     )
-    return BuiltExtensionDocument(
+    return _BuiltExtensionDocument(
         document=document,
         stats=ExtensionBuildStats(
             changed_file_count=len(normalized_files),
@@ -190,55 +263,60 @@ def _chunk_refs_for_file(
     chunker: Chunker,
     known_chunks: dict[bytes, bytes],
     known_chunk_ids: set[bytes],
-    emitted_chunks: dict[bytes, bytes],
-) -> tuple[tuple[ExtensionChunkRef, ...], int, int]:
-    raw_chunks = tuple(bytes(chunk) for chunk in chunker(data, chunking))
+    emitted_chunks: dict[bytes, ExtensionChunkRecord],
+) -> tuple[tuple[ExtensionChunkRef, ...], bytes, int, int]:
+    raw_ranges = tuple(chunker(data, chunking))
     if not data:
-        if raw_chunks:
+        if raw_ranges:
             raise ValueError("empty file chunker output must be empty")
-        return (), 0, 0
-    if not raw_chunks:
+        return (), hashlib.sha256().digest(), 0, 0
+    if not raw_ranges:
         raise ValueError("non-empty file chunker output must contain at least one chunk")
 
     refs: list[ExtensionChunkRef] = []
-    total = 0
+    file_hasher = hashlib.sha256()
     new_chunks = 0
     reused_chunks = 0
     offset = 0
-    for chunk_bytes in raw_chunks:
-        if not chunk_bytes:
+    data_view = memoryview(data)
+    for start, end in raw_ranges:
+        if start != offset or end <= start or end > len(data_view):
+            raise ValueError("chunker ranges must contiguously cover the original input bytes")
+        chunk_view = data_view[start:end]
+        if not chunk_view:
             raise ValueError("chunker must not emit empty chunks")
-        chunk_id = hashlib.sha256(chunk_bytes).digest()
-        next_offset = offset + len(chunk_bytes)
-        if data[offset:next_offset] != chunk_bytes:
-            raise ValueError("chunker output must preserve the original input bytes")
-        total += len(chunk_bytes)
+        file_hasher.update(chunk_view)
+        chunk_id = hashlib.sha256(chunk_view).digest()
         existing = known_chunks.get(chunk_id)
         if existing is None and chunk_id not in known_chunk_ids:
+            chunk_bytes = chunk_view.tobytes()
             known_chunk_ids.add(chunk_id)
             known_chunks[chunk_id] = chunk_bytes
-            emitted_chunks[chunk_id] = chunk_bytes
+            emitted_chunks[chunk_id] = _build_chunk_record(
+                chunk_id=chunk_id,
+                chunk_bytes=chunk_bytes,
+            )
             new_chunks += 1
-        elif existing is not None and existing != chunk_bytes:
+        elif existing is not None and existing != chunk_view:
             raise ValueError("chunk payload collision for identical sha256 chunk_id")
         else:
-            known_chunks[chunk_id] = chunk_bytes
             reused_chunks += 1
         refs.append(
             ExtensionChunkRef(
                 chunk_id=chunk_id,
-                uncompressed_len=len(chunk_bytes),
+                uncompressed_len=len(chunk_view),
             )
         )
-        offset = next_offset
+        offset = end
 
-    if total != len(data):
+    if offset != len(data):
         raise ValueError("chunker output must fully cover the input file bytes")
-    declared_refs = tuple((chunk_ref.chunk_id, chunk_ref.uncompressed_len) for chunk_ref in refs)
-    if declared_refs != canonical_chunk_refs_for_bytes(data, chunking):
+    if chunker is not default_extension_chunker and raw_ranges != default_extension_chunker(
+        data, chunking
+    ):
         raise ValueError("chunker output does not match locked extension chunking profile")
 
-    return tuple(refs), new_chunks, reused_chunks
+    return tuple(refs), file_hasher.digest(), new_chunks, reused_chunks
 
 
 def build_virtual_chunk_source(
@@ -249,7 +327,7 @@ def build_virtual_chunk_source(
 ) -> dict[bytes, bytes]:
     known_chunks: dict[bytes, bytes] = {}
     known_chunk_ids: set[bytes] = set()
-    emitted_chunks: dict[bytes, bytes] = {}
+    emitted_chunks: dict[bytes, ExtensionChunkRecord] = {}
     for payload in file_payloads:
         _chunk_refs_for_file(
             data=bytes(payload),
@@ -278,7 +356,6 @@ def _build_chunk_record(*, chunk_id: bytes, chunk_bytes: bytes) -> ExtensionChun
         raw_len=len(chunk_bytes),
         data=compressed,
     )
-    gzip_record.decode_data()
     return gzip_record
 
 
@@ -298,18 +375,6 @@ def _normalize_chunk_map(chunk_map: Mapping[bytes, bytes] | None) -> dict[bytes,
     return normalized
 
 
-def _normalize_chunk_ids(chunk_ids: Collection[bytes] | None) -> set[bytes]:
-    if chunk_ids is None:
-        return set()
-    normalized: set[bytes] = set()
-    for chunk_id in chunk_ids:
-        raw_chunk_id = bytes(chunk_id)
-        if len(raw_chunk_id) != 32:
-            raise ValueError("existing chunk_id must be 32 bytes")
-        normalized.add(raw_chunk_id)
-    return normalized
-
-
 def _normalize_existing_file_sizes(
     file_sizes: Mapping[str, int],
 ) -> dict[str, int]:
@@ -326,10 +391,11 @@ def _normalize_existing_file_sizes(
 
 
 __all__ = [
-    "BuiltExtensionDocument",
     "Chunker",
     "ExtensionBuildStats",
-    "build_extension_document",
+    "SelectedInputScope",
+    "VerifiedExtensionCandidate",
+    "build_extension",
     "build_virtual_chunk_source",
     "default_extension_chunker",
 ]

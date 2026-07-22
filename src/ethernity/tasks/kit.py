@@ -49,7 +49,7 @@ KitVariant = Literal["lean", "scanner"]
 
 
 class PrintKitTaskState(BaseModel):
-    """Beginner-facing state for printing the offline recovery kit."""
+    """Expert-facing state for printing an unanchored offline rescue kit."""
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
@@ -127,11 +127,15 @@ class PrintKitTaskState(BaseModel):
             *self._output_warnings(),
             *self._qr_sizing_warnings(),
         )
-        return TaskPreview(title="Recovery kit to create", items=tuple(items), warnings=warnings)
+        return TaskPreview(
+            title="Unanchored rescue kit to create",
+            items=tuple(items),
+            warnings=warnings,
+        )
 
     def execution_plan(self) -> TaskExecutionPlan:
         return TaskExecutionPlan(
-            summary=f"Create recovery kit PDF at {self._output_summary()}",
+            summary=f"Create unanchored rescue kit PDF at {self._output_summary()}",
             output_paths=(self.output_path,),
             writes_files=True,
             safety_notes=(
@@ -139,8 +143,8 @@ class PrintKitTaskState(BaseModel):
                 "writable.",
             ),
             recovery_notes=(
-                "Recovery kit contains offline restore tools; it does not replace backup "
-                "documents or recovery sheets.",
+                "This unanchored rescue kit cannot authenticate the latest backup state and does "
+                "not replace backup documents, chain-bound kits, or recovery sheets.",
             ),
         )
 
@@ -161,7 +165,7 @@ class PrintKitTaskState(BaseModel):
         return TaskExecutionResult(
             ok=True,
             message=(
-                f"Recovery kit created with {format_count(result.chunk_count, 'QR code')} "
+                f"Unanchored rescue kit created with {format_count(result.chunk_count, 'QR code')} "
                 f"from {format_count(result.bytes_total, 'byte')}."
             ),
             output_paths=(result.output_path,),

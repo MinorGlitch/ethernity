@@ -27,11 +27,7 @@ from ethernity.extensions import (
     create_staged_extension_artifact_plan,
     preflight_extension_publish_target,
 )
-from ethernity.extensions.staging import (
-    ValidatedStagedExtension,
-    promote_staged_extension_dir,
-    validate_staged_extension_dir,
-)
+from ethernity.extensions.staging import validate_staged_extension_dir
 
 
 class TestExtensionStaging(unittest.TestCase):
@@ -40,9 +36,8 @@ class TestExtensionStaging(unittest.TestCase):
             return
         self.assertEqual(path.stat().st_mode & 0o777, 0o700)
 
-    def test_layout_only_promotion_helpers_are_not_package_facade_exports(self) -> None:
+    def test_layout_validator_is_not_a_package_facade_export(self) -> None:
         self.assertFalse(hasattr(extension_facade, "validate_staged_extension_dir"))
-        self.assertFalse(hasattr(extension_facade, "promote_staged_extension_dir"))
         self.assertFalse(hasattr(extension_facade, "ValidatedStagedExtension"))
 
     def test_create_staged_extension_artifact_plan_returns_canonical_targets(self) -> None:
@@ -271,26 +266,84 @@ class TestExtensionStaging(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "canonical extension directory already exists"):
                 preflight_extension_publish_target(tmpdir, index=1)
 
-    def test_preflight_extension_publish_target_rejects_existing_promotion_lock(self) -> None:
+    def test_preflight_ignores_obsolete_per_destination_lock_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            lock_dir = Path(tmpdir) / "extensions" / ".01.lock"
-            lock_dir.mkdir(parents=True)
+            lock_path = Path(tmpdir) / "extensions" / ".01.lock"
+            lock_path.parent.mkdir(parents=True)
+            lock_path.touch()
 
-            with self.assertRaisesRegex(
-                ValueError,
-                "canonical extension directory is already being promoted",
-            ):
+            preflight_extension_publish_target(tmpdir, index=1)
+
+    def test_preflight_extension_publish_target_accepts_persistent_chain_lock_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / "extensions" / ".chain.lock"
+            lock_path.parent.mkdir(parents=True)
+            lock_path.touch()
+
+            preflight_extension_publish_target(
+                tmpdir,
+                index=1,
+                require_empty_extensions=True,
+            )
+
+    def test_preflight_loose_target_accepts_persistent_chain_lock_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / ".chain.lock"
+            lock_path.touch()
+
+            preflight_extension_publish_target(
+                tmpdir,
+                index=1,
+                publish_layout="loose",
+                require_empty_root=True,
+            )
+
+    def test_preflight_loose_target_rejects_chain_lock_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / ".chain.lock"
+            lock_path.mkdir()
+
+            with self.assertRaisesRegex(ValueError, "entire dedicated output directory"):
+                preflight_extension_publish_target(
+                    tmpdir,
+                    index=1,
+                    publish_layout="loose",
+                    require_empty_root=True,
+                )
+
+    def test_preflight_loose_target_explains_interrupted_staging_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / ".staging-1-abc123").mkdir()
+
+            with self.assertRaisesRegex(ValueError, "entire dedicated output directory"):
+                preflight_extension_publish_target(
+                    tmpdir,
+                    index=1,
+                    publish_layout="loose",
+                    require_empty_root=True,
+                )
+
+    def test_preflight_loose_target_preserves_published_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "extension-01-deadbeefcafebabe").mkdir()
+
+            with self.assertRaisesRegex(ValueError, "preserve that directory"):
+                preflight_extension_publish_target(
+                    tmpdir,
+                    index=1,
+                    publish_layout="loose",
+                    require_empty_root=True,
+                )
+
+    def test_preflight_rejects_obsolete_chain_lock_directory_with_doctor_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / "extensions" / ".chain.lock"
+            lock_path.mkdir(parents=True)
+
+            with self.assertRaisesRegex(ValueError, r"run doctor .* --repair --yes"):
                 preflight_extension_publish_target(tmpdir, index=1)
 
-    def test_preflight_extension_publish_target_rejects_existing_chain_lock(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            lock_dir = Path(tmpdir) / "extensions" / ".chain.lock"
-            lock_dir.mkdir(parents=True)
-
-            with self.assertRaisesRegex(ValueError, "extension chain is already being promoted"):
-                preflight_extension_publish_target(tmpdir, index=1)
-
-    def test_validate_and_promote_staged_extension_dir(self) -> None:
+    def test_validate_staged_extension_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
             self._assert_private_mode_when_supported(staging_dir)
@@ -308,264 +361,22 @@ class TestExtensionStaging(unittest.TestCase):
                     passphrase_shard_count=2,
                 ),
             )
-            final_dir = promote_staged_extension_dir(validated)
-
             self.assertEqual(validated.doc_id_hex, "deadbeefcafebabe")
-            self.assertEqual(final_dir.name, "01")
-            self.assertTrue((final_dir / "qr_document-01-deadbeefcafebabe.pdf").exists())
-            self.assertFalse(staging_dir.exists())
-
-    def test_promote_rejects_existing_canonical_target(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
-            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
-            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
-            (Path(tmpdir) / "extensions" / "01").mkdir()
-
-            validated = validate_staged_extension_dir(
-                staging_dir,
-                expected_index=1,
-                publish_policy=ExtensionPublishPolicy(),
-            )
-
-            with self.assertRaisesRegex(ValueError, "canonical extension directory already exists"):
-                promote_staged_extension_dir(validated)
-
+            self.assertEqual(validated.final_dir_name, "01")
             self.assertTrue(staging_dir.exists())
 
-    def test_promote_recomputes_final_dir_from_revalidated_index(self) -> None:
+    def test_validate_rejects_missing_chain_bound_recovery_kit(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
-            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
-            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
-            validated = validate_staged_extension_dir(
-                staging_dir,
-                expected_index=1,
-                publish_policy=ExtensionPublishPolicy(),
-            )
-            forged = ValidatedStagedExtension(
-                staging_dir=validated.staging_dir,
-                final_dir_name="02",
-                publish_layout=validated.publish_layout,
-                doc_id_hex=validated.doc_id_hex,
-                expected_index=validated.expected_index,
-                publish_policy=validated.publish_policy,
-                staging_dir_identity=validated.staging_dir_identity,
-                staging_snapshot=validated.staging_snapshot,
-                publish_root_identity=validated.publish_root_identity,
-                artifact_parent_identity=validated.artifact_parent_identity,
-            )
+            (staging_dir / "qr_document-01-deadbeefcafebabe.pdf").write_bytes(b"qr")
+            (staging_dir / "recovery_document-01-deadbeefcafebabe.pdf").write_bytes(b"recovery")
 
-            final_dir = promote_staged_extension_dir(forged)
-
-            self.assertEqual(final_dir.name, "01")
-            self.assertTrue((Path(tmpdir) / "extensions" / "01").is_dir())
-            self.assertFalse((Path(tmpdir) / "extensions" / "02").exists())
-
-    def test_promote_recomputes_loose_final_dir_from_validated_doc_id(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            staging_dir = create_staged_extension_artifact_plan(
-                tmpdir,
-                index=2,
-                doc_id_hex="deadbeefcafebabe",
-                nonce="abc123",
-                publish_policy=ExtensionPublishPolicy(),
-                publish_layout="loose",
-                require_empty_root=True,
-            ).staging_dir
-            self._write(staging_dir / "qr_document-02-deadbeefcafebabe.pdf")
-            self._write(staging_dir / "recovery_document-02-deadbeefcafebabe.pdf")
-            validated = validate_staged_extension_dir(
-                staging_dir,
-                expected_index=2,
-                publish_policy=ExtensionPublishPolicy(),
-                publish_layout="loose",
-            )
-            forged = ValidatedStagedExtension(
-                staging_dir=validated.staging_dir,
-                final_dir_name="extension-02-cafebabedeadbeef",
-                publish_layout=validated.publish_layout,
-                doc_id_hex=validated.doc_id_hex,
-                expected_index=validated.expected_index,
-                publish_policy=validated.publish_policy,
-                staging_dir_identity=validated.staging_dir_identity,
-                staging_snapshot=validated.staging_snapshot,
-                publish_root_identity=validated.publish_root_identity,
-                artifact_parent_identity=validated.artifact_parent_identity,
-            )
-
-            final_dir = promote_staged_extension_dir(forged)
-
-            self.assertEqual(final_dir.name, "extension-02-deadbeefcafebabe")
-            self.assertTrue((Path(tmpdir) / "extension-02-deadbeefcafebabe").is_dir())
-            self.assertFalse((Path(tmpdir) / "extension-02-cafebabedeadbeef").exists())
-
-    def test_promote_passes_staging_identity_to_artifact_publisher(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
-            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
-            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
-            validated = validate_staged_extension_dir(
-                staging_dir,
-                expected_index=1,
-                publish_policy=ExtensionPublishPolicy(),
-            )
-            expected_final = Path(tmpdir) / "extensions" / "01"
-
-            with mock.patch(
-                "ethernity.extensions.staging.promote_staged_artifact_dir",
-                return_value=expected_final,
-            ) as promote_mock:
-                final_dir = promote_staged_extension_dir(validated)
-
-        self.assertEqual(final_dir, expected_final)
-        promote_mock.assert_called_once()
-        self.assertEqual(
-            promote_mock.call_args.kwargs["expected_staging_identity"],
-            validated.staging_dir_identity,
-        )
-
-    def test_promote_rejects_regular_file_swap_after_validation(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
-            qr_path = staging_dir / "qr_document-01-deadbeefcafebabe.pdf"
-            self._write(qr_path, b"qr")
-            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf", b"recovery")
-
-            validated = validate_staged_extension_dir(
-                staging_dir,
-                expected_index=1,
-                publish_policy=ExtensionPublishPolicy(),
-            )
-            qr_path.write_bytes(b"different regular file")
-
-            with self.assertRaisesRegex(ValueError, "artifacts changed before promotion"):
-                promote_staged_extension_dir(validated)
-
-            self.assertTrue(staging_dir.exists())
-
-    def test_promote_rejects_staging_dir_swapped_for_symlink_after_validation(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
-            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
-            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
-
-            validated = validate_staged_extension_dir(
-                staging_dir,
-                expected_index=1,
-                publish_policy=ExtensionPublishPolicy(),
-            )
-            external_dir = Path(tmpdir) / "external"
-            external_dir.mkdir()
-            shutil.rmtree(staging_dir)
-            try:
-                staging_dir.symlink_to(external_dir, target_is_directory=True)
-            except OSError as exc:
-                self.skipTest(f"symlinks unavailable: {exc}")
-
-            with self.assertRaisesRegex(ValueError, "validated staging_dir must not be a symlink"):
-                promote_staged_extension_dir(validated)
-
-    def test_promote_rejects_staging_dir_recreated_after_validation(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
-            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
-            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
-
-            validated = validate_staged_extension_dir(
-                staging_dir,
-                expected_index=1,
-                publish_policy=ExtensionPublishPolicy(),
-            )
-            moved_staging_dir = Path(tmpdir) / "extensions" / ".staging-old"
-            staging_dir.rename(moved_staging_dir)
-            staging_dir.mkdir(mode=0o700)
-            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
-            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
-
-            with self.assertRaisesRegex(ValueError, "staging directory changed before promotion"):
-                promote_staged_extension_dir(validated)
-
-            self.assertTrue(moved_staging_dir.exists())
-
-    def test_promote_rejects_extensions_dir_swap_after_validation(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root_dir = Path(tmpdir)
-            staging_dir = create_extension_staging_dir(root_dir, index=1, nonce="abc123")
-            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
-            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
-
-            validated = validate_staged_extension_dir(
-                staging_dir,
-                expected_index=1,
-                publish_policy=ExtensionPublishPolicy(),
-            )
-            extensions_dir = root_dir / "extensions"
-            moved_extensions_dir = root_dir / "extensions-old"
-            extensions_dir.rename(moved_extensions_dir)
-            extensions_dir.mkdir()
-
-            with self.assertRaisesRegex(
-                ValueError,
-                "extensions directory changed before promotion",
-            ):
-                promote_staged_extension_dir(validated)
-
-            self.assertTrue((moved_extensions_dir / staging_dir.name).is_dir())
-
-    def test_promote_rejects_root_dir_swap_after_validation(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            original_root_dir = Path(tmpdir) / "root"
-            original_root_dir.mkdir()
-            staging_dir = create_extension_staging_dir(
-                original_root_dir,
-                index=1,
-                nonce="abc123",
-            )
-            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
-            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
-
-            validated = validate_staged_extension_dir(
-                staging_dir,
-                expected_index=1,
-                publish_policy=ExtensionPublishPolicy(),
-            )
-            moved_root_dir = Path(tmpdir) / "root-old"
-            original_root_dir.rename(moved_root_dir)
-            original_root_dir.mkdir()
-            (original_root_dir / "extensions").mkdir()
-
-            with self.assertRaisesRegex(
-                ValueError,
-                "extension publish root changed before promotion",
-            ):
-                promote_staged_extension_dir(validated)
-
-            self.assertTrue((moved_root_dir / "extensions" / staging_dir.name).is_dir())
-
-    def test_promote_rejects_artifact_swapped_for_symlink_after_validation(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
-            qr_path = staging_dir / "qr_document-01-deadbeefcafebabe.pdf"
-            self._write(qr_path)
-            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
-
-            validated = validate_staged_extension_dir(
-                staging_dir,
-                expected_index=1,
-                publish_policy=ExtensionPublishPolicy(),
-            )
-            external_pdf = Path(tmpdir) / "external.pdf"
-            external_pdf.write_bytes(b"placeholder")
-            qr_path.unlink()
-            try:
-                qr_path.symlink_to(external_pdf)
-            except OSError as exc:
-                self.skipTest(f"symlinks unavailable: {exc}")
-
-            with self.assertRaisesRegex(ValueError, "contains symlinked artifact"):
-                promote_staged_extension_dir(validated)
-            self.assertTrue(staging_dir.exists())
+            with self.assertRaisesRegex(ValueError, "required MAIN artifacts: recovery_kit"):
+                validate_staged_extension_dir(
+                    staging_dir,
+                    expected_index=1,
+                    publish_policy=ExtensionPublishPolicy(),
+                )
 
     def test_validate_rejects_missing_required_main_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -733,3 +544,6 @@ class TestExtensionStaging(unittest.TestCase):
     def _write(path: Path, data: bytes = b"placeholder") -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+        if path.name.startswith("recovery_document-"):
+            kit_name = path.name.replace("recovery_document-", "recovery_kit-", 1)
+            (path.parent / kit_name).write_bytes(data)

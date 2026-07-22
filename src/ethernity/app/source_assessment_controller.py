@@ -7,6 +7,7 @@ from textual.app import App
 
 from ethernity.app.app_types import ActiveTask
 from ethernity.app.workflow_state import WorkflowUiState
+from ethernity.security.resource_worker import terminate_active_workers
 from ethernity.tasks import source_assessment as source_assessment_module
 from ethernity.tasks.source_assessment import (
     SourceAssessableTaskState,
@@ -131,6 +132,8 @@ class SourceAssessmentController:
         self._app.refresh_task_view()
 
     def _next_generation(self, task: ActiveTask) -> int:
+        if task in self._generation:
+            terminate_active_workers()
         completion = self._completion.get(task)
         if completion is not None:
             completion.set()

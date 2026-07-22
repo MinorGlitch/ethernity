@@ -27,7 +27,7 @@ from types import SimpleNamespace
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import derive_public_key, sign_auth
-from ethernity.extensions.build import build_extension_document
+from ethernity.extensions.build import _build_extension_document
 from ethernity.extensions.chain import build_chain_available_chunks, extract_root_logical_state
 from ethernity.formats.envelope_codec import (
     build_manifest_and_payload,
@@ -136,7 +136,7 @@ class TestKitInterop(unittest.TestCase):
             min_size=4 * 1024,
             max_size=64 * 1024,
         )
-        extension = build_extension_document(
+        extension = _build_extension_document(
             index=1,
             parent_doc_hash=root_doc_hash,
             root_doc_hash=root_doc_hash,

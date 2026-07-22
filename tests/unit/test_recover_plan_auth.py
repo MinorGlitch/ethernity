@@ -35,7 +35,7 @@ from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
-from ethernity.extensions.build import build_extension_document
+from ethernity.extensions.build import _build_extension_document
 from ethernity.extensions.recovery import recover_chain_entries
 from ethernity.formats.envelope_codec import (
     build_manifest_and_payload,
@@ -95,7 +95,7 @@ def _root_envelope(data: bytes = b"root") -> bytes:
 
 
 def _extension_envelope(root_doc_hash: bytes) -> bytes:
-    built = build_extension_document(
+    built = _build_extension_document(
         index=1,
         parent_doc_hash=root_doc_hash,
         root_doc_hash=root_doc_hash,
@@ -115,7 +115,7 @@ def _extension_envelope(root_doc_hash: bytes) -> bytes:
         ),
         input_origin="file",
         input_roots=(),
-        chunker=lambda data, _profile: (data,),
+        chunker=lambda data, _profile: ((0, len(data)),),
         existing_file_sizes={},
     )
     return encode_extension_envelope(built.document)

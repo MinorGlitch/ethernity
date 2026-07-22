@@ -29,6 +29,7 @@ from rich.console import Console
 from rich.progress import Progress
 
 from ethernity import render as render_module
+from ethernity.artifacts.publish import PublicationDurability
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.cli.shared.events import active_event_sink, emit_phase, emit_progress
@@ -590,9 +591,10 @@ def run_backup(
     debug: bool = False,
     debug_max_bytes: int | None = None,
     debug_reveal_secrets: bool = False,
-    promote_lock_dir: str | Path | None = None,
+    promote_lock_path: str | Path | None = None,
     prepare_promotion: Callable[[], None] | None = None,
     validate_promotion: Callable[[], None] | None = None,
+    publication_durability: PublicationDurability = "best-effort",
     quiet: bool = False,
 ) -> BackupResult:
     """Run the backup process and generate PDF documents."""
@@ -865,7 +867,8 @@ def run_backup(
             staging_output_dir,
             output_dir,
             validate_promotion=validate_promotion,
-            lock_dir=promote_lock_dir,
+            lock_path=promote_lock_path,
+            durability=publication_durability,
         )
     except BaseException:
         discard_prepared_output_dir(staging_output_dir)

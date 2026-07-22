@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import multiprocessing
 import sys
 from collections.abc import Sequence
 
@@ -43,6 +44,7 @@ Examples:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    multiprocessing.freeze_support()
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
         run_app()

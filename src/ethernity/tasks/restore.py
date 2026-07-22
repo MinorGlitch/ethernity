@@ -23,6 +23,7 @@ from pydantic import ConfigDict, Field
 
 from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
 from ethernity.cli.shared.types import RecoverArgs
+from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
@@ -78,6 +79,7 @@ class RestoreTaskState(SourceAssessableTaskState):
     expected_head_doc_hash: str | None = None
     output_path: Path | None = None
     allow_unsigned: bool = False
+    resource_intensive_compatibility_recovery: bool = False
 
     def sections(self) -> tuple[TaskSection, ...]:
         destination_warning = self._destination_warning()
@@ -215,6 +217,9 @@ class RestoreTaskState(SourceAssessableTaskState):
             auth_payloads_file=self.auth_payloads_file,
             config_path=self.config_path,
             allow_unsigned=self.allow_unsigned,
+            resource_intensive_compatibility_recovery=(
+                self.resource_intensive_compatibility_recovery
+            ),
         )
 
     def preview(self) -> TaskPreview:
@@ -224,6 +229,18 @@ class RestoreTaskState(SourceAssessableTaskState):
                 TaskIssue(
                     code="RESTORE_UNSIGNED_ALLOWED",
                     message="Unsigned legacy recovery is allowed; signatures will not be required.",
+                    severity="warning",
+                    section="authentication",
+                )
+            )
+        if self.resource_intensive_compatibility_recovery:
+            warnings.append(
+                TaskIssue(
+                    code="RESTORE_RESOURCE_INTENSIVE_COMPATIBILITY",
+                    message=(
+                        "Resource-intensive compatibility recovery is enabled; hostile or "
+                        "legacy inputs may consume substantially more CPU and memory."
+                    ),
                     severity="warning",
                     section="authentication",
                 )
@@ -279,8 +296,11 @@ class RestoreTaskState(SourceAssessableTaskState):
             raise ValueError(message)
 
         args = self.to_recover_args(assume_yes=True, quiet=True)
-        plan = prepare_recover_plan(args)
-        result = execute_recover_plan(plan, quiet=True)
+        with recovery_kdf_budget(
+            allow_resource_intensive_compatibility=(self.resource_intensive_compatibility_recovery)
+        ):
+            plan = prepare_recover_plan(args)
+            result = execute_recover_plan(plan, quiet=True)
         output_paths = tuple(Path(path) for path in result.written_paths)
         return TaskExecutionResult(
             ok=True,
@@ -348,6 +368,9 @@ class RestoreTaskState(SourceAssessableTaskState):
             expected_head_doc_hash=self.expected_head_doc_hash,
             output=str(self.output_path) if self.output_path is not None else None,
             allow_unsigned=self.allow_unsigned,
+            resource_intensive_compatibility_recovery=(
+                self.resource_intensive_compatibility_recovery
+            ),
             assume_yes=assume_yes,
             quiet=quiet,
         )

@@ -1,17 +1,21 @@
+import math
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-import ethernity.render.direct_pdf.archive as archive
-import ethernity.render.direct_pdf.forge.recovery as forge_recovery
-import ethernity.render.direct_pdf.ledger as ledger
-import ethernity.render.direct_pdf.maritime as maritime
-import ethernity.render.direct_pdf.sentinel.recovery as sentinel_recovery
 from ethernity.core.bounds import MAX_FALLBACK_LINES, MAX_MAIN_FRAME_DATA_BYTES
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
-from ethernity.render.direct_pdf.structured_common import (
+from ethernity.page_sizes import PaperSize, resolve_paper_size
+from ethernity.render import render_frames_to_pdf
+from ethernity.render.designs import list_design_manifests
+from ethernity.render.direct_pdf.fallback_layout import (
     FallbackSectionLines,
     fallback_entries,
     paginate_fallback_entries,
 )
+from ethernity.render.doc_types import DOC_TYPE_RECOVERY
+from ethernity.render.recovery_meta import build_recovery_meta
+from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
 
 _FALLBACK_GROUP_SIZE = 4
 
@@ -31,28 +35,114 @@ def _zbase32_char_count(byte_count: int) -> int:
     return (byte_count * 8 + 4) // 5
 
 
-def _payload_chars_per_line(line_length: int) -> int:
-    groups_per_line = (line_length + 1) // (_FALLBACK_GROUP_SIZE + 1)
-    return groups_per_line * _FALLBACK_GROUP_SIZE
+def _fallback_payload_char_count(line: str) -> int:
+    return sum(character not in {" ", "-"} for character in line)
+
+
+def _recovery_inputs(
+    output_path: Path,
+    *,
+    design_name: str,
+    paper_size: PaperSize,
+) -> RenderInputs:
+    doc_id = b"\x33" * DOC_ID_LEN
+    auth_frame = Frame(
+        version=VERSION,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=b"a" * 500,
+    )
+    main_frame = Frame(
+        version=VERSION,
+        frame_type=FrameType.MAIN_DOCUMENT,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=b"m" * 12_000,
+    )
+    return RenderInputs(
+        frames=(auth_frame, main_frame),
+        output_path=output_path,
+        context={
+            "paper_size": paper_size.name,
+            "doc_id": doc_id.hex(),
+            "created_timestamp_utc": "2026-07-13 12:00 UTC",
+        },
+        doc_type=DOC_TYPE_RECOVERY,
+        design_name=design_name,
+        lineage=RenderLineage(kind="root_backup"),
+        render_qr=False,
+        render_fallback=True,
+        recovery_meta=build_recovery_meta(
+            passphrase="alpha bravo charlie delta echo foxtrot",
+            quorum_threshold=2,
+            quorum_shares=3,
+            signing_pub=b"\x31" * 32,
+        ),
+        fallback_sections=(
+            FallbackSection(label="AUTH FRAME", frame=auth_frame),
+            FallbackSection(label="MAIN FRAME", frame=main_frame),
+        ),
+        page_size=paper_size,
+    )
 
 
 class TestFallbackRenderBounds(unittest.TestCase):
     def test_every_recovery_renderer_fits_maximum_main_frame_under_line_cap(self) -> None:
         encoded_char_count = _zbase32_char_count(len(encode_frame(_maximum_main_frame())))
-        line_lengths = {
-            "archive": archive._FALLBACK_LINE_LENGTH,
-            "forge": forge_recovery._FALLBACK_LINE_LENGTH,
-            "ledger": ledger._FALLBACK_LINE_LENGTH,
-            "maritime": maritime._FALLBACK_LINE_LENGTH,
-            "sentinel": sentinel_recovery._FALLBACK_LINE_LENGTH,
-        }
+        minimum_payload_chars = math.ceil(encoded_char_count / MAX_FALLBACK_LINES)
+        manifests = tuple(
+            manifest
+            for manifest in list_design_manifests().values()
+            if DOC_TYPE_RECOVERY in manifest.documents
+        )
 
-        self.assertEqual(line_lengths["forge"], 44)
-        for renderer, line_length in line_lengths.items():
-            with self.subTest(renderer=renderer):
-                payload_chars = _payload_chars_per_line(line_length)
-                required_lines = (encoded_char_count + payload_chars - 1) // payload_chars
-                self.assertLessEqual(required_lines, MAX_FALLBACK_LINES)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for manifest in manifests:
+                page_support = manifest.page_support_for(DOC_TYPE_RECOVERY)
+                paper_sizes = (
+                    resolve_paper_size("A4"),
+                    resolve_paper_size("LETTER"),
+                    PaperSize(
+                        "MINIMUM",
+                        f"{manifest.name} minimum recovery page",
+                        page_support.minimum_width_mm,
+                        page_support.minimum_height_mm,
+                    ),
+                )
+                for paper_size in paper_sizes:
+                    with self.subTest(design=manifest.name, paper_size=paper_size.name):
+                        inputs = _recovery_inputs(
+                            root / manifest.name / paper_size.name.lower() / "recovery.pdf",
+                            design_name=manifest.name,
+                            paper_size=paper_size,
+                        )
+                        Path(inputs.output_path).parent.mkdir(parents=True, exist_ok=True)
+
+                        result = render_frames_to_pdf(inputs)
+
+                        self.assertIsNotNone(result.fallback_proof)
+                        self.assertIsNotNone(result.layout_proof)
+                        assert result.fallback_proof is not None
+                        assert result.layout_proof is not None
+                        self.assertFalse(result.layout_proof.overflow)
+                        emitted = iter(result.fallback_proof.emitted_fallback_lines)
+                        for section in inputs.fallback_sections or ():
+                            remaining = _zbase32_char_count(len(encode_frame(section.frame)))
+                            while remaining > 0:
+                                line_payload_chars = _fallback_payload_char_count(next(emitted))
+                                self.assertLessEqual(line_payload_chars, remaining)
+                                remaining -= line_payload_chars
+                                if remaining > 0:
+                                    self.assertGreaterEqual(
+                                        line_payload_chars,
+                                        minimum_payload_chars,
+                                    )
+                        with self.assertRaises(StopIteration):
+                            next(emitted)
 
     def test_structured_display_numbers_reset_per_page_and_section_block(self) -> None:
         frame = Frame(

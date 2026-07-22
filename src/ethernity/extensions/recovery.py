@@ -56,6 +56,7 @@ from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import errors as extension_errors
 from ethernity.extensions.chain import (
     AuthenticatedExtensionChainLink,
+    ExtensionReplayError,
     LogicalFileState,
     reconstruct_authenticated_latest_logical_state,
 )
@@ -754,15 +755,12 @@ def _recover_imported_chain_entries_with_session(
             expected_sign_pub=root_sign_pub,
             extensions=tuple(item.link for item in selected_links),
         )
-    except ValueError as exc:
+    except ExtensionReplayError as exc:
         raise _chain_replay_head_untrusted_error(
             exc,
             plan=plan,
             decoded_links=decoded_links,
             selected_links=selected_links,
-            root_manifest=root_manifest,
-            payload=payload,
-            expected_sign_pub=root_sign_pub,
         ) from exc
     latest_manifest = _synthetic_manifest_from_state(
         root_manifest,
@@ -832,26 +830,25 @@ def validate_expected_recovery_head(
 
 
 def _chain_replay_head_untrusted_error(
-    exc: ValueError,
+    exc: ExtensionReplayError,
     *,
     plan: RecoveryPlanLike,
     decoded_links: tuple[DecodedExtensionLink, ...],
     selected_links: tuple[DecodedExtensionLink, ...],
-    root_manifest: EnvelopeManifest,
-    payload: bytes,
-    expected_sign_pub: bytes,
 ) -> extension_errors.ExtensionRecoveryError:
-    failure, validated_links = locate_replay_failure(
-        root_manifest=root_manifest,
-        payload=payload,
-        root_doc_hash=plan.doc_hash,
-        expected_sign_pub=expected_sign_pub,
-        selected_links=selected_links,
+    validated_link = next(
+        (
+            item
+            for item in selected_links
+            if item.link.document.header.index == exc.last_validated_head_index
+            and item.link.doc_hash == exc.last_validated_head_hash
+        ),
+        None,
     )
-    head_index, head_hash, head_auth, head_verified = validated_head_details(
-        plan.doc_hash,
-        validated_links,
-    )
+    head_index = exc.last_validated_head_index
+    head_hash = exc.last_validated_head_hash.hex()
+    head_auth = None if validated_link is None else validated_link.auth_status
+    head_verified = None if validated_link is None else validated_link.root_authority_verified
     latest_head_index, latest_head_doc_hash = _latest_head_details(decoded_links)
     requested_doc_hash = (
         None if plan.extension_doc_hash is None else plan.extension_doc_hash.strip().lower()
@@ -864,10 +861,10 @@ def _chain_replay_head_untrusted_error(
         message=f"{head_label} recovery head could not be trusted: {failure_message}",
         details={
             "stage": "replay",
-            "failure_stage": "chain",
+            "failure_stage": exc.failure_phase,
             "failure_message": failure_message,
-            "failure_head_index": failure.link.document.header.index,
-            "failure_head_doc_hash": failure.link.doc_hash.hex(),
+            "failure_head_index": exc.failing_index,
+            "failure_head_doc_hash": exc.failing_hash.hex(),
             "latest_head_index": latest_head_index,
             "latest_head_doc_hash": latest_head_doc_hash,
             "requested_head_index": plan.extension_index,
@@ -879,29 +876,6 @@ def _chain_replay_head_untrusted_error(
             "explicit_selection": explicit_selection,
         },
     )
-
-
-def locate_replay_failure(
-    *,
-    root_manifest: EnvelopeManifest,
-    payload: bytes,
-    root_doc_hash: bytes,
-    expected_sign_pub: bytes,
-    selected_links: tuple[DecodedExtensionLink, ...],
-) -> tuple[DecodedExtensionLink, tuple[DecodedExtensionLink, ...]]:
-    for end in range(1, len(selected_links) + 1):
-        prefix = selected_links[:end]
-        try:
-            reconstruct_authenticated_latest_logical_state(
-                root_manifest,
-                payload,
-                root_doc_hash=root_doc_hash,
-                expected_sign_pub=expected_sign_pub,
-                extensions=tuple(item.link for item in prefix),
-            )
-        except ValueError:
-            return prefix[-1], prefix[:-1]
-    return selected_links[-1], selected_links[:-1]
 
 
 def validated_head_details(
@@ -1630,7 +1604,6 @@ __all__ = [
     "decode_root_manifest",
     "imported_document_from_recovery_frames",
     "imported_documents_from_recovery_frames",
-    "locate_replay_failure",
     "recover_chain_entries",
     "recover_imported_chain_entries",
     "resolve_required_auth_payload",

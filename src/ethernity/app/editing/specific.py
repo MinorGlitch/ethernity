@@ -84,11 +84,11 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
                 f"{self.add_files_state.recovery_document_count}"
             )
         elif self.add_files_state.recovery_document_count == 0:
-            value = "none"
+            value = "original"
         await self.push_screen(
             EditFieldScreen(
                 title="Update recovery sheets",
-                prompt=f"Enter default, none, or {QUORUM_VALUE}. {QUORUM_RANGE}",
+                prompt=f"Enter default, original, or {QUORUM_VALUE}. {QUORUM_RANGE}",
                 value=value,
                 placeholder="default",
             ),

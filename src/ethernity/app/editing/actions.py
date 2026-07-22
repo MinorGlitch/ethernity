@@ -250,6 +250,13 @@ class TaskEditingActions(TaskSpecificEditingActions):
                 await self._edit_restore_auth_text_source()
             elif value == "payloads":
                 await self._edit_restore_auth_payloads_source()
+        elif select_id == "workspace-restore-resource-policy":
+            enabled = value == "resource-intensive-compatibility"
+            if self.restore_state.resource_intensive_compatibility_recovery == enabled:
+                return
+            self.restore_state.resource_intensive_compatibility_recovery = enabled
+            self._source_changed("restore")
+            return
         elif select_id == "workspace-rebuild-auth-material":
             current_auth_material = (
                 "text"
@@ -278,7 +285,7 @@ class TaskEditingActions(TaskSpecificEditingActions):
                 self.add_files_state.recovery_document_count = None
         elif select_id == "workspace-add-files-recovery-docs":
             current_recovery = (
-                "none"
+                "original"
                 if self.add_files_state.recovery_document_count == 0
                 else "custom"
                 if self.add_files_state.recovery_document_threshold is not None
@@ -289,7 +296,8 @@ class TaskEditingActions(TaskSpecificEditingActions):
             if value == "default":
                 self.add_files_state.recovery_document_threshold = None
                 self.add_files_state.recovery_document_count = None
-            elif value == "none":
+            elif value == "original":
+                self.add_files_state.unlock_policy = "reuse-root"
                 self.add_files_state.recovery_document_threshold = None
                 self.add_files_state.recovery_document_count = 0
             elif value == "custom":

@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Literal
+from typing import Any
 
 from ethernity.cli.features.recover import inputs as recover_inputs
 from ethernity.cli.features.recover.constants import RECOVERY_SCAN_LABEL
@@ -58,6 +58,16 @@ from ethernity.extensions.recovery import (
     select_root_import_document,
     select_root_import_session,
 )
+from ethernity.workflows.recovery.inspection import (
+    RecoveryInspectionNotice,
+    inspect_recovery_inputs as _inspect_recovery_inputs,
+    select_root_import_document_from_passphrase_shards as _select_root_from_shards,
+)
+from ethernity.workflows.recovery.models import (
+    PassphraseShardRootSelection,
+    RecoveryInspection,
+    RecoveryUnlockStatus,
+)
 
 
 @dataclass(frozen=True)
@@ -80,58 +90,12 @@ class RecoveryPlan:
     shard_fallback_files: tuple[str, ...]
     shard_payloads_file: tuple[str, ...]
     shard_scan: tuple[str, ...]
+    resource_intensive_compatibility_recovery: bool = False
     root_dir: str | None = None
     extension_index: int | None = None
     extension_doc_hash: str | None = None
     expected_head_doc_hash: str | None = None
     import_documents: tuple[ImportedRecoveryDocument, ...] = ()
-    decoded_import_session: DecodedImportSession | None = None
-
-
-@dataclass(frozen=True)
-class RecoveryUnlockStatus:
-    """Unlock readiness for structured recovery inspection flows."""
-
-    mode: Literal["missing", "passphrase", "shards"]
-    passphrase_provided: bool
-    validated_shard_count: int
-    required_shard_threshold: int | None
-    satisfied: bool
-    resolved_passphrase: str | None = None
-    shard_share_count: int | None = None
-    blocking_issues: tuple[dict[str, Any], ...] = ()
-
-
-@dataclass(frozen=True)
-class RecoveryInspection:
-    """Best-effort recovery inspection state used before materializing a recovery plan."""
-
-    ciphertext: bytes
-    doc_id: bytes
-    doc_hash: bytes
-    auth_payload: AuthPayload | None
-    auth_status: str
-    allow_unsigned: bool
-    input_label: str | None
-    input_detail: str | None
-    main_frames: tuple[Frame, ...]
-    auth_frames: tuple[Frame, ...]
-    shard_frames: tuple[Frame, ...]
-    shard_fallback_files: tuple[str, ...]
-    shard_payloads_file: tuple[str, ...]
-    shard_scan: tuple[str, ...]
-    unlock: RecoveryUnlockStatus
-    blocking_issues: tuple[dict[str, Any], ...]
-    source_frames: tuple[Frame, ...] = ()
-    source_extra_auth_frames: tuple[Frame, ...] = ()
-
-
-@dataclass(frozen=True)
-class PassphraseShardRootSelection:
-    root_document: ImportedRecoveryDocument
-    target_document: ImportedRecoveryDocument
-    target_shard_frames: tuple[Frame, ...]
-    unlock: RecoveryUnlockStatus
     decoded_import_session: DecodedImportSession | None = None
 
 
@@ -371,58 +335,26 @@ def inspect_recovery_inputs(
     shard_scan: list[str],
     quiet: bool,
 ) -> RecoveryInspection:
-    """Assemble best-effort recovery inspection state from decoded frames."""
+    """Compatibility adapter for workflow-owned recovery inspection."""
 
-    if not frames:
-        hint = "Check the input path and try again."
-        if input_label == RECOVERY_SCAN_LABEL:
-            hint = "Check the scan path and image quality, then try again."
-        raise ValueError(f"no backup data found. {hint}")
-
-    deduped = deduplicate_frame_slots(frames)
-    main_frames, auth_frames = split_main_and_auth_frames(deduped)
-    if extra_auth_frames:
-        auth_frames = deduplicate_auth_frames([*auth_frames, *extra_auth_frames])
-
-    ciphertext = reassemble_payload(main_frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
-    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
-    auth_payload, auth_status, auth_blocking_issues = _inspect_auth_payload(
-        auth_frames,
-        doc_id=doc_id,
-        doc_hash=doc_hash,
-        allow_unsigned=allow_unsigned,
-        require_auth=not allow_unsigned,
-        quiet=quiet,
-    )
-    unlock = _inspect_unlock_status(
-        passphrase=passphrase,
+    return _inspect_recovery_inputs(
+        frames=frames,
+        extra_auth_frames=extra_auth_frames,
         shard_frames=shard_frames,
-        doc_id=doc_id,
-        doc_hash=doc_hash,
-        sign_pub=auth_payload.sign_pub if auth_payload is not None else None,
-        allow_unsigned=allow_unsigned,
-    )
-    if auth_blocking_issues and unlock.satisfied:
-        unlock = replace(unlock, satisfied=False, resolved_passphrase=None)
-    blocking_issues = [*auth_blocking_issues, *unlock.blocking_issues]
-    return RecoveryInspection(
-        ciphertext=ciphertext,
-        doc_id=doc_id,
-        doc_hash=doc_hash,
-        auth_payload=auth_payload,
-        auth_status=auth_status,
+        passphrase=passphrase,
         allow_unsigned=allow_unsigned,
         input_label=input_label,
         input_detail=input_detail,
-        main_frames=tuple(main_frames),
-        auth_frames=tuple(auth_frames),
-        shard_frames=tuple(shard_frames),
-        shard_fallback_files=tuple(shard_fallback_files),
-        shard_payloads_file=tuple(shard_payloads_file),
-        shard_scan=tuple(shard_scan),
-        unlock=unlock,
-        blocking_issues=tuple(blocking_issues),
+        shard_fallback_files=shard_fallback_files,
+        shard_payloads_file=shard_payloads_file,
+        shard_scan=shard_scan,
+        quiet=quiet,
+        _notice_sink=lambda notice: _warn_inspection_notice(notice, quiet=quiet),
     )
+
+
+def _warn_inspection_notice(notice: RecoveryInspectionNotice, *, quiet: bool) -> None:
+    warn(notice.message, quiet=quiet, code=notice.code, details=notice.details)
 
 
 def build_recovery_plan(
@@ -580,6 +512,9 @@ def build_recovery_plan(
         shard_fallback_files=tuple(shard_fallback_files),
         shard_payloads_file=tuple(shard_payloads_file),
         shard_scan=tuple(shard_scan),
+        resource_intensive_compatibility_recovery=(
+            args.resource_intensive_compatibility_recovery if args is not None else False
+        ),
         root_dir=root_dir,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
@@ -618,63 +553,14 @@ def select_root_import_document_from_passphrase_shards(
     allow_unsigned: bool,
     quiet: bool,
 ) -> PassphraseShardRootSelection:
-    candidates = _select_import_documents_bound_to_passphrase_shards(
+    """Compatibility adapter for workflow-owned imported-root selection."""
+
+    return _select_root_from_shards(
         documents,
         shard_frames=shard_frames,
-    )
-    last_unlock_failure: str | None = None
-    for target_document, target_shard_frames in candidates:
-        target_auth_payload, _target_auth_status = resolve_auth_payload(
-            list(target_document.auth_frames),
-            doc_id=target_document.doc_id,
-            doc_hash=target_document.doc_hash,
-            allow_unsigned=allow_unsigned,
-            require_auth=not allow_unsigned,
-            quiet=quiet,
-        )
-        unlock = _inspect_unlock_status(
-            passphrase=None,
-            shard_frames=list(target_shard_frames),
-            doc_id=target_document.doc_id,
-            doc_hash=target_document.doc_hash,
-            sign_pub=target_auth_payload.sign_pub if target_auth_payload is not None else None,
-            allow_unsigned=allow_unsigned,
-        )
-        if not unlock.satisfied or unlock.resolved_passphrase is None:
-            last_unlock_failure = _unlock_failure_message(unlock)
-            continue
-        decoded_import_session = select_root_import_session(
-            documents,
-            passphrase=unlock.resolved_passphrase,
-            debug=False,
-        )
-        root_document = decoded_import_session.root_document
-        root_auth_payload, _root_auth_status = resolve_auth_payload(
-            list(root_document.auth_frames),
-            doc_id=root_document.doc_id,
-            doc_hash=root_document.doc_hash,
-            allow_unsigned=allow_unsigned,
-            require_auth=not allow_unsigned,
-            quiet=quiet,
-        )
-        _verify_shard_target_belongs_to_selected_root(
-            target_document=target_document,
-            root_document=root_document,
-            passphrase=unlock.resolved_passphrase,
-            root_auth_payload=root_auth_payload,
-            decoded_import_session=decoded_import_session,
-            allow_unsigned=allow_unsigned,
-            quiet=quiet,
-        )
-        return PassphraseShardRootSelection(
-            root_document=root_document,
-            target_document=target_document,
-            target_shard_frames=target_shard_frames,
-            unlock=unlock,
-            decoded_import_session=decoded_import_session,
-        )
-    raise ValueError(
-        last_unlock_failure or "shard payloads do not match any imported recovery document"
+        allow_unsigned=allow_unsigned,
+        quiet=quiet,
+        _notice_sink=lambda notice: _warn_inspection_notice(notice, quiet=quiet),
     )
 
 

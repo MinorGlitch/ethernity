@@ -26,13 +26,23 @@ import { enforceRecoveryDocumentBudget } from "../frames_cipher.js";
 
 export async function recoverLatestFromPlaintextDocuments(
   documents,
-  { verifySignature = verifyAuthSignature, extensionTarget = "latest" } = {},
+  {
+    verifySignature = verifyAuthSignature,
+    extensionTarget = "latest",
+    recoveryAnchor = null,
+    freshnessUnknownAcknowledged = false,
+  } = {},
 ) {
   if (!documents.length) {
     throw new Error("Collected ciphertext not available yet.");
   }
   enforceRecoveryDocumentBudget(documents, { byteField: "plaintext", byteLabel: "plaintext" });
-  const target = normalizeExtensionTarget(extensionTarget);
+  const target = applyRecoveryAnchor(normalizeExtensionTarget(extensionTarget), recoveryAnchor);
+  const freshnessDecision = requireFreshnessDecision(
+    target,
+    recoveryAnchor,
+    freshnessUnknownAcknowledged,
+  );
   const rootOnly = target.kind === "root";
   const decoded = [];
   const decodeErrors = [];
@@ -68,6 +78,7 @@ export async function recoverLatestFromPlaintextDocuments(
     throw new Error(`content import must contain exactly one root backup (${roots.length} found)`);
   }
   const root = roots[0];
+  validateAnchoredRootDocument(recoveryAnchor, root.document);
   const rawExtensions = decoded.filter((item) => item.kind === "extension");
   for (const failure of decodeErrors) {
     throwIfSelectedDocHashFailure(target, failure.document, "decoded", failure.message);
@@ -76,7 +87,13 @@ export async function recoverLatestFromPlaintextDocuments(
     throw new Error("one or more supplied backup documents could not be decoded");
   }
   const suppliedRootAuthPayload = await verifySuppliedRootAuth(root, verifySignature);
+  if (recoveryAnchor) {
+    const anchoredSignPub =
+      suppliedRootAuthPayload?.signPub ?? deriveRootSigningAuthority(root.extracted.manifest);
+    validateAnchoredSigningAuthority(recoveryAnchor, anchoredSignPub);
+  }
   if (rootOnly) {
+    ensureRootOnlyMatchesAnchor(target, recoveryAnchor, root.document.docHashHex);
     ensureExpectedHeadSatisfied(target, root.document.docHashHex);
     return {
       files: root.extracted.files,
@@ -84,6 +101,8 @@ export async function recoverLatestFromPlaintextDocuments(
       selectedExtensionIndex: null,
       selectedExtensionDocHash: null,
       freshnessScope: null,
+      freshnessDecision,
+      trustBasis: recoveryTrustBasis(recoveryAnchor),
       decryptedEnvelope: root.document.plaintext,
       replayTarget: rootOnly ? "root" : "latest",
       suppliedDocumentCount: documents.length,
@@ -100,6 +119,8 @@ export async function recoverLatestFromPlaintextDocuments(
       selectedExtensionIndex: null,
       selectedExtensionDocHash: null,
       freshnessScope: null,
+      freshnessDecision,
+      trustBasis: recoveryTrustBasis(recoveryAnchor),
       decryptedEnvelope: root.document.plaintext,
       replayTarget: "latest",
       suppliedDocumentCount: documents.length,
@@ -217,6 +238,8 @@ export async function recoverLatestFromPlaintextDocuments(
     selectedExtensionIndex: latest?.header.index ?? null,
     selectedExtensionDocHash: latest?.docHashHex ?? null,
     freshnessScope: selectedHeaders.length ? "supplied_carriers_only" : null,
+    freshnessDecision,
+    trustBasis: recoveryTrustBasis(recoveryAnchor),
     decryptedEnvelope: root.document.plaintext,
     replayTarget: target.kind === "latest" ? "latest" : "extension",
     suppliedDocumentCount: documents.length,
@@ -232,9 +255,12 @@ export async function recoverLatestFromEncryptedDocuments(
     extensionTarget = "latest",
     signal,
     allowResourceIntensiveScrypt = false,
+    recoveryAnchor = null,
+    freshnessUnknownAcknowledged = false,
   } = {},
 ) {
-  const target = normalizeExtensionTarget(extensionTarget);
+  const target = applyRecoveryAnchor(normalizeExtensionTarget(extensionTarget), recoveryAnchor);
+  requireFreshnessDecision(target, recoveryAnchor, freshnessUnknownAcknowledged);
   enforceRecoveryDocumentBudget(documents);
   const authPreflight = await preflightEncryptedDocumentAuth(documents, verifySignature);
   const decryptPreflight =
@@ -296,8 +322,25 @@ export async function recoverLatestFromEncryptedDocuments(
   const result = await recoverLatestFromPlaintextDocuments(plaintextDocuments, {
     verifySignature,
     extensionTarget: target,
+    recoveryAnchor,
+    freshnessUnknownAcknowledged,
   });
   return result;
+}
+
+function validateAnchoredRootDocument(anchor, document) {
+  if (!anchor) return;
+  if (document.docHashHex !== anchor.rootDocumentHashHex) {
+    throw new Error("root backup does not match the recovery kit anchor");
+  }
+}
+
+function validateAnchoredSigningAuthority(anchor, signPub) {
+  if (!anchor) return;
+  const fingerprint = bytesToHex(sha256(signPub));
+  if (fingerprint !== anchor.rootSigningPublicKeyFingerprintHex) {
+    throw new Error("root signing authority does not match the recovery kit anchor");
+  }
 }
 
 async function preflightEncryptedDocumentAuth(documents, verifySignature) {
@@ -429,6 +472,52 @@ function normalizeExtensionTarget(extensionTarget) {
     );
   }
   throw new Error("unknown extension recovery target");
+}
+
+function applyRecoveryAnchor(target, anchor) {
+  if (!anchor) return target;
+  if (target.kind !== "latest" && target.kind !== "root") {
+    throw new Error("chain-bound recovery kits recover only their pinned head or the pinned root");
+  }
+  if (
+    target.expectedHeadDocHashHex &&
+    target.expectedHeadDocHashHex !== anchor.expectedLatestHeadHashHex
+  ) {
+    throw new Error("recovery target conflicts with the chain-bound kit head anchor");
+  }
+  return { ...target, expectedHeadDocHashHex: anchor.expectedLatestHeadHashHex };
+}
+
+function requireFreshnessDecision(target, anchor, freshnessUnknownAcknowledged) {
+  if (anchor) {
+    if (target.kind === "root" && anchor.expectedLatestHeadHashHex !== anchor.rootDocumentHashHex) {
+      throw new Error("root-only recovery refused because the trusted kit pins a non-root head");
+    }
+    return "trusted_kit";
+  }
+  if (target.expectedHeadDocHashHex || target.kind === "doc_hash") {
+    return "manual_expected_head";
+  }
+  if (target.kind === "latest" && freshnessUnknownAcknowledged === true) {
+    return "supplied_pages_freshness_unknown";
+  }
+  if (target.kind === "latest") {
+    throw new Error(
+      "latest recovery requires an expected head hash or explicit freshness-unknown acknowledgement",
+    );
+  }
+  throw new Error("selected recovery target requires an expected head hash");
+}
+
+function ensureRootOnlyMatchesAnchor(target, anchor, rootDocHashHex) {
+  if (!anchor || target.kind !== "root") return;
+  if (anchor.expectedLatestHeadHashHex !== rootDocHashHex) {
+    throw new Error("root-only recovery refused because the trusted kit pins a non-root head");
+  }
+}
+
+function recoveryTrustBasis(anchor) {
+  return anchor ? "matched_trusted_kit" : "internally_consistent";
 }
 
 function withExpectedHeadDocHash(target, value) {

@@ -128,6 +128,87 @@ class TestDirectPdfRecoveryMetadata(unittest.TestCase):
         self.assertTrue(pagination.continuation_pages)
         self.assertEqual(pagination.decoded_passphrase(), passphrase)
 
+    def test_inline_and_continuation_parts_use_their_own_measured_widths(self) -> None:
+        passphrase = ("alpha  beta\tgamma\npäss-") * 120
+        meta = build_recovery_meta(
+            passphrase=passphrase,
+            quorum_threshold=None,
+            quorum_shares=None,
+            signing_pub=None,
+        )
+
+        pagination = paginate_recovery_passphrase(
+            self.surface,
+            meta,
+            style=self.style,
+            max_width_mm=45.0,
+            continuation_width_mm=90.0,
+            inline_height_mm=24.0,
+            continuation_height_mm=60.0,
+        )
+
+        self.assertTrue(pagination.inline_parts)
+        self.assertTrue(pagination.continuation_pages)
+        self.assertTrue(
+            all(
+                self.surface.measure_text_width(part.line_text, self.style) <= 45.0
+                for part in pagination.inline_parts
+            )
+        )
+        continuation_parts = tuple(
+            part for page in pagination.continuation_pages for part in page.parts
+        )
+        self.assertTrue(
+            all(
+                self.surface.measure_text_width(part.line_text, self.style) <= 90.0
+                for part in continuation_parts
+            )
+        )
+        self.assertTrue(
+            any(
+                self.surface.measure_text_width(part.line_text, self.style) > 45.0
+                for part in continuation_parts
+            )
+        )
+        self.assertEqual(pagination.decoded_passphrase(), passphrase)
+
+    def test_literal_continuation_reflows_to_its_own_measured_width(self) -> None:
+        passphrase = " ".join(f"word{index:03d}" for index in range(100))
+        meta = build_recovery_meta(
+            passphrase=passphrase,
+            quorum_threshold=None,
+            quorum_shares=None,
+            signing_pub=None,
+        )
+
+        pagination = paginate_recovery_passphrase(
+            self.surface,
+            meta,
+            style=self.style,
+            max_width_mm=45.0,
+            continuation_width_mm=90.0,
+            inline_height_mm=24.0,
+            continuation_height_mm=60.0,
+        )
+
+        self.assertTrue(pagination.uses_literal_continuation)
+        continuation_lines = tuple(
+            line for page in pagination.continuation_pages for line in page.literal_lines
+        )
+        self.assertTrue(
+            all(
+                self.surface.measure_text_width(line, self.style) <= 90.0
+                for line in continuation_lines
+            )
+        )
+        self.assertTrue(
+            any(
+                self.surface.measure_text_width(line, self.style) > 45.0
+                for line in continuation_lines
+            )
+        )
+        self.assertEqual(pagination.decoded_passphrase(), passphrase)
+
 
 if __name__ == "__main__":
     unittest.main()

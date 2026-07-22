@@ -358,6 +358,7 @@ class TextPlacementProof:
     overflow_line_count: int
     font_size_pt: float
     overflow: bool
+    component_type: str = "text"
 
 
 @dataclass(frozen=True)

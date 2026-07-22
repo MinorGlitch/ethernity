@@ -28,6 +28,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from ethernity.artifacts.publish import (
+    PublicationDurability,
     create_sibling_staging_dir,
     discard_staged_artifact_dir,
     promote_staged_artifact_dir,
@@ -134,7 +135,8 @@ def commit_prepared_output_dir(
     final_dir: str | Path,
     *,
     validate_promotion: Callable[[], None] | None = None,
-    lock_dir: str | Path | None = None,
+    lock_path: str | Path | None = None,
+    durability: PublicationDurability = "best-effort",
 ) -> str:
     """Promote a staged output directory into place."""
 
@@ -143,7 +145,8 @@ def commit_prepared_output_dir(
             staging_dir,
             final_dir,
             validate_promotion=validate_promotion,
-            lock_dir=lock_dir,
+            lock_path=lock_path,
+            durability=durability,
         )
     )
 

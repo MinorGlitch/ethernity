@@ -91,6 +91,18 @@ class TestAgeCli(unittest.TestCase):
         with self.assertRaises(ValueError):
             decrypt_bytes(ciphertext, passphrase="other")
 
+    def test_decrypt_preserves_resource_policy_rejection(self) -> None:
+        with mock.patch.object(
+            age_runtime,
+            "preflight_age_scrypt",
+            side_effect=ValueError("RESOURCE_INTENSIVE_COMPATIBILITY_REQUIRED"),
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "RESOURCE_INTENSIVE_COMPATIBILITY_REQUIRED",
+            ):
+                decrypt_bytes(b"age document", passphrase="secret")
+
     def test_decrypt_wrong_passphrase_debug_includes_details(self) -> None:
         data = b"payload"
         ciphertext, _ = encrypt_bytes_with_passphrase(data, passphrase="secret")
@@ -107,19 +119,25 @@ class TestAgeCli(unittest.TestCase):
         self.assertIn("boom", str(ctx.exception))
 
     def test_decrypt_wraps_pyrage_error(self) -> None:
+        ciphertext, _passphrase = encrypt_bytes_with_passphrase(b"payload", passphrase="secret")
         with mock.patch.object(
-            age_runtime.pyrage_passphrase, "decrypt", side_effect=ValueError("boom")
+            age_runtime,
+            "run_disposable_worker",
+            side_effect=age_runtime.DisposableWorkerError("boom"),
         ):
             with self.assertRaises(AgeError) as ctx:
-                decrypt_bytes(b"ciphertext", passphrase="secret", debug=True)
+                decrypt_bytes(ciphertext, passphrase="secret", debug=True)
         self.assertIn("boom", str(ctx.exception))
 
     def test_decrypt_non_debug_is_generic(self) -> None:
+        ciphertext, _passphrase = encrypt_bytes_with_passphrase(b"payload", passphrase="secret")
         with mock.patch.object(
-            age_runtime.pyrage_passphrase, "decrypt", side_effect=ValueError("boom")
+            age_runtime,
+            "run_disposable_worker",
+            side_effect=age_runtime.DisposableWorkerError("boom"),
         ):
             with self.assertRaises(ValueError) as ctx:
-                decrypt_bytes(b"ciphertext", passphrase="secret")
+                decrypt_bytes(ciphertext, passphrase="secret")
         self.assertIn("decryption failed", str(ctx.exception))
 
 

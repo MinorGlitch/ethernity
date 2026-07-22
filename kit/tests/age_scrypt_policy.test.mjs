@@ -7,6 +7,7 @@ import {
   MAX_AUTOMATIC_AGE_SCRYPT_LOG_N,
   MAX_AUTOMATIC_RECOVERY_SCRYPT_WORK,
   MAX_BROWSER_AGE_SCRYPT_LOG_N,
+  MAX_COMPATIBILITY_RECOVERY_SCRYPT_WORK,
   MAX_SCRYPT_LOG_N,
   preflightAgeScryptBatch,
 } from "../lib/age_scrypt.js";
@@ -88,4 +89,12 @@ test("age scrypt batch preflight records unsupported documents without schedulin
   assert.match(result.errors[0], /scrypt work factor must be between 1 and 20/);
   assert.equal(result.profiles[1].logN, 18);
   assert.equal(result.totalWork, 2 ** 18);
+});
+
+test("resource-intensive approval cannot bypass the cumulative hard limit", () => {
+  const excessive = Array.from({ length: 9 }, () => syntheticAgeDocument(20));
+  assert.throws(
+    () => preflightAgeScryptBatch(excessive, { allowResourceIntensive: true }),
+    new RegExp(`hard compatibility limit \\(${MAX_COMPATIBILITY_RECOVERY_SCRYPT_WORK}\\)`),
+  );
 });

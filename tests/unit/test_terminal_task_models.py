@@ -404,6 +404,23 @@ def test_restore_task_exposes_unsigned_legacy_recovery_policy() -> None:
     assert args.allow_unsigned
 
 
+def test_restore_task_exposes_resource_intensive_compatibility_policy() -> None:
+    state = RestoreTaskState(
+        source_paths=[Path("scans")],
+        passphrase="secret",
+        output_path=Path("recovered"),
+        resource_intensive_compatibility_recovery=True,
+    )
+
+    preview = state.preview()
+    args = state.to_recover_args()
+
+    assert args.resource_intensive_compatibility_recovery
+    assert any(
+        warning.code == "RESTORE_RESOURCE_INTENSIVE_COMPATIBILITY" for warning in preview.warnings
+    )
+
+
 def test_restore_task_exposes_auth_material_inputs() -> None:
     state = RestoreTaskState(
         source_paths=[Path("scans")],
@@ -462,7 +479,7 @@ def test_print_kit_task_is_ready_with_default_output() -> None:
     preview = state.preview()
 
     assert validation.ready
-    assert preview.title == "Recovery kit to create"
+    assert preview.title == "Unanchored rescue kit to create"
     assert [section.key for section in validation.sections] == [
         "output",
         "layout",
@@ -502,9 +519,9 @@ def test_add_files_task_ready_with_folder_files_and_passphrase() -> None:
 
     assert validation.ready
     assert preview.title == "Backup update to create"
-    args = state.to_extend_args()
-    assert args.root_dir == "backup-out"
-    assert args.input == ["new-file.txt"]
+    args = state.to_extension_request()
+    assert args.publish_root == "backup-out"
+    assert args.input_paths == ("new-file.txt",)
 
 
 def test_add_files_task_exposes_advanced_update_options() -> None:
@@ -523,7 +540,7 @@ def test_add_files_task_exposes_advanced_update_options() -> None:
 
     validation = state.validate_task()
     preview = state.preview()
-    args = state.to_extend_args()
+    args = state.to_extension_request()
 
     assert validation.ready
     assert validation.sections[-1].key == "advanced"
@@ -538,7 +555,7 @@ def test_add_files_task_exposes_advanced_update_options() -> None:
         "New documents",
         "QR density",
     ]
-    assert args.base_dir == "."
+    assert args.base_directory == "."
     assert args.shard_threshold == 3
     assert args.shard_count == 5
     assert args.signing_key_mode == "sharded"

@@ -9,10 +9,6 @@ from typing import Literal
 
 from pydantic import BaseModel, PrivateAttr
 
-from ethernity.cli.features.extend.planning import (
-    ExtendInspection,
-    inspect_from_args as inspect_extend_from_args,
-)
 from ethernity.cli.features.recover.planning import (
     RecoveryInspection,
     inspect_from_args as inspect_recovery_from_args,
@@ -20,11 +16,18 @@ from ethernity.cli.features.recover.planning import (
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.io.frames import frames_from_fallback_text
 from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.cli.shared.types import ExtendArgs, RecoverArgs
+from ethernity.cli.shared.types import RecoverArgs
+from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.encoding.framing import FrameType
 from ethernity.tasks.file_summary import display_path
 from ethernity.tasks.models import TaskIssue, TaskSectionStatus
 from ethernity.tasks.presentation.recovery import pasted_text_summary
+from ethernity.workflows.extension.errors import ExtensionIssue, ExtensionWorkflowError
+from ethernity.workflows.extension.planning import (
+    ExtendInspection,
+    inspect_from_args as inspect_extend_from_args,
+)
+from ethernity.workflows.extension.request import ExtensionRequest
 
 SourceKind = Literal["backup_folder", "scanned_pages", "recovery_text", "payload_files"]
 
@@ -66,6 +69,7 @@ class SourceAssessmentRequest:
     auth_payloads_file: Path | None = None
     config_path: Path | None = None
     allow_unsigned: bool = False
+    resource_intensive_compatibility_recovery: bool = False
 
     @property
     def key(self) -> str:
@@ -80,6 +84,9 @@ class SourceAssessmentRequest:
             "auth_payloads_file": _path_text(self.auth_payloads_file),
             "config_path": _path_text(self.config_path),
             "allow_unsigned": self.allow_unsigned,
+            "resource_intensive_compatibility_recovery": (
+                self.resource_intensive_compatibility_recovery
+            ),
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
@@ -170,6 +177,7 @@ def recovery_source_request(
     auth_payloads_file: Path | None = None,
     config_path: Path | None = None,
     allow_unsigned: bool = False,
+    resource_intensive_compatibility_recovery: bool = False,
 ) -> SourceAssessmentRequest | None:
     """Normalize the mutually exclusive recovery source shapes used by guided tasks."""
 
@@ -194,6 +202,7 @@ def recovery_source_request(
             auth_payloads_file=auth_payloads_file,
             config_path=config_path,
             allow_unsigned=allow_unsigned,
+            resource_intensive_compatibility_recovery=(resource_intensive_compatibility_recovery),
         )
     if recovery_text or recovery_text_file is not None:
         material_summary = (
@@ -212,6 +221,7 @@ def recovery_source_request(
             auth_payloads_file=auth_payloads_file,
             config_path=config_path,
             allow_unsigned=allow_unsigned,
+            resource_intensive_compatibility_recovery=(resource_intensive_compatibility_recovery),
         )
     return SourceAssessmentRequest(
         source_kind="payload_files",
@@ -223,6 +233,7 @@ def recovery_source_request(
         auth_payloads_file=auth_payloads_file,
         config_path=config_path,
         allow_unsigned=allow_unsigned,
+        resource_intensive_compatibility_recovery=resource_intensive_compatibility_recovery,
     )
 
 
@@ -265,18 +276,23 @@ def assess_source_request(request: SourceAssessmentRequest) -> SourceAssessment:
     """Inspect source material through the existing recovery and extension planners."""
 
     try:
-        if request.source_kind == "backup_folder":
-            inspection = inspect_extend_from_args(
-                ExtendArgs(
-                    config=_path_text(request.config_path),
-                    root_dir=_path_text(request.backup_folder),
-                    quiet=True,
-                )
+        with recovery_kdf_budget(
+            allow_resource_intensive_compatibility=(
+                request.resource_intensive_compatibility_recovery
             )
-            return _assessment_from_extend(request, inspection)
-        inspection = inspect_recovery_from_args(_recover_args(request))
-        return _assessment_from_recovery(request, inspection)
-    except ApiCommandError as exc:
+        ):
+            if request.source_kind == "backup_folder":
+                inspection = inspect_extend_from_args(
+                    ExtensionRequest(
+                        config_path=_path_text(request.config_path),
+                        publish_root=_path_text(request.backup_folder),
+                        quiet=True,
+                    )
+                )
+                return _assessment_from_extend(request, inspection)
+            inspection = inspect_recovery_from_args(_recover_args(request))
+            return _assessment_from_recovery(request, inspection)
+    except (ApiCommandError, ExtensionWorkflowError) as exc:
         return _failed_assessment(request, code=exc.code, message=exc.message)
     except (OSError, RuntimeError, ValueError) as exc:
         return _failed_assessment(
@@ -307,6 +323,9 @@ def _recover_args(request: SourceAssessmentRequest) -> RecoverArgs:
         auth_fallback_file=_path_text(request.auth_text_file),
         auth_payloads_file=_path_text(request.auth_payloads_file),
         allow_unsigned=request.allow_unsigned,
+        resource_intensive_compatibility_recovery=(
+            request.resource_intensive_compatibility_recovery
+        ),
         quiet=True,
     )
 
@@ -363,19 +382,26 @@ def _assessment_from_extend(
 
 def _first_source_issue(
     request: SourceAssessmentRequest,
-    blockers: tuple[dict[str, object], ...],
+    blockers: tuple[dict[str, object], ...] | tuple[ExtensionIssue, ...],
 ) -> TaskIssue | None:
     blocker = next(
-        (item for item in blockers if str(item.get("code", "")) not in _UNLOCK_ONLY_BLOCKERS),
-        None,
+        (item for item in blockers if _issue_code(item) not in _UNLOCK_ONLY_BLOCKERS), None
     )
     if blocker is None:
         return None
     return TaskIssue(
-        code=str(blocker.get("code") or "SOURCE_ASSESSMENT_FAILED"),
-        message=str(blocker.get("message") or "The selected backup source is not usable."),
+        code=_issue_code(blocker) or "SOURCE_ASSESSMENT_FAILED",
+        message=_issue_message(blocker) or "The selected backup source is not usable.",
         section=request.issue_section,
     )
+
+
+def _issue_code(issue: dict[str, object] | ExtensionIssue) -> str:
+    return issue.code if isinstance(issue, ExtensionIssue) else str(issue.get("code") or "")
+
+
+def _issue_message(issue: dict[str, object] | ExtensionIssue) -> str:
+    return issue.message if isinstance(issue, ExtensionIssue) else str(issue.get("message") or "")
 
 
 def _failed_assessment(

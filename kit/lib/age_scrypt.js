@@ -31,6 +31,8 @@ export const MAX_BROWSER_AGE_SCRYPT_LOG_N = 20;
 export const MAX_SCRYPT_LOG_N = MAX_BROWSER_AGE_SCRYPT_LOG_N;
 export const MAX_AUTOMATIC_AGE_SCRYPT_LOG_N = 18;
 export const MAX_AUTOMATIC_RECOVERY_SCRYPT_WORK = 8 * 2 ** MAX_AUTOMATIC_AGE_SCRYPT_LOG_N;
+export const MAX_COMPATIBILITY_RECOVERY_SCRYPT_WORK = 8 * 2 ** MAX_BROWSER_AGE_SCRYPT_LOG_N;
+export const SCRYPT_WORKER_WALL_TIME_MS = 120_000;
 export const INTENSIVE_SCRYPT_APPROVAL_PREFIX = "INTENSIVE_SCRYPT_APPROVAL_REQUIRED:";
 const SCRYPT_WORKER_UNAVAILABLE =
   "This browser cannot safely run the required scrypt work. Use the Ethernity desktop app to recover this backup.";
@@ -220,7 +222,12 @@ function deriveScryptKeyInWorker(passphrase, profile, signal) {
   const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" }));
   const worker = new Worker(workerUrl);
   return new Promise((resolve, reject) => {
+    const wallTimer = setTimeout(() => {
+      cleanup();
+      reject(new Error("scrypt worker exceeded its wall-time limit"));
+    }, SCRYPT_WORKER_WALL_TIME_MS);
     const cleanup = () => {
+      clearTimeout(wallTimer);
       signal?.removeEventListener("abort", handleAbort);
       worker.terminate();
       URL.revokeObjectURL(workerUrl);
@@ -302,6 +309,11 @@ export function preflightAgeScryptBatch(fileBytesList, { allowResourceIntensive 
   );
   const requiresResourceIntensiveApproval =
     resourceIntensiveProfiles.length > 0 || totalWork > MAX_AUTOMATIC_RECOVERY_SCRYPT_WORK;
+  if (totalWork > MAX_COMPATIBILITY_RECOVERY_SCRYPT_WORK) {
+    throw new Error(
+      `cumulative scrypt work exceeds the hard compatibility limit (${MAX_COMPATIBILITY_RECOVERY_SCRYPT_WORK})`,
+    );
+  }
   if (requiresResourceIntensiveApproval && !allowResourceIntensive) {
     const peakMiB = Math.round(peakMemoryBytes / (1024 * 1024));
     const operationCount = profiles.filter(Boolean).length;

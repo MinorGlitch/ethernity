@@ -17,18 +17,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 from ethernity.encoding.framing import Frame
-
-
-@dataclass(frozen=True)
-class InputFile:
-    source_path: Path | None
-    relative_path: str
-    data: bytes
-    mtime: int | None
+from ethernity.workflows.shared.file_inputs import InputFile as InputFile
 
 
 @dataclass(frozen=True)
@@ -99,6 +91,7 @@ class RecoverArgs:
     expected_head_doc_hash: str | None = None
     output: str | None = None
     allow_unsigned: bool = False
+    resource_intensive_compatibility_recovery: bool = False
     assume_yes: bool = False
     debug_max_bytes: int = 0
     debug_reveal_secrets: bool = False
@@ -158,36 +151,6 @@ class MintResult:
     notes: tuple[str, ...] = ()
     selected_extension_index: int | None = None
     selected_extension_doc_hash: str | None = None
-
-
-@dataclass
-class ExtendArgs:
-    """Typed container for extend/inspect-extend command arguments."""
-
-    config: str | None = None
-    paper: str | None = None
-    design: str | None = None
-    root_dir: str | None = None
-    scan: list[str] | None = None
-    input: list[str] | None = None
-    input_dir: list[str] | None = None
-    base_dir: str | None = None
-    layout_debug_dir: str | None = None
-    qr_chunk_size: int | None = None
-    passphrase: str | None = None
-    shard_fallback_file: list[str] | None = None
-    shard_payloads_file: list[str] | None = None
-    shard_scan: list[str] | None = None
-    shard_frames: list[Frame] | None = None
-    unlock_policy: Literal["self-contained", "reuse-root"] | None = None
-    shard_threshold: int | None = None
-    shard_count: int | None = None
-    signing_key_mode: Literal["not-stored", "sharded"] | None = None
-    signing_key_shard_threshold: int | None = None
-    signing_key_shard_count: int | None = None
-    expected_head_doc_hash: str | None = None
-    allow_stale_head: bool = False
-    quiet: bool = False
 
 
 @dataclass

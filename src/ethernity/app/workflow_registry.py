@@ -120,6 +120,10 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
                 "ADD_FILES_RECOVERY_THRESHOLD_WITHOUT_DOCUMENTS",
                 "#workspace-add-files-recovery-docs",
             ),
+            (
+                "ADD_FILES_ZERO_RECOVERY_REQUIRES_REUSE_ROOT",
+                "#workspace-add-files-unlock-policy",
+            ),
             ("ADD_FILES_RECOVERY_QUORUM_INVALID", "#workspace-add-files-recovery-docs"),
             (
                 "ADD_FILES_SIGNING_KEY_SHARDS_NOT_STORED",
@@ -206,7 +210,7 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     ),
     WorkflowDefinition(
         key="kit",
-        title="Create recovery kit PDF",
+        title="Create unanchored rescue kit PDF",
         nav_group="Tools",
         shortcut="6",
         state_attribute="kit_state",

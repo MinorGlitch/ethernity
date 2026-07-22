@@ -95,7 +95,7 @@ class PrimaryEditingActions(BaseEditingActions):
         elif self.active_task == "kit":
             root, name = save_picker_parts(self.kit_state.output_path)
             await self._pick_paths(
-                title="Recovery kit PDF",
+                title="Unanchored rescue kit PDF",
                 prompt="Creates one printable PDF.",
                 selected_paths=(root,),
                 callback=self._mutation_port._apply_kit_output_picked,

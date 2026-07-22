@@ -44,6 +44,7 @@ from ethernity.render.types import (
     RenderComponentLayoutProof,
     RenderInputs,
     RenderLineage,
+    RenderPageLayoutProof,
     RenderRectProof,
     RenderResult,
 )
@@ -445,8 +446,8 @@ def render_baseline_artifact(
     separation_constraints = tuple(
         constraint for page in layout_pages for constraint in page.separation_constraints
     )
-    content_overlap_evidence_complete, content_overlap_pairs = content_overlap_evidence(
-        layout_components
+    content_overlap_evidence_complete, content_overlap_pairs = layout_content_overlap_evidence(
+        layout_pages
     )
     font_sizes = tuple(
         component.font_size_pt
@@ -589,6 +590,8 @@ def content_overlap_evidence(
             visible.append(("text", component.component_id, component.used_rect))
         elif component.component_type == "image":
             visible.append(("image", component.component_id, component.rect))
+        elif component.used_rect is not None:
+            evidence_complete = False
 
     overlaps: list[str] = []
     for index, (first_type, first_id, first_rect) in enumerate(visible):
@@ -608,6 +611,20 @@ def content_overlap_evidence(
                 and overlap_height_mm > _CONTENT_OVERLAP_EPSILON_MM
             ):
                 overlaps.append(f"{first_id} ({first_type}) intersects {second_id} ({second_type})")
+    return evidence_complete, tuple(overlaps)
+
+
+def layout_content_overlap_evidence(
+    pages: Sequence[RenderPageLayoutProof],
+) -> tuple[bool, tuple[str, ...]]:
+    """Aggregate visible-content collision evidence without comparing different pages."""
+
+    evidence_complete = True
+    overlaps: list[str] = []
+    for page in pages:
+        page_complete, page_overlaps = content_overlap_evidence(page.components)
+        evidence_complete = evidence_complete and page_complete
+        overlaps.extend(page_overlaps)
     return evidence_complete, tuple(overlaps)
 
 

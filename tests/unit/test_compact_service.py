@@ -260,7 +260,7 @@ class TestCompactService(unittest.TestCase):
             infer_root_publish_policy.call_args.kwargs["source_scan"],
             ("root.pdf", "extension-01.pdf"),
         )
-        self.assertIsNone(run_backup_mock.call_args.kwargs.get("promote_lock_dir"))
+        self.assertIsNone(run_backup_mock.call_args.kwargs.get("promote_lock_path"))
         self.assertIsNone(run_backup_mock.call_args.kwargs.get("prepare_promotion"))
 
     def test_run_compact_rejects_output_dir_equal_to_root_dir(self) -> None:
@@ -1115,7 +1115,7 @@ class TestCompactService(unittest.TestCase):
             "compaction_checkpoint",
         )
         self.assertEqual(
-            run_backup_mock.call_args.kwargs["promote_lock_dir"],
+            run_backup_mock.call_args.kwargs["promote_lock_path"],
             Path("/tmp/root") / "extensions" / ".chain.lock",
         )
         self.assertTrue(callable(run_backup_mock.call_args.kwargs["prepare_promotion"]))
@@ -1168,7 +1168,7 @@ class TestCompactService(unittest.TestCase):
 
             def _run_backup_with_promotion_validation(**kwargs):
                 self.assertEqual(
-                    kwargs["promote_lock_dir"],
+                    kwargs["promote_lock_path"],
                     root_dir / "extensions" / ".chain.lock",
                 )
                 self.assertTrue(callable(kwargs["prepare_promotion"]))

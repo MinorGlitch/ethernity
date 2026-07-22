@@ -6,6 +6,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ethernity.render.direct_pdf.components import Panel, TextBox
+from ethernity.render.direct_pdf.fallback_layout import (
+    FallbackPage,
+    FallbackPageEntry,
+    FallbackTitleEntry,
+)
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
     PaintPlan,
@@ -19,11 +24,6 @@ from ethernity.render.direct_pdf.responsive_layout import (
     ResolvedGrid,
     resolve_grid,
     resolve_page_regions,
-)
-from ethernity.render.direct_pdf.structured_common import (
-    FallbackPage,
-    FallbackPageEntry,
-    FallbackTitleEntry,
 )
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy

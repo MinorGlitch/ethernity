@@ -29,7 +29,7 @@ _DOC_ID_HEX_RE = re.compile(rf"^[0-9a-f]{{{DOC_ID_LEN * 2}}}$")
 _CANONICAL_EXTENSION_DIR_RE = re.compile(r"^(0[1-9]|[1-9][0-9]{1,})$")
 _STAGING_DIR_RE = re.compile(r"^\.staging-(?P<index>[1-9][0-9]*)-(?P<nonce>[A-Za-z0-9._-]+)$")
 _MAIN_ARTIFACT_RE = re.compile(
-    r"^(?P<doc_type>qr_document|recovery_document|recovery_kit_index)"
+    r"^(?P<doc_type>qr_document|recovery_document|recovery_kit|recovery_kit_index)"
     r"-(?P<index>0[1-9]|[1-9][0-9]{1,})-(?P<doc_id>[0-9a-f]{16})\.pdf$"
 )
 _SHARD_ARTIFACT_RE = re.compile(
@@ -187,7 +187,7 @@ def _require_staging_nonce(value: str) -> str:
 
 
 def _require_main_doc_type(value: str) -> str:
-    if value not in {"qr_document", "recovery_document", "recovery_kit_index"}:
+    if value not in {"qr_document", "recovery_document", "recovery_kit", "recovery_kit_index"}:
         raise ValueError(f"unsupported extension main doc_type: {value}")
     return value
 

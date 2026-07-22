@@ -366,7 +366,9 @@ test("generated recovery kit bundles decode to extension-capable UI", async () =
     });
 
     const decoded = written.join("");
-    assert.match(decoded, /Extension target/);
+    assert.match(decoded, /Recovery target/);
+    assert.match(decoded, /Expected head/);
+    assert.match(decoded, /Recover latest among supplied pages; freshness unknown/);
     assert.match(decoded, /Unlock root only/);
     assert.match(decoded, /latest, root, index, or doc hash/);
   }

@@ -88,7 +88,7 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
             ),
             (
                 "recovery",
-                lambda path: recovery_inputs(path, main_data=b"x" * 2200),
+                lambda path: recovery_inputs(path, main_data=b"x" * 2250),
                 render_sentinel_recovery_direct_pdf,
                 "fallback-line-text",
                 True,

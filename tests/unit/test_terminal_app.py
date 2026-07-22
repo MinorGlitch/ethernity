@@ -813,6 +813,7 @@ def test_textual_app_workspace_controls_have_event_paths() -> None:
         "workspace-backup-signing-key-mode",
         "workspace-restore-auth-policy",
         "workspace-restore-auth-material",
+        "workspace-restore-resource-policy",
         "workspace-rebuild-auth-material",
         "workspace-add-files-unlock-policy",
         "workspace-add-files-recovery-docs",
@@ -1480,7 +1481,7 @@ def test_textual_app_switches_to_kit_and_settings() -> None:
             await pilot.pause()
 
             assert app.active_task == "kit"
-            assert "Create recovery kit PDF" in _static_text(app, "#canvas-title")
+            assert "Create unanchored rescue kit PDF" in _static_text(app, "#canvas-title")
             assert "Built-in kit" not in _checklist_text(app)
             assert "recovery_kit_qr.pdf" in _checklist_text(app)
             assert "Print setup" in _checklist_text(app)
@@ -1897,6 +1898,17 @@ def test_textual_app_restore_auth_policy_control_is_real() -> None:
             assert not app.restore_state.allow_unsigned
             assert _collapsible_title(app, "#restore-advanced-panel") == (
                 "Verification - Trusted signatures required"
+            )
+
+            app.query_one(
+                "#workspace-restore-resource-policy", Select
+            ).value = "resource-intensive-compatibility"
+            await pilot.pause()
+
+            assert app.restore_state.resource_intensive_compatibility_recovery
+            assert app.restore_state.to_recover_args().resource_intensive_compatibility_recovery
+            assert _collapsible_title(app, "#restore-advanced-panel") == (
+                "Verification - Resource-intensive compatibility enabled"
             )
 
     asyncio.run(run())
@@ -2462,21 +2474,22 @@ def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
             await pilot.pause()
 
             assert app.add_files_state.qr_chunk_size == 384
-            assert app.add_files_state.to_extend_args().qr_chunk_size == 384
+            assert app.add_files_state.to_extension_request().qr_chunk_size == 384
             assert "384 bytes" in _workspace_text(app)
             assert "Custom QR density can change page count" in _preview_text(app)
 
-            app.query_one("#workspace-add-files-recovery-docs", Select).value = "none"
+            app.query_one("#workspace-add-files-recovery-docs", Select).value = "original"
             await pilot.pause()
             app.query_one("#workspace-add-files-signing-key-mode", Select).value = "default"
             await pilot.pause()
 
             assert app.add_files_state.recovery_document_threshold is None
             assert app.add_files_state.recovery_document_count == 0
+            assert app.add_files_state.unlock_policy == "reuse-root"
             assert app.add_files_state.signing_key_mode is None
             assert app.add_files_state.signing_key_recovery_threshold is None
             assert app.add_files_state.signing_key_recovery_count is None
-            assert "no new sheets are created" in _static_text(
+            assert "uses the original passphrase shards" in _static_text(
                 app,
                 "#add-files-advanced-recovery-help",
             )
@@ -3139,7 +3152,7 @@ def test_textual_app_review_can_execute_ready_backup(monkeypatch) -> None:
             assert "Files\n1 backup file" in result_text
             assert "backup-out/main.pdf" in result_text
             assert "Print every PDF at actual size." in result_text
-            assert "Create and store a recovery kit if you do not already have one." in (
+            assert "Create and store a recovery kit if you do not already have one." not in (
                 result_text
             )
             assert _button_label(app, "#result-copy-paths") == "Copy paths"
@@ -3228,7 +3241,7 @@ def test_textual_app_review_can_execute_print_kit(monkeypatch) -> None:
             assert not list(app.screen.query("#review-summary"))
             review_text = _review_text(app)
             assert "Confirm this action" not in review_text
-            assert "Create recovery kit PDF at kit.pdf (current folder)" in review_text
+            assert "Create unanchored rescue kit PDF at kit.pdf (current folder)" in review_text
             assert _button_label(app, "#review-execute") == "Create PDF"
             assert "Destination\nkit.pdf" in review_text
             assert "No user files are read before this action runs." not in review_text
@@ -3236,7 +3249,7 @@ def test_textual_app_review_can_execute_print_kit(monkeypatch) -> None:
                 "Ethernity will create the PDF at the selected path. Its parent folder must be "
                 "writable."
             ) in review_text
-            assert "Recovery kit contains offline restore tools" in review_text
+            assert "This unanchored rescue kit cannot authenticate" in review_text
 
             await pilot.click("#review-execute")
             for _ in range(10):
@@ -3250,7 +3263,7 @@ def test_textual_app_review_can_execute_print_kit(monkeypatch) -> None:
             result_text = _result_text(app)
             assert "Fake kit complete" in result_text
             _assert_success_result_modal_layout(app)
-            assert "Files\n1 recovery kit PDF" in result_text
+            assert "Files\n1 unanchored rescue kit PDF" in result_text
             assert "kit.pdf" in result_text
             assert "Print the PDF at actual size." in result_text
             assert _button_label(app, "#result-open-folder") == "Open folder"

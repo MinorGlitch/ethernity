@@ -152,12 +152,9 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     self.assertIsNotNone(result.layout_proof)
                     assert result.layout_proof is not None
                     self.assertFalse(result.layout_proof.overflow)
-                    components = tuple(
-                        component
-                        for page in result.layout_proof.pages
-                        for component in page.components
+                    complete, overlaps = _MODULE.layout_content_overlap_evidence(
+                        result.layout_proof.pages
                     )
-                    complete, overlaps = _MODULE.content_overlap_evidence(components)
                     self.assertTrue(complete)
                     self.assertEqual(overlaps, ())
                     extracted_text = "\n".join(
@@ -172,6 +169,145 @@ class TestRenderVisualBaselines(unittest.TestCase):
                         ),
                         passphrase,
                     )
+
+    def test_every_recovery_fallback_reflows_to_measured_page_capacity(self) -> None:
+        standard_page_count_ceilings = {
+            "archive": {"A4": 3, "LETTER": 4},
+            "forge": {"A4": 5, "LETTER": 5},
+            "ledger": {"A4": 3, "LETTER": 3},
+            "maritime": {"A4": 3, "LETTER": 3},
+            "sentinel": {"A4": 6, "LETTER": 6},
+        }
+        paper_sizes = (
+            PaperSize("A4", "A4", 210.0, 297.0),
+            PaperSize("LETTER", "Letter", 215.9, 279.4),
+            PaperSize("FUTURE_PORTRAIT", "Future portrait", 260.0, 360.0),
+            PaperSize("FUTURE_TALL", "Future tall", 260.0, 450.0),
+        )
+        recovery_manifests = tuple(
+            manifest
+            for manifest in list_design_manifests().values()
+            if DOC_TYPE_RECOVERY in manifest.documents
+        )
+        cases = tuple(
+            _MODULE.VisualBaselineCase(
+                design=manifest.name,
+                doc_type=DOC_TYPE_RECOVERY,
+                paper_size=paper_size.name,
+                page_spec=paper_size,
+            )
+            for manifest in recovery_manifests
+            for paper_size in paper_sizes
+        ) + tuple(
+            _MODULE.VisualBaselineCase(
+                design=manifest.name,
+                doc_type=DOC_TYPE_RECOVERY,
+                paper_size="MINIMUM",
+                page_spec=PaperSize(
+                    "MINIMUM",
+                    f"{manifest.name} minimum recovery page",
+                    manifest.page_support_for(DOC_TYPE_RECOVERY).minimum_width_mm,
+                    manifest.page_support_for(DOC_TYPE_RECOVERY).minimum_height_mm,
+                ),
+            )
+            for manifest in recovery_manifests
+        )
+        metrics: dict[tuple[str, str], tuple[int, int]] = {}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for case in cases:
+                with self.subTest(case_id=case.case_id):
+                    output_path = root / case.design / case.paper_size.lower() / "recovery.pdf"
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    inputs = _MODULE.build_sample_inputs(case, output_path)
+
+                    result = render_frames_to_pdf(inputs)
+
+                    self.assertIsNotNone(result.layout_proof)
+                    self.assertIsNotNone(result.fallback_proof)
+                    assert result.layout_proof is not None
+                    assert result.fallback_proof is not None
+                    self.assertFalse(result.layout_proof.overflow)
+                    payload_pages = tuple(
+                        tuple(
+                            component
+                            for component in page.components
+                            if "fallback-line" in component.component_id
+                            and all(
+                                excluded not in component.component_id
+                                for excluded in ("line-number", "line-box", "line-rule")
+                            )
+                            and component.used_rect is not None
+                        )
+                        for page in result.layout_proof.pages
+                    )
+                    payload_page_indexes = tuple(
+                        index for index, payload_lines in enumerate(payload_pages) if payload_lines
+                    )
+                    self.assertTrue(payload_page_indexes)
+                    final_payload_page_index = payload_page_indexes[-1]
+                    emitted_lines = result.fallback_proof.emitted_fallback_lines
+                    self.assertEqual(sum(map(len, payload_pages)), len(emitted_lines))
+                    maximum_line_length = max(map(len, emitted_lines))
+                    line_cursor = 0
+                    for page_index, payload_lines in enumerate(payload_pages):
+                        page_text = emitted_lines[line_cursor : line_cursor + len(payload_lines)]
+                        line_cursor += len(payload_lines)
+                        if (
+                            payload_lines
+                            and page_index > 0
+                            and page_index != final_payload_page_index
+                        ):
+                            payload_bottom_mm = max(
+                                component.rect.bottom_mm for component in payload_lines
+                            )
+                            page_height_mm = result.layout_proof.pages[page_index].rect.height_mm
+                            self.assertGreaterEqual(
+                                payload_bottom_mm / page_height_mm,
+                                0.75,
+                                "non-final continuation fallback rows must use page height",
+                            )
+                        if not payload_lines or page_index == final_payload_page_index:
+                            continue
+                        page_line_length = max(map(len, page_text))
+                        full_line_ratios = tuple(
+                            component.used_rect.width_mm / component.rect.width_mm
+                            for component, text in zip(payload_lines, page_text, strict=True)
+                            if len(text) == page_line_length and component.used_rect is not None
+                        )
+                        self.assertTrue(full_line_ratios)
+                        self.assertGreaterEqual(min(full_line_ratios), 0.80)
+                    self.assertEqual(line_cursor, len(emitted_lines))
+                    validate_fallback_text_in_pdf(
+                        artifact_label=case.case_id,
+                        reader=PdfReader(output_path),
+                        fallback_sections=inputs.fallback_sections or (),
+                        fallback_proof=result.fallback_proof,
+                    )
+                    metrics[(case.design, case.paper_size)] = (
+                        len(result.layout_proof.pages),
+                        maximum_line_length,
+                    )
+
+        for manifest in recovery_manifests:
+            a4_pages, a4_line_length = metrics[(manifest.name, "A4")]
+            letter_pages, letter_line_length = metrics[(manifest.name, "LETTER")]
+            future_pages, future_line_length = metrics[(manifest.name, "FUTURE_PORTRAIT")]
+            tall_pages, tall_line_length = metrics[(manifest.name, "FUTURE_TALL")]
+            self.assertLessEqual(a4_pages, standard_page_count_ceilings[manifest.name]["A4"])
+            self.assertLessEqual(
+                letter_pages,
+                standard_page_count_ceilings[manifest.name]["LETTER"],
+            )
+            self.assertGreaterEqual(letter_line_length, a4_line_length)
+            self.assertLessEqual(future_pages, a4_pages)
+            self.assertTrue(
+                future_line_length > a4_line_length or future_pages < a4_pages,
+                "a larger page must increase fallback width or vertical capacity",
+            )
+            self.assertLessEqual(tall_pages, future_pages)
+            self.assertGreaterEqual(tall_line_length, future_line_length)
 
     def test_every_shard_document_renderer_is_one_page_at_key_document_data_bound(self) -> None:
         cases = tuple(
@@ -831,6 +967,42 @@ class TestRenderVisualBaselines(unittest.TestCase):
         missing_used_rect = component("missing", "text", text_rect)
         complete, _overlaps = _MODULE.content_overlap_evidence((missing_used_rect,))
         self.assertFalse(complete)
+
+    def test_layout_content_overlap_evidence_is_page_local(self) -> None:
+        rect = RenderRectProof(5.0, 5.0, 20.0, 5.0)
+        pages = tuple(
+            SimpleNamespace(
+                page_number=page_number,
+                components=(
+                    RenderComponentLayoutProof(
+                        component_id=f"page-{page_number}-title",
+                        component_type="text",
+                        rect=rect,
+                        used_rect=rect,
+                    ),
+                ),
+            )
+            for page_number in (1, 2)
+        )
+
+        complete, overlaps = _MODULE.layout_content_overlap_evidence(pages)
+
+        self.assertTrue(complete)
+        self.assertEqual(overlaps, ())
+
+    def test_content_overlap_evidence_rejects_untyped_visible_components(self) -> None:
+        rect = RenderRectProof(5.0, 5.0, 20.0, 5.0)
+        component = RenderComponentLayoutProof(
+            component_id="untyped-visible-component",
+            component_type=None,
+            rect=rect,
+            used_rect=rect,
+        )
+
+        complete, overlaps = _MODULE.content_overlap_evidence((component,))
+
+        self.assertFalse(complete)
+        self.assertEqual(overlaps, ())
 
     def test_production_default_rejects_synthetic_renderer_without_proof(self) -> None:
         case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_MAIN)

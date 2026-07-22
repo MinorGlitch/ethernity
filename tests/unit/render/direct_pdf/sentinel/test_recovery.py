@@ -1,12 +1,18 @@
 import unittest
+from dataclasses import replace
+from math import floor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import ethernity.render.direct_pdf.sentinel.recovery as sentinel_recovery_module
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
+from ethernity.page_sizes import PaperSize, resolve_paper_size
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
 from ethernity.render.direct_pdf.page_geometry import A4_HEIGHT_MM, A4_WIDTH_MM
-from ethernity.render.direct_pdf.sentinel.common import build_sentinel_page_layout
+from ethernity.render.direct_pdf.sentinel.common import (
+    build_sentinel_page_layout,
+    build_sentinel_surface,
+)
 from ethernity.render.direct_pdf.sentinel.recovery import (
     build_sentinel_recovery_direct_plan,
     render_sentinel_recovery_direct_pdf,
@@ -59,6 +65,28 @@ def _inputs(output_path: Path, *, main_data: bytes = b"payload") -> RenderInputs
         fallback_sections=(
             FallbackSection(label="AUTH FRAME", frame=auth_frame),
             FallbackSection(label="MAIN FRAME", frame=main_frame),
+        ),
+    )
+
+
+def _with_paper(
+    inputs: RenderInputs,
+    paper_size: str,
+    dimensions_mm: tuple[float, float] | None = None,
+) -> RenderInputs:
+    context = dict(inputs.context)
+    context["paper_size"] = paper_size
+    if dimensions_mm is None:
+        return replace(inputs, context=context, page_size=resolve_paper_size(paper_size))
+    width_mm, height_mm = dimensions_mm
+    return replace(
+        inputs,
+        context=context,
+        page_size=PaperSize(
+            name=paper_size,
+            display_name=paper_size.replace("_", " ").title(),
+            width_mm=width_mm,
+            height_mm=height_mm,
         ),
     )
 
@@ -146,46 +174,136 @@ class TestDirectPdfSentinelRecovery(unittest.TestCase):
                     self.assertEqual(labels[0], "01.")
                     self.assertTrue(all(len(label.removesuffix(".")) <= 4 for label in labels))
 
-    def test_custom_paginator_resets_display_numbers_per_page_and_section(self) -> None:
-        entries = (
-            sentinel_recovery_module._FallbackTitleEntry(section_index=0, title="AUTH FRAME"),
-            *(
-                sentinel_recovery_module._FallbackLineEntry(
-                    section_index=0,
-                    line_number=index,
-                    text="yyyy",
-                )
-                for index in range(1, 71)
-            ),
-            sentinel_recovery_module._FallbackTitleEntry(section_index=1, title="MAIN FRAME"),
-            *(
-                sentinel_recovery_module._FallbackLineEntry(
-                    section_index=1,
-                    line_number=index,
-                    text="yyyy",
-                )
-                for index in range(1, 8)
-            ),
+    def test_fallback_capacity_uses_measured_width_and_physical_page_height(self) -> None:
+        paper_cases = (
+            ("A4", None),
+            ("LETTER", None),
+            ("FUTURE_PORTRAIT", (260.0, 360.0)),
+            ("FUTURE_TALL", (260.0, 450.0)),
         )
+        page_counts: dict[str, int] = {}
+        continuation_capacities: dict[str, int] = {}
 
-        pages = sentinel_recovery_module._paginate_fallback_entries(
-            entries,
-            page_layout=build_sentinel_page_layout(_inputs(Path("unused.pdf"))),
+        with TemporaryDirectory() as tmp:
+            for paper_name, dimensions_mm in paper_cases:
+                with self.subTest(paper_name=paper_name):
+                    inputs = _with_paper(
+                        _inputs(Path(tmp) / f"{paper_name.lower()}.pdf", main_data=b"x" * 8000),
+                        paper_name,
+                        dimensions_mm,
+                    )
+                    surface = build_sentinel_surface(inputs)
+                    packaged_direct_pdf_assets().register_fonts(surface)
+                    plan = build_sentinel_recovery_direct_plan(surface, inputs)
+                    page_layout = build_sentinel_page_layout(inputs)
+                    mapped_area = page_layout.map_rect(
+                        sentinel_recovery_module._CONTINUATION_FALLBACK_AREA
+                    )
+                    expected_capacity = floor(
+                        mapped_area.height_mm
+                        / sentinel_recovery_module._FALLBACK_MINIMUM_ROW_HEIGHT_MM
+                    )
+
+                    self.assertGreater(len(plan.page_plans), 1)
+                    self.assertTrue(all(not page.proof.overflow for page in plan.page_plans))
+                    page_counts[paper_name] = len(plan.page_plans)
+                    continuation_capacities[paper_name] = expected_capacity
+
+                    page_line_lengths: list[int] = []
+                    for page in plan.page_plans:
+                        expected_body_size_pt = (
+                            sentinel_recovery_module._FIRST_FALLBACK_BODY_SIZE_PT
+                            if page.page_number == 1
+                            else sentinel_recovery_module._CONTINUATION_FALLBACK_BODY_SIZE_PT
+                        )
+                        payload_plans = tuple(
+                            item
+                            for item in page.plans
+                            if "fallback-line-text" in item.component_id and item.lines
+                        )
+                        longest_line_length = max(len(item.lines[0].text) for item in payload_plans)
+                        page_line_lengths.append(longest_line_length)
+                        self.assertGreater(longest_line_length, 59)
+                        for item in payload_plans:
+                            if len(item.lines[0].text) == longest_line_length:
+                                self.assertGreaterEqual(
+                                    item.lines[0].width_mm / item.rect.width_mm,
+                                    0.9,
+                                )
+                                self.assertAlmostEqual(
+                                    item.proof.font_size_pt,
+                                    expected_body_size_pt,
+                                )
+                    self.assertGreater(page_line_lengths[1], page_line_lengths[0])
+
+                    continuation_page = plan.page_plans[1]
+                    row_boxes = tuple(
+                        item
+                        for item in continuation_page.plans
+                        if "fallback-line-box" in item.component_id
+                    )
+                    self.assertEqual(len(row_boxes), expected_capacity)
+                    self.assertAlmostEqual(
+                        row_boxes[-1].rect.bottom_mm,
+                        mapped_area.bottom_mm,
+                        places=2,
+                    )
+                    footer_rule = next(
+                        item
+                        for item in continuation_page.plans
+                        if item.component_id.endswith("footer-rule")
+                    )
+                    continuation_table = next(
+                        item
+                        for item in continuation_page.plans
+                        if item.component_id.endswith("continuation-table")
+                    )
+                    self.assertLessEqual(
+                        continuation_table.rect.bottom_mm + 1.0,
+                        footer_rule.rect.y_mm,
+                    )
+
+        self.assertGreater(
+            continuation_capacities["FUTURE_PORTRAIT"],
+            continuation_capacities["A4"],
         )
+        self.assertGreater(
+            continuation_capacities["FUTURE_TALL"],
+            continuation_capacities["FUTURE_PORTRAIT"],
+        )
+        self.assertLess(page_counts["FUTURE_PORTRAIT"], page_counts["A4"])
+        self.assertLessEqual(page_counts["FUTURE_TALL"], page_counts["FUTURE_PORTRAIT"])
 
-        self.assertGreater(len(pages), 1)
-        for page in pages:
-            current_block: list[int] = []
-            for page_entry in page.entries:
-                if page_entry.display_line_number is None:
-                    if current_block:
-                        self.assertEqual(current_block, list(range(1, len(current_block) + 1)))
-                        current_block = []
-                    continue
-                current_block.append(page_entry.display_line_number)
-                self.assertLessEqual(len(str(page_entry.display_line_number)), 4)
-            if current_block:
-                self.assertEqual(current_block, list(range(1, len(current_block) + 1)))
+    def test_responsive_fallback_remains_extractable_on_every_supported_geometry(self) -> None:
+        paper_cases = (
+            ("A4", None),
+            ("LETTER", None),
+            ("FUTURE_PORTRAIT", (260.0, 360.0)),
+            ("FUTURE_TALL", (260.0, 450.0)),
+        )
+        with TemporaryDirectory() as tmp:
+            for paper_name, dimensions_mm in paper_cases:
+                with self.subTest(paper_name=paper_name):
+                    output_path = Path(tmp) / f"extract-{paper_name.lower()}.pdf"
+                    inputs = _with_paper(
+                        _inputs(output_path, main_data=b"x" * 2200),
+                        paper_name,
+                        dimensions_mm,
+                    )
+
+                    result = render_sentinel_recovery_direct_pdf(inputs)
+
+                    reader = validate_pdf_has_pages(output_path)
+                    self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
+                    self.assertTrue(result.fallback_proof.fully_consumed)
+                    assert result.layout_proof is not None
+                    self.assertTrue(all(not page.overflow for page in result.layout_proof.pages))
+                    validate_fallback_text_in_pdf(
+                        artifact_label="direct Sentinel responsive recovery document",
+                        reader=reader,
+                        fallback_sections=inputs.fallback_sections or (),
+                        fallback_proof=result.fallback_proof,
+                    )
 
 
 if __name__ == "__main__":

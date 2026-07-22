@@ -22,6 +22,7 @@ import { collectedRecoveryDocuments, reassembleCiphertext } from "./frames_ciphe
 import { formatBytes } from "./format.js";
 import { authOnlyDocumentRecords, incompleteDocumentRecords } from "./documents/store.js";
 import { cloneState } from "./state/initial.js";
+import { readEmbeddedKitMetadata } from "./kit_anchor.js";
 import {
   applyExtractResult,
   clearDecryptedEnvelope,
@@ -104,6 +105,8 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
         extensionTarget,
         signal: decryptController.signal,
         allowResourceIntensiveScrypt: options.allowResourceIntensiveScrypt === true,
+        recoveryAnchor: anchoredKitMetadata(),
+        freshnessUnknownAcknowledged: prep.freshnessUnknownAcknowledged === true,
       },
     );
     const next = cloneLatest(getState);
@@ -219,11 +222,29 @@ function recoveryFriendlyError(errorMsg) {
 }
 
 function resolveExtensionTarget(state, options) {
+  const anchor = anchoredKitMetadata();
+  if (anchor) {
+    if (
+      options.extensionTarget !== undefined &&
+      !isLatestTarget(options.extensionTarget) &&
+      !isRootTarget(options.extensionTarget)
+    ) {
+      throw new Error(
+        "chain-bound recovery kits recover only their pinned head or the pinned root",
+      );
+    }
+    return withExpectedHead(options.extensionTarget ?? "latest", anchor.expectedLatestHeadHashHex);
+  }
   const expectedHeadDocHashHex = normalizeExpectedHeadDocHash(state.expectedHeadDocHashText);
   if (options.extensionTarget !== undefined) {
     return withExpectedHead(options.extensionTarget, expectedHeadDocHashHex);
   }
   return parseExtensionTarget(state.extensionTargetText, expectedHeadDocHashHex);
+}
+
+function anchoredKitMetadata() {
+  const metadata = readEmbeddedKitMetadata();
+  return metadata?.anchored ? metadata : null;
 }
 
 function parseExtensionTarget(value, expectedHeadDocHashHex) {
@@ -298,6 +319,10 @@ function isLatestTarget(extensionTarget) {
   return !extensionTarget || extensionTarget === "latest" || extensionTarget?.kind === "latest";
 }
 
+function isRootTarget(extensionTarget) {
+  return extensionTarget === "root" || extensionTarget === 0 || extensionTarget?.kind === "root";
+}
+
 function ignoredPartialDocumentLines(state) {
   const lines = [];
   const incomplete = incompleteDocumentRecords(state);
@@ -316,23 +341,41 @@ function totalRecoveredBytes(files) {
 }
 
 function extensionRecoveryLines(result) {
+  const trustLines = recoveryTrustLines(result);
   if (result.replayTarget === "root") {
-    return ["Replay target: root backup only."];
+    return ["Replay target: root backup only.", ...trustLines];
   }
   if (result.selectedExtensionIndex === null) {
-    return [];
+    return trustLines;
   }
   if (result.replayTarget === "extension") {
     return [
-      `Replay target: supplied authenticated extension ${result.selectedExtensionIndex}.`,
+      `Replay target: supplied extension ${result.selectedExtensionIndex}.`,
       `Extension doc hash: ${result.selectedExtensionDocHash}.`,
-      "Freshness scope: supplied carriers only.",
+      ...trustLines,
     ];
   }
   return [
-    `Replay target: latest supplied authenticated extension ${result.selectedExtensionIndex}.`,
-    "Freshness scope: supplied carriers only.",
+    `Replay target: latest supplied extension ${result.selectedExtensionIndex}.`,
+    ...trustLines,
   ];
+}
+
+function recoveryTrustLines(result) {
+  if (result.trustBasis === "matched_trusted_kit") {
+    return [
+      "Trust: Matched trusted kit — root identity, signing key, and expected head match the separately stored anchor.",
+    ];
+  }
+  const lines = [
+    "Trust: Internally consistent — signatures agree with keys carried by the supplied set.",
+  ];
+  if (result.freshnessDecision === "manual_expected_head") {
+    lines.push("Freshness: matched the manually entered expected head hash.");
+  } else if (result.freshnessDecision === "supplied_pages_freshness_unknown") {
+    lines.push("Freshness: unknown beyond supplied pages; explicit acknowledgement used.");
+  }
+  return lines;
 }
 
 export async function extractEnvelope(dispatch, getState) {

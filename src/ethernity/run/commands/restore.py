@@ -63,6 +63,14 @@ from ethernity.tasks.restore import RestoreTarget, RestoreTaskState
 )
 @click.option("--allow-unsigned", is_flag=True, help="Allow unsigned legacy recovery payloads.")
 @click.option(
+    "--resource-intensive-compatibility-recovery",
+    is_flag=True,
+    help=(
+        "Allow legacy age files with unusually expensive scrypt parameters. "
+        "This can consume substantial CPU and memory."
+    ),
+)
+@click.option(
     "--output",
     "output_path",
     type=click.Path(path_type=Path),
@@ -86,6 +94,7 @@ def restore(
     extension_doc_hash: str | None,
     expected_head_doc_hash: str | None,
     allow_unsigned: bool,
+    resource_intensive_compatibility_recovery: bool,
     output_path: Path | None,
     preview: bool,
     yes: bool,
@@ -109,6 +118,7 @@ def restore(
         expected_head_doc_hash=expected_head_doc_hash,
         output_path=output_path,
         allow_unsigned=allow_unsigned,
+        resource_intensive_compatibility_recovery=(resource_intensive_compatibility_recovery),
     )
     run_task(
         "restore",

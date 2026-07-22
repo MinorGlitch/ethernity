@@ -262,6 +262,10 @@ def extract_payloads(
     """Split payload bytes into manifest entries and verify entry hashes."""
 
     payload = decode_payload_from_manifest(manifest, payload)
+    expected_payload_len = sum(entry.size for entry in manifest.files)
+    if len(payload) != expected_payload_len:
+        raise ValueError("payload length does not match manifest sizes")
+
     outputs: list[tuple[ManifestFile, bytes]] = []
     offset = 0
     for entry in manifest.files:
@@ -273,8 +277,6 @@ def extract_payloads(
             raise ValueError(f"sha256 mismatch for {entry.path}")
         outputs.append((entry, data))
         offset = end
-    if offset != len(payload):
-        raise ValueError("payload length does not match manifest sizes")
     return outputs
 
 

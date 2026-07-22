@@ -11,9 +11,7 @@ import math
 from dataclasses import dataclass
 from typing import Sequence
 
-from ethernity.core.bounds import MAX_FALLBACK_LINES
-from ethernity.encoding.framing import encode_frame
-from ethernity.encoding.zbase32 import ZBASE32_ALPHABET, encode_zbase32
+from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
 from ethernity.render.direct_pdf.components import (
     Panel,
@@ -22,6 +20,17 @@ from ethernity.render.direct_pdf.components import (
     TextBox,
 )
 from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
+from ethernity.render.direct_pdf.fallback_layout import (
+    FallbackEntry as _FallbackEntry,
+    FallbackLineEntry as _FallbackLineEntry,
+    FallbackPage,
+    FallbackPageEntry,
+    FallbackSectionLines as _FallbackSectionLines,
+    FallbackTitleEntry as _FallbackTitleEntry,
+    build_fallback_proof,
+    fallback_entries as _fallback_entries,
+    fallback_sections as _fallback_sections,
+)
 from ethernity.render.direct_pdf.forge.common import (
     FORGE_SLATE_50,
     FORGE_SLATE_100,
@@ -35,7 +44,7 @@ from ethernity.render.direct_pdf.forge.common import (
     ForgeShellContext,
     build_forge_content_constraints,
     build_forge_footer_plans,
-    build_forge_header_plans,
+    build_forge_header_plan,
     build_forge_page_layout,
     build_forge_shell_context,
 )
@@ -57,10 +66,10 @@ from ethernity.render.direct_pdf.recovery_metadata import (
 from ethernity.render.direct_pdf.structured_common import component_prefix
 from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy, fit_text_to_width
+from ethernity.render.direct_pdf.text_measure import measured_grouped_line_length
 from ethernity.render.direct_pdf.types import PdfRect, TextStyle
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
-from ethernity.render.fallback_text import fallback_section_title, format_zbase32_lines
-from ethernity.render.proofs import build_render_artifact_proof, frame_digest
+from ethernity.render.proofs import build_render_artifact_proof
 from ethernity.render.recovery_meta import RecoveryMeta, recovery_passphrase_display
 from ethernity.render.types import (
     FallbackSection,
@@ -77,7 +86,6 @@ _FALLBACK_MINIMUM_LINE_NUMBER_WIDTH_MM = 8.5
 _FALLBACK_LINE_NUMBER_PADDING_MM = 0.8
 _FALLBACK_LINE_GAP_MM = 1.5
 _FALLBACK_GROUP_SIZE = 4
-_FALLBACK_LINE_LENGTH = 44
 _FALLBACK_PAYLOAD_MIN_FIT_SIZE_PT = 7.0
 _METADATA_VALUE_PADDING_TOP_MM = 2.0
 _METADATA_VALUE_PADDING_BOTTOM_MM = 0.2
@@ -98,6 +106,9 @@ class _ForgeRecoveryGeometry:
     layout: ForgePageLayout
     first_page_fallback_area: PdfRect
     continuation_fallback_area: PdfRect
+    first_warning_top_mm: float
+    first_instruction_top_mm: float
+    continuation_panel_top_mm: float
     metadata_top_mm: float
     metadata_rows: tuple[_ForgeMetadataRowGeometry, ...]
 
@@ -109,29 +120,6 @@ class _ForgeMetadataRowGeometry:
     guidance_height_mm: float
     text: str
     box_height_mm: float
-
-
-@dataclass(frozen=True)
-class _FallbackSectionLines:
-    section_index: int
-    title: str | None
-    lines: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class _FallbackTitleEntry:
-    section_index: int
-    title: str
-
-
-@dataclass(frozen=True)
-class _FallbackLineEntry:
-    section_index: int
-    line_number: int
-    text: str
-
-
-_FallbackEntry = _FallbackTitleEntry | _FallbackLineEntry
 
 
 @dataclass(frozen=True)
@@ -154,8 +142,10 @@ def _forge_recovery_geometry(
     surface: PdfSurface,
     inputs: RenderInputs,
     recovery_meta: RecoveryMeta,
+    context: ForgeShellContext | None = None,
 ) -> _ForgeRecoveryGeometry:
     layout = build_forge_page_layout(resolve_page_geometry(inputs))
+    resolved_context = context or build_forge_shell_context(inputs, doc_type=DOC_TYPE_RECOVERY)
     metadata_rows = _metadata_row_geometries(
         surface,
         recovery_meta,
@@ -163,13 +153,38 @@ def _forge_recovery_geometry(
     )
     metadata_height_mm = _metadata_required_height_mm(metadata_rows)
     metadata_top_mm = layout.regions.body.bottom_mm - metadata_height_mm
-    first_fallback_top_mm = layout.regions.body.y_mm + 74.0
+    first_header = build_forge_header_plan(
+        surface,
+        resolved_context,
+        page_label="PAGE 1 / 1",
+        page_number=1,
+        component_base=_COMPONENT_BASE,
+        classification_default="Manual Entry Only",
+        title_default="Recovery Document",
+        subtitle_default="Keys + Text Fallback",
+        page_rect=layout.page.rect,
+    )
+    first_warning_top_mm = first_header.bottom_mm + 2.0
+    first_instruction_top_mm = first_warning_top_mm + 30.0
+    first_fallback_top_mm = first_instruction_top_mm + 36.0
     first_fallback_bottom_mm = metadata_top_mm - 4.0
     if first_fallback_bottom_mm - first_fallback_top_mm < 2 * _FALLBACK_ROW_HEIGHT_MM:
         raise ValueError(
             "Forge recovery page cannot fit fallback text and required metadata at legible sizes"
         )
-    continuation_top_mm = layout.regions.body.y_mm + 22.0
+    continuation_header = build_forge_header_plan(
+        surface,
+        resolved_context,
+        page_label="PAGE 2 / 2",
+        page_number=2,
+        component_base=_COMPONENT_BASE,
+        classification_default="Manual Entry Only",
+        title_default="Recovery Document",
+        subtitle_default="Keys + Text Fallback",
+        page_rect=layout.page.rect,
+    )
+    continuation_panel_top_mm = continuation_header.bottom_mm + 2.0
+    continuation_top_mm = continuation_panel_top_mm + 15.0
     return _ForgeRecoveryGeometry(
         layout=layout,
         first_page_fallback_area=PdfRect(
@@ -184,6 +199,9 @@ def _forge_recovery_geometry(
             layout.regions.safe.width_mm,
             layout.regions.body.bottom_mm - continuation_top_mm,
         ),
+        first_warning_top_mm=first_warning_top_mm,
+        first_instruction_top_mm=first_instruction_top_mm,
+        continuation_panel_top_mm=continuation_panel_top_mm,
         metadata_top_mm=metadata_top_mm,
         metadata_rows=metadata_rows,
     )
@@ -231,8 +249,18 @@ def build_forge_recovery_direct_plan(
     context = build_forge_shell_context(inputs, doc_type=DOC_TYPE_RECOVERY)
     recovery_meta = inputs.recovery_meta or RecoveryMeta()
     layout = build_forge_page_layout(resolve_page_geometry(inputs))
-    passphrase_pagination = _paginate_forge_passphrase(surface, recovery_meta, layout=layout)
-    geometry = _forge_recovery_geometry(surface, inputs, passphrase_pagination.inline_meta)
+    passphrase_pagination = _paginate_forge_passphrase(
+        surface,
+        recovery_meta,
+        layout=layout,
+        context=context,
+    )
+    geometry = _forge_recovery_geometry(
+        surface,
+        inputs,
+        passphrase_pagination.inline_meta,
+        context,
+    )
     sections, fallback_pages = _responsive_fallback_layout(
         surface,
         inputs.fallback_sections or (),
@@ -283,10 +311,26 @@ def _paginate_forge_passphrase(
     recovery_meta: RecoveryMeta,
     *,
     layout: ForgePageLayout,
+    context: ForgeShellContext,
 ) -> RecoveryPassphrasePagination:
     style = _metadata_value_style()
     guidance_style = _metadata_guidance_style()
-    continuation_rect = _passphrase_continuation_value_rect(layout)
+    header = build_forge_header_plan(
+        surface,
+        context,
+        page_label="PAGE 2 / 2",
+        page_number=2,
+        component_base=_COMPONENT_BASE,
+        classification_default="Manual Entry Only",
+        classification_override="Passphrase Metadata",
+        title_default="Recovery Document",
+        subtitle_default="Passphrase Continuation",
+        page_rect=layout.page.rect,
+    )
+    continuation_rect = _passphrase_continuation_value_rect(
+        layout,
+        content_top_mm=header.bottom_mm + 2.0,
+    )
     return paginate_recovery_passphrase(
         surface,
         recovery_meta,
@@ -299,8 +343,12 @@ def _paginate_forge_passphrase(
     )
 
 
-def _passphrase_continuation_value_rect(layout: ForgePageLayout) -> PdfRect:
-    panel_y_mm = layout.regions.body.y_mm + 31.0
+def _passphrase_continuation_value_rect(
+    layout: ForgePageLayout,
+    *,
+    content_top_mm: float,
+) -> PdfRect:
+    panel_y_mm = content_top_mm + 27.0
     panel_bottom_mm = layout.regions.body.bottom_mm - 4.0
     panel_height_mm = panel_bottom_mm - panel_y_mm
     if panel_height_mm <= 8.0:
@@ -331,30 +379,6 @@ def _validate_inputs(inputs: RenderInputs) -> None:
     resolve_page_geometry(inputs)
 
 
-def _fallback_sections(
-    sections: Sequence[FallbackSection],
-    *,
-    line_length: int,
-) -> tuple[_FallbackSectionLines, ...]:
-    resolved: list[_FallbackSectionLines] = []
-    for index, section in enumerate(sections):
-        encoded = encode_zbase32(encode_frame(section.frame))
-        lines = format_zbase32_lines(
-            encoded,
-            group_size=_FALLBACK_GROUP_SIZE,
-            line_length=line_length,
-            line_count=MAX_FALLBACK_LINES,
-        )
-        resolved.append(
-            _FallbackSectionLines(
-                section_index=index,
-                title=fallback_section_title(section.label),
-                lines=tuple(lines),
-            )
-        )
-    return tuple(resolved)
-
-
 def _responsive_fallback_layout(
     surface: PdfSurface,
     sections: Sequence[FallbackSection],
@@ -362,38 +386,47 @@ def _responsive_fallback_layout(
     geometry: _ForgeRecoveryGeometry,
     first_page_single_section: bool,
 ) -> tuple[tuple[_FallbackSectionLines, ...], tuple[_FallbackPageLayout, ...]]:
-    """Reflow fallback lines until every page's widest number gutter leaves readable text."""
+    """Reflow monotonically until measured gutters match the placed page entries."""
 
-    line_length = _FALLBACK_LINE_LENGTH
+    first_maximum_display_number = 0
+    continuation_maximum_display_number = 0
     while True:
-        resolved_sections = _fallback_sections(sections, line_length=line_length)
+        line_length = _fallback_line_length_for_geometry(
+            surface,
+            geometry=geometry,
+            first_maximum_display_number=first_maximum_display_number,
+            continuation_maximum_display_number=continuation_maximum_display_number,
+        )
+        resolved_sections = _fallback_sections(
+            sections,
+            group_size=_FALLBACK_GROUP_SIZE,
+            line_length=line_length,
+        )
         pages = _paginate_fallback_entries(
             _fallback_entries(resolved_sections),
             geometry=geometry,
             first_page_single_section=first_page_single_section,
         )
-        measured_line_length = min(_fallback_line_length_for_page(surface, page) for page in pages)
-        if measured_line_length >= line_length:
+        next_first_maximum = max(
+            first_maximum_display_number,
+            _maximum_fallback_display_number(pages[:1]),
+        )
+        next_continuation_maximum = max(
+            continuation_maximum_display_number,
+            _maximum_fallback_display_number(pages[1:]),
+        )
+        next_line_length = _fallback_line_length_for_geometry(
+            surface,
+            geometry=geometry,
+            first_maximum_display_number=next_first_maximum,
+            continuation_maximum_display_number=next_continuation_maximum,
+        )
+        if next_line_length == line_length:
             return resolved_sections, pages
-        line_length = measured_line_length
-
-
-def _fallback_entries(sections: Sequence[_FallbackSectionLines]) -> tuple[_FallbackEntry, ...]:
-    entries: list[_FallbackEntry] = []
-    for section in sections:
-        if section.title:
-            entries.append(
-                _FallbackTitleEntry(section_index=section.section_index, title=section.title)
-            )
-        for line_number, line in enumerate(section.lines, start=1):
-            entries.append(
-                _FallbackLineEntry(
-                    section_index=section.section_index,
-                    line_number=line_number,
-                    text=line,
-                )
-            )
-    return tuple(entries)
+        if next_line_length > line_length:
+            raise RuntimeError("Forge fallback reflow must converge monotonically")
+        first_maximum_display_number = next_first_maximum
+        continuation_maximum_display_number = next_continuation_maximum
 
 
 def _paginate_fallback_entries(
@@ -518,30 +551,21 @@ def _build_fallback_proof(
     sections: Sequence[_FallbackSectionLines],
     pages: Sequence[_FallbackPageLayout],
 ) -> RenderFallbackProof:
-    emitted_lines = tuple(
-        page_entry.entry.text
+    proof_pages = tuple(
+        FallbackPage(
+            page_number=page.page_number,
+            entries=tuple(
+                FallbackPageEntry(
+                    entry=entry.entry,
+                    row_index=entry.row_index,
+                    display_line_number=entry.display_line_number,
+                )
+                for entry in page.entries
+            ),
+        )
         for page in pages
-        for page_entry in page.entries
-        if isinstance(page_entry.entry, _FallbackLineEntry)
     )
-    emitted_section_chunks = {
-        (page.page_number, page_entry.entry.section_index)
-        for page in pages
-        for page_entry in page.entries
-        if isinstance(page_entry.entry, _FallbackLineEntry)
-    }
-    return RenderFallbackProof(
-        section_frame_digests=tuple(
-            frame_digest(section.frame) for section in inputs.fallback_sections or ()
-        ),
-        section_titles=tuple(section.title for section in sections if section.title),
-        expected_section_count=len(sections),
-        emitted_block_count=len(emitted_section_chunks),
-        emitted_line_count=len(emitted_lines),
-        consumed_section_count=len(sections),
-        fully_consumed=True,
-        emitted_fallback_lines=emitted_lines,
-    )
+    return build_fallback_proof(inputs, sections, proof_pages)
 
 
 def _build_page(
@@ -555,19 +579,18 @@ def _build_page(
     page_number = fallback_page.page_number
     page_label = f"PAGE {page_number} / {total_pages}"
     plans: list[PaintPlan] = []
-    plans.extend(
-        build_forge_header_plans(
-            surface,
-            context,
-            page_label=page_label,
-            page_number=page_number,
-            component_base=_COMPONENT_BASE,
-            classification_default="Manual Entry Only",
-            title_default="Recovery Document",
-            subtitle_default="Keys + Text Fallback",
-            page_rect=geometry.layout.page.rect,
-        )
+    header = build_forge_header_plan(
+        surface,
+        context,
+        page_label=page_label,
+        page_number=page_number,
+        component_base=_COMPONENT_BASE,
+        classification_default="Manual Entry Only",
+        title_default="Recovery Document",
+        subtitle_default="Keys + Text Fallback",
+        page_rect=geometry.layout.page.rect,
     )
+    plans.extend(header.plans)
     if page_number == 1:
         plans.extend(
             _warning_plans(
@@ -575,9 +598,17 @@ def _build_page(
                 context,
                 layout=geometry.layout,
                 page_number=page_number,
+                top_mm=geometry.first_warning_top_mm,
             )
         )
-        plans.extend(_instruction_plans(surface, context, layout=geometry.layout))
+        plans.extend(
+            _instruction_plans(
+                surface,
+                context,
+                layout=geometry.layout,
+                top_mm=geometry.first_instruction_top_mm,
+            )
+        )
     else:
         plans.extend(
             _continuation_plans(
@@ -585,6 +616,7 @@ def _build_page(
                 context,
                 layout=geometry.layout,
                 page_number=page_number,
+                top_mm=geometry.continuation_panel_top_mm,
             )
         )
     plans.extend(_fallback_plans(surface, fallback_page))
@@ -632,6 +664,7 @@ def _build_page(
             page_number=page_number,
             layout=geometry.layout,
             content_component_ids=content_ids + metadata_ids,
+            header_bottom_mm=header.bottom_mm,
         )
     )
     top_group_ids = (
@@ -682,28 +715,30 @@ def _build_passphrase_continuation_page(
 ) -> DirectPdfPagePlan:
     prefix = component_prefix(_COMPONENT_BASE, page_number)
     page_label = f"PAGE {page_number} / {total_pages}"
-    value_rect = _passphrase_continuation_value_rect(layout)
+    header = build_forge_header_plan(
+        surface,
+        context,
+        page_label=page_label,
+        page_number=page_number,
+        component_base=_COMPONENT_BASE,
+        classification_default="Manual Entry Only",
+        classification_override="Passphrase Metadata",
+        title_default="Recovery Document",
+        subtitle_default="Passphrase Continuation",
+        page_rect=layout.page.rect,
+    )
+    content_top_mm = header.bottom_mm + 2.0
+    value_rect = _passphrase_continuation_value_rect(
+        layout,
+        content_top_mm=content_top_mm,
+    )
     panel_rect = PdfRect(
         value_rect.x_mm - 3.0,
         value_rect.y_mm - 2.0,
         value_rect.width_mm + 6.0,
         value_rect.height_mm + 4.0,
     )
-    plans: list[PaintPlan] = []
-    plans.extend(
-        build_forge_header_plans(
-            surface,
-            context,
-            page_label=page_label,
-            page_number=page_number,
-            component_base=_COMPONENT_BASE,
-            classification_default="Manual Entry Only",
-            classification_override="Passphrase Metadata",
-            title_default="Recovery Document",
-            subtitle_default="Passphrase Continuation",
-            page_rect=layout.page.rect,
-        )
-    )
+    plans: list[PaintPlan] = list(header.plans)
     plans.extend(
         [
             TextBox(
@@ -722,7 +757,7 @@ def _build_passphrase_continuation_page(
                 surface,
                 PdfRect(
                     layout.regions.safe.x_mm,
-                    layout.regions.body.y_mm + 4.0,
+                    content_top_mm,
                     layout.regions.safe.width_mm,
                     5.0,
                 ),
@@ -736,7 +771,7 @@ def _build_passphrase_continuation_page(
                 surface,
                 PdfRect(
                     layout.regions.safe.x_mm,
-                    layout.regions.body.y_mm + 11.0,
+                    content_top_mm + 7.0,
                     layout.regions.safe.width_mm,
                     15.0,
                 ),
@@ -775,6 +810,7 @@ def _build_passphrase_continuation_page(
             f"{prefix}-passphrase-continuation-instructions",
             f"{prefix}-passphrase-continuation-panel",
         ),
+        header_bottom_mm=header.bottom_mm,
     )
     return build_page_plan(
         page_number=page_number,
@@ -790,6 +826,7 @@ def _warning_plans(
     *,
     layout: ForgePageLayout,
     page_number: int,
+    top_mm: float,
 ) -> list[PaintPlan]:
     prefix = component_prefix(_COMPONENT_BASE, page_number)
     x_mm = layout.regions.safe.x_mm
@@ -800,26 +837,26 @@ def _warning_plans(
             stroke=FORGE_SLATE_300,
             fill=FORGE_SLATE_100,
             line_width_mm=0.25,
-        ).plan(surface, PdfRect(x_mm, 55.0, width_mm, 21.0)),
+        ).plan(surface, PdfRect(x_mm, top_mm, width_mm, 21.0)),
         TextBox(
             component_id=f"{prefix}-warning-icon",
             text=_ICON_WARNING,
             style=FORGE_THEME.symbol_style(size_pt=13.0, color=FORGE_SLATE_900),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=8.0,
-        ).plan(surface, PdfRect(x_mm + 5.0, 60.0, 15.0, 7.0)),
+        ).plan(surface, PdfRect(x_mm + 5.0, top_mm + 5.0, 15.0, 7.0)),
         TextBox(
             component_id=f"{prefix}-warning-title",
             text=str(context.copy.get("warning_title") or "Critical Security Warning").upper(),
             style=FORGE_THEME.sans_style(size_pt=9.0, bold=True, color=FORGE_SLATE_900),
             policy=TextFitPolicy.FAIL,
-        ).plan(surface, PdfRect(x_mm + 23.0, 58.0, 128.0, 5.2)),
+        ).plan(surface, PdfRect(x_mm + 23.0, top_mm + 3.0, 128.0, 5.2)),
         TextBox(
             component_id=f"{prefix}-warning-body",
             text=str(context.copy.get("warning_body") or ""),
             style=FORGE_THEME.sans_style(size_pt=9.0, color=FORGE_SLATE_800),
             policy=TextFitPolicy.WRAP,
-        ).plan(surface, PdfRect(x_mm + 23.0, 64.0, width_mm - 34.0, 9.2)),
+        ).plan(surface, PdfRect(x_mm + 23.0, top_mm + 9.0, width_mm - 34.0, 9.2)),
     ]
 
 
@@ -828,6 +865,7 @@ def _instruction_plans(
     context: ForgeShellContext,
     *,
     layout: ForgePageLayout,
+    top_mm: float,
 ) -> list[PaintPlan]:
     body = "\n".join(
         f"{index}. {line}" for index, line in enumerate(context.instruction_lines, start=1)
@@ -838,11 +876,11 @@ def _instruction_plans(
             text=context.instructions_label.upper(),
             style=FORGE_THEME.sans_style(size_pt=10.5, bold=True, color=FORGE_SLATE_900),
             policy=TextFitPolicy.FAIL,
-        ).plan(surface, PdfRect(layout.regions.safe.x_mm + 2.0, 85.0, 52.0, 6.0)),
+        ).plan(surface, PdfRect(layout.regions.safe.x_mm + 2.0, top_mm, 52.0, 6.0)),
         Rule(
             component_id="forge-recovery-p1-instructions-title-rule",
             color=FORGE_SLATE_900,
-        ).plan(surface, PdfRect(layout.regions.safe.x_mm + 2.0, 92.5, 29.0, 0.35)),
+        ).plan(surface, PdfRect(layout.regions.safe.x_mm + 2.0, top_mm + 7.5, 29.0, 0.35)),
         TextBox(
             component_id="forge-recovery-p1-instructions-body",
             text=body,
@@ -852,7 +890,7 @@ def _instruction_plans(
             surface,
             PdfRect(
                 layout.regions.safe.x_mm + 2.0,
-                98.0,
+                top_mm + 13.0,
                 layout.regions.safe.width_mm - 12.0,
                 16.5,
             ),
@@ -866,6 +904,7 @@ def _continuation_plans(
     *,
     layout: ForgePageLayout,
     page_number: int,
+    top_mm: float,
 ) -> list[PaintPlan]:
     prefix = component_prefix(_COMPONENT_BASE, page_number)
     return [
@@ -878,7 +917,7 @@ def _continuation_plans(
             surface,
             PdfRect(
                 layout.regions.safe.x_mm,
-                layout.regions.body.y_mm + 4.0,
+                top_mm,
                 layout.regions.safe.width_mm,
                 12.0,
             ),
@@ -894,7 +933,7 @@ def _continuation_plans(
             surface,
             PdfRect(
                 layout.regions.safe.x_mm + 4.0,
-                layout.regions.body.y_mm + 7.5,
+                top_mm + 3.5,
                 layout.regions.safe.width_mm - 8.0,
                 5.0,
             ),
@@ -939,6 +978,17 @@ def _fallback_line_number_width_mm(
         ),
         default=0,
     )
+    return _fallback_line_number_width_for_maximum(
+        surface,
+        maximum_display_number=maximum_display_number,
+    )
+
+
+def _fallback_line_number_width_for_maximum(
+    surface: PdfSurface,
+    *,
+    maximum_display_number: int,
+) -> float:
     maximum_label = f"{maximum_display_number:02d}."
     measured_width_mm = surface.measure_text_width(
         maximum_label,
@@ -950,29 +1000,66 @@ def _fallback_line_number_width_mm(
     )
 
 
-def _fallback_line_length_for_page(
+def _fallback_line_length_for_geometry(
     surface: PdfSurface,
-    fallback_page: _FallbackPageLayout,
+    *,
+    geometry: _ForgeRecoveryGeometry,
+    first_maximum_display_number: int,
+    continuation_maximum_display_number: int,
 ) -> int:
-    """Return the longest grouped payload line that remains readable on this page."""
+    """Return the longest line supported by both first and continuation page geometry."""
 
-    line_number_width_mm = _fallback_line_number_width_mm(surface, fallback_page)
+    return min(
+        (
+            _fallback_line_length_for_area(
+                surface,
+                area=geometry.first_page_fallback_area,
+                maximum_display_number=first_maximum_display_number,
+            ),
+            _fallback_line_length_for_area(
+                surface,
+                area=geometry.continuation_fallback_area,
+                maximum_display_number=continuation_maximum_display_number,
+            ),
+        )
+    )
+
+
+def _fallback_line_length_for_area(
+    surface: PdfSurface,
+    *,
+    area: PdfRect,
+    maximum_display_number: int,
+) -> int:
+    """Measure a grouped line against one page's actual fallback text rectangle."""
+
+    line_number_width_mm = _fallback_line_number_width_for_maximum(
+        surface,
+        maximum_display_number=maximum_display_number,
+    )
     text_width_mm = _fallback_payload_text_width_mm(
-        fallback_page.area,
+        area,
         line_number_width_mm=line_number_width_mm,
     )
     fit_style = _fallback_payload_style(size_pt=_FALLBACK_PAYLOAD_MIN_FIT_SIZE_PT)
-    widest_character = max(
-        ZBASE32_ALPHABET,
-        key=lambda character: surface.measure_text_width(character, fit_style),
+    return measured_grouped_line_length(
+        surface,
+        style=fit_style,
+        alphabet=ZBASE32_ALPHABET,
+        group_size=_FALLBACK_GROUP_SIZE,
+        max_width_mm=text_width_mm,
     )
-    maximum_group_count = (_FALLBACK_LINE_LENGTH + 1) // (_FALLBACK_GROUP_SIZE + 1)
-    for group_count in range(maximum_group_count, 0, -1):
-        candidate = " ".join(widest_character * _FALLBACK_GROUP_SIZE for _ in range(group_count))
-        if surface.measure_text_width(candidate, fit_style) <= text_width_mm:
-            return len(candidate)
-    raise ValueError(
-        "Forge recovery fallback column cannot fit one encoded group at the readable font floor"
+
+
+def _maximum_fallback_display_number(pages: Sequence[_FallbackPageLayout]) -> int:
+    return max(
+        (
+            entry.display_line_number or 0
+            for page in pages
+            for entry in page.entries
+            if isinstance(entry.entry, _FallbackLineEntry)
+        ),
+        default=0,
     )
 
 

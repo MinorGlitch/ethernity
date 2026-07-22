@@ -10,6 +10,7 @@ from ethernity.app.workflow_presenter import restore_workflow_placeholder
 from ethernity.app.workspaces.common import (
     AUTH_MATERIAL_OPTIONS,
     RESTORE_AUTH_OPTIONS,
+    RESTORE_RESOURCE_OPTIONS,
     BaseWorkspace,
     advanced_panel,
     button_row,
@@ -62,11 +63,19 @@ class RestoreWorkspace(BaseWorkspace):
                         "workspace-restore-auth-material",
                         AUTH_MATERIAL_OPTIONS,
                     )
+                    yield group_label("Resource limits")
+                    yield labeled_select_row(
+                        "Compatibility mode",
+                        "workspace-restore-resource-policy",
+                        RESTORE_RESOURCE_OPTIONS,
+                    )
                     yield Static(
                         (
                             "Trusted signatures confirm that the supplied material belongs to "
                             "one signed backup. Allow unsigned legacy backups only when the "
                             "original backup has no signatures."
+                            " Resource-intensive compatibility recovery should be used only for "
+                            "legacy files rejected by the standard KDF limits."
                         ),
                         id="restore-authentication-help",
                         classes="workspace-field-note",
@@ -90,10 +99,12 @@ class RestoreWorkspace(BaseWorkspace):
             self.query_one("#workspace-restore-auth-material", Select),
             control_value(auth, "auth-material"),
         )
-        update_buttons(self, auth.actions)
-        advanced_summary = (
-            "Unsigned legacy backups allowed"
-            if auth.status == "warning"
-            else "Trusted signatures required"
+        set_select(
+            self.query_one("#workspace-restore-resource-policy", Select),
+            control_value(auth, "resource-policy"),
         )
+        update_buttons(self, auth.actions)
+        advanced_summary = auth.status_summary
+        if control_value(auth, "resource-policy") == "resource-intensive-compatibility":
+            advanced_summary = "Resource-intensive compatibility enabled"
         self.sync_advanced_panel(panel_title("Verification", advanced_summary))

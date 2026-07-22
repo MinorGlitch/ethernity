@@ -10,7 +10,7 @@ _FIXTURE = Path("tests/fixtures/v1_2/extension_golden/raw/extension_local_sharde
 _LOOSE_FIXTURE = Path("tests/fixtures/v1_2/extension_golden/raw/loose_scan_append_chain")
 
 
-def test_add_files_assessment_is_non_publishing_and_execution_uses_reviewed_fingerprint(
+def test_add_files_assessment_rejects_pre_policy_chain_without_required_recovery_kit(
     tmp_path: Path,
 ) -> None:
     backup_root = tmp_path / "chain"
@@ -26,29 +26,22 @@ def test_add_files_assessment_is_non_publishing_and_execution_uses_reviewed_fing
         input_dirs=[input_root],
         base_dir=input_root,
         passphrase="stable-v1_2-extension-passphrase",
-        recovery_document_count=0,
+        unlock_policy="self-contained",
+        recovery_document_threshold=2,
+        recovery_document_count=3,
         signing_key_mode="not-stored",
     )
 
     state.prepare_review(force=True)
 
-    assert state.validate_task().ready
-    preview = {item.label: item.detail for item in state.preview().items}
-    assert preview["Next update"] == "02"
-    assert preview["File changes"] == "2 changed, 1 new, 0 unchanged"
-    assert preview["New fingerprint"] is not None
-    assert state.execution_plan().output_paths == (backup_root / "extensions" / "02",)
+    validation = state.validate_task()
+
+    assert not validation.ready
+    assert any(
+        "missing required MAIN documents: recovery_kit" in issue.message
+        for issue in validation.issues
+    )
     assert sorted(path.name for path in (backup_root / "extensions").iterdir()) == ["01"]
-    (input_root / "gamma.txt").write_bytes(b"mutated after review\n")
-
-    result = state.execute()
-
-    details = {detail.key: detail.value for detail in result.details}
-    assert details["doc_hash"] == preview["New fingerprint"]
-    assert details["parent_head_index"] == 1
-    assert details["publish_layout"] == "canonical"
-    assert details["new_path_count"] == 1
-    assert sorted(path.name for path in (backup_root / "extensions").iterdir()) == ["01", "02"]
 
 
 def test_scan_assessment_keeps_source_carriers_separate_from_loose_output(
@@ -71,7 +64,9 @@ def test_scan_assessment_keeps_source_carriers_separate_from_loose_output(
         base_dir=input_root,
         passphrase="stable-v1_2-extension-passphrase",
         expected_head_doc_hash=("a0571284dae33611b3b9ac177c896b4555ac31e53908474cbb4a07b98c84fc75"),
-        recovery_document_count=0,
+        unlock_policy="self-contained",
+        recovery_document_threshold=2,
+        recovery_document_count=3,
         signing_key_mode="not-stored",
     )
 
@@ -92,4 +87,7 @@ def test_scan_assessment_keeps_source_carriers_separate_from_loose_output(
         "a0571284dae33611b3b9ac177c896b4555ac31e53908474cbb4a07b98c84fc75"
     )
     assert any("every earlier update" in step for step in result.next_steps)
-    assert [path.name for path in output_root.iterdir()] == [plan.output_paths[0].name]
+    assert sorted(path.name for path in output_root.iterdir()) == [
+        ".chain.lock",
+        plan.output_paths[0].name,
+    ]

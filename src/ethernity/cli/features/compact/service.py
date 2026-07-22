@@ -47,7 +47,7 @@ from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import recover_chain_entries
-from ethernity.extensions.staging import EXTENSION_CHAIN_LOCK_DIR_NAME
+from ethernity.extensions.staging import EXTENSION_CHAIN_LOCK_FILE_NAME
 from ethernity.render.types import RenderLineage
 
 
@@ -217,10 +217,10 @@ def _compact_head_value(value: object) -> object:
     return value.hex() if isinstance(value, bytes) else value
 
 
-def _compact_source_chain_lock_dir(root_dir: Path | None) -> Path | None:
+def _compact_source_chain_lock_path(root_dir: Path | None) -> Path | None:
     if root_dir is None:
         return None
-    return root_dir / EXTENSIONS_DIR_NAME / EXTENSION_CHAIN_LOCK_DIR_NAME
+    return root_dir / EXTENSIONS_DIR_NAME / EXTENSION_CHAIN_LOCK_FILE_NAME
 
 
 def _prepare_compact_source_chain_lock(root_dir: Path | None) -> None:
@@ -505,7 +505,7 @@ def run_compact(args: CompactArgs) -> BackupResult:
         )
         for entry, data in chain.extracted
     ]
-    promote_lock_dir = _compact_source_chain_lock_dir(root_dir)
+    promote_lock_path = _compact_source_chain_lock_path(root_dir)
     prepare_promotion = (
         (lambda: _prepare_compact_source_chain_lock(root_dir)) if root_dir is not None else None
     )
@@ -522,13 +522,14 @@ def run_compact(args: CompactArgs) -> BackupResult:
         config=config,
         signing_seed_override=None if manifest.sealed else manifest.signing_seed,
         render_lineage=RenderLineage(kind="compaction_checkpoint"),
-        promote_lock_dir=promote_lock_dir,
+        promote_lock_path=promote_lock_path,
         prepare_promotion=prepare_promotion,
         validate_promotion=lambda: _validate_compact_source_head_for_promotion(
             args=args,
             root_dir=root_dir,
             expected=source_head,
         ),
+        publication_durability="required",
         quiet=args.quiet,
     )
     return replace(

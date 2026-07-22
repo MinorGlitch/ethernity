@@ -22,15 +22,19 @@ export function DecryptSection({
   decryptStatus,
   extensionTarget,
   expectedHeadDocHash,
+  expectedHeadReadOnly,
+  freshnessUnknownAcknowledged,
   onPassphraseChange,
   onExtensionTargetChange,
   onExpectedHeadDocHashChange,
+  onFreshnessUnknownAcknowledgedChange,
   onDecrypt,
   onDecryptIntensive,
   onDecryptRootOnly,
   canDecrypt,
   canDecryptRootOnly,
-  hasMultipleDocuments,
+  decryptDisabledReason,
+  rootOnlyDisabledReason,
   isComplete,
   isDecrypting,
   onExtract,
@@ -44,15 +48,12 @@ export function DecryptSection({
       label: isDecrypting ? "Unlocking..." : "Unlock & extract",
       onClick: onDecrypt,
       disabled: !canDecrypt || isDecrypting,
-      disabledReason:
-        passphrase.length > 0
-          ? "Add backup data first (Step 1)."
-          : "Enter your passphrase to unlock.",
+      disabledReason: decryptDisabledReason,
     },
   ];
   if (onDecryptIntensive) {
     decryptActions.push({
-      label: isDecrypting ? "Unlocking..." : "Try resource-intensive browser unlock",
+      label: isDecrypting ? "Unlocking..." : "Try resource-intensive compatibility recovery",
       className: "secondary",
       onClick: onDecryptIntensive,
       disabled: isDecrypting,
@@ -64,10 +65,7 @@ export function DecryptSection({
       className: "secondary",
       onClick: onDecryptRootOnly,
       disabled: !canDecryptRootOnly || isDecrypting,
-      disabledReason:
-        passphrase.length > 0
-          ? "Add backup data first (Step 1)."
-          : "Enter your passphrase to unlock.",
+      disabledReason: rootOnlyDisabledReason,
     });
   }
   const envelopeActions = [
@@ -102,25 +100,38 @@ export function DecryptSection({
           autoComplete="off"
           spellCheck="false"
         />
-        {hasMultipleDocuments ? (
-          <Field
-            id="extension-target-input"
-            label="Extension target"
-            value={extensionTarget}
-            placeholder="latest, root, index, or doc hash"
-            onInput={onExtensionTargetChange}
-            spellCheck="false"
-          />
-        ) : null}
-        {hasMultipleDocuments ? (
-          <Field
-            id="expected-head-doc-hash-input"
-            label="Expected head"
-            value={expectedHeadDocHash}
-            placeholder="optional latest doc hash"
-            onInput={onExpectedHeadDocHashChange}
-            spellCheck="false"
-          />
+        <Field
+          id="extension-target-input"
+          label="Recovery target"
+          value={extensionTarget}
+          placeholder="latest, root, index, or doc hash"
+          onInput={onExtensionTargetChange}
+          spellCheck="false"
+        />
+        <Field
+          id="expected-head-doc-hash-input"
+          label={expectedHeadReadOnly ? "Expected head (trusted kit)" : "Expected head"}
+          value={expectedHeadDocHash}
+          placeholder="64-character expected head hash"
+          onInput={onExpectedHeadDocHashChange}
+          readOnly={expectedHeadReadOnly}
+          spellCheck="false"
+        />
+        {!expectedHeadReadOnly ? (
+          <div>
+            <label class="freshness-acknowledgement" htmlFor="freshness-unknown-acknowledgement">
+              <input
+                id="freshness-unknown-acknowledgement"
+                type="checkbox"
+                checked={freshnessUnknownAcknowledged}
+                onChange={onFreshnessUnknownAcknowledgedChange}
+              />
+              <span>Recover latest among supplied pages; freshness unknown</span>
+            </label>
+            <div class="sub">
+              Without a trusted kit anchor, recovery proves only internal consistency.
+            </div>
+          </div>
         ) : null}
         <ActionsRow actions={decryptActions} />
       </div>

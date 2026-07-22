@@ -22,23 +22,9 @@ from typing import Any
 
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import CommandError
-from ethernity.formats.envelope_types import EnvelopeManifest
+from ethernity.formats.envelope_summary import manifest_summary_payload
 
 BlockingIssue = dict[str, object]
-
-
-def manifest_summary_payload(manifest: EnvelopeManifest) -> dict[str, object]:
-    """Build the stable envelope manifest summary used by inspection APIs."""
-
-    return {
-        "format_version": manifest.format_version,
-        "input_origin": manifest.input_origin,
-        "input_roots": list(manifest.input_roots),
-        "sealed": manifest.sealed,
-        "payload_codec": manifest.payload_codec,
-        "payload_raw_len": manifest.payload_raw_len,
-        "file_count": len(manifest.files),
-    }
 
 
 def blocking_issue(

@@ -61,7 +61,7 @@ _TASK_ACTIVITY_LABELS: dict[ActiveTask, str] = {
     "add_files": "backup update",
     "rebuild": "backup rebuild",
     "replace_recovery_docs": "recovery-sheet replacement",
-    "kit": "recovery kit",
+    "kit": "unanchored rescue kit",
     "settings": "settings save",
 }
 _REVIEW_TITLES: dict[ActiveTask, str] = {
@@ -70,7 +70,7 @@ _REVIEW_TITLES: dict[ActiveTask, str] = {
     "add_files": "Review backup update",
     "rebuild": "Review backup rebuild",
     "replace_recovery_docs": "Review replacement sheets",
-    "kit": "Review recovery kit",
+    "kit": "Review unanchored rescue kit",
     "settings": "Review settings",
 }
 _RUNNING_LABELS: dict[ActiveTask, str] = {

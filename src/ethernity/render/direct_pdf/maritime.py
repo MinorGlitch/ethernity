@@ -27,6 +27,21 @@ from ethernity.render.direct_pdf.classic_common import (
     title_text_style,
 )
 from ethernity.render.direct_pdf.components import ImageBox, Panel, Rule, TextAlign, TextBox
+from ethernity.render.direct_pdf.fallback_layout import (
+    FallbackPage,
+    FallbackPageEntry,
+    FallbackSectionLines,
+    FallbackTitleEntry,
+    ResponsiveFallbackPageProfile,
+    ResponsiveFallbackSpec,
+    build_fallback_proof,
+    fallback_capacity,
+    fallback_entries,
+    fallback_sections,
+    measured_fallback_number_width,
+    paginate_fallback_entries,
+    resolve_responsive_fallback_pagination,
+)
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
     DirectPdfPagePlan,
@@ -46,24 +61,14 @@ from ethernity.render.direct_pdf.responsive_layout import (
     resolve_grid,
 )
 from ethernity.render.direct_pdf.structured_common import (
-    FallbackPage,
-    FallbackPageEntry,
-    FallbackSectionLines,
-    FallbackTitleEntry,
     QrPage,
     QrPayloadItem,
     StructuredContext,
     StructuredDirectPlan as MaritimeDirectPlan,
     StructuredPlanBuilder,
     build_artifact_proof,
-    build_fallback_proof,
     build_structured_context,
     component_prefix,
-    fallback_capacity,
-    fallback_entries,
-    fallback_sections,
-    measured_fallback_number_width,
-    paginate_fallback_entries,
     paginate_qr_items,
     positive_int,
     qr_image,
@@ -112,8 +117,16 @@ _QR_LABEL_BAND_HEIGHT_MM = 5.2
 _MIN_QR_CARD_SIZE_MM = 48.0
 _MIN_QR_IMAGE_SIZE_MM = 42.0
 _FALLBACK_GROUP_SIZE = 4
-_FALLBACK_LINE_LENGTH = 88
 _FALLBACK_ROW_HEIGHT_MM = 4.2
+_RECOVERY_FALLBACK_BODY_SIZE_PT = 8.5
+_RECOVERY_FALLBACK_NUMBER_SIZE_PT = 6.5
+_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_MM = 0.08
+_RECOVERY_FALLBACK_LEFT_INSET_MM = 4.0
+_RECOVERY_FALLBACK_RIGHT_INSET_MM = 4.0
+_RECOVERY_FALLBACK_NUMBER_GAP_MM = 4.0
+_RECOVERY_FALLBACK_NUMBER_MIN_WIDTH_MM = 6.0
+_RECOVERY_FALLBACK_NUMBER_PADDING_MM = 0.4
+_RECOVERY_FALLBACK_LINE_SAFETY_MM = 0.2
 _SHARD_FALLBACK_COLUMNS = 2
 _SHARD_FALLBACK_COLUMN_GAP_MM = 4.0
 _SHARD_FALLBACK_ROW_HEIGHT_MM = 2.85
@@ -123,6 +136,10 @@ _CONTENT_BOTTOM_INSET_MM = 7.0
 _INSTRUCTION_LINE_GAP_MM = 0.6
 _META_VALUE_WIDTH_MM = 72.0
 _PASSPHRASE_META_VALUE_WIDTH_MM = 84.0
+_META_LABEL_MIN_WIDTH_MM = 24.0
+_META_LABEL_VALUE_GAP_MM = 5.0
+_META_LABEL_WIDTH_SAFETY_MM = 0.4
+_META_STAMP_CLEARANCE_MM = 5.0
 _PAGE_STYLE = ClassicPageStyle(
     margin_mm=_MARGIN_MM,
     content_bottom_inset_mm=_CONTENT_BOTTOM_INSET_MM,
@@ -314,11 +331,6 @@ def build_maritime_recovery_direct_plan(
         recovery_meta,
         layout=layout,
     )
-    sections = fallback_sections(
-        inputs.fallback_sections or (),
-        group_size=_FALLBACK_GROUP_SIZE,
-        line_length=_FALLBACK_LINE_LENGTH,
-    )
     fallback_area = _recovery_fallback_area(
         surface,
         context,
@@ -336,14 +348,40 @@ def build_maritime_recovery_direct_plan(
         if passphrase_pagination.continuation_pages
         else fallback_area
     )
-    fallback_pages = paginate_fallback_entries(
-        fallback_entries(sections),
-        capacity=fallback_capacity(fallback_area, row_height_mm=_FALLBACK_ROW_HEIGHT_MM),
-        continuation_capacity=fallback_capacity(
-            continuation_fallback_area,
-            row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
+    fallback_spec = ResponsiveFallbackSpec(
+        group_size=_FALLBACK_GROUP_SIZE,
+        row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
+        body_style=monospace_text_style(
+            size_pt=_RECOVERY_FALLBACK_BODY_SIZE_PT,
+            color=_INK,
+        ),
+        number_style=monospace_text_style(
+            size_pt=_RECOVERY_FALLBACK_NUMBER_SIZE_PT,
+            color=_INK_SOFT,
+            char_spacing_mm=_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_MM,
+        ),
+        content_left_inset_mm=_RECOVERY_FALLBACK_LEFT_INSET_MM,
+        content_right_inset_mm=_RECOVERY_FALLBACK_RIGHT_INSET_MM,
+        vertical_reserved_mm=0.0,
+        number_gap_mm=_RECOVERY_FALLBACK_NUMBER_GAP_MM,
+        number_minimum_width_mm=_RECOVERY_FALLBACK_NUMBER_MIN_WIDTH_MM,
+        number_padding_mm=_RECOVERY_FALLBACK_NUMBER_PADDING_MM,
+        safety_mm=_RECOVERY_FALLBACK_LINE_SAFETY_MM,
+    )
+    fallback_pagination = resolve_responsive_fallback_pagination(
+        surface,
+        inputs.fallback_sections or (),
+        first_profile=ResponsiveFallbackPageProfile(
+            area=fallback_area,
+            spec=fallback_spec,
+        ),
+        continuation_profile=ResponsiveFallbackPageProfile(
+            area=continuation_fallback_area,
+            spec=fallback_spec,
         ),
     )
+    sections = fallback_pagination.sections
+    fallback_pages = fallback_pagination.pages
     total_pages = len(fallback_pages) + len(passphrase_pagination.continuation_pages)
     fallback_page_plans = tuple(
         _build_recovery_page(
@@ -1081,6 +1119,28 @@ def _header_layout(
         if any(row.kind is _HeaderMetaKind.PASSPHRASE for row in rows)
         else _META_VALUE_WIDTH_MM
     )
+    label_style = title_text_style(
+        size_pt=6.0,
+        color=_INK_SOFT,
+        char_spacing_mm=0.32,
+    )
+    meta_right_mm = safe_rect.right_mm if include_subtitle else stamp_x - _META_STAMP_CLEARANCE_MM
+    max_label_width_mm = (
+        meta_right_mm - safe_rect.x_mm - _META_LABEL_VALUE_GAP_MM - meta_value_width
+    )
+    if max_label_width_mm <= 0:
+        raise ValueError("Maritime page safe area cannot fit the metadata columns")
+    measured_label_width_mm = max(
+        surface.measure_text_width(row.label.upper(), label_style) for row in meta_rows
+    )
+    label_width_mm = min(
+        max(
+            _META_LABEL_MIN_WIDTH_MM,
+            measured_label_width_mm + _META_LABEL_WIDTH_SAFETY_MM,
+        ),
+        max_label_width_mm,
+    )
+    value_x_mm = safe_rect.x_mm + label_width_mm + _META_LABEL_VALUE_GAP_MM
     cursor_y = meta_y
     for index, row in enumerate(meta_rows):
         label = row.label
@@ -1108,19 +1168,34 @@ def _header_layout(
             policy=TextFitPolicy.WRAP,
             line_height_multiplier=1.1,
         )
-        row_h = max(4.0, guidance_height_mm + value_fit.height_mm)
+        label_fit = fit_text_to_width(
+            surface,
+            label.upper(),
+            label_style,
+            max_width_mm=label_width_mm,
+            policy=TextFitPolicy.WRAP,
+        )
+        label_height_mm = max(3.1, label_fit.height_mm + 0.1)
+        row_h = max(
+            4.0,
+            label_height_mm,
+            guidance_height_mm + value_fit.height_mm,
+        )
         plans.append(
             TextBox(
                 component_id=f"{prefix}-meta-label-{index}",
                 text=label.upper(),
-                style=title_text_style(
-                    size_pt=6.0,
-                    color=_INK_SOFT,
-                    char_spacing_mm=0.32,
+                style=label_style,
+                policy=TextFitPolicy.WRAP,
+            ).plan(
+                surface,
+                PdfRect(
+                    safe_rect.x_mm,
+                    cursor_y,
+                    label_width_mm,
+                    label_height_mm,
                 ),
-                policy=TextFitPolicy.SHRINK,
-                min_size_pt=6.0,
-            ).plan(surface, PdfRect(safe_rect.x_mm, cursor_y, 24.0, 3.1))
+            )
         )
         value_y_mm = cursor_y
         if row.guidance:
@@ -1134,7 +1209,7 @@ def _header_layout(
                 ).plan(
                     surface,
                     PdfRect(
-                        safe_rect.x_mm + 29.0,
+                        value_x_mm,
                         value_y_mm,
                         meta_value_width,
                         guidance_height_mm - 0.8,
@@ -1153,7 +1228,7 @@ def _header_layout(
             ).plan(
                 surface,
                 PdfRect(
-                    safe_rect.x_mm + 29.0,
+                    value_x_mm,
                     value_y_mm,
                     meta_value_width,
                     cursor_y + row_h - value_y_mm,
@@ -1450,17 +1525,21 @@ def _fallback_block_plans(
     prefix: str,
     area: PdfRect,
 ) -> list[PaintPlan]:
-    number_style = monospace_text_style(size_pt=6.5, color=_INK_SOFT, char_spacing_mm=0.08)
+    number_style = monospace_text_style(
+        size_pt=_RECOVERY_FALLBACK_NUMBER_SIZE_PT,
+        color=_INK_SOFT,
+        char_spacing_mm=_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_MM,
+    )
     number_width_mm = measured_fallback_number_width(
         surface,
         fallback_page,
         style=number_style,
-        minimum_width_mm=6.0,
-        padding_mm=0.4,
+        minimum_width_mm=_RECOVERY_FALLBACK_NUMBER_MIN_WIDTH_MM,
+        padding_mm=_RECOVERY_FALLBACK_NUMBER_PADDING_MM,
     )
-    number_x_mm = area.x_mm + 4.0
-    payload_x_mm = number_x_mm + number_width_mm + 4.0
-    payload_width_mm = area.right_mm - payload_x_mm - 4.0
+    number_x_mm = area.x_mm + _RECOVERY_FALLBACK_LEFT_INSET_MM
+    payload_x_mm = number_x_mm + number_width_mm + _RECOVERY_FALLBACK_NUMBER_GAP_MM
+    payload_width_mm = area.right_mm - payload_x_mm - _RECOVERY_FALLBACK_RIGHT_INSET_MM
     if payload_width_mm <= 0:
         raise ValueError("Maritime fallback number gutter leaves no payload width")
     plans: list[PaintPlan] = []
@@ -1517,7 +1596,10 @@ def _fallback_block_plans(
                             f"{prefix}-fallback-line-{entry.section_index}-{entry.line_number}"
                         ),
                         text=entry.text,
-                        style=monospace_text_style(size_pt=8.5, color=_INK),
+                        style=monospace_text_style(
+                            size_pt=_RECOVERY_FALLBACK_BODY_SIZE_PT,
+                            color=_INK,
+                        ),
                         policy=TextFitPolicy.SHRINK,
                         min_size_pt=6.0,
                     ).plan(

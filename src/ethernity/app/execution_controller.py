@@ -13,6 +13,7 @@ from ethernity.app.execution import (
     normalize_execution_outcome,
 )
 from ethernity.app.task_catalog import TASK_TITLES
+from ethernity.security.resource_worker import terminate_active_workers
 from ethernity.tasks.models import TaskExecutionResult
 
 ResultType = TypeVar("ResultType")
@@ -126,6 +127,7 @@ class ExecutionController:
         if context is None:
             return
         if event.state == WorkerState.CANCELLED:
+            terminate_active_workers()
             self._cancelled_worker = event.worker
             if self._thread_finished:
                 self._finish_cancelled(event.worker)

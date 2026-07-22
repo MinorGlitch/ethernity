@@ -22,26 +22,20 @@ import ntpath
 import posixpath
 from pathlib import Path
 
+from ethernity.core.paths import expand_user_path, expand_user_paths
 from ethernity.core.validation import has_windows_drive_prefix
 
 
 def expanduser_cli_path(path: str | Path | None, *, preserve_stdin: bool = True) -> str | None:
     """Normalize a user-provided CLI path while preserving stdin sentinels when requested."""
 
-    if path is None:
-        return None
-    text = str(path)
-    if preserve_stdin and text == "-":
-        return text
-    return str(Path(text).expanduser())
+    return expand_user_path(path, preserve_stdin=preserve_stdin)
 
 
 def expanduser_cli_paths(paths: list[str] | tuple[str, ...] | None) -> list[str]:
     """Normalize a sequence of user-provided CLI paths."""
 
-    if not paths:
-        return []
-    return [expanduser_cli_path(path) or str(path) for path in paths]
+    return expand_user_paths(paths)
 
 
 def display_parent_path(path: str | Path) -> str:
@@ -57,3 +51,6 @@ def display_parent_path(path: str | Path) -> str:
     else:
         parent = str(Path(text).parent)
     return parent or "."
+
+
+__all__ = ["display_parent_path", "expanduser_cli_path", "expanduser_cli_paths"]

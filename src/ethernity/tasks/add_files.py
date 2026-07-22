@@ -23,21 +23,8 @@ from typing import Literal
 
 from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
-from ethernity.cli.features.extend.execution import (
-    AssessedExtendRun,
-    assess_prepared_extend,
-    execute_assessed_extend,
-)
-from ethernity.cli.features.extend.models import (
-    ExtensionPassphraseShards,
-    ExtensionSigningKeyShards,
-    PlaintextPassphrase,
-    ReuseRootPassphraseShards,
-)
-from ethernity.cli.features.extend.prepare import prepare_extend_run
+from ethernity.cli.features.extension_reporting import CliExtensionReporter
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config import load_cli_defaults, resolve_config_snapshot_path
 from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
 from ethernity.extensions.layout import canonical_extension_dir_name, loose_extension_dir_name
@@ -71,6 +58,16 @@ from ethernity.tasks.source_assessment import (
     SourceAssessmentRequest,
     folder_or_scans_source_request,
     source_freshness_status,
+)
+from ethernity.workflows.extension.request import ExtensionRequest
+from ethernity.workflows.extension.service import (
+    AssessedExtendRun,
+    ExtensionAssessment,
+    ExtensionPassphraseShards,
+    ExtensionSigningKeyShards,
+    ReuseRootPassphraseShards,
+    assess_extension,
+    execute_extension,
 )
 
 AddFilesUnlockPolicy = Literal["self-contained", "reuse-root"]
@@ -249,28 +246,19 @@ class AddFilesTaskState(SourceAssessableTaskState):
             self._assessment_cache = None
             return
         key = self._assessment_key()
-        try:
-            assessed = assess_prepared_extend(prepare_extend_run(self.to_extend_args(quiet=True)))
-        except ApiCommandError as exc:
+        assessment = assess_extension(self.to_extension_request(quiet=True))
+        if assessment.issues:
+            issue = assessment.issues[0]
             self._assessment_cache = _AssessmentCache(
                 key=key,
                 issue=TaskIssue(
-                    code=exc.code,
-                    message=exc.message,
-                    section=_assessment_issue_section(exc.code),
+                    code=issue.code,
+                    message=issue.message,
+                    section=_assessment_issue_section(issue.code),
                 ),
             )
-        except (OSError, RuntimeError, ValueError) as exc:
-            self._assessment_cache = _AssessmentCache(
-                key=key,
-                issue=TaskIssue(
-                    code="ADD_FILES_ASSESSMENT_FAILED",
-                    message=str(exc),
-                    section="output" if _looks_like_output_error(str(exc)) else "backup",
-                ),
-            )
-        else:
-            self._assessment_cache = _AssessmentCache(key=key, assessed=assessed)
+            return
+        self._assessment_cache = _AssessmentCache(key=key, assessed=assessment.assessed)
 
     def _basic_issues(self) -> tuple[TaskIssue, ...]:
         issues: list[TaskIssue] = []
@@ -495,14 +483,23 @@ class AddFilesTaskState(SourceAssessableTaskState):
         cache = self._current_assessment_cache()
         if cache is None or cache.assessed is None:
             raise ValueError("The update could not be prepared for review.")
-        executed = execute_assessed_extend(
-            cache.assessed,
+        execution = execute_extension(
+            ExtensionAssessment(
+                request=self.to_extension_request(quiet=True),
+                assessed=cache.assessed,
+            ),
             config_path=str(self.config_path) if self.config_path is not None else None,
+            reporter=CliExtensionReporter(quiet=False),
         )
+        if not execution.ok or execution.executed is None:
+            issue = execution.issues[0]
+            raise ValueError(issue.message)
+        executed = execution.executed
         result = executed.result
         output_paths = (
             result.qr_document_path,
             result.recovery_document_path,
+            result.recovery_kit_path,
             *result.shard_paths,
             *result.signing_key_shard_paths,
         )
@@ -512,11 +509,19 @@ class AddFilesTaskState(SourceAssessableTaskState):
         encrypted = executed.publish.encrypted
         stats = encrypted.built.stats
         publish_layout = executed.publish.artifacts.publish_layout
-        next_steps = (
+        scan_next_steps = (
             (
-                "Keep the original backup, every earlier update, and this update together. "
-                "This scan-based update cannot restore files by itself."
-            ),
+                (
+                    "Keep the original backup, every earlier update, and this update together. "
+                    "This scan-based update cannot restore files by itself."
+                ),
+            )
+            if self.source_paths
+            else ()
+        )
+        next_steps = (
+            *scan_next_steps,
+            "Replace and test the previous recovery kit.",
             "Save the new fingerprint as the expected latest version before the next update.",
         )
         return TaskExecutionResult(
@@ -592,35 +597,28 @@ class AddFilesTaskState(SourceAssessableTaskState):
                     value=len(encrypted.ciphertext),
                 ),
             ),
-            next_steps=(
-                next_steps
-                if self.source_paths
-                else (
-                    "Save the new fingerprint as the expected latest version before the next "
-                    "update.",
-                )
-            ),
+            next_steps=next_steps,
         )
 
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:
         return self.validate_task().issues
 
-    def to_extend_args(self, *, quiet: bool = False) -> ExtendArgs:
+    def to_extension_request(self, *, quiet: bool = False) -> ExtensionRequest:
         root_dir = self.loose_output_folder if self.source_paths else self.backup_folder
         base_dir = self.base_dir
         if base_dir is None:
             defaults = load_cli_defaults(self.config_path).extend
             base_dir = Path(defaults.base_dir) if defaults.base_dir is not None else None
-        return ExtendArgs(
-            config=str(self.config_path) if self.config_path is not None else None,
-            root_dir=str(root_dir) if root_dir is not None else None,
-            scan=[str(path) for path in self.source_paths],
-            input=[str(path) for path in self.input_paths],
-            input_dir=[str(path) for path in self.input_dirs],
-            base_dir=str(base_dir) if base_dir is not None else None,
+        return ExtensionRequest(
+            config_path=str(self.config_path) if self.config_path is not None else None,
+            publish_root=str(root_dir) if root_dir is not None else None,
+            scan_paths=tuple(str(path) for path in self.source_paths),
+            input_paths=tuple(str(path) for path in self.input_paths),
+            input_directories=tuple(str(path) for path in self.input_dirs),
+            base_directory=str(base_dir) if base_dir is not None else None,
             passphrase=self.passphrase,
-            shard_scan=[str(path) for path in self.recovery_documents],
-            shard_payloads_file=[str(path) for path in self.recovery_payload_files],
+            shard_scan_paths=tuple(str(path) for path in self.recovery_documents),
+            shard_payload_files=tuple(str(path) for path in self.recovery_payload_files),
             unlock_policy=self.unlock_policy,
             shard_threshold=self.recovery_document_threshold,
             shard_count=self.recovery_document_count,
@@ -629,7 +627,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
             signing_key_shard_count=self.signing_key_recovery_count,
             expected_head_doc_hash=self.expected_head_doc_hash,
             allow_stale_head=self.allow_stale_head,
-            paper=self.paper_size,
+            paper_size=self.paper_size,
             design=self.design,
             qr_chunk_size=self.qr_chunk_size,
             quiet=quiet,
@@ -716,9 +714,9 @@ class AddFilesTaskState(SourceAssessableTaskState):
             base_dir is None
             and cache is not None
             and cache.assessed is not None
-            and cache.assessed.prepared.args.base_dir is not None
+            and cache.assessed.prepared.args.base_directory is not None
         ):
-            base_dir = Path(cache.assessed.prepared.args.base_dir)
+            base_dir = Path(cache.assessed.prepared.args.base_directory)
         return selected_paths_summary(
             input_paths=self.input_paths,
             input_dirs=self.input_dirs,
@@ -771,7 +769,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
 
     def _recovery_documents_summary(self) -> str:
         if self.recovery_document_count == 0:
-            return "No new recovery sheets"
+            return "Reuse original recovery sheets"
         if (
             self.recovery_document_threshold is not None
             and self.recovery_document_count is not None
@@ -810,13 +808,13 @@ class AddFilesTaskState(SourceAssessableTaskState):
                     section="advanced",
                 )
             )
-        if self.recovery_document_count == 0:
+        if self.recovery_document_count == 0 and self.unlock_policy == "reuse-root":
             warnings.append(
                 TaskIssue(
                     code="ADD_FILES_RECOVERY_SHEETS_SKIPPED",
                     message=(
-                        "This update will rely on existing recovery material; no new recovery "
-                        "sheets will be created."
+                        "This update will rely on the original recovery sheets; no new "
+                        "passphrase shards will be created."
                     ),
                     severity="warning",
                     section="advanced",
@@ -869,7 +867,8 @@ class AddFilesTaskState(SourceAssessableTaskState):
     def _advanced_issues(self) -> tuple[TaskIssue, ...]:
         issues: list[TaskIssue] = []
         if self.unlock_policy == "reuse-root" and (
-            self.recovery_document_threshold is not None or self.recovery_document_count is not None
+            self.recovery_document_threshold is not None
+            or self.recovery_document_count not in {None, 0}
         ):
             issues.append(
                 TaskIssue(
@@ -880,11 +879,21 @@ class AddFilesTaskState(SourceAssessableTaskState):
                     section="advanced",
                 )
             )
-        if self.recovery_document_count == 0 and self.recovery_document_threshold is not None:
+        if self.recovery_document_count == 0 and self.unlock_policy != "reuse-root":
+            issues.append(
+                TaskIssue(
+                    code="ADD_FILES_ZERO_RECOVERY_REQUIRES_REUSE_ROOT",
+                    message=(
+                        "Zero new recovery sheets is valid only when reusing original recovery."
+                    ),
+                    section="advanced",
+                )
+            )
+        elif self.recovery_document_count == 0 and self.recovery_document_threshold is not None:
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_RECOVERY_THRESHOLD_WITHOUT_DOCUMENTS",
-                    message="Clear the recovery threshold or create recovery sheets.",
+                    message="Clear the recovery threshold when reusing original recovery sheets.",
                     section="advanced",
                 )
             )
@@ -985,8 +994,6 @@ def _resolved_recovery_summary(assessed: AssessedExtendRun) -> str:
         return (
             f"{passphrase.share_count} update recovery sheets; any {passphrase.threshold} required"
         )
-    if isinstance(passphrase, PlaintextPassphrase):
-        return "Passphrase included in the update recovery document"
     raise TypeError(f"unsupported extension passphrase policy: {type(passphrase).__qualname__}")
 
 

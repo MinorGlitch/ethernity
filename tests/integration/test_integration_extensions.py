@@ -23,21 +23,23 @@ from pypdf import PdfReader, PdfWriter
 
 from ethernity.cli.features.backup.service import execute_prepared_backup, prepare_backup_run
 from ethernity.cli.features.compact.service import run_compact
-from ethernity.cli.features.extend.planning import _inspect_root_recovery
-from ethernity.cli.features.extend.service import run_extend
 from ethernity.cli.features.mint.workflow import execute_mint
 from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.cli.shared.io.frames import recovery_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.cli.shared.types import BackupArgs, CompactArgs, ExtendArgs, MintArgs, RecoverArgs
+from ethernity.cli.shared.types import BackupArgs, CompactArgs, MintArgs, RecoverArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH, SUPPORTED_RENDER_STYLES
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.render import FallbackSection
 from ethernity.render.fallback_text import fallback_lines_from_sections
+from ethernity.workflows.extension.errors import ExtensionWorkflowError
+from ethernity.workflows.extension.planning import _inspect_root_recovery
+from ethernity.workflows.extension.request import ExtensionRequest
+from ethernity.workflows.extension.service import run_extend
 from tests.test_support import suppress_output, temp_env
 
 TEST_PASSPHRASE = "extension-integration-passphrase"
@@ -113,8 +115,8 @@ class TestIntegrationExtensions(unittest.TestCase):
                 )
                 recovery = _inspect_root_recovery(
                     root_dir,
-                    ExtendArgs(
-                        root_dir=str(root_dir),
+                    ExtensionRequest(
+                        publish_root=str(root_dir),
                         passphrase=passphrase,
                         quiet=True,
                     ),
@@ -219,7 +221,7 @@ class TestIntegrationExtensions(unittest.TestCase):
 
                 (source_dir / "alpha.txt").write_text("blocked-third-alpha", encoding="utf-8")
                 blocked_extension_dir = root_dir / "extensions" / "03"
-                with self.assertRaises(ApiCommandError) as ctx:
+                with self.assertRaises(ExtensionWorkflowError) as ctx:
                     self._run_extend(source_dir=source_dir, root_dir=root_dir)
                 self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
                 self.assertFalse(blocked_extension_dir.exists())
@@ -622,6 +624,50 @@ class TestIntegrationExtensions(unittest.TestCase):
                         {"alpha.txt": expected_alpha.encode("utf-8")},
                     )
 
+    def test_maritime_sharded_extension_variants_render_recovery_metadata(self) -> None:
+        cases = (
+            ("sharded-embedded", None, None, None),
+            ("sharded-signing-key", "sharded", 2, 3),
+        )
+        for variant, signing_key_mode, signing_key_threshold, signing_key_count in cases:
+            with self.subTest(variant=variant):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp_path = Path(tmpdir)
+                    source_dir = tmp_path / "source"
+                    root_dir = tmp_path / "backup-root"
+                    source_dir.mkdir()
+                    (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+                    with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                        self._run_backup(
+                            source_dir=source_dir,
+                            root_dir=root_dir,
+                            design="maritime",
+                        )
+                        (source_dir / "alpha.txt").write_text(
+                            f"extension-alpha-{variant}",
+                            encoding="utf-8",
+                        )
+                        extension = self._run_extend(
+                            source_dir=source_dir,
+                            root_dir=root_dir,
+                            design="maritime",
+                            shard_threshold=2,
+                            shard_count=3,
+                            signing_key_mode=signing_key_mode,
+                            signing_key_shard_threshold=signing_key_threshold,
+                            signing_key_shard_count=signing_key_count,
+                        )
+
+                    self.assertEqual(len(extension.shard_paths), 3)
+                    self.assertEqual(
+                        len(extension.signing_key_shard_paths),
+                        3 if signing_key_mode == "sharded" else 0,
+                    )
+                    reader = PdfReader(extension.recovery_document_path)
+                    recovery_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                    self.assertIn("EXTENSION SHARD QUORUM", recovery_text)
+
     def test_extend_forge_generated_folder_allows_second_extension(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -985,7 +1031,7 @@ class TestIntegrationExtensions(unittest.TestCase):
 
                 (source_dir / "alpha.txt").write_text("blocked-alpha", encoding="utf-8")
                 blocked_extension_dir = root_dir / "extensions" / "02"
-                with self.assertRaises(ApiCommandError) as ctx:
+                with self.assertRaises(ExtensionWorkflowError) as ctx:
                     self._run_extend(source_dir=source_dir, root_dir=root_dir)
                 self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
                 self.assertFalse(blocked_extension_dir.exists())
@@ -1012,7 +1058,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                     Path(shard_path).write_bytes(b"not a PDF")
 
                 (source_dir / "alpha.txt").write_text("blocked-alpha", encoding="utf-8")
-                with self.assertRaises(ApiCommandError) as ctx:
+                with self.assertRaises(ExtensionWorkflowError) as ctx:
                     self._run_extend(source_dir=source_dir, root_dir=root_dir)
 
                 self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
@@ -1254,8 +1300,8 @@ class TestIntegrationExtensions(unittest.TestCase):
         source_dir: Path,
         root_dir: Path,
         design: str | None = None,
-        shard_threshold: int | None = None,
-        shard_count: int | None = 0,
+        shard_threshold: int | None = 2,
+        shard_count: int | None = 3,
         passphrase: str = TEST_PASSPHRASE,
         unlock_policy: str | None = None,
         signing_key_mode: str | None = None,
@@ -1269,14 +1315,14 @@ class TestIntegrationExtensions(unittest.TestCase):
     ):
         with suppress_output():
             return run_extend(
-                ExtendArgs(
-                    config=str(DEFAULT_CONFIG_PATH),
-                    root_dir=str(root_dir),
-                    scan=scan,
-                    input_dir=[str(source_dir)],
-                    base_dir=str(source_dir),
+                ExtensionRequest(
+                    config_path=str(DEFAULT_CONFIG_PATH),
+                    publish_root=str(root_dir),
+                    scan_paths=tuple(scan or ()),
+                    input_directories=(str(source_dir),),
+                    base_directory=str(source_dir),
                     passphrase=passphrase,
-                    shard_scan=shard_scan,
+                    shard_scan_paths=tuple(shard_scan or ()),
                     design=design,
                     shard_threshold=shard_threshold,
                     shard_count=shard_count,
@@ -1286,7 +1332,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                     signing_key_shard_count=signing_key_shard_count,
                     expected_head_doc_hash=expected_head_doc_hash,
                     allow_stale_head=allow_stale_head,
-                    layout_debug_dir=(
+                    layout_debug_directory=(
                         str(layout_debug_dir) if layout_debug_dir is not None else None
                     ),
                     quiet=True,
@@ -1302,8 +1348,8 @@ class TestIntegrationExtensions(unittest.TestCase):
         expected_validated_head_index: int,
         blocked_extension_dir: Path,
         expected_failure_fragment: str = "missing required MAIN documents",
-    ) -> ApiCommandError:
-        with self.assertRaises(ApiCommandError) as ctx:
+    ) -> ExtensionWorkflowError:
+        with self.assertRaises(ExtensionWorkflowError) as ctx:
             self._run_extend(source_dir=source_dir, root_dir=root_dir)
 
         exc = ctx.exception

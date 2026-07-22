@@ -68,7 +68,7 @@ def test_saved_settings_hydrate_all_workflow_effective_defaults(tmp_path: Path) 
     assert app.restore_state.to_recover_args().output == str(tmp_path / "recovered")
     assert app.add_files_state.base_dir == tmp_path / "updates"
     assert app.add_files_state.unlock_policy == "reuse-root"
-    assert app.add_files_state.to_extend_args().unlock_policy == "reuse-root"
+    assert app.add_files_state.to_extension_request().unlock_policy == "reuse-root"
 
     for state in (
         app.backup_state,

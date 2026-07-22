@@ -9,13 +9,18 @@ from click.testing import CliRunner
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.execution import ExecutionContext
-from ethernity.cli.features.extend.execution import AssessedExtendRun
-from ethernity.cli.features.extend.models import PlaintextPassphrase, SigningKeyNotStored
-from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.run.cli import cli
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.models import TaskExecutionResult, TaskResultDetail
+from ethernity.workflows.extension.errors import ExtensionIssue
+from ethernity.workflows.extension.models import SigningKeyNotStored
+from ethernity.workflows.extension.service import (
+    AssessedExtendRun,
+    ExtensionAssessment,
+    ExtensionExecutionResult,
+    ExtensionPassphraseShards,
+)
 
 
 def _valid_config(tmp_path: Path) -> Path:
@@ -32,7 +37,7 @@ def _fake_assessed(marker: bytes = b"A") -> AssessedExtendRun:
         reused_chunks=2,
     )
     prepared = SimpleNamespace(
-        args=SimpleNamespace(base_dir=None),
+        args=SimpleNamespace(base_directory=None),
         next_index=3,
         changed_paths=("changed.txt",),
         new_paths=("new.txt",),
@@ -47,7 +52,7 @@ def _fake_assessed(marker: bytes = b"A") -> AssessedExtendRun:
         doc_hash=marker * 32,
     )
     runtime = SimpleNamespace(
-        passphrase=PlaintextPassphrase(),
+        passphrase=ExtensionPassphraseShards(threshold=2, share_count=3),
         signing_key=SigningKeyNotStored(),
         config=SimpleNamespace(paper_size="A4", design_name="sentinel"),
         qr_chunk_size=512,
@@ -62,6 +67,7 @@ def _fake_executed(assessed: AssessedExtendRun, output_root: Path) -> SimpleName
         doc_hash=assessed.encrypted.doc_hash,
         qr_document_path=output_root / "qr.pdf",
         recovery_document_path=output_root / "recovery.pdf",
+        recovery_kit_path=output_root / "recovery-kit.pdf",
         recovery_kit_index_path=None,
         shard_paths=(),
         signing_key_shard_paths=(),
@@ -89,8 +95,8 @@ def test_scan_source_has_a_distinct_loose_output_contract(tmp_path: Path) -> Non
     )
 
     assert state.validate_task().ready
-    assert state.to_extend_args().root_dir == str(tmp_path / "new-update")
-    assert state.to_extend_args().scan == ["root-scan.pdf"]
+    assert state.to_extension_request().publish_root == str(tmp_path / "new-update")
+    assert state.to_extension_request().scan_paths == ("root-scan.pdf",)
     assert "Separate update:" in state.sections()[4].summary
 
     missing_output = state.model_copy(update={"loose_output_folder": None})
@@ -130,7 +136,25 @@ def test_run_add_files_maps_scan_source_and_output_to_distinct_fields(monkeypatc
     assert captured[0].backup_folder is None
     assert captured[0].source_paths == [Path("root.pdf")]
     assert captured[0].loose_output_folder == Path("loose-update")
-    assert captured[0].to_extend_args().root_dir == "loose-update"
+    assert captured[0].to_extension_request().publish_root == "loose-update"
+
+
+def test_zero_recovery_count_requires_reuse_root_policy() -> None:
+    self_contained = AddFilesTaskState(
+        unlock_policy="self-contained",
+        recovery_document_count=0,
+    )
+    reuse_root = AddFilesTaskState(
+        unlock_policy="reuse-root",
+        recovery_document_count=0,
+    )
+
+    assert "ADD_FILES_ZERO_RECOVERY_REQUIRES_REUSE_ROOT" in {
+        issue.code for issue in self_contained.validate_task().issues
+    }
+    assert "ADD_FILES_ZERO_RECOVERY_REQUIRES_REUSE_ROOT" not in {
+        issue.code for issue in reuse_root.validate_task().issues
+    }
 
 
 def test_task_facade_uses_saved_extend_defaults_without_hardcoded_overrides(
@@ -154,12 +178,12 @@ def test_task_facade_uses_saved_extend_defaults_without_hardcoded_overrides(
         input_paths=[Path("new.txt")],
         passphrase="secret",
     )
-    args = state.to_extend_args()
+    request = state.to_extension_request()
 
-    assert args.base_dir == str(tmp_path)
-    assert args.unlock_policy is None
-    assert args.paper is None
-    assert args.design is None
+    assert request.base_directory == str(tmp_path)
+    assert request.unlock_policy is None
+    assert request.paper_size is None
+    assert request.design is None
 
 
 def test_review_assessment_is_shared_and_exact_payload_is_executed(
@@ -168,24 +192,22 @@ def test_review_assessment_is_shared_and_exact_payload_is_executed(
 ) -> None:
     config_path = _valid_config(tmp_path)
     assessed = _fake_assessed()
-    preparation_calls: list[object] = []
+    assessment_calls: list[object] = []
     execution_calls: list[object] = []
 
-    def fake_prepare(args):
-        preparation_calls.append(args)
-        return object()
+    def fake_assess(request):
+        assessment_calls.append(request)
+        return ExtensionAssessment(request=request, assessed=assessed)
 
-    def fake_assess(prepared):
-        assert prepared is not None
-        return assessed
+    def fake_execute(assessment, **_kwargs):
+        execution_calls.append(assessment.assessed)
+        return ExtensionExecutionResult(
+            assessment=assessment,
+            executed=_fake_executed(assessment.assessed, tmp_path / "published"),
+        )
 
-    def fake_execute(value, **_kwargs):
-        execution_calls.append(value)
-        return _fake_executed(value, tmp_path / "published")
-
-    monkeypatch.setattr("ethernity.tasks.add_files.prepare_extend_run", fake_prepare)
-    monkeypatch.setattr("ethernity.tasks.add_files.assess_prepared_extend", fake_assess)
-    monkeypatch.setattr("ethernity.tasks.add_files.execute_assessed_extend", fake_execute)
+    monkeypatch.setattr("ethernity.tasks.add_files.assess_extension", fake_assess)
+    monkeypatch.setattr("ethernity.tasks.add_files.execute_extension", fake_execute)
 
     state = AddFilesTaskState(
         config_path=config_path,
@@ -200,8 +222,10 @@ def test_review_assessment_is_shared_and_exact_payload_is_executed(
     assert any(item.label == "New fingerprint" for item in state.preview().items)
     result = state.execute()
 
-    assert len(preparation_calls) == 1
+    assert len(assessment_calls) == 1
     assert execution_calls == [assessed]
+    assert result.output_paths[2].name == "recovery-kit.pdf"
+    assert "Replace and test the previous recovery kit." in result.next_steps
     assert (
         next(detail for detail in result.details if detail.key == "doc_hash").value
         == (b"A" * 32).hex()
@@ -211,12 +235,15 @@ def test_review_assessment_is_shared_and_exact_payload_is_executed(
 def test_failed_assessment_blocks_review_without_replanning(monkeypatch) -> None:
     calls = 0
 
-    def reject(_args):
+    def reject(request):
         nonlocal calls
         calls += 1
-        raise ApiCommandError(code="EXTENSION_NO_CHANGES", message="nothing to extend")
+        return ExtensionAssessment(
+            request=request,
+            issues=(ExtensionIssue(code="EXTENSION_NO_CHANGES", message="nothing to extend"),),
+        )
 
-    monkeypatch.setattr("ethernity.tasks.add_files.prepare_extend_run", reject)
+    monkeypatch.setattr("ethernity.tasks.add_files.assess_extension", reject)
     state = AddFilesTaskState(
         backup_folder=Path("published"),
         input_paths=[Path("same.txt")],
@@ -240,31 +267,31 @@ def test_execution_context_reuses_reviewed_assessment_and_ignores_later_mutation
 ) -> None:
     config_path = _valid_config(tmp_path)
     assessed = _fake_assessed(b"R")
-    preparation_count = 0
+    assessment_count = 0
     executed_hashes: list[bytes] = []
     executed_assessments: list[AssessedExtendRun] = []
     execution_config_payloads: list[bytes] = []
     reviewed_config_payload = config_path.read_bytes()
 
-    def fake_prepare(_args):
-        nonlocal preparation_count
-        preparation_count += 1
-        return object()
+    def fake_assess(request):
+        nonlocal assessment_count
+        assessment_count += 1
+        return ExtensionAssessment(request=request, assessed=assessed)
 
-    monkeypatch.setattr("ethernity.tasks.add_files.prepare_extend_run", fake_prepare)
-    monkeypatch.setattr(
-        "ethernity.tasks.add_files.assess_prepared_extend",
-        lambda _prepared: assessed,
-    )
+    monkeypatch.setattr("ethernity.tasks.add_files.assess_extension", fake_assess)
 
-    def fake_execute(value, *, config_path=None, **_kwargs):
+    def fake_execute(assessment, *, config_path=None, **_kwargs):
+        value = assessment.assessed
         executed_assessments.append(value)
         executed_hashes.append(value.encrypted.doc_hash)
         assert config_path is not None
         execution_config_payloads.append(Path(config_path).read_bytes())
-        return _fake_executed(value, tmp_path / "published")
+        return ExtensionExecutionResult(
+            assessment=assessment,
+            executed=_fake_executed(value, tmp_path / "published"),
+        )
 
-    monkeypatch.setattr("ethernity.tasks.add_files.execute_assessed_extend", fake_execute)
+    monkeypatch.setattr("ethernity.tasks.add_files.execute_extension", fake_execute)
 
     state = AddFilesTaskState(
         config_path=config_path,
@@ -283,7 +310,7 @@ def test_execution_context_reuses_reviewed_assessment_and_ignores_later_mutation
     result = context.execute()
 
     assert result.ok
-    assert preparation_count == 1
+    assert assessment_count == 1
     assert executed_assessments[0] is assessed
     assert executed_hashes == [b"R" * 32]
     assert execution_config_payloads == [reviewed_config_payload]

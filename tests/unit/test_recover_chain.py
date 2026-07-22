@@ -25,7 +25,8 @@ from ethernity.crypto import AgeError, age_runtime
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import AuthPayload, derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import VERSION, Frame, FrameType
-from ethernity.extensions.build import build_extension_document
+from ethernity.extensions.build import _build_extension_document
+from ethernity.extensions.chain import ExtensionReplayError
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
     ImportedRecoveryDocument,
@@ -65,7 +66,7 @@ def _extension_ciphertext(
     parent_doc_hash: bytes | None = None,
     data: bytes = b"root!",
 ) -> bytes:
-    built = build_extension_document(
+    built = _build_extension_document(
         index=index,
         parent_doc_hash=parent_doc_hash or root_doc_hash,
         root_doc_hash=root_doc_hash,
@@ -85,7 +86,7 @@ def _extension_ciphertext(
         ),
         input_origin="file",
         input_roots=(),
-        chunker=lambda data, _profile: (data,),
+        chunker=lambda data, _profile: ((0, len(data)),),
         existing_file_sizes={},
     )
     return encode_extension_envelope(built.document)
@@ -573,10 +574,15 @@ class TestRecoverChain(unittest.TestCase):
             ),
             mock.patch(
                 "ethernity.extensions.recovery.reconstruct_authenticated_latest_logical_state",
-                side_effect=ValueError(
-                    "extension parent_doc_hash does not match previous document"
+                side_effect=ExtensionReplayError(
+                    "extension parent_doc_hash does not match previous document",
+                    failure_phase="lineage",
+                    failing_index=1,
+                    failing_hash=extension_doc_hash,
+                    last_validated_head_index=0,
+                    last_validated_head_hash=root_doc_hash,
                 ),
-            ),
+            ) as replay,
             self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
@@ -584,7 +590,8 @@ class TestRecoverChain(unittest.TestCase):
         self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("recovery head could not be trusted", str(caught.exception))
         self.assertEqual(caught.exception.details["stage"], "replay")
-        self.assertEqual(caught.exception.details["failure_stage"], "chain")
+        replay.assert_called_once()
+        self.assertEqual(caught.exception.details["failure_stage"], "lineage")
         self.assertEqual(
             caught.exception.details["failure_message"],
             "extension parent_doc_hash does not match previous document",
@@ -644,6 +651,7 @@ class TestRecoverChain(unittest.TestCase):
             recover_chain_entries(plan, quiet=True)
 
         self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.details["failure_stage"], "lineage")
         self.assertEqual(caught.exception.details["failure_head_index"], 2)
         self.assertEqual(
             caught.exception.details["failure_head_doc_hash"],

@@ -100,6 +100,8 @@ export function App() {
     updateField(dispatch, getState, "extensionTargetText", event.currentTarget.value);
   const handleExpectedHeadDocHashChange = (event) =>
     updateField(dispatch, getState, "expectedHeadDocHashText", event.currentTarget.value);
+  const handleFreshnessUnknownAcknowledgedChange = (event) =>
+    updateField(dispatch, getState, "freshnessUnknownAcknowledged", event.currentTarget.checked);
 
   const handleAddPayloads = () => addPayloads(dispatch, getState);
   const handleScannedPayload = (scanned) => addScannedPayload(dispatch, getState, scanned);
@@ -264,15 +266,19 @@ export function App() {
             decryptStatus={state.decryptStatus}
             extensionTarget={state.extensionTargetText}
             expectedHeadDocHash={state.expectedHeadDocHashText}
+            expectedHeadReadOnly={state.trustedKitAnchored}
+            freshnessUnknownAcknowledged={state.freshnessUnknownAcknowledged}
             onPassphraseChange={handlePassphraseChange}
             onExtensionTargetChange={handleExtensionTargetChange}
             onExpectedHeadDocHashChange={handleExpectedHeadDocHashChange}
+            onFreshnessUnknownAcknowledgedChange={handleFreshnessUnknownAcknowledgedChange}
             onDecrypt={handleDecrypt}
             onDecryptIntensive={state.intensiveRecoveryTarget ? handleIntensiveDecrypt : null}
             onDecryptRootOnly={actionState.hasMultipleDocuments ? handleDecryptRootOnly : null}
             canDecrypt={actionState.canDecryptCiphertext}
             canDecryptRootOnly={actionState.canDecryptRootOnly}
-            hasMultipleDocuments={actionState.hasMultipleDocuments}
+            decryptDisabledReason={actionState.decryptDisabledReason}
+            rootOnlyDisabledReason={actionState.rootOnlyDisabledReason}
             isComplete={actionState.hasOutput || Boolean(state.decryptedEnvelope)}
             isDecrypting={state.isDecrypting}
             onExtract={handleExtract}

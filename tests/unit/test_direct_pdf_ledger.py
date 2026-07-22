@@ -8,6 +8,11 @@ from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.page_sizes import PaperSize
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
 from ethernity.render.direct_pdf.components import TextPlacementProof
+from ethernity.render.direct_pdf.fallback_layout import (
+    FallbackLineEntry,
+    FallbackPage,
+    FallbackPageEntry,
+)
 from ethernity.render.direct_pdf.ledger import (
     build_ledger_kit_direct_plan,
     build_ledger_main_direct_plan,
@@ -25,11 +30,6 @@ from ethernity.render.direct_pdf.page_geometry import (
     A4_WIDTH_MM,
     LETTER_HEIGHT_MM,
     LETTER_WIDTH_MM,
-)
-from ethernity.render.direct_pdf.structured_common import (
-    FallbackLineEntry,
-    FallbackPage,
-    FallbackPageEntry,
 )
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.direct_pdf.types import PdfRect
@@ -717,6 +717,64 @@ class TestDirectPdfLedger(unittest.TestCase):
                             reader=reader,
                             paper_size=paper_size,
                         )
+
+    def test_recovery_fallback_uses_measured_width_and_available_rows(self) -> None:
+        page_sizes = (
+            (PaperSize("A4", "A4", 210.0, 297.0), 7),
+            (PaperSize("LETTER", "Letter", 215.9, 279.4), 7),
+            (PaperSize("FUTURE-RECOVERY", "Future recovery", 260.0, 360.0), 4),
+        )
+        longest_rows: dict[str, int] = {}
+        with TemporaryDirectory() as tmp:
+            for page_size, maximum_pages in page_sizes:
+                with self.subTest(page_size=page_size.name):
+                    base_inputs = _recovery_inputs(
+                        Path(tmp) / f"recovery-capacity-{page_size.name}.pdf",
+                        data_size=12_000,
+                    )
+                    inputs = replace(
+                        base_inputs,
+                        context={**base_inputs.context, "paper_size": page_size.name},
+                        page_size=page_size,
+                    )
+                    surface = FpdfSurface(
+                        page_width_mm=page_size.width_mm,
+                        page_height_mm=page_size.height_mm,
+                    )
+                    packaged_direct_pdf_assets().register_fonts(surface)
+
+                    plan = build_ledger_recovery_direct_plan(surface, inputs)
+
+                    self.assertLessEqual(len(plan.page_plans), maximum_pages)
+                    lines = [
+                        item
+                        for page_plan in plan.page_plans
+                        for item in _page_items(page_plan, "-fallback-line-")
+                    ]
+                    longest_row = max(len(item.lines[0].text) for item in lines)
+                    longest_rows[page_size.name] = longest_row
+                    full_rows = [item for item in lines if len(item.lines[0].text) == longest_row]
+                    self.assertGreaterEqual(
+                        min(
+                            item.proof.used_rect.width_mm / item.proof.rect.width_mm
+                            for item in full_rows
+                        ),
+                        0.95,
+                    )
+                    content_bottom_mm = ledger_module.resolve_classic_layout(
+                        inputs,
+                        style=ledger_module._PAGE_STYLE,
+                    ).content_rect.bottom_mm
+                    for page_plan in plan.page_plans[:-1]:
+                        fallback_blocks = _page_items(page_plan, "-fallback-block-")
+                        unused_height_mm = content_bottom_mm - max(
+                            item.proof.rect.bottom_mm for item in fallback_blocks
+                        )
+                        self.assertGreaterEqual(unused_height_mm, 0.0)
+                        self.assertLessEqual(unused_height_mm, 2 * 4.2)
+
+        self.assertLess(longest_rows["A4"], longest_rows["LETTER"])
+        self.assertLess(longest_rows["LETTER"], longest_rows["FUTURE-RECOVERY"])
 
     def test_tall_recovery_page_measures_four_digit_number_gutter(self) -> None:
         with TemporaryDirectory() as tmp:

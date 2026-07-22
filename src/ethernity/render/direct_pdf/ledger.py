@@ -33,6 +33,21 @@ from ethernity.render.direct_pdf.components import (
     TextAlign,
     TextBox,
 )
+from ethernity.render.direct_pdf.fallback_layout import (
+    FallbackPage,
+    FallbackPageEntry,
+    FallbackSectionLines,
+    FallbackTitleEntry,
+    ResponsiveFallbackPageProfile,
+    ResponsiveFallbackSpec,
+    build_fallback_proof,
+    fallback_capacity,
+    fallback_entries,
+    fallback_sections,
+    measured_fallback_number_width,
+    paginate_fallback_entries,
+    resolve_responsive_fallback_pagination,
+)
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
     DirectPdfPagePlan,
@@ -52,24 +67,14 @@ from ethernity.render.direct_pdf.responsive_layout import (
     resolve_grid,
 )
 from ethernity.render.direct_pdf.structured_common import (
-    FallbackPage,
-    FallbackPageEntry,
-    FallbackSectionLines,
-    FallbackTitleEntry,
     QrPage,
     QrPayloadItem,
     StructuredContext,
     StructuredDirectPlan as LedgerDirectPlan,
     StructuredPlanBuilder,
     build_artifact_proof,
-    build_fallback_proof,
     build_structured_context,
     component_prefix,
-    fallback_capacity,
-    fallback_entries,
-    fallback_sections,
-    measured_fallback_number_width,
-    paginate_fallback_entries,
     paginate_qr_items,
     positive_int,
     qr_image,
@@ -121,8 +126,16 @@ _MIN_QR_CARD_SIZE_MM = 48.0
 _MIN_QR_IMAGE_SIZE_MM = 42.0
 _KIT_QR_ROWS_PER_PAGE = 3
 _FALLBACK_GROUP_SIZE = 4
-_FALLBACK_LINE_LENGTH = 88
 _FALLBACK_ROW_HEIGHT_MM = 4.2
+_RECOVERY_FALLBACK_BODY_SIZE_PT = 8.5
+_RECOVERY_FALLBACK_NUMBER_SIZE_PT = 6.6
+_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_MM = 0.08
+_RECOVERY_FALLBACK_LEFT_INSET_MM = 3.4
+_RECOVERY_FALLBACK_RIGHT_INSET_MM = 4.0
+_RECOVERY_FALLBACK_NUMBER_GAP_MM = 2.6
+_RECOVERY_FALLBACK_NUMBER_MIN_WIDTH_MM = 7.0
+_RECOVERY_FALLBACK_NUMBER_PADDING_MM = 0.4
+_RECOVERY_FALLBACK_LINE_SAFETY_MM = 0.2
 _SHARD_FALLBACK_COLUMNS = 2
 _SHARD_FALLBACK_COLUMN_GAP_MM = 4.0
 _SHARD_FALLBACK_ROW_HEIGHT_MM = 2.9
@@ -319,11 +332,6 @@ def build_ledger_recovery_direct_plan(
     recovery_meta = inputs.recovery_meta or RecoveryMeta()
     context = build_structured_context(inputs, doc_type=DOC_TYPE_RECOVERY)
     passphrase_pagination = _paginate_ledger_passphrase(surface, recovery_meta, layout=layout)
-    sections = fallback_sections(
-        inputs.fallback_sections or (),
-        group_size=_FALLBACK_GROUP_SIZE,
-        line_length=_FALLBACK_LINE_LENGTH,
-    )
     fallback_area = _recovery_fallback_area(
         surface,
         context,
@@ -341,14 +349,40 @@ def build_ledger_recovery_direct_plan(
         if passphrase_pagination.continuation_pages
         else fallback_area
     )
-    fallback_pages = paginate_fallback_entries(
-        fallback_entries(sections),
-        capacity=fallback_capacity(fallback_area, row_height_mm=_FALLBACK_ROW_HEIGHT_MM),
-        continuation_capacity=fallback_capacity(
-            continuation_fallback_area,
-            row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
+    fallback_spec = ResponsiveFallbackSpec(
+        group_size=_FALLBACK_GROUP_SIZE,
+        row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
+        body_style=monospace_text_style(
+            size_pt=_RECOVERY_FALLBACK_BODY_SIZE_PT,
+            color=_INK,
+        ),
+        number_style=monospace_text_style(
+            size_pt=_RECOVERY_FALLBACK_NUMBER_SIZE_PT,
+            color=_INK_SOFT,
+            char_spacing_mm=_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_MM,
+        ),
+        content_left_inset_mm=_RECOVERY_FALLBACK_LEFT_INSET_MM,
+        content_right_inset_mm=_RECOVERY_FALLBACK_RIGHT_INSET_MM,
+        vertical_reserved_mm=0.0,
+        number_gap_mm=_RECOVERY_FALLBACK_NUMBER_GAP_MM,
+        number_minimum_width_mm=_RECOVERY_FALLBACK_NUMBER_MIN_WIDTH_MM,
+        number_padding_mm=_RECOVERY_FALLBACK_NUMBER_PADDING_MM,
+        safety_mm=_RECOVERY_FALLBACK_LINE_SAFETY_MM,
+    )
+    fallback_pagination = resolve_responsive_fallback_pagination(
+        surface,
+        inputs.fallback_sections or (),
+        first_profile=ResponsiveFallbackPageProfile(
+            area=fallback_area,
+            spec=fallback_spec,
+        ),
+        continuation_profile=ResponsiveFallbackPageProfile(
+            area=continuation_fallback_area,
+            spec=fallback_spec,
         ),
     )
+    sections = fallback_pagination.sections
+    fallback_pages = fallback_pagination.pages
     total_pages = len(fallback_pages) + len(passphrase_pagination.continuation_pages)
     fallback_page_plans = tuple(
         _build_recovery_page(
@@ -1427,17 +1461,21 @@ def _fallback_block_plans(
     prefix: str,
     area: PdfRect,
 ) -> list[PaintPlan]:
-    number_style = monospace_text_style(size_pt=6.6, color=_INK_SOFT, char_spacing_mm=0.08)
+    number_style = monospace_text_style(
+        size_pt=_RECOVERY_FALLBACK_NUMBER_SIZE_PT,
+        color=_INK_SOFT,
+        char_spacing_mm=_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_MM,
+    )
     number_width_mm = measured_fallback_number_width(
         surface,
         fallback_page,
         style=number_style,
-        minimum_width_mm=7.0,
-        padding_mm=0.4,
+        minimum_width_mm=_RECOVERY_FALLBACK_NUMBER_MIN_WIDTH_MM,
+        padding_mm=_RECOVERY_FALLBACK_NUMBER_PADDING_MM,
     )
-    number_x_mm = area.x_mm + 3.4
-    payload_x_mm = number_x_mm + number_width_mm + 2.6
-    payload_width_mm = area.right_mm - payload_x_mm - 4.0
+    number_x_mm = area.x_mm + _RECOVERY_FALLBACK_LEFT_INSET_MM
+    payload_x_mm = number_x_mm + number_width_mm + _RECOVERY_FALLBACK_NUMBER_GAP_MM
+    payload_width_mm = area.right_mm - payload_x_mm - _RECOVERY_FALLBACK_RIGHT_INSET_MM
     if payload_width_mm <= 0:
         raise ValueError("Ledger fallback number gutter leaves no payload width")
     plans: list[PaintPlan] = []
@@ -1500,7 +1538,10 @@ def _fallback_block_plans(
                             f"{prefix}-fallback-line-{entry.section_index}-{entry.line_number}"
                         ),
                         text=entry.text,
-                        style=monospace_text_style(size_pt=8.5, color=_INK),
+                        style=monospace_text_style(
+                            size_pt=_RECOVERY_FALLBACK_BODY_SIZE_PT,
+                            color=_INK,
+                        ),
                         policy=TextFitPolicy.SHRINK,
                         min_size_pt=6.0,
                     ).plan(

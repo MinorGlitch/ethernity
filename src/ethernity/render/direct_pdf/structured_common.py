@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
-from ethernity.core.bounds import MAX_FALLBACK_LINES
-from ethernity.encoding.framing import Frame, encode_frame
-from ethernity.encoding.zbase32 import encode_zbase32
+from ethernity.encoding.framing import encode_frame
 from ethernity.qr.codec import QrConfig, qr_bytes
 from ethernity.render.copy_catalog import build_copy_bundle, build_instruction_copy
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
@@ -19,14 +16,11 @@ from ethernity.render.direct_pdf.page import DirectPdfPagePlan
 from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
 from ethernity.render.direct_pdf.shard_contract import validate_single_shard_fallback_contract
 from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
-from ethernity.render.direct_pdf.types import PdfRect, TextStyle
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
-from ethernity.render.fallback_text import fallback_section_title, format_zbase32_lines
-from ethernity.render.proofs import build_render_artifact_proof, frame_digest
+from ethernity.render.proofs import build_render_artifact_proof
 from ethernity.render.recovery_meta import RecoveryMeta
 from ethernity.render.template_style import TemplateCapabilities, load_template_style
 from ethernity.render.types import (
-    FallbackSection,
     RenderArtifactProof,
     RenderFallbackProof,
     RenderInputs,
@@ -81,53 +75,6 @@ class QrPage:
 
     page_number: int
     items: tuple[QrPayloadItem, ...]
-
-
-@dataclass(frozen=True)
-class FallbackSectionLines:
-    """Encoded fallback lines for one source frame."""
-
-    section_index: int
-    title: str | None
-    lines: tuple[str, ...]
-    frame: Frame
-
-
-@dataclass(frozen=True)
-class FallbackTitleEntry:
-    """One fallback section title entry."""
-
-    section_index: int
-    title: str
-
-
-@dataclass(frozen=True)
-class FallbackLineEntry:
-    """One numbered fallback line entry."""
-
-    section_index: int
-    line_number: int
-    text: str
-
-
-FallbackEntry = FallbackTitleEntry | FallbackLineEntry
-
-
-@dataclass(frozen=True)
-class FallbackPageEntry:
-    """One fallback entry placed on a page row."""
-
-    entry: FallbackEntry
-    row_index: int
-    display_line_number: int | None
-
-
-@dataclass(frozen=True)
-class FallbackPage:
-    """One page of fallback entries."""
-
-    page_number: int
-    entries: tuple[FallbackPageEntry, ...]
 
 
 StructuredPlanBuilder = Callable[[PdfSurface, RenderInputs], StructuredDirectPlan]
@@ -348,176 +295,6 @@ def paginate_qr_items(
     return tuple(pages)
 
 
-def fallback_sections(
-    sections: Sequence[FallbackSection],
-    *,
-    group_size: int,
-    line_length: int,
-) -> tuple[FallbackSectionLines, ...]:
-    """Encode fallback sections into grouped z-base-32 text lines."""
-
-    resolved: list[FallbackSectionLines] = []
-    for index, section in enumerate(sections):
-        encoded = encode_zbase32(encode_frame(section.frame))
-        lines = format_zbase32_lines(
-            encoded,
-            group_size=group_size,
-            line_length=line_length,
-            line_count=MAX_FALLBACK_LINES,
-        )
-        resolved.append(
-            FallbackSectionLines(
-                section_index=index,
-                title=fallback_section_title(section.label),
-                lines=tuple(lines),
-                frame=section.frame,
-            )
-        )
-    return tuple(resolved)
-
-
-def fallback_entries(sections: Sequence[FallbackSectionLines]) -> tuple[FallbackEntry, ...]:
-    """Flatten fallback section titles and lines into page entries."""
-
-    entries: list[FallbackEntry] = []
-    for section in sections:
-        if section.title:
-            entries.append(
-                FallbackTitleEntry(section_index=section.section_index, title=section.title)
-            )
-        for line_number, line in enumerate(section.lines, start=1):
-            entries.append(
-                FallbackLineEntry(
-                    section_index=section.section_index,
-                    line_number=line_number,
-                    text=line,
-                )
-            )
-    return tuple(entries)
-
-
-def paginate_fallback_entries(
-    entries: Sequence[FallbackEntry],
-    *,
-    capacity: int,
-    continuation_capacity: int | None = None,
-) -> tuple[FallbackPage, ...]:
-    """Paginate fallback entries with distinct first/continuation capacities."""
-
-    if not entries:
-        raise ValueError("direct structured renderer has no fallback entries to render")
-    if capacity <= 0:
-        raise ValueError("fallback first page must fit at least one entry")
-    resolved_continuation_capacity = (
-        capacity if continuation_capacity is None else continuation_capacity
-    )
-    if resolved_continuation_capacity <= 0:
-        raise ValueError("fallback continuation page must fit at least one entry")
-    pages: list[FallbackPage] = []
-    remaining = tuple(entries)
-    page_number = 1
-    while remaining:
-        page_capacity = capacity if page_number == 1 else resolved_continuation_capacity
-        consumed = min(page_capacity, len(remaining))
-        if (
-            consumed < len(remaining)
-            and isinstance(remaining[consumed - 1], FallbackTitleEntry)
-            and isinstance(remaining[consumed], FallbackLineEntry)
-        ):
-            consumed -= 1
-        if consumed <= 0:
-            raise ValueError(
-                "fallback page capacity cannot keep a section title with its first data line"
-            )
-        page_entries: list[FallbackPageEntry] = []
-        display_line_number = 0
-        for row_index, entry in enumerate(remaining[:consumed]):
-            if isinstance(entry, FallbackTitleEntry):
-                display_line_number = 0
-                displayed = None
-            else:
-                display_line_number += 1
-                displayed = display_line_number
-            page_entries.append(
-                FallbackPageEntry(
-                    entry=entry,
-                    row_index=row_index,
-                    display_line_number=displayed,
-                )
-            )
-        pages.append(FallbackPage(page_number=page_number, entries=tuple(page_entries)))
-        remaining = remaining[consumed:]
-        page_number += 1
-    return tuple(pages)
-
-
-def fallback_capacity(area: PdfRect, *, row_height_mm: float) -> int:
-    """Return how many fallback rows fit inside an area."""
-
-    capacity = math.floor(max(0.0, area.height_mm - 6.0) / row_height_mm)
-    if capacity <= 0:
-        raise ValueError("fallback area must fit at least one row")
-    return capacity
-
-
-def measured_fallback_number_width(
-    surface: PdfSurface,
-    fallback_page: FallbackPage,
-    *,
-    style: TextStyle,
-    minimum_width_mm: float,
-    padding_mm: float,
-) -> float:
-    """Measure a page-local number gutter from its widest displayed fallback label."""
-
-    if not math.isfinite(minimum_width_mm) or minimum_width_mm <= 0:
-        raise ValueError("minimum fallback number width must be finite and positive")
-    if not math.isfinite(padding_mm) or padding_mm < 0:
-        raise ValueError("fallback number padding must be finite and non-negative")
-    maximum_display_number = max(
-        (entry.display_line_number or 0 for entry in fallback_page.entries),
-        default=0,
-    )
-    label = f"{maximum_display_number:02d}."
-    return max(
-        minimum_width_mm,
-        surface.measure_text_width(label, style) + padding_mm,
-    )
-
-
-def build_fallback_proof(
-    inputs: RenderInputs,
-    sections: Sequence[FallbackSectionLines],
-    pages: Sequence[FallbackPage],
-) -> RenderFallbackProof:
-    """Build a render fallback proof from placed fallback pages."""
-
-    emitted_lines = tuple(
-        page_entry.entry.text
-        for page in pages
-        for page_entry in page.entries
-        if isinstance(page_entry.entry, FallbackLineEntry)
-    )
-    emitted_section_chunks = {
-        (page.page_number, page_entry.entry.section_index)
-        for page in pages
-        for page_entry in page.entries
-        if isinstance(page_entry.entry, FallbackLineEntry)
-    }
-    return RenderFallbackProof(
-        section_frame_digests=tuple(
-            frame_digest(section.frame) for section in inputs.fallback_sections or ()
-        ),
-        section_titles=tuple(section.title for section in sections if section.title),
-        expected_section_count=len(sections),
-        emitted_block_count=len(emitted_section_chunks),
-        emitted_line_count=len(emitted_lines),
-        consumed_section_count=len(sections),
-        fully_consumed=True,
-        emitted_fallback_lines=emitted_lines,
-    )
-
-
 def build_artifact_proof(
     inputs: RenderInputs,
     *,
@@ -649,28 +426,16 @@ def recovery_meta_or_default(inputs: RenderInputs) -> RecoveryMeta:
 
 
 __all__ = [
-    "FallbackEntry",
-    "FallbackLineEntry",
-    "FallbackPage",
-    "FallbackPageEntry",
-    "FallbackSectionLines",
-    "FallbackTitleEntry",
     "QrPage",
     "QrPayloadItem",
     "StructuredContext",
     "StructuredDirectPlan",
     "StructuredPlanBuilder",
     "build_artifact_proof",
-    "build_fallback_proof",
     "build_structured_context",
     "component_prefix",
-    "fallback_capacity",
-    "fallback_entries",
-    "measured_fallback_number_width",
-    "fallback_sections",
     "generator_label",
     "lineage_payload",
-    "paginate_fallback_entries",
     "paginate_qr_items",
     "positive_int",
     "qr_image",

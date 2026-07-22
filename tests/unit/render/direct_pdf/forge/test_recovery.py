@@ -332,6 +332,11 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                 for item in continuation.plans
                 if item.component_id == "forge-recovery-p2-continuation-panel"
             )
+            header_rule = next(
+                item
+                for item in continuation.plans
+                if item.component_id == "forge-recovery-p2-header-rule"
+            )
             fallback_boxes = tuple(
                 item for item in continuation.plans if "-fallback-line-box-" in item.component_id
             )
@@ -341,6 +346,10 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                 if item.component_id == "forge-recovery-p2-footer-rule"
             )
             self.assertTrue(fallback_boxes)
+            self.assertLessEqual(
+                header_rule.proof.rect.bottom_mm + 2.0,
+                intro.proof.rect.y_mm,
+            )
             self.assertLessEqual(
                 intro.proof.rect.bottom_mm + 3.0,
                 min(item.proof.rect.y_mm for item in fallback_boxes),
@@ -356,12 +365,89 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
             self.assertAlmostEqual(width_mm, LETTER_WIDTH_MM, places=1)
             self.assertAlmostEqual(height_mm, LETTER_HEIGHT_MM, places=1)
 
+    def test_first_page_warning_starts_after_measured_header(self) -> None:
+        with TemporaryDirectory() as tmp:
+            for paper_size, width_mm, height_mm in (
+                ("A4", A4_WIDTH_MM, A4_HEIGHT_MM),
+                ("LETTER", LETTER_WIDTH_MM, LETTER_HEIGHT_MM),
+            ):
+                with self.subTest(paper_size=paper_size):
+                    inputs = _inputs(
+                        Path(tmp) / f"recovery-{paper_size.lower()}.pdf",
+                        paper_size=paper_size,
+                    )
+                    surface = FpdfSurface(page_width_mm=width_mm, page_height_mm=height_mm)
+                    packaged_direct_pdf_assets().register_fonts(surface)
+
+                    first_page = build_forge_recovery_direct_plan(surface, inputs).page_plans[0]
+                    header_rule = next(
+                        item
+                        for item in first_page.plans
+                        if item.component_id == "forge-recovery-p1-header-rule"
+                    )
+                    warning = next(
+                        item
+                        for item in first_page.plans
+                        if item.component_id == "forge-recovery-p1-warning-panel"
+                    )
+
+                    self.assertLessEqual(
+                        header_rule.proof.rect.bottom_mm + 2.0,
+                        warning.proof.rect.y_mm,
+                    )
+                    header_clearance = next(
+                        constraint
+                        for constraint in first_page.proof.separation_constraints
+                        if constraint.constraint_id == "forge-recovery-p1-content-after-header"
+                    )
+                    self.assertAlmostEqual(header_clearance.measured_clearance_mm, 2.0)
+
+    def test_passphrase_continuation_starts_after_measured_header(self) -> None:
+        with TemporaryDirectory() as tmp:
+            inputs = _inputs(Path(tmp) / "recovery-long-passphrase.pdf", paper_size="LETTER")
+            inputs = replace(
+                inputs,
+                recovery_meta=build_recovery_meta(
+                    passphrase=" ".join(f"word{index:04d}" for index in range(240)),
+                    quorum_threshold=None,
+                    quorum_shares=None,
+                    signing_pub=b"\x12" * 32,
+                ),
+            )
+            surface = FpdfSurface(
+                page_width_mm=LETTER_WIDTH_MM,
+                page_height_mm=LETTER_HEIGHT_MM,
+            )
+            packaged_direct_pdf_assets().register_fonts(surface)
+
+            plan = build_forge_recovery_direct_plan(surface, inputs)
+            continuation_pages = tuple(
+                page
+                for page in plan.page_plans
+                if any(
+                    item.component_id.endswith("-passphrase-continuation-title")
+                    for item in page.plans
+                )
+            )
+
+            self.assertTrue(continuation_pages)
+            for page in continuation_pages:
+                header_rule = next(
+                    item for item in page.plans if item.component_id.endswith("-header-rule")
+                )
+                title = next(
+                    item
+                    for item in page.plans
+                    if item.component_id.endswith("-passphrase-continuation-title")
+                )
+                self.assertLessEqual(
+                    header_rule.proof.rect.bottom_mm + 2.0,
+                    title.proof.rect.y_mm,
+                )
+
     def test_large_custom_pages_expand_line_number_gutter_for_three_digit_rows(self) -> None:
         with TemporaryDirectory() as tmp:
-            page_sizes = (
-                PaperSize("TALL_RECOVERY", "Tall recovery", 220.0, 800.0),
-                PaperSize("WIDE_RECOVERY", "Wide recovery", 500.0, 600.0),
-            )
+            page_sizes = (PaperSize("TALL_RECOVERY", "Tall recovery", 220.0, 800.0),)
             for paper in page_sizes:
                 with self.subTest(paper_size=paper.name):
                     inputs = _inputs(
@@ -414,6 +500,98 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                             for constraint in page.proof.separation_constraints
                         )
                     )
+
+    def test_fallback_capacity_uses_measured_width_and_full_continuation_height(self) -> None:
+        with TemporaryDirectory() as tmp:
+            papers = (
+                PaperSize("A4", "A4", A4_WIDTH_MM, A4_HEIGHT_MM),
+                PaperSize("LETTER", "Letter", LETTER_WIDTH_MM, LETTER_HEIGHT_MM),
+                PaperSize("FUTURE", "Future", 260.0, 360.0),
+            )
+            metrics: dict[str, tuple[int, int]] = {}
+            for paper in papers:
+                with self.subTest(paper_size=paper.name):
+                    inputs = _inputs(
+                        Path(tmp) / f"recovery-capacity-{paper.name.lower()}.pdf",
+                        main_data=b"x" * 2_048,
+                        page_size=paper,
+                    )
+                    surface = FpdfSurface(
+                        page_width_mm=paper.width_mm,
+                        page_height_mm=paper.height_mm,
+                    )
+                    packaged_direct_pdf_assets().register_fonts(surface)
+                    assert inputs.recovery_meta is not None
+                    geometry = forge_recovery_module._forge_recovery_geometry(
+                        surface,
+                        inputs,
+                        inputs.recovery_meta,
+                    )
+                    _, fallback_pages = forge_recovery_module._responsive_fallback_layout(
+                        surface,
+                        inputs.fallback_sections or (),
+                        geometry=geometry,
+                        first_page_single_section=True,
+                    )
+                    measured_line_length = forge_recovery_module._fallback_line_length_for_geometry(
+                        surface,
+                        geometry=geometry,
+                        first_maximum_display_number=(
+                            forge_recovery_module._maximum_fallback_display_number(
+                                fallback_pages[:1]
+                            )
+                        ),
+                        continuation_maximum_display_number=(
+                            forge_recovery_module._maximum_fallback_display_number(
+                                fallback_pages[1:]
+                            )
+                        ),
+                    )
+                    plan = build_forge_recovery_direct_plan(surface, inputs)
+                    result = render_forge_recovery_direct_pdf(inputs)
+                    reader = validate_pdf_has_pages(inputs.output_path)
+
+                    self.assertEqual(
+                        max(map(len, plan.fallback_proof.emitted_fallback_lines)),
+                        measured_line_length,
+                    )
+                    self.assertEqual(len(reader.pages), len(fallback_pages))
+                    validate_fallback_text_in_pdf(
+                        artifact_label=f"{paper.name} Forge recovery document",
+                        reader=reader,
+                        fallback_sections=inputs.fallback_sections or (),
+                        fallback_proof=result.fallback_proof,
+                    )
+                    full_lines = tuple(
+                        item
+                        for page in plan.page_plans
+                        for item in page.plans
+                        if "fallback-line-text" in item.component_id
+                        and any(
+                            len(placement.text) == measured_line_length
+                            for placement in getattr(item, "lines", ())
+                        )
+                    )
+                    self.assertTrue(full_lines)
+                    self.assertGreaterEqual(
+                        min(
+                            item.proof.used_rect.width_mm / item.proof.rect.width_mm
+                            for item in full_lines
+                        ),
+                        0.95,
+                    )
+                    for fallback_page in fallback_pages[1:-1]:
+                        self.assertEqual(
+                            max(entry.row_index for entry in fallback_page.entries),
+                            fallback_page.rows_per_column - 1,
+                        )
+                    metrics[paper.name] = (measured_line_length, len(fallback_pages))
+
+            self.assertGreaterEqual(metrics["LETTER"][0], metrics["A4"][0])
+            self.assertGreater(metrics["FUTURE"][0], metrics["LETTER"][0])
+            self.assertEqual(metrics["A4"][1], 3)
+            self.assertEqual(metrics["LETTER"][1], 3)
+            self.assertEqual(metrics["FUTURE"][1], 2)
 
     def test_narrow_tall_pages_reflow_payload_after_three_digit_gutter(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -479,6 +657,159 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                         frames=tuple(section.frame for section in inputs.fallback_sections or ()),
                         fallback_proof=plan.fallback_proof,
                     )
+
+    def test_sparse_very_tall_page_uses_actual_gutter_instead_of_unused_capacity(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paper = PaperSize("SPARSE_TALL", "Sparse tall", 210.0, 3_000.0)
+            inputs = _inputs(
+                Path(tmp) / "recovery-sparse-tall.pdf",
+                main_data=b"short payload",
+                page_size=paper,
+            )
+            surface = FpdfSurface(
+                page_width_mm=paper.width_mm,
+                page_height_mm=paper.height_mm,
+            )
+            packaged_direct_pdf_assets().register_fonts(surface)
+            assert inputs.recovery_meta is not None
+            geometry = forge_recovery_module._forge_recovery_geometry(
+                surface,
+                inputs,
+                inputs.recovery_meta,
+            )
+
+            _, pages = forge_recovery_module._responsive_fallback_layout(
+                surface,
+                inputs.fallback_sections or (),
+                geometry=geometry,
+                first_page_single_section=True,
+            )
+            actual_first_maximum = forge_recovery_module._maximum_fallback_display_number(pages[:1])
+            actual_continuation_maximum = forge_recovery_module._maximum_fallback_display_number(
+                pages[1:]
+            )
+            settled_line_length = forge_recovery_module._fallback_line_length_for_geometry(
+                surface,
+                geometry=geometry,
+                first_maximum_display_number=actual_first_maximum,
+                continuation_maximum_display_number=actual_continuation_maximum,
+            )
+            minimum_gutter_line_length = forge_recovery_module._fallback_line_length_for_geometry(
+                surface,
+                geometry=geometry,
+                first_maximum_display_number=0,
+                continuation_maximum_display_number=0,
+            )
+            capacity_reserved_line_length = (
+                forge_recovery_module._fallback_line_length_for_geometry(
+                    surface,
+                    geometry=geometry,
+                    first_maximum_display_number=(
+                        2
+                        * forge_recovery_module._fallback_rows_per_column(
+                            geometry.first_page_fallback_area
+                        )
+                    ),
+                    continuation_maximum_display_number=(
+                        2
+                        * forge_recovery_module._fallback_rows_per_column(
+                            geometry.continuation_fallback_area
+                        )
+                    ),
+                )
+            )
+            plan = build_forge_recovery_direct_plan(surface, inputs)
+            payload_text = tuple(
+                item
+                for page in plan.page_plans
+                for item in page.plans
+                if "fallback-line-text" in item.component_id
+            )
+
+            self.assertLess(max(actual_first_maximum, actual_continuation_maximum), 100)
+            self.assertEqual(settled_line_length, minimum_gutter_line_length)
+            self.assertGreater(settled_line_length, capacity_reserved_line_length)
+            self.assertTrue(payload_text)
+            self.assertTrue(all(not item.proof.overflow for item in payload_text))
+            self.assertGreaterEqual(
+                min(item.proof.font_size_pt for item in payload_text),
+                forge_recovery_module._FALLBACK_PAYLOAD_MIN_FIT_SIZE_PT,
+            )
+
+    def test_full_tall_page_reflows_for_actual_three_digit_gutter(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paper = PaperSize("DENSE_TALL", "Dense tall", 210.0, 800.0)
+            inputs = _inputs(
+                Path(tmp) / "recovery-dense-tall.pdf",
+                main_data=b"x" * 6_000,
+                page_size=paper,
+            )
+            surface = FpdfSurface(
+                page_width_mm=paper.width_mm,
+                page_height_mm=paper.height_mm,
+            )
+            packaged_direct_pdf_assets().register_fonts(surface)
+            assert inputs.recovery_meta is not None
+            geometry = forge_recovery_module._forge_recovery_geometry(
+                surface,
+                inputs,
+                inputs.recovery_meta,
+            )
+
+            resolved_sections, pages = forge_recovery_module._responsive_fallback_layout(
+                surface,
+                inputs.fallback_sections or (),
+                geometry=geometry,
+                first_page_single_section=True,
+            )
+            actual_first_maximum = forge_recovery_module._maximum_fallback_display_number(pages[:1])
+            actual_continuation_maximum = forge_recovery_module._maximum_fallback_display_number(
+                pages[1:]
+            )
+            initial_line_length = forge_recovery_module._fallback_line_length_for_geometry(
+                surface,
+                geometry=geometry,
+                first_maximum_display_number=0,
+                continuation_maximum_display_number=0,
+            )
+            settled_line_length = forge_recovery_module._fallback_line_length_for_geometry(
+                surface,
+                geometry=geometry,
+                first_maximum_display_number=actual_first_maximum,
+                continuation_maximum_display_number=actual_continuation_maximum,
+            )
+            full_continuation_pages = tuple(
+                page
+                for page in pages[1:]
+                if max(entry.row_index for entry in page.entries) == page.rows_per_column - 1
+            )
+            plan = build_forge_recovery_direct_plan(surface, inputs)
+            payload_text = tuple(
+                item
+                for page in plan.page_plans
+                for item in page.plans
+                if "fallback-line-text" in item.component_id
+            )
+
+            self.assertGreaterEqual(actual_continuation_maximum, 100)
+            self.assertLess(settled_line_length, initial_line_length)
+            self.assertEqual(
+                max(len(line) for section in resolved_sections for line in section.lines),
+                settled_line_length,
+            )
+            self.assertTrue(full_continuation_pages)
+            self.assertTrue(
+                any(
+                    forge_recovery_module._maximum_fallback_display_number((page,)) >= 100
+                    for page in full_continuation_pages
+                )
+            )
+            self.assertTrue(payload_text)
+            self.assertTrue(all(not item.proof.overflow for item in payload_text))
+            self.assertGreaterEqual(
+                min(item.proof.font_size_pt for item in payload_text),
+                forge_recovery_module._FALLBACK_PAYLOAD_MIN_FIT_SIZE_PT,
+            )
 
 
 if __name__ == "__main__":

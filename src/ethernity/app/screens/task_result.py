@@ -468,7 +468,7 @@ def _success_outcome_title(task: ActiveTask) -> str:
         "add_files": "Backup update created",
         "rebuild": "Backup rebuilt",
         "replace_recovery_docs": "Replacement recovery sheets created",
-        "kit": "Recovery kit created",
+        "kit": "Unanchored rescue kit created",
         "settings": "Settings saved",
     }[task]
 
@@ -480,7 +480,7 @@ def _failure_title(task: ActiveTask) -> str:
         "add_files": "Backup update failed",
         "rebuild": "Rebuild failed",
         "replace_recovery_docs": "Recovery sheet replacement failed",
-        "kit": "Recovery kit failed",
+        "kit": "Unanchored rescue kit failed",
         "settings": "Settings save failed",
     }[task]
 
@@ -493,7 +493,7 @@ def _output_amount(task: ActiveTask, paths: tuple[Path, ...]) -> str:
         "add_files": ("update file", "update files"),
         "rebuild": ("rebuilt backup file", "rebuilt backup files"),
         "replace_recovery_docs": ("replacement file", "replacement files"),
-        "kit": ("recovery kit PDF", "recovery kit PDFs"),
+        "kit": ("unanchored rescue kit PDF", "unanchored rescue kit PDFs"),
         "settings": ("output", "outputs"),
     }[task]
     return f"{count} {singular if count == 1 else plural}"
@@ -539,12 +539,11 @@ def _success_guidance(task: ActiveTask) -> tuple[str, ...]:
             "Print every PDF at actual size.",
             "Scan one printed QR code before storing the set.",
             "Store recovery sheets apart from encrypted backup documents.",
-            "Create and store a recovery kit if you do not already have one.",
         )
     if task == "kit":
         return (
             "Print the PDF at actual size.",
-            "Store the kit with your recovery instructions, separate from the backup.",
+            "Treat this as an unanchored rescue tool; it cannot authenticate the latest state.",
         )
     if task == "restore":
         return (
@@ -560,6 +559,7 @@ def _success_guidance(task: ActiveTask) -> tuple[str, ...]:
     if task in {"add_files", "rebuild"}:
         return (
             "Print every new PDF at actual size.",
+            "Replace and test the previous recovery kit.",
             "Store the sheets with the matching backup version.",
         )
     return ()

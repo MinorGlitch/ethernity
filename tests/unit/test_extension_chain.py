@@ -23,6 +23,7 @@ from ethernity.core.bounds import MAX_MANIFEST_FILES
 from ethernity.crypto.signing import AuthPayload, generate_signing_keypair, sign_auth
 from ethernity.extensions import (
     AuthenticatedExtensionChainLink,
+    ExtensionReplayError,
     extract_root_logical_state,
     reconstruct_authenticated_latest_logical_state,
     validate_authenticated_extension_chain,
@@ -460,13 +461,19 @@ class TestExtensionChain(unittest.TestCase):
         )
         self.assertEqual(duplicate_alpha_chunk_id, alpha_chunk_id)
 
-        with self.assertRaisesRegex(ValueError, "newly introduced"):
+        with self.assertRaises(ExtensionReplayError) as caught:
             reconstruct_latest_logical_state(
                 manifest,
                 payload,
                 root_doc_hash=ROOT_DOC_HASH,
                 extensions=(ext1, ext2),
             )
+        self.assertIn("newly introduced", str(caught.exception))
+        self.assertEqual(caught.exception.failure_phase, "chunks")
+        self.assertEqual(caught.exception.failing_index, 2)
+        self.assertEqual(caught.exception.failing_hash, EXT2_DOC_HASH)
+        self.assertEqual(caught.exception.last_validated_head_index, 1)
+        self.assertEqual(caught.exception.last_validated_head_hash, EXT1_DOC_HASH)
 
     def test_reconstruct_evicts_chunks_after_last_reference(self) -> None:
         manifest, payload = build_manifest_and_payload(

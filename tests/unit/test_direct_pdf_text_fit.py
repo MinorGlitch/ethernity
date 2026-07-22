@@ -99,6 +99,24 @@ class TestDirectPdfTextFit(unittest.TestCase):
                 min_size_pt=11.5,
             )
 
+    def test_shrink_policy_checks_exact_minimum_when_step_would_skip_it(self) -> None:
+        text = "W" * 20
+        minimum_style = TextStyle(family="Helvetica", size_pt=6.0)
+        minimum_width_mm = self.surface.measure_text_width(text, minimum_style)
+
+        result = fit_text_to_width(
+            self.surface,
+            text,
+            TextStyle(family="Helvetica", size_pt=6.4),
+            max_width_mm=minimum_width_mm,
+            max_lines=1,
+            policy=TextFitPolicy.SHRINK,
+            min_size_pt=6.0,
+        )
+
+        self.assertEqual(result.lines, (text,))
+        self.assertEqual(result.style.size_pt, 6.0)
+
 
 if __name__ == "__main__":
     unittest.main()

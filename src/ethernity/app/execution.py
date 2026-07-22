@@ -295,7 +295,7 @@ def _add_files_review_facts(
         source_version = "Latest loaded version accepted"
 
     if state.recovery_document_count == 0:
-        recovery = "None"
+        recovery = "Original recovery sheets"
     elif (
         state.recovery_document_threshold is not None and state.recovery_document_count is not None
     ):
@@ -310,7 +310,9 @@ def _add_files_review_facts(
         "reuse-root": "original recovery set",
     }[state.unlock_policy]
     recovery_summary = (
-        recovery if recovery in {"None", "From settings"} else f"{recovery}; {policy}"
+        recovery
+        if recovery in {"Original recovery sheets", "From settings"}
+        else f"{recovery}; {policy}"
     )
     return (
         ReviewDecisionFact("Backup", source),

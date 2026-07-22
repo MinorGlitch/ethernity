@@ -34,7 +34,7 @@ NAV_LABELS: dict[ActiveTask, str] = {
     "add_files": "Add files",
     "rebuild": "Rebuild backup",
     "replace_recovery_docs": "Replacement sheets",
-    "kit": "Recovery kit",
+    "kit": "Unanchored kit",
     "settings": "Settings",
 }
 

@@ -174,8 +174,8 @@ def _add_files_advanced_summary(advanced_group: WorkspaceGroup) -> str:
 
 
 def _add_files_recovery_help(control: str) -> str:
-    if control == "none":
-        return "This update will rely on existing recovery material; no new sheets are created."
+    if control == "original":
+        return "This update uses the original passphrase shards and creates no new ones."
     if control == "custom":
         return "The quorum sets how many new sheets you need to recover this update."
     return "Uses the recovery policy from Settings."
