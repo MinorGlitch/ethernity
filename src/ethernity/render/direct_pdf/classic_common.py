@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -13,6 +14,7 @@ from ethernity.render.direct_pdf.fallback_layout import (
 )
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
+    LayoutRegion,
     PaintPlan,
     SeparationConstraint,
 )
@@ -76,6 +78,17 @@ class ClassicInstructionStyle:
     white: PdfColor
     section_accent: PdfColor
     section_fill: PdfColor
+
+
+@dataclass(frozen=True)
+class ClassicShardFallbackLayout:
+    """Measured text and column geometry for a classic shard fallback."""
+
+    columns: int
+    row_height_mm: float
+    line_length: int
+    body_font_size_pt: float
+    title_font_size_pt: float
 
 
 def resolve_classic_layout(
@@ -154,6 +167,47 @@ def build_group_clearance_constraint(
     )
 
 
+def build_classic_body_zone_constraints(
+    *,
+    prefix: str,
+    header_plans: Sequence[PaintPlan],
+    content_plans: Sequence[PaintPlan],
+    layout: ClassicLayout,
+    renderer_label: str,
+    header_clearance_mm: float = 2.0,
+    footer_clearance_mm: float = 3.0,
+) -> tuple[SeparationConstraint, ...]:
+    """Keep classic page content between its measured header and footer."""
+
+    if not header_plans or not content_plans:
+        raise ValueError(f"{renderer_label} body constraints require header and content plans")
+    header_group = ComponentGroup(
+        group_id=f"{prefix}-header-content",
+        component_ids=tuple(plan.component_id for plan in header_plans),
+    )
+    body_group = ComponentGroup(
+        group_id=f"{prefix}-body-content",
+        component_ids=tuple(plan.component_id for plan in content_plans),
+    )
+    return (
+        SeparationConstraint(
+            constraint_id=f"{prefix}-header-clearance",
+            first=header_group,
+            second=body_group,
+            minimum_clearance_mm=header_clearance_mm,
+        ),
+        SeparationConstraint(
+            constraint_id=f"{prefix}-footer-clearance",
+            first=body_group,
+            second=LayoutRegion(
+                region_id=f"{prefix}-footer-zone",
+                rect=layout.regions.footer,
+            ),
+            minimum_clearance_mm=footer_clearance_mm,
+        ),
+    )
+
+
 def build_page_background(
     surface: PdfSurface,
     *,
@@ -186,6 +240,70 @@ def group_fallback_visual_blocks(
     if current:
         blocks.append(current)
     return tuple(tuple(block) for block in blocks)
+
+
+def classic_shard_fallback_capacity(
+    area: PdfRect,
+    *,
+    layout: ClassicShardFallbackLayout,
+    renderer_label: str,
+) -> int:
+    """Return the row capacity of a measured classic shard layout."""
+
+    rows_per_column = math.floor(area.height_mm / layout.row_height_mm)
+    if rows_per_column <= 0:
+        raise ValueError(
+            f"{renderer_label} shard fallback area must fit at least one row per column"
+        )
+    return rows_per_column * layout.columns
+
+
+def classic_shard_fallback_column_width(
+    area: PdfRect,
+    *,
+    columns: int,
+    column_gap_mm: float,
+    renderer_label: str,
+) -> float:
+    """Return one usable classic shard fallback column width."""
+
+    if columns <= 0:
+        raise ValueError(f"{renderer_label} shard fallback columns must be positive")
+    column_width_mm = (area.width_mm - (columns - 1) * column_gap_mm) / columns
+    if column_width_mm <= 0:
+        raise ValueError(f"{renderer_label} shard fallback columns have no usable width")
+    return column_width_mm
+
+
+def group_shard_fallback_column_blocks(
+    fallback_page: FallbackPage,
+    *,
+    rows_per_column: int,
+    columns: int,
+    renderer_label: str,
+) -> tuple[tuple[int, tuple[FallbackPageEntry, ...]], ...]:
+    """Group classic shard entries by column and title-led visual block."""
+
+    blocks: list[tuple[int, tuple[FallbackPageEntry, ...]]] = []
+    current_column = -1
+    current: list[FallbackPageEntry] = []
+    for page_entry in fallback_page.entries:
+        column_index = page_entry.row_index // rows_per_column
+        if column_index >= columns:
+            raise ValueError(
+                f"{renderer_label} shard fallback page exceeds its measured column capacity"
+            )
+        if column_index != current_column or (
+            isinstance(page_entry.entry, FallbackTitleEntry) and current
+        ):
+            if current:
+                blocks.append((current_column, tuple(current)))
+            current = []
+            current_column = column_index
+        current.append(page_entry)
+    if current:
+        blocks.append((current_column, tuple(current)))
+    return tuple(blocks)
 
 
 def build_instruction_steps_section(
@@ -421,13 +539,18 @@ __all__ = [
     "ClassicLayout",
     "ClassicPageStyle",
     "ClassicQrGridStyle",
+    "ClassicShardFallbackLayout",
     "body_text_style",
+    "build_classic_body_zone_constraints",
     "build_group_clearance_constraint",
     "build_instruction_bullets_section",
     "build_instruction_checklist",
     "build_instruction_steps_section",
     "build_page_background",
+    "classic_shard_fallback_capacity",
+    "classic_shard_fallback_column_width",
     "group_fallback_visual_blocks",
+    "group_shard_fallback_column_blocks",
     "monospace_text_style",
     "resolve_classic_layout",
     "resolve_qr_grid",

@@ -11,6 +11,10 @@ from ethernity.render.direct_pdf.forge.shard import (
     build_forge_shard_direct_plan,
     render_forge_shard_direct_pdf,
 )
+from ethernity.render.direct_pdf.forge.shard_fallback import (
+    forge_shard_fallback_capacity,
+    forge_shard_fallback_profiles,
+)
 from ethernity.render.direct_pdf.page_geometry import (
     A4_HEIGHT_MM,
     A4_WIDTH_MM,
@@ -325,7 +329,10 @@ class TestDirectPdfForgeShard(unittest.TestCase):
             area=rescue_area,
         )
 
-        single_profile = forge_shard_module._fallback_layout_profiles()[0]
+        single_profile = forge_shard_fallback_profiles(
+            standard_row_height_mm=3.25,
+            dense_row_height_mm=2.65,
+        )[0]
         _, single_entries = forge_shard_module._fallback_candidate_for_profile(
             surface,
             (section,),
@@ -334,9 +341,10 @@ class TestDirectPdfForgeShard(unittest.TestCase):
         )
         self.assertGreater(
             len(single_entries),
-            forge_shard_module._fallback_capacity(
+            forge_shard_fallback_capacity(
                 rescue_area,
                 profile=single_profile,
+                reserved_height_mm=7.0,
             ),
         )
         self.assertEqual(profile.column_count, 2)
@@ -344,7 +352,11 @@ class TestDirectPdfForgeShard(unittest.TestCase):
         self.assertLess(profile.row_height_mm, single_profile.row_height_mm)
         self.assertLessEqual(
             len(entries),
-            forge_shard_module._fallback_capacity(rescue_area, profile=profile),
+            forge_shard_fallback_capacity(
+                rescue_area,
+                profile=profile,
+                reserved_height_mm=7.0,
+            ),
         )
 
         with self.assertRaisesRegex(ValueError, "exceeds the single-page capacity"):

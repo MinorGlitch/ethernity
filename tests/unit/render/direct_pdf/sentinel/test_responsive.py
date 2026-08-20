@@ -22,6 +22,11 @@ from ethernity.render.direct_pdf.sentinel.kit_index import render_sentinel_kit_i
 from ethernity.render.direct_pdf.sentinel.main import render_sentinel_main_direct_pdf
 from ethernity.render.direct_pdf.sentinel.recovery import render_sentinel_recovery_direct_pdf
 from ethernity.render.direct_pdf.sentinel.shard import render_sentinel_shard_direct_pdf
+from ethernity.render.direct_pdf.sentinel.shard_fallback import (
+    SENTINEL_SHARD_FALLBACK_PROFILES,
+    build_sentinel_shard_fallback_candidate,
+    resolve_sentinel_shard_fallback_layout,
+)
 from ethernity.render.direct_pdf.sentinel.signing_key_shard import (
     render_sentinel_signing_key_shard_direct_pdf,
 )
@@ -484,15 +489,16 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
 
     def test_shard_fallback_uses_two_column_rescue_before_failing_fast(self) -> None:
         document_cases = (
-            ("shard", sentinel_shard_module, shard_inputs),
+            ("shard", sentinel_shard_module, shard_inputs, 13.0),
             (
                 "signing-key-shard",
                 sentinel_signing_key_shard_module,
                 signing_inputs,
+                6.0,
             ),
         )
         with TemporaryDirectory() as tmp:
-            for document_name, module, input_factory in document_cases:
+            for document_name, module, input_factory, line_start_offset_mm in document_cases:
                 with self.subTest(document_name=document_name):
                     inputs = input_factory(
                         Path(tmp) / f"{document_name}.pdf",
@@ -511,17 +517,19 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                     self.assertEqual(preferred_pages[0].layout_profile.columns, 1)
 
                     candidate_tops = []
-                    for profile in module._FALLBACK_LAYOUT_PROFILES:
-                        _, pages = module._build_fallback_candidate(
+                    for profile in SENTINEL_SHARD_FALLBACK_PROFILES:
+                        _, pages = build_sentinel_shard_fallback_candidate(
                             surface,
                             sections,
                             page_layout=page_layout,
                             layout_profile=profile,
+                            line_start_offset_mm=line_start_offset_mm,
+                            renderer_label=f"direct Sentinel {document_name} fallback",
                         )
                         candidate_tops.append(pages[0].panel_rect.y_mm)
 
                     preferred_top_y_mm, rescue_top_y_mm = candidate_tops
-                    preferred_profile, rescue_profile = module._FALLBACK_LAYOUT_PROFILES
+                    preferred_profile, rescue_profile = SENTINEL_SHARD_FALLBACK_PROFILES
                     self.assertGreater(rescue_top_y_mm, preferred_top_y_mm)
                     self.assertGreaterEqual(rescue_profile.text_size_pt, 6.0)
                     self.assertGreaterEqual(rescue_profile.title_size_pt, 6.0)
@@ -531,11 +539,13 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                     )
                     constrained_top_y_mm = (preferred_top_y_mm + rescue_top_y_mm) / 2.0
 
-                    _, rescue_pages = module._select_fallback_layout(
+                    _, rescue_pages = resolve_sentinel_shard_fallback_layout(
                         surface,
                         sections,
                         page_layout=page_layout,
                         minimum_top_y_mm=constrained_top_y_mm,
+                        line_start_offset_mm=line_start_offset_mm,
+                        renderer_label=f"direct Sentinel {document_name} fallback",
                     )
                     rescue_page = rescue_pages[0]
                     self.assertEqual(rescue_page.layout_profile.columns, 2)
@@ -548,7 +558,7 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                     )
                     context = build_sentinel_shell_context(inputs, doc_type=inputs.doc_type)
                     qr_image = module.qr_image(
-                        module._resolved_qr_payload(inputs),
+                        module.resolved_single_qr_payload(inputs),
                         config=inputs.qr_config or QrConfig(),
                     )
                     rescue_plan = module._build_page(
@@ -574,11 +584,13 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                     )
 
                     with self.assertRaisesRegex(ValueError, "cannot fit"):
-                        module._select_fallback_layout(
+                        resolve_sentinel_shard_fallback_layout(
                             surface,
                             sections,
                             page_layout=page_layout,
                             minimum_top_y_mm=rescue_top_y_mm + 0.01,
+                            line_start_offset_mm=line_start_offset_mm,
+                            renderer_label=f"direct Sentinel {document_name} fallback",
                         )
 
     def test_shards_are_single_page_on_minimum_and_larger_future_sizes(self) -> None:

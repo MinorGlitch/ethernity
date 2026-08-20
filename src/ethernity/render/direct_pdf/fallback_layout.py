@@ -52,6 +52,15 @@ FallbackEntry = FallbackTitleEntry | FallbackLineEntry
 
 
 @dataclass(frozen=True)
+class FallbackColumnPlacement:
+    """One fallback entry placed in a column-major single-page grid."""
+
+    entry: FallbackEntry
+    row_index: int
+    column_index: int
+
+
+@dataclass(frozen=True)
 class FallbackPageEntry:
     """One fallback entry placed on a page row."""
 
@@ -223,6 +232,69 @@ def paginate_fallback_entries(
         remaining = remaining[consumed:]
         page_number += 1
     return tuple(pages)
+
+
+def build_fallback_proof_from_entry_groups(
+    inputs: RenderInputs,
+    sections: Sequence[FallbackSectionLines],
+    entry_groups: Sequence[Sequence[FallbackEntry]],
+) -> RenderFallbackProof:
+    """Build a proof from renderer-placed entry groups without owning their geometry."""
+
+    pages: list[FallbackPage] = []
+    for page_number, entries in enumerate(entry_groups, start=1):
+        page_entries: list[FallbackPageEntry] = []
+        display_line_number = 0
+        for row_index, entry in enumerate(entries):
+            if isinstance(entry, FallbackTitleEntry):
+                display_line_number = 0
+                displayed = None
+            else:
+                display_line_number += 1
+                displayed = display_line_number
+            page_entries.append(
+                FallbackPageEntry(
+                    entry=entry,
+                    row_index=row_index,
+                    display_line_number=displayed,
+                )
+            )
+        pages.append(FallbackPage(page_number=page_number, entries=tuple(page_entries)))
+    return build_fallback_proof(inputs, sections, pages)
+
+
+def paginate_single_page_fallback_columns(
+    entries: Sequence[FallbackEntry],
+    *,
+    column_count: int,
+    rows_per_column: int,
+    renderer_label: str,
+) -> tuple[FallbackColumnPlacement, ...]:
+    """Place fallback entries column-first within one bounded page."""
+
+    if not entries:
+        raise ValueError(f"{renderer_label} has no fallback entries to render")
+    if column_count <= 0:
+        raise ValueError("fallback column count must be positive")
+    if rows_per_column <= 0:
+        raise ValueError("fallback grid must fit at least one row per column")
+
+    capacity = column_count * rows_per_column
+    if len(entries) > capacity:
+        raise ValueError(
+            f"{renderer_label} exceeds the single-page capacity: "
+            f"{len(entries)} rows > {capacity} rows"
+        )
+
+    placement_rows = math.ceil(len(entries) / column_count)
+    return tuple(
+        FallbackColumnPlacement(
+            entry=entry,
+            row_index=entry_index % placement_rows,
+            column_index=entry_index // placement_rows,
+        )
+        for entry_index, entry in enumerate(entries)
+    )
 
 
 def fallback_capacity(
@@ -664,6 +736,7 @@ def _validate_complete_fallback_pages(
 
 
 __all__ = [
+    "FallbackColumnPlacement",
     "FallbackEntry",
     "FallbackLineEntry",
     "FallbackPage",
@@ -674,10 +747,12 @@ __all__ = [
     "ResponsiveFallbackPagination",
     "ResponsiveFallbackSpec",
     "build_fallback_proof",
+    "build_fallback_proof_from_entry_groups",
     "fallback_capacity",
     "fallback_entries",
     "fallback_sections",
     "measured_fallback_number_width",
     "paginate_fallback_entries",
+    "paginate_single_page_fallback_columns",
     "resolve_responsive_fallback_pagination",
 ]

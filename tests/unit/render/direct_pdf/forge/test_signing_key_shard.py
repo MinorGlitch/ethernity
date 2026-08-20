@@ -8,6 +8,10 @@ from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.page_sizes import PaperSize
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
 from ethernity.render.direct_pdf.components import TextBoxPlan
+from ethernity.render.direct_pdf.forge.shard_fallback import (
+    forge_shard_fallback_capacity,
+    forge_shard_fallback_profiles,
+)
 from ethernity.render.direct_pdf.forge.signing_key_shard import (
     build_forge_signing_key_shard_direct_plan,
     render_forge_signing_key_shard_direct_pdf,
@@ -407,7 +411,10 @@ class TestDirectPdfForgeSigningKeyShard(unittest.TestCase):
             area=rescue_area,
         )
 
-        single_profile = forge_signing_module._fallback_layout_profiles()[0]
+        single_profile = forge_shard_fallback_profiles(
+            standard_row_height_mm=3.0,
+            dense_row_height_mm=2.65,
+        )[0]
         _, single_entries = forge_signing_module._fallback_candidate_for_profile(
             surface,
             (section,),
@@ -416,9 +423,10 @@ class TestDirectPdfForgeSigningKeyShard(unittest.TestCase):
         )
         self.assertGreater(
             len(single_entries),
-            forge_signing_module._fallback_capacity(
+            forge_shard_fallback_capacity(
                 rescue_area,
                 profile=single_profile,
+                reserved_height_mm=0.0,
             ),
         )
         self.assertEqual(profile.column_count, 2)
@@ -426,7 +434,11 @@ class TestDirectPdfForgeSigningKeyShard(unittest.TestCase):
         self.assertLess(profile.row_height_mm, single_profile.row_height_mm)
         self.assertLessEqual(
             len(entries),
-            forge_signing_module._fallback_capacity(rescue_area, profile=profile),
+            forge_shard_fallback_capacity(
+                rescue_area,
+                profile=profile,
+                reserved_height_mm=0.0,
+            ),
         )
 
         with self.assertRaisesRegex(ValueError, "exceeds the single-page capacity"):

@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ethernity.core.bounds import MAX_FALLBACK_LINES
-from ethernity.encoding.framing import encode_frame
-from ethernity.encoding.zbase32 import ZBASE32_ALPHABET, encode_zbase32
+from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
 from ethernity.qr.codec import QrConfig
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
 from ethernity.render.direct_pdf.components import ImageBox, Panel, Rule, TextAlign, TextBox
 from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
+from ethernity.render.direct_pdf.fallback_layout import (
+    FallbackEntry as _FallbackEntry,
+    FallbackLineEntry as _FallbackLineEntry,
+    FallbackSectionLines as _FallbackSectionLines,
+    FallbackTitleEntry as _FallbackTitleEntry,
+    build_fallback_proof_from_entry_groups,
+    fallback_entries,
+    fallback_sections,
+)
 from ethernity.render.direct_pdf.forge.common import (
     FORGE_SLATE_50,
     FORGE_SLATE_300,
@@ -29,6 +35,14 @@ from ethernity.render.direct_pdf.forge.common import (
     build_forge_shell_context,
     explicit_creation_date,
 )
+from ethernity.render.direct_pdf.forge.shard_fallback import (
+    ForgeShardFallbackLayoutProfile as _FallbackLayoutProfile,
+    ForgeShardFallbackPageEntry as _FallbackPageEntry,
+    forge_shard_fallback_capacity,
+    forge_shard_fallback_column_width,
+    forge_shard_fallback_profiles,
+    place_forge_shard_fallback_entries,
+)
 from ethernity.render.direct_pdf.forge.theme import FORGE_THEME
 from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
 from ethernity.render.direct_pdf.page import (
@@ -40,14 +54,17 @@ from ethernity.render.direct_pdf.page import (
 )
 from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
 from ethernity.render.direct_pdf.shard_contract import validate_single_shard_fallback_contract
-from ethernity.render.direct_pdf.structured_common import component_prefix, qr_image
+from ethernity.render.direct_pdf.structured_common import (
+    component_prefix,
+    qr_image,
+    resolved_single_qr_payload,
+)
 from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
 from ethernity.render.direct_pdf.text_measure import measured_grouped_line_length
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect, TextStyle
 from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
-from ethernity.render.fallback_text import fallback_section_title, format_zbase32_lines
-from ethernity.render.proofs import build_render_artifact_proof, frame_digest
+from ethernity.render.proofs import build_render_artifact_proof
 from ethernity.render.types import (
     FallbackSection,
     RenderArtifactProof,
@@ -73,6 +90,10 @@ _FALLBACK_STATIC_LABEL = "SHARD PAYLOAD"
 _ICON_SHIELD_LOCK = chr(0xF686)
 _FORGE_SLATE_400 = PdfColor(148, 163, 184)
 _FORGE_BLUE = PdfColor(25, 118, 210)
+_FALLBACK_LAYOUT_PROFILES = forge_shard_fallback_profiles(
+    standard_row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
+    dense_row_height_mm=_FALLBACK_DENSE_ROW_HEIGHT_MM,
+)
 
 
 @dataclass(frozen=True)
@@ -167,43 +188,6 @@ class _ForgeSigningKeyShardGeometry:
 
 
 @dataclass(frozen=True)
-class _FallbackLayoutProfile:
-    column_count: int
-    font_size_pt: float
-    row_height_mm: float
-
-
-@dataclass(frozen=True)
-class _FallbackSectionLines:
-    section_index: int
-    title: str | None
-    lines: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class _FallbackTitleEntry:
-    section_index: int
-    title: str
-
-
-@dataclass(frozen=True)
-class _FallbackLineEntry:
-    section_index: int
-    line_number: int
-    text: str
-
-
-_FallbackEntry = _FallbackTitleEntry | _FallbackLineEntry
-
-
-@dataclass(frozen=True)
-class _FallbackPageEntry:
-    entry: _FallbackEntry
-    row_index: int
-    column_index: int
-
-
-@dataclass(frozen=True)
 class _FallbackPage:
     page_number: int
     profile: _FallbackLayoutProfile
@@ -255,7 +239,7 @@ def build_forge_signing_key_shard_direct_plan(
 
     _validate_inputs(inputs)
     geometry = _forge_signing_key_shard_geometry(inputs)
-    payload = _resolved_qr_payload(inputs)
+    payload = resolved_single_qr_payload(inputs)
     qr_image_bytes = qr_image(payload, config=inputs.qr_config or QrConfig())
     context = build_forge_shell_context(inputs, doc_type=DOC_TYPE_SIGNING_KEY_SHARD)
     sections, fallback_pages = _responsive_fallback_layout(
@@ -274,7 +258,11 @@ def build_forge_signing_key_shard_direct_plan(
         )
         for fallback_page in fallback_pages
     )
-    fallback_proof = _build_fallback_proof(inputs, sections, fallback_pages)
+    fallback_proof = build_fallback_proof_from_entry_groups(
+        inputs,
+        sections,
+        (fallback_entries(sections),),
+    )
     artifact_proof = build_render_artifact_proof(
         inputs,
         qr_payloads=(payload,),
@@ -312,40 +300,6 @@ def _validate_inputs(inputs: RenderInputs) -> None:
         raise ValueError("direct Forge signing-key shard renderer supports PNG QR images only")
 
 
-def _resolved_qr_payload(inputs: RenderInputs) -> bytes | str:
-    if inputs.qr_payloads is not None:
-        payloads = tuple(inputs.qr_payloads)
-    else:
-        payloads = (encode_frame(inputs.frames[0]),)
-    if len(payloads) != 1:
-        raise ValueError("direct Forge signing-key shard renderer requires exactly one QR payload")
-    return payloads[0]
-
-
-def _fallback_sections(
-    sections: Sequence[FallbackSection],
-    *,
-    line_length: int,
-) -> tuple[_FallbackSectionLines, ...]:
-    resolved: list[_FallbackSectionLines] = []
-    for index, section in enumerate(sections):
-        encoded = encode_zbase32(encode_frame(section.frame))
-        lines = format_zbase32_lines(
-            encoded,
-            group_size=_FALLBACK_GROUP_SIZE,
-            line_length=line_length,
-            line_count=MAX_FALLBACK_LINES,
-        )
-        resolved.append(
-            _FallbackSectionLines(
-                section_index=index,
-                title=fallback_section_title(section.label),
-                lines=tuple(lines),
-            )
-        )
-    return tuple(resolved)
-
-
 def _responsive_fallback_layout(
     surface: PdfSurface,
     sections: Sequence[FallbackSection],
@@ -378,18 +332,19 @@ def _fallback_layout_for_area(
 ]:
     """Resolve the least-dense measured profile that fits the supplied text area."""
 
-    for profile in _fallback_layout_profiles():
+    for profile in _FALLBACK_LAYOUT_PROFILES:
         resolved_sections, entries = _fallback_candidate_for_profile(
             surface,
             sections,
             area=area,
             profile=profile,
         )
-        rows_per_column = _fallback_rows_per_column(
+        capacity = forge_shard_fallback_capacity(
             area,
-            row_height_mm=profile.row_height_mm,
+            profile=profile,
+            reserved_height_mm=0.0,
         )
-        if len(entries) <= rows_per_column * profile.column_count:
+        if len(entries) <= capacity:
             return resolved_sections, entries, profile
 
     raise ValueError(
@@ -405,9 +360,11 @@ def _fallback_candidate_for_profile(
     area: PdfRect,
     profile: _FallbackLayoutProfile,
 ) -> tuple[tuple[_FallbackSectionLines, ...], tuple[_FallbackEntry, ...]]:
-    column_width_mm = _fallback_column_width_mm(
+    column_width_mm = forge_shard_fallback_column_width(
         area,
         column_count=profile.column_count,
+        horizontal_padding_mm=0.0,
+        column_gap_mm=_FALLBACK_COLUMN_GAP_MM,
     )
     line_length = measured_grouped_line_length(
         surface,
@@ -416,33 +373,12 @@ def _fallback_candidate_for_profile(
         group_size=_FALLBACK_GROUP_SIZE,
         max_width_mm=column_width_mm,
     )
-    resolved_sections = _fallback_sections(sections, line_length=line_length)
-    return resolved_sections, _fallback_entries(resolved_sections)
-
-
-def _fallback_layout_profiles() -> tuple[_FallbackLayoutProfile, ...]:
-    return (
-        _FallbackLayoutProfile(
-            column_count=1,
-            font_size_pt=6.0,
-            row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
-        ),
-        _FallbackLayoutProfile(
-            column_count=2,
-            font_size_pt=6.0,
-            row_height_mm=_FALLBACK_DENSE_ROW_HEIGHT_MM,
-        ),
+    resolved_sections = fallback_sections(
+        sections,
+        group_size=_FALLBACK_GROUP_SIZE,
+        line_length=line_length,
     )
-
-
-def _fallback_column_width_mm(area: PdfRect, *, column_count: int) -> float:
-    if column_count <= 0:
-        raise ValueError("fallback column_count must be positive")
-    gap_width_mm = (column_count - 1) * _FALLBACK_COLUMN_GAP_MM
-    column_width_mm = (area.width_mm - gap_width_mm) / column_count
-    if column_width_mm <= 0:
-        raise ValueError("Forge signing-key shard fallback columns have no usable width")
-    return column_width_mm
+    return resolved_sections, _fallback_entries(resolved_sections)
 
 
 def _fallback_payload_style(*, font_size_pt: float) -> TextStyle:
@@ -475,23 +411,12 @@ def _paginate_fallback_entries(
     geometry: _ForgeSigningKeyShardGeometry,
     profile: _FallbackLayoutProfile,
 ) -> tuple[_FallbackPage, ...]:
-    if not entries:
-        raise ValueError("direct Forge signing-key shard renderer has no fallback entries")
-
-    capacity = _fallback_capacity(geometry.payload_text_area, profile=profile)
-    if len(entries) > capacity:
-        raise ValueError(
-            "Forge signing-key shard fallback exceeds the single-page capacity: "
-            f"{len(entries)} rows > {capacity} rows"
-        )
-    placement_rows = math.ceil(len(entries) / profile.column_count)
-    placed = tuple(
-        _FallbackPageEntry(
-            entry=entry,
-            row_index=entry_index % placement_rows,
-            column_index=entry_index // placement_rows,
-        )
-        for entry_index, entry in enumerate(entries)
+    placed = place_forge_shard_fallback_entries(
+        entries,
+        area=geometry.payload_text_area,
+        profile=profile,
+        reserved_height_mm=0.0,
+        renderer_label="Forge signing-key shard fallback",
     )
     return (
         _FallbackPage(
@@ -500,25 +425,6 @@ def _paginate_fallback_entries(
             entries=placed,
         ),
     )
-
-
-def _fallback_capacity(
-    area: PdfRect,
-    *,
-    profile: _FallbackLayoutProfile,
-) -> int:
-    capacity = (
-        _fallback_rows_per_column(area, row_height_mm=profile.row_height_mm) * profile.column_count
-    )
-    if capacity <= 0:
-        raise ValueError("fallback payload area must fit at least one row")
-    return capacity
-
-
-def _fallback_rows_per_column(area: PdfRect, *, row_height_mm: float) -> int:
-    if row_height_mm <= 0:
-        raise ValueError("fallback row_height_mm must be positive")
-    return math.floor(area.height_mm / row_height_mm)
 
 
 def _build_page(
@@ -800,9 +706,11 @@ def _payload_fallback_plans(
             policy=TextFitPolicy.FAIL,
         ).plan(surface, geometry.payload_label_rect),
     ]
-    column_width_mm = _fallback_column_width_mm(
+    column_width_mm = forge_shard_fallback_column_width(
         payload_text_area,
         column_count=fallback_page.profile.column_count,
+        horizontal_padding_mm=0.0,
+        column_gap_mm=_FALLBACK_COLUMN_GAP_MM,
     )
     for index, page_entry in enumerate(fallback_page.entries):
         y = payload_text_area.y_mm + page_entry.row_index * fallback_page.profile.row_height_mm
@@ -1047,31 +955,6 @@ def _context_int(context: ForgeShellContext, key: str) -> int:
         except ValueError:
             return 0
     return 0
-
-
-def _build_fallback_proof(
-    inputs: RenderInputs,
-    sections: Sequence[_FallbackSectionLines],
-    pages: Sequence[_FallbackPage],
-) -> RenderFallbackProof:
-    emitted_lines = tuple(
-        entry.entry.text
-        for page in pages
-        for entry in page.entries
-        if isinstance(entry.entry, _FallbackLineEntry)
-    )
-    return RenderFallbackProof(
-        section_frame_digests=tuple(
-            frame_digest(section.frame) for section in inputs.fallback_sections or ()
-        ),
-        section_titles=tuple(section.title for section in sections if section.title),
-        expected_section_count=len(sections),
-        consumed_section_count=len(sections),
-        fully_consumed=True,
-        emitted_fallback_lines=emitted_lines,
-        emitted_block_count=len(sections),
-        emitted_line_count=len(emitted_lines),
-    )
 
 
 __all__ = [

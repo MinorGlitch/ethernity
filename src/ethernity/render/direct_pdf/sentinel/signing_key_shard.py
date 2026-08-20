@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ethernity.core.bounds import MAX_FALLBACK_LINES
-from ethernity.encoding.framing import encode_frame
-from ethernity.encoding.zbase32 import ZBASE32_ALPHABET, encode_zbase32
 from ethernity.qr.codec import QrConfig
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
 from ethernity.render.direct_pdf.components import ImageBox, Line, Panel, Rule, TextAlign, TextBox
 from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
+from ethernity.render.direct_pdf.fallback_layout import (
+    FallbackSectionLines as _FallbackSectionLines,
+    FallbackTitleEntry as _FallbackTitleEntry,
+    build_fallback_proof_from_entry_groups,
+)
 from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
 from ethernity.render.direct_pdf.page import DirectPdfPagePlan, PaintPlan
 from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
-from ethernity.render.direct_pdf.responsive_layout import GridPolicy, ResolvedGrid, resolve_grid
 from ethernity.render.direct_pdf.sentinel.common import (
     SENTINEL_BACKGROUND,
     SENTINEL_BLACK,
@@ -35,16 +35,22 @@ from ethernity.render.direct_pdf.sentinel.common import (
     build_sentinel_surface,
     sentinel_corner_mark_component_ids,
 )
+from ethernity.render.direct_pdf.sentinel.shard_fallback import (
+    SentinelShardFallbackPage as _FallbackPage,
+    resolve_sentinel_shard_fallback_layout,
+)
 from ethernity.render.direct_pdf.sentinel.theme import SENTINEL_THEME
 from ethernity.render.direct_pdf.shard_contract import validate_single_shard_fallback_contract
-from ethernity.render.direct_pdf.structured_common import component_prefix, qr_image
+from ethernity.render.direct_pdf.structured_common import (
+    component_prefix,
+    qr_image,
+    resolved_single_qr_payload,
+)
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
-from ethernity.render.direct_pdf.text_measure import measured_grouped_line_length
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect
 from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
-from ethernity.render.fallback_text import fallback_section_title, format_zbase32_lines
-from ethernity.render.proofs import build_render_artifact_proof, frame_digest
+from ethernity.render.proofs import build_render_artifact_proof
 from ethernity.render.types import (
     FallbackSection,
     RenderArtifactProof,
@@ -54,19 +60,7 @@ from ethernity.render.types import (
 )
 
 _COMPONENT_BASE = "sentinel-signing-key-shard"
-_FALLBACK_GROUP_SIZE = 4
-_FALLBACK_TEXT_SIZE_PT = 6.0
-_FALLBACK_MAX_COLUMNS = 2
-_FALLBACK_ROW_HEIGHT_MM = 2.5
-_FALLBACK_ROW_GAP_MM = 0.15
-_FALLBACK_RESCUE_ROW_HEIGHT_MM = 2.3
-_FALLBACK_RESCUE_ROW_GAP_MM = 0.05
-_FALLBACK_COLUMN_GAP_MM = 4.0
-_FALLBACK_HORIZONTAL_INSET_MM = 4.5
 _FALLBACK_LINE_START_OFFSET_MM = 6.0
-_FALLBACK_BOTTOM_Y_MM = 275.0
-_FALLBACK_BOTTOM_PADDING_MM = 0.8
-_FALLBACK_TEXT_WIDTH_SAFETY_MM = 0.5
 _FALLBACK_UPPER_CONTENT_CLEARANCE_MM = 6.0
 _QR_FRAME_RECT = PdfRect(11.0, 96.0, 62.5, 62.5)
 _QR_IMAGE_RECT = PdfRect(14.2, 99.1, 56.0, 56.0)
@@ -82,76 +76,12 @@ _ICON_FINGERPRINT = chr(0xE90D)
 
 
 @dataclass(frozen=True)
-class _FallbackLayoutProfile:
-    columns: int
-    text_size_pt: float
-    title_size_pt: float
-    row_height_mm: float
-    row_gap_mm: float
-
-
-_FALLBACK_LAYOUT_PROFILES = (
-    _FallbackLayoutProfile(
-        columns=1,
-        text_size_pt=_FALLBACK_TEXT_SIZE_PT,
-        title_size_pt=7.0,
-        row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
-        row_gap_mm=_FALLBACK_ROW_GAP_MM,
-    ),
-    _FallbackLayoutProfile(
-        columns=2,
-        text_size_pt=_FALLBACK_TEXT_SIZE_PT,
-        title_size_pt=_FALLBACK_TEXT_SIZE_PT,
-        row_height_mm=_FALLBACK_RESCUE_ROW_HEIGHT_MM,
-        row_gap_mm=_FALLBACK_RESCUE_ROW_GAP_MM,
-    ),
-)
-
-
-@dataclass(frozen=True)
 class SentinelSigningKeyShardDirectPlan:
     """Measured pages and app-wide proofs for one Sentinel signing-key shard render."""
 
     page_plans: tuple[DirectPdfPagePlan, ...]
     fallback_proof: RenderFallbackProof
     artifact_proof: RenderArtifactProof
-
-
-@dataclass(frozen=True)
-class _FallbackSectionLines:
-    section_index: int
-    title: str | None
-    lines: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class _FallbackTitleEntry:
-    section_index: int
-    title: str
-
-
-@dataclass(frozen=True)
-class _FallbackLineEntry:
-    section_index: int
-    line_number: int
-    text: str
-
-
-_FallbackEntry = _FallbackTitleEntry | _FallbackLineEntry
-
-
-@dataclass(frozen=True)
-class _FallbackPageEntry:
-    entry: _FallbackEntry
-    rect: PdfRect
-
-
-@dataclass(frozen=True)
-class _FallbackPage:
-    page_number: int
-    panel_rect: PdfRect
-    layout_profile: _FallbackLayoutProfile
-    entries: tuple[_FallbackPageEntry, ...]
 
 
 def render_sentinel_signing_key_shard_direct_pdf(inputs: RenderInputs) -> RenderResult:
@@ -184,7 +114,7 @@ def build_sentinel_signing_key_shard_direct_plan(
     """Build measured direct-PDF plans and render proofs for Sentinel signing-key shard inputs."""
 
     _validate_inputs(inputs)
-    payload = _resolved_qr_payload(inputs)
+    payload = resolved_single_qr_payload(inputs)
     qr_image_bytes = qr_image(payload, config=inputs.qr_config or QrConfig())
     context = build_sentinel_shell_context(inputs, doc_type=DOC_TYPE_SIGNING_KEY_SHARD)
     sections, fallback_pages = _resolve_fallback_layout(
@@ -202,7 +132,11 @@ def build_sentinel_signing_key_shard_direct_plan(
         )
         for fallback_page in fallback_pages
     )
-    fallback_proof = _build_fallback_proof(inputs, sections, fallback_pages)
+    fallback_proof = build_fallback_proof_from_entry_groups(
+        inputs,
+        sections,
+        tuple(tuple(page_entry.entry for page_entry in page.entries) for page in fallback_pages),
+    )
     artifact_proof = build_render_artifact_proof(
         inputs,
         qr_payloads=(payload,),
@@ -242,58 +176,6 @@ def _validate_inputs(inputs: RenderInputs) -> None:
         raise ValueError("direct Sentinel signing-key shard renderer supports PNG QR images only")
 
 
-def _resolved_qr_payload(inputs: RenderInputs) -> bytes | str:
-    if inputs.qr_payloads is not None:
-        payloads = tuple(inputs.qr_payloads)
-    else:
-        payloads = (encode_frame(inputs.frames[0]),)
-    if len(payloads) != 1:
-        raise ValueError("direct Sentinel signing-key shard renderer requires one QR payload")
-    return payloads[0]
-
-
-def _fallback_sections(
-    sections: Sequence[FallbackSection],
-    *,
-    line_length: int,
-) -> tuple[_FallbackSectionLines, ...]:
-    resolved: list[_FallbackSectionLines] = []
-    for index, section in enumerate(sections):
-        encoded = encode_zbase32(encode_frame(section.frame))
-        lines = format_zbase32_lines(
-            encoded,
-            group_size=_FALLBACK_GROUP_SIZE,
-            line_length=line_length,
-            line_count=MAX_FALLBACK_LINES,
-        )
-        resolved.append(
-            _FallbackSectionLines(
-                section_index=index,
-                title=fallback_section_title(section.label),
-                lines=tuple(lines),
-            )
-        )
-    return tuple(resolved)
-
-
-def _fallback_entries(sections: Sequence[_FallbackSectionLines]) -> tuple[_FallbackEntry, ...]:
-    entries: list[_FallbackEntry] = []
-    for section in sections:
-        if section.title:
-            entries.append(
-                _FallbackTitleEntry(section_index=section.section_index, title=section.title)
-            )
-        for line_number, line in enumerate(section.lines, start=1):
-            entries.append(
-                _FallbackLineEntry(
-                    section_index=section.section_index,
-                    line_number=line_number,
-                    text=line,
-                )
-            )
-    return tuple(entries)
-
-
 def _resolve_fallback_layout(
     surface: PdfSurface,
     sections: Sequence[FallbackSection],
@@ -305,198 +187,13 @@ def _resolve_fallback_layout(
     minimum_top_y_mm = (
         max(qr_bottom_y_mm, structured_content_bottom_y_mm) + _FALLBACK_UPPER_CONTENT_CLEARANCE_MM
     )
-    return _select_fallback_layout(
+    return resolve_sentinel_shard_fallback_layout(
         surface,
         sections,
         page_layout=page_layout,
         minimum_top_y_mm=minimum_top_y_mm,
-    )
-
-
-def _select_fallback_layout(
-    surface: PdfSurface,
-    sections: Sequence[FallbackSection],
-    *,
-    page_layout: SentinelPageLayout,
-    minimum_top_y_mm: float,
-) -> tuple[tuple[_FallbackSectionLines, ...], tuple[_FallbackPage, ...]]:
-    for layout_profile in _FALLBACK_LAYOUT_PROFILES:
-        resolved_sections, pages = _build_fallback_candidate(
-            surface,
-            sections,
-            page_layout=page_layout,
-            layout_profile=layout_profile,
-        )
-        if pages[0].panel_rect.y_mm >= minimum_top_y_mm:
-            return resolved_sections, pages
-    raise ValueError(
-        "direct Sentinel signing-key shard fallback cannot fit between the upper content "
-        f"and footer using up to {_FALLBACK_MAX_COLUMNS} measured columns"
-    )
-
-
-def _fallback_column_width(page_layout: SentinelPageLayout, *, columns: int) -> float:
-    if columns <= 0:
-        raise ValueError("fallback columns must be positive")
-    inner_width_mm = page_layout.safe_rect.width_mm - (2.0 * _FALLBACK_HORIZONTAL_INSET_MM)
-    column_width_mm = (inner_width_mm - ((columns - 1) * _FALLBACK_COLUMN_GAP_MM)) / columns
-    if column_width_mm <= 0:
-        raise ValueError(
-            "direct Sentinel signing-key shard fallback has no horizontal text capacity"
-        )
-    return column_width_mm
-
-
-def _build_fallback_candidate(
-    surface: PdfSurface,
-    sections: Sequence[FallbackSection],
-    *,
-    page_layout: SentinelPageLayout,
-    layout_profile: _FallbackLayoutProfile,
-) -> tuple[tuple[_FallbackSectionLines, ...], tuple[_FallbackPage, ...]]:
-    column_width_mm = _fallback_column_width(
-        page_layout,
-        columns=layout_profile.columns,
-    )
-    style = SENTINEL_THEME.mono_style(
-        size_pt=layout_profile.text_size_pt,
-        color=SENTINEL_BLACK,
-    )
-    line_length = measured_grouped_line_length(
-        surface,
-        style=style,
-        alphabet=ZBASE32_ALPHABET,
-        group_size=_FALLBACK_GROUP_SIZE,
-        max_width_mm=column_width_mm,
-        safety_mm=_FALLBACK_TEXT_WIDTH_SAFETY_MM,
-    )
-    resolved_sections = _fallback_sections(sections, line_length=line_length)
-    pages = _paginate_fallback_entries(
-        _fallback_entries(resolved_sections),
-        page_layout=page_layout,
-        layout_profile=layout_profile,
-    )
-    return resolved_sections, pages
-
-
-def _paginate_fallback_entries(
-    entries: Sequence[_FallbackEntry],
-    *,
-    page_layout: SentinelPageLayout,
-    layout_profile: _FallbackLayoutProfile,
-) -> tuple[_FallbackPage, ...]:
-    if not entries:
-        raise ValueError("direct Sentinel signing-key shard renderer has no fallback entries")
-
-    panel_rect, grid = _fallback_grid(
-        page_layout,
-        entry_count=len(entries),
-        layout_profile=layout_profile,
-    )
-    if len(entries) > grid.capacity:
-        raise ValueError(
-            "direct Sentinel signing-key shard fallback exceeds the single-page layout capacity: "
-            f"entries={len(entries)}, capacity={grid.capacity}"
-        )
-    return (
-        _FallbackPage(
-            page_number=1,
-            panel_rect=panel_rect,
-            layout_profile=layout_profile,
-            entries=tuple(
-                _FallbackPageEntry(entry=entry, rect=rect)
-                for entry, rect in zip(
-                    entries,
-                    _column_major_item_rects(grid, len(entries)),
-                    strict=True,
-                )
-            ),
-        ),
-    )
-
-
-def _fallback_grid(
-    page_layout: SentinelPageLayout,
-    *,
-    entry_count: int,
-    layout_profile: _FallbackLayoutProfile,
-) -> tuple[PdfRect, ResolvedGrid]:
-    columns = layout_profile.columns
-    if columns <= 0 or columns > _FALLBACK_MAX_COLUMNS:
-        raise ValueError(f"fallback columns must be between 1 and {_FALLBACK_MAX_COLUMNS}")
-    rows = math.ceil(entry_count / columns)
-    rows_height_mm = rows * layout_profile.row_height_mm + (rows - 1) * layout_profile.row_gap_mm
-    panel_bottom_mm = page_layout.map_y(_FALLBACK_BOTTOM_Y_MM)
-    panel_height_mm = _FALLBACK_LINE_START_OFFSET_MM + rows_height_mm + _FALLBACK_BOTTOM_PADDING_MM
-    area = PdfRect(
-        page_layout.safe_rect.x_mm,
-        panel_bottom_mm - panel_height_mm,
-        page_layout.safe_rect.width_mm,
-        panel_height_mm,
-    )
-    row_area = PdfRect(
-        area.x_mm + _FALLBACK_HORIZONTAL_INSET_MM,
-        area.y_mm + _FALLBACK_LINE_START_OFFSET_MM,
-        area.width_mm - (2.0 * _FALLBACK_HORIZONTAL_INSET_MM),
-        rows_height_mm,
-    )
-    item_width_mm = _fallback_column_width(page_layout, columns=columns)
-    grid = resolve_grid(
-        row_area,
-        GridPolicy(
-            max_columns=columns,
-            max_rows=rows,
-            preferred_item_width_mm=item_width_mm,
-            preferred_item_height_mm=layout_profile.row_height_mm,
-            minimum_item_width_mm=item_width_mm,
-            minimum_item_height_mm=layout_profile.row_height_mm,
-            minimum_column_gap_mm=(_FALLBACK_COLUMN_GAP_MM if columns > 1 else 0.0),
-            minimum_row_gap_mm=layout_profile.row_gap_mm,
-        ),
-    )
-    return area, grid
-
-
-def _column_major_item_rects(grid: ResolvedGrid, item_count: int) -> tuple[PdfRect, ...]:
-    return tuple(
-        PdfRect(
-            grid.container.x_mm + (index // grid.rows) * (grid.item_width_mm + grid.column_gap_mm),
-            grid.container.y_mm + (index % grid.rows) * (grid.item_height_mm + grid.row_gap_mm),
-            grid.item_width_mm,
-            grid.item_height_mm,
-        )
-        for index in range(item_count)
-    )
-
-
-def _build_fallback_proof(
-    inputs: RenderInputs,
-    sections: Sequence[_FallbackSectionLines],
-    pages: Sequence[_FallbackPage],
-) -> RenderFallbackProof:
-    emitted_lines = tuple(
-        page_entry.entry.text
-        for page in pages
-        for page_entry in page.entries
-        if isinstance(page_entry.entry, _FallbackLineEntry)
-    )
-    emitted_section_chunks = {
-        (page.page_number, page_entry.entry.section_index)
-        for page in pages
-        for page_entry in page.entries
-        if isinstance(page_entry.entry, _FallbackLineEntry)
-    }
-    return RenderFallbackProof(
-        section_frame_digests=tuple(
-            frame_digest(section.frame) for section in inputs.fallback_sections or ()
-        ),
-        section_titles=tuple(section.title for section in sections if section.title),
-        expected_section_count=len(sections),
-        emitted_block_count=len(emitted_section_chunks),
-        emitted_line_count=len(emitted_lines),
-        consumed_section_count=len(sections),
-        fully_consumed=True,
-        emitted_fallback_lines=emitted_lines,
+        line_start_offset_mm=_FALLBACK_LINE_START_OFFSET_MM,
+        renderer_label="direct Sentinel signing-key shard fallback",
     )
 
 

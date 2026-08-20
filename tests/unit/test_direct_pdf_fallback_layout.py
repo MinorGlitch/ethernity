@@ -16,9 +16,11 @@ from ethernity.render.direct_pdf.fallback_layout import (
     ResponsiveFallbackPageProfile,
     ResponsiveFallbackSpec,
     build_fallback_proof,
+    build_fallback_proof_from_entry_groups,
     fallback_entries,
     fallback_sections,
     paginate_fallback_entries,
+    paginate_single_page_fallback_columns,
     resolve_responsive_fallback_pagination,
 )
 from ethernity.render.direct_pdf.surface import FpdfSurface
@@ -309,6 +311,40 @@ class TestResponsiveFallbackPagination(unittest.TestCase):
                     self.assertEqual(next_entry.display_line_number, 1)
 
 
+class TestSinglePageFallbackColumns(unittest.TestCase):
+    def test_places_entries_column_first(self) -> None:
+        entries = tuple(
+            FallbackLineEntry(section_index=0, line_number=index + 1, text=str(index + 1))
+            for index in range(5)
+        )
+
+        placements = paginate_single_page_fallback_columns(
+            entries,
+            column_count=2,
+            rows_per_column=3,
+            renderer_label="test fallback",
+        )
+
+        self.assertEqual(
+            tuple((placement.row_index, placement.column_index) for placement in placements),
+            ((0, 0), (1, 0), (2, 0), (0, 1), (1, 1)),
+        )
+
+    def test_rejects_entries_beyond_single_page_capacity(self) -> None:
+        entries = tuple(
+            FallbackLineEntry(section_index=0, line_number=index + 1, text=str(index + 1))
+            for index in range(5)
+        )
+
+        with self.assertRaisesRegex(ValueError, "test fallback exceeds the single-page capacity"):
+            paginate_single_page_fallback_columns(
+                entries,
+                column_count=2,
+                rows_per_column=2,
+                renderer_label="test fallback",
+            )
+
+
 class TestFallbackProofValidation(unittest.TestCase):
     def _fixture(
         self,
@@ -352,6 +388,28 @@ class TestFallbackProofValidation(unittest.TestCase):
             proof.emitted_fallback_lines,
             tuple(line for section in sections for line in section.lines),
         )
+
+    def test_build_fallback_proof_accepts_renderer_entry_groups(self) -> None:
+        inputs, sections, pages = self._fixture()
+
+        proof = build_fallback_proof_from_entry_groups(
+            inputs,
+            sections,
+            tuple(tuple(page_entry.entry for page_entry in page.entries) for page in pages),
+        )
+
+        self.assertTrue(proof.fully_consumed)
+        self.assertEqual(
+            proof.emitted_fallback_lines,
+            tuple(line for section in sections for line in section.lines),
+        )
+
+    def test_renderer_entry_groups_must_match_encoded_sections(self) -> None:
+        inputs, sections, pages = self._fixture()
+        entries = tuple(page_entry.entry for page_entry in pages[0].entries)
+
+        with self.assertRaisesRegex(ValueError, "exactly consume section entries"):
+            build_fallback_proof_from_entry_groups(inputs, sections, (entries[:-1],))
 
     def test_build_fallback_proof_rejects_omitted_entry(self) -> None:
         inputs, sections, pages = self._fixture()

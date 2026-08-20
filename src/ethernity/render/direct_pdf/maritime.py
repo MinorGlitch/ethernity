@@ -4,50 +4,53 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import Enum
 
 from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
-from ethernity.qr.codec import QrConfig
 from ethernity.render.direct_pdf.classic_common import (
     ClassicInstructionStyle,
     ClassicLayout,
     ClassicPageStyle,
     ClassicQrGridStyle,
+    ClassicShardFallbackLayout as _MaritimeShardFallbackLayout,
     body_text_style,
+    build_classic_body_zone_constraints,
     build_group_clearance_constraint,
     build_instruction_bullets_section,
     build_instruction_checklist,
     build_instruction_steps_section,
     build_page_background,
+    classic_shard_fallback_capacity,
+    classic_shard_fallback_column_width,
     group_fallback_visual_blocks,
+    group_shard_fallback_column_blocks,
     monospace_text_style,
     resolve_classic_layout,
     resolve_qr_grid,
     title_text_style,
 )
+from ethernity.render.direct_pdf.classic_planner import (
+    build_classic_qr_plan,
+    build_classic_recovery_plan,
+    build_classic_single_qr_fallback_plan,
+    recovery_overflow_meta,
+)
 from ethernity.render.direct_pdf.components import ImageBox, Panel, Rule, TextAlign, TextBox
 from ethernity.render.direct_pdf.fallback_layout import (
     FallbackPage,
-    FallbackPageEntry,
     FallbackSectionLines,
     FallbackTitleEntry,
-    ResponsiveFallbackPageProfile,
     ResponsiveFallbackSpec,
-    build_fallback_proof,
     fallback_capacity,
     fallback_entries,
     fallback_sections,
     measured_fallback_number_width,
     paginate_fallback_entries,
-    resolve_responsive_fallback_pagination,
 )
 from ethernity.render.direct_pdf.page import (
-    ComponentGroup,
     DirectPdfPagePlan,
-    LayoutRegion,
     PaintPlan,
-    SeparationConstraint,
     build_page_plan,
 )
 from ethernity.render.direct_pdf.recovery_metadata import (
@@ -66,16 +69,10 @@ from ethernity.render.direct_pdf.structured_common import (
     StructuredContext,
     StructuredDirectPlan as MaritimeDirectPlan,
     StructuredPlanBuilder,
-    build_artifact_proof,
     build_structured_context,
     component_prefix,
-    paginate_qr_items,
     positive_int,
-    qr_image,
-    qr_payload_items,
     render_structured_plan,
-    resolved_qr_payloads,
-    resolved_single_qr_payload,
     validate_qr_inputs,
     validate_recovery_inputs,
     validate_single_qr_fallback_inputs,
@@ -180,53 +177,6 @@ class _HeaderMetaRow:
     guidance: str = ""
 
 
-@dataclass(frozen=True)
-class _MaritimeShardFallbackLayout:
-    columns: int
-    row_height_mm: float
-    line_length: int
-    body_font_size_pt: float
-    title_font_size_pt: float
-
-
-def _body_zone_constraints(
-    *,
-    prefix: str,
-    header_plans: Sequence[PaintPlan],
-    content_plans: Sequence[PaintPlan],
-    layout: ClassicLayout,
-    header_clearance_mm: float = 2.0,
-    footer_clearance_mm: float = 3.0,
-) -> tuple[SeparationConstraint, ...]:
-    if not header_plans or not content_plans:
-        raise ValueError("Maritime body constraints require header and content plans")
-    header_group = ComponentGroup(
-        group_id=f"{prefix}-header-content",
-        component_ids=tuple(plan.component_id for plan in header_plans),
-    )
-    group = ComponentGroup(
-        group_id=f"{prefix}-body-content",
-        component_ids=tuple(plan.component_id for plan in content_plans),
-    )
-    return (
-        SeparationConstraint(
-            constraint_id=f"{prefix}-header-clearance",
-            first=header_group,
-            second=group,
-            minimum_clearance_mm=header_clearance_mm,
-        ),
-        SeparationConstraint(
-            constraint_id=f"{prefix}-footer-clearance",
-            first=group,
-            second=LayoutRegion(
-                region_id=f"{prefix}-footer-zone",
-                rect=layout.regions.footer,
-            ),
-            minimum_clearance_mm=footer_clearance_mm,
-        ),
-    )
-
-
 def render_maritime_main_direct_pdf(inputs: RenderInputs) -> RenderResult:
     """Render a Maritime main document directly to PDF."""
 
@@ -272,8 +222,6 @@ def build_maritime_main_direct_plan(
         inputs,
         expected_doc_type=DOC_TYPE_MAIN,
     )
-    payloads = resolved_qr_payloads(inputs)
-    items = qr_payload_items(payloads, config=inputs.qr_config or QrConfig())
     context = build_structured_context(inputs, doc_type=DOC_TYPE_MAIN)
     grid = resolve_qr_grid(
         layout,
@@ -287,33 +235,23 @@ def build_maritime_main_direct_plan(
         preferred_rows=_QR_ROWS_PER_PAGE,
         style=_QR_GRID_STYLE,
     )
-    qr_pages = paginate_qr_items(items, capacity=grid.capacity)
-    page_plans = tuple(
-        _build_qr_page(
+    return build_classic_qr_plan(
+        inputs,
+        capacity=grid.capacity,
+        page_builder=lambda qr_page, total_pages, item_count: _build_qr_page(
             surface,
             context,
             qr_page,
             layout=layout,
             grid=grid,
             component_base="maritime-main",
-            total_pages=len(qr_pages),
+            total_pages=total_pages,
             include_subtitle=False,
             include_instructions=True,
             label_prefix="Segment",
-            label_total=len(items),
-        )
-        for qr_page in qr_pages
+            label_total=item_count,
+        ),
     )
-    artifact_proof = build_artifact_proof(
-        inputs,
-        qr_payloads=payloads,
-        encoded_payload_count=len(payloads),
-        physical_qr_count=len(items),
-        physical_qr_payload_indexes=tuple(item.payload_index for item in items),
-        page_count=len(page_plans),
-        fallback_proof=None,
-    )
-    return MaritimeDirectPlan(page_plans=page_plans, artifact_proof=artifact_proof)
 
 
 def build_maritime_recovery_direct_plan(
@@ -337,12 +275,7 @@ def build_maritime_recovery_direct_plan(
         passphrase_pagination.inline_meta,
         layout,
     )
-    overflow_meta = replace(
-        passphrase_pagination.inline_meta,
-        passphrase=None,
-        passphrase_lines=(),
-        passphrase_instructions="",
-    )
+    overflow_meta = recovery_overflow_meta(passphrase_pagination)
     continuation_fallback_area = (
         _recovery_fallback_area(surface, context, overflow_meta, layout)
         if passphrase_pagination.continuation_pages
@@ -368,67 +301,35 @@ def build_maritime_recovery_direct_plan(
         number_padding_mm=_RECOVERY_FALLBACK_NUMBER_PADDING_MM,
         safety_mm=_RECOVERY_FALLBACK_LINE_SAFETY_MM,
     )
-    fallback_pagination = resolve_responsive_fallback_pagination(
+    return build_classic_recovery_plan(
         surface,
-        inputs.fallback_sections or (),
-        first_profile=ResponsiveFallbackPageProfile(
-            area=fallback_area,
-            spec=fallback_spec,
-        ),
-        continuation_profile=ResponsiveFallbackPageProfile(
-            area=continuation_fallback_area,
-            spec=fallback_spec,
-        ),
-    )
-    sections = fallback_pagination.sections
-    fallback_pages = fallback_pagination.pages
-    total_pages = len(fallback_pages) + len(passphrase_pagination.continuation_pages)
-    fallback_page_plans = tuple(
-        _build_recovery_page(
-            surface,
-            context,
-            (
-                passphrase_pagination.inline_meta
-                if fallback_page.page_number == 1 or not passphrase_pagination.continuation_pages
-                else overflow_meta
-            ),
-            fallback_page,
-            layout=layout,
-            fallback_area=(
-                fallback_area
-                if fallback_page.page_number == 1 or not passphrase_pagination.continuation_pages
-                else continuation_fallback_area
-            ),
-            total_pages=total_pages,
-        )
-        for fallback_page in fallback_pages
-    )
-    passphrase_page_plans = tuple(
-        _build_passphrase_continuation_page(
-            surface,
-            context,
-            layout=layout,
-            continuation_page=continuation_page,
-            page_number=len(fallback_pages) + continuation_page.page_index,
-            total_pages=total_pages,
-        )
-        for continuation_page in passphrase_pagination.continuation_pages
-    )
-    page_plans = fallback_page_plans + passphrase_page_plans
-    fallback_proof = build_fallback_proof(inputs, sections, fallback_pages)
-    artifact_proof = build_artifact_proof(
         inputs,
-        qr_payloads=(),
-        encoded_payload_count=len(inputs.qr_payloads or inputs.frames),
-        physical_qr_count=0,
-        physical_qr_payload_indexes=(),
-        page_count=len(page_plans),
-        fallback_proof=fallback_proof,
-    )
-    return MaritimeDirectPlan(
-        page_plans=page_plans,
-        artifact_proof=artifact_proof,
-        fallback_proof=fallback_proof,
+        passphrase_pagination=passphrase_pagination,
+        overflow_meta=overflow_meta,
+        first_fallback_area=fallback_area,
+        continuation_fallback_area=continuation_fallback_area,
+        fallback_spec=fallback_spec,
+        fallback_page_builder=lambda fallback_page, recovery_meta, area, total_pages: (
+            _build_recovery_page(
+                surface,
+                context,
+                recovery_meta,
+                fallback_page,
+                layout=layout,
+                fallback_area=area,
+                total_pages=total_pages,
+            )
+        ),
+        passphrase_page_builder=lambda continuation_page, page_number, total_pages: (
+            _build_passphrase_continuation_page(
+                surface,
+                context,
+                layout=layout,
+                continuation_page=continuation_page,
+                page_number=page_number,
+                total_pages=total_pages,
+            )
+        ),
     )
 
 
@@ -504,8 +405,6 @@ def build_maritime_kit_direct_plan(
         inputs,
         expected_doc_type=DOC_TYPE_KIT,
     )
-    payloads = resolved_qr_payloads(inputs)
-    items = qr_payload_items(payloads, config=inputs.qr_config or QrConfig())
     context = build_structured_context(inputs, doc_type=DOC_TYPE_KIT)
     grid = resolve_qr_grid(
         layout,
@@ -519,10 +418,10 @@ def build_maritime_kit_direct_plan(
         preferred_rows=_QR_ROWS_PER_PAGE,
         style=_QR_GRID_STYLE,
     )
-    qr_pages = paginate_qr_items(items, capacity=grid.capacity)
-    total_pages = len(qr_pages) + 1
-    page_plans = tuple(
-        _build_qr_page(
+    return build_classic_qr_plan(
+        inputs,
+        capacity=grid.capacity,
+        page_builder=lambda qr_page, total_pages, item_count: _build_qr_page(
             surface,
             context,
             qr_page,
@@ -533,30 +432,16 @@ def build_maritime_kit_direct_plan(
             include_subtitle=False,
             include_instructions=False,
             label_prefix="Part",
-            label_total=len(items),
-        )
-        for qr_page in qr_pages
-    )
-    page_plans = (
-        *page_plans,
-        _build_kit_instruction_page(
+            label_total=item_count,
+        ),
+        trailing_page_builder=lambda page_number, total_pages: _build_kit_instruction_page(
             surface,
             context,
             layout=layout,
-            page_number=total_pages,
+            page_number=page_number,
             total_pages=total_pages,
         ),
     )
-    artifact_proof = build_artifact_proof(
-        inputs,
-        qr_payloads=payloads,
-        encoded_payload_count=len(payloads),
-        physical_qr_count=len(items),
-        physical_qr_payload_indexes=tuple(item.payload_index for item in items),
-        page_count=len(page_plans),
-        fallback_proof=None,
-    )
-    return MaritimeDirectPlan(page_plans=page_plans, artifact_proof=artifact_proof)
 
 
 def _build_maritime_single_qr_fallback_plan(
@@ -570,8 +455,6 @@ def _build_maritime_single_qr_fallback_plan(
         inputs,
         expected_doc_type=expected_doc_type,
     )
-    payload = resolved_single_qr_payload(inputs)
-    rendered_qr = qr_image(payload, config=inputs.qr_config or QrConfig())
     context = build_structured_context(inputs, doc_type=expected_doc_type)
     qr_rect, fallback_area = _shard_content_areas(surface, context, layout)
     fallback_layout, sections = _resolve_maritime_shard_fallback(
@@ -581,10 +464,17 @@ def _build_maritime_single_qr_fallback_plan(
     )
     fallback_pages = paginate_fallback_entries(
         fallback_entries(sections),
-        capacity=_shard_fallback_capacity(fallback_area, layout=fallback_layout),
+        capacity=classic_shard_fallback_capacity(
+            fallback_area,
+            layout=fallback_layout,
+            renderer_label="Maritime",
+        ),
     )
-    page_plans = tuple(
-        _build_shard_page(
+    return build_classic_single_qr_fallback_plan(
+        inputs,
+        sections=sections,
+        fallback_pages=fallback_pages,
+        page_builder=lambda fallback_page, rendered_qr, total_pages: _build_shard_page(
             surface,
             context,
             fallback_page,
@@ -593,24 +483,8 @@ def _build_maritime_single_qr_fallback_plan(
             qr_rect=qr_rect,
             fallback_area=fallback_area,
             fallback_layout=fallback_layout,
-            total_pages=len(fallback_pages),
-        )
-        for fallback_page in fallback_pages
-    )
-    fallback_proof = build_fallback_proof(inputs, sections, fallback_pages)
-    artifact_proof = build_artifact_proof(
-        inputs,
-        qr_payloads=(payload,),
-        encoded_payload_count=1,
-        physical_qr_count=len(page_plans),
-        physical_qr_payload_indexes=tuple(0 for _ in page_plans),
-        page_count=len(page_plans),
-        fallback_proof=fallback_proof,
-    )
-    return MaritimeDirectPlan(
-        page_plans=page_plans,
-        artifact_proof=artifact_proof,
-        fallback_proof=fallback_proof,
+            total_pages=total_pages,
+        ),
     )
 
 
@@ -785,11 +659,12 @@ def _build_qr_page(
         page_number=qr_page.page_number,
         rect=layout.page.rect,
         plans=plans,
-        separation_constraints=_body_zone_constraints(
+        separation_constraints=build_classic_body_zone_constraints(
             prefix=prefix,
             header_plans=header_plans,
             content_plans=qr_plans,
             layout=layout,
+            renderer_label="Maritime",
         ),
     )
 
@@ -843,11 +718,12 @@ def _build_recovery_page(
         page_number=fallback_page.page_number,
         rect=layout.page.rect,
         plans=plans,
-        separation_constraints=_body_zone_constraints(
+        separation_constraints=build_classic_body_zone_constraints(
             prefix=prefix,
             header_plans=header_plans,
             content_plans=fallback_plans,
             layout=layout,
+            renderer_label="Maritime",
         ),
     )
 
@@ -933,11 +809,12 @@ def _build_passphrase_continuation_page(
         page_number=page_number,
         rect=layout.page.rect,
         plans=plans,
-        separation_constraints=_body_zone_constraints(
+        separation_constraints=build_classic_body_zone_constraints(
             prefix=prefix,
             header_plans=header_plans,
             content_plans=content_plans,
             layout=layout,
+            renderer_label="Maritime",
         ),
     )
 
@@ -1010,11 +887,12 @@ def _build_shard_page(
         rect=layout.page.rect,
         plans=plans,
         separation_constraints=(
-            *_body_zone_constraints(
+            *build_classic_body_zone_constraints(
                 prefix=prefix,
                 header_plans=header_plans,
                 content_plans=(*qr_plans, *fallback_plans),
                 layout=layout,
+                renderer_label="Maritime",
             ),
             build_group_clearance_constraint(
                 prefix=prefix,
@@ -1621,7 +1499,12 @@ def _resolve_maritime_shard_fallback(
         (_SHARD_FALLBACK_COLUMNS, _SHARD_FALLBACK_ROW_HEIGHT_MM, 6.0, 6.0),
     )
     for columns, row_height_mm, body_font_size_pt, title_font_size_pt in candidates:
-        column_width_mm = _shard_fallback_column_width(area, columns=columns)
+        column_width_mm = classic_shard_fallback_column_width(
+            area,
+            columns=columns,
+            column_gap_mm=_SHARD_FALLBACK_COLUMN_GAP_MM,
+            renderer_label="Maritime",
+        )
         body_style = monospace_text_style(size_pt=body_font_size_pt, color=_INK)
         payload_width_mm = column_width_mm - 1.3 - 6.0 - 0.8 - 1.2
         line_length = measured_grouped_line_length(
@@ -1644,29 +1527,13 @@ def _resolve_maritime_shard_fallback(
             group_size=_FALLBACK_GROUP_SIZE,
             line_length=line_length,
         )
-        if len(fallback_entries(sections)) <= _shard_fallback_capacity(area, layout=layout):
+        if len(fallback_entries(sections)) <= classic_shard_fallback_capacity(
+            area,
+            layout=layout,
+            renderer_label="Maritime",
+        ):
             return layout, sections
     raise ValueError("Maritime shard fallback payload exceeds the responsive one-page capacity")
-
-
-def _shard_fallback_column_width(area: PdfRect, *, columns: int) -> float:
-    if columns <= 0:
-        raise ValueError("Maritime shard fallback columns must be positive")
-    column_width_mm = (area.width_mm - (columns - 1) * _SHARD_FALLBACK_COLUMN_GAP_MM) / columns
-    if column_width_mm <= 0:
-        raise ValueError("Maritime shard fallback columns have no usable width")
-    return column_width_mm
-
-
-def _shard_fallback_capacity(
-    area: PdfRect,
-    *,
-    layout: _MaritimeShardFallbackLayout,
-) -> int:
-    rows_per_column = math.floor(area.height_mm / layout.row_height_mm)
-    if rows_per_column <= 0:
-        raise ValueError("Maritime shard fallback area must fit at least one row per column")
-    return rows_per_column * layout.columns
 
 
 def _visible_shard_fallback_area(
@@ -1697,7 +1564,12 @@ def _shard_fallback_block_plans(
     layout: _MaritimeShardFallbackLayout,
 ) -> list[PaintPlan]:
     rows_per_column = math.floor(area.height_mm / layout.row_height_mm)
-    column_width_mm = _shard_fallback_column_width(area, columns=layout.columns)
+    column_width_mm = classic_shard_fallback_column_width(
+        area,
+        columns=layout.columns,
+        column_gap_mm=_SHARD_FALLBACK_COLUMN_GAP_MM,
+        renderer_label="Maritime",
+    )
     if rows_per_column <= 0 or column_width_mm <= 0:
         raise ValueError("Maritime shard fallback columns have no usable area")
     visible_area = _visible_shard_fallback_area(
@@ -1722,10 +1594,11 @@ def _shard_fallback_block_plans(
             line_width_mm=0.25,
         ).plan(surface, visible_area)
     ]
-    for column_index, block_entries in _shard_fallback_column_blocks(
+    for column_index, block_entries in group_shard_fallback_column_blocks(
         fallback_page,
         rows_per_column=rows_per_column,
         columns=layout.columns,
+        renderer_label="Maritime",
     ):
         column_x_mm = area.x_mm + column_index * (column_width_mm + _SHARD_FALLBACK_COLUMN_GAP_MM)
         number_x_mm = column_x_mm + 1.3
@@ -1795,32 +1668,6 @@ def _shard_fallback_block_plans(
                 )
             )
     return plans
-
-
-def _shard_fallback_column_blocks(
-    fallback_page: FallbackPage,
-    *,
-    rows_per_column: int,
-    columns: int,
-) -> tuple[tuple[int, tuple[FallbackPageEntry, ...]], ...]:
-    blocks: list[tuple[int, tuple[FallbackPageEntry, ...]]] = []
-    current_column = -1
-    current: list[FallbackPageEntry] = []
-    for page_entry in fallback_page.entries:
-        column_index = page_entry.row_index // rows_per_column
-        if column_index >= columns:
-            raise ValueError("Maritime shard fallback page exceeds its measured column capacity")
-        if column_index != current_column or (
-            isinstance(page_entry.entry, FallbackTitleEntry) and current
-        ):
-            if current:
-                blocks.append((current_column, tuple(current)))
-            current = []
-            current_column = column_index
-        current.append(page_entry)
-    if current:
-        blocks.append((current_column, tuple(current)))
-    return tuple(blocks)
 
 
 def _instruction_insert_plans(
