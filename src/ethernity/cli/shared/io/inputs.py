@@ -60,14 +60,32 @@ def load_input_files(
 ) -> tuple[list[InputFile], Path | None, Literal["file", "directory", "mixed"], list[str]]:
     """Load input files while preserving the established CLI progress surface."""
 
-    _synchronize_compatibility_overrides()
-    return _load_input_files(
-        input_paths,
-        input_dirs,
-        base_dir,
-        allow_stdin=allow_stdin,
-        progress=cast(InputLoadProgress | None, progress),
+    original_values = (
+        _file_inputs.os,
+        _file_inputs.sys,
+        _file_inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES,
+        _file_inputs.MAX_MANIFEST_FILES,
+        _file_inputs._read_planned_input_file,
+        _file_inputs.normalize_path,
     )
+    _synchronize_compatibility_overrides()
+    try:
+        return _load_input_files(
+            input_paths,
+            input_dirs,
+            base_dir,
+            allow_stdin=allow_stdin,
+            progress=cast(InputLoadProgress | None, progress),
+        )
+    finally:
+        (
+            _file_inputs.os,
+            _file_inputs.sys,
+            _file_inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES,
+            _file_inputs.MAX_MANIFEST_FILES,
+            _file_inputs._read_planned_input_file,
+            _file_inputs.normalize_path,
+        ) = original_values
 
 
 __all__ = ["load_input_files"]

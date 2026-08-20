@@ -1821,7 +1821,7 @@ def test_textual_app_restore_expected_head_fingerprint_is_real_control() -> None
             await pilot.pause()
 
             assert app.restore_state.expected_head_doc_hash == "head123"
-            assert app.restore_state.to_recover_args().expected_head_doc_hash == "head123"
+            assert app.restore_state.to_recovery_request().expected_head_doc_hash == "head123"
             assert "Latest fingerprint" in _preview_text(app)
             assert "Provided" in _preview_text(app)
 
@@ -1940,7 +1940,7 @@ def test_textual_app_restore_auth_policy_control_is_real() -> None:
             await pilot.pause()
 
             assert app.restore_state.allow_unsigned
-            assert app.restore_state.to_recover_args().allow_unsigned
+            assert app.restore_state.to_recovery_request().allow_unsigned
             assert "Unsigned legacy backups allowed" in _preview_text(app)
             assert not app.query_one("#restore-authentication-status").display
             assert _collapsible_title(app, "#restore-advanced-panel") == (
@@ -1962,7 +1962,7 @@ def test_textual_app_restore_auth_policy_control_is_real() -> None:
             await pilot.pause()
 
             assert app.restore_state.resource_intensive_compatibility_recovery
-            assert app.restore_state.to_recover_args().resource_intensive_compatibility_recovery
+            assert app.restore_state.to_recovery_request().resource_intensive_compatibility_recovery
             assert _collapsible_title(app, "#restore-advanced-panel") == (
                 "Verification - Resource-intensive compatibility enabled"
             )
@@ -1983,7 +1983,7 @@ def test_textual_app_restore_auth_material_control_is_real() -> None:
 
             assert app.restore_state.auth_text_file == Path("auth.txt")
             assert app.restore_state.auth_payloads_file is None
-            assert app.restore_state.to_recover_args().auth_fallback_file == "auth.txt"
+            assert app.restore_state.to_recovery_request().auth_text_file == Path("auth.txt")
             assert "Signature text: auth.txt" in _preview_text(app)
 
             app.query_one("#workspace-restore-auth-material", Select).value = "payloads"
@@ -1992,7 +1992,9 @@ def test_textual_app_restore_auth_material_control_is_real() -> None:
 
             assert app.restore_state.auth_text_file is None
             assert app.restore_state.auth_payloads_file == Path("auth-payloads.json")
-            assert app.restore_state.to_recover_args().auth_payloads_file == "auth-payloads.json"
+            assert app.restore_state.to_recovery_request().auth_payloads_file == Path(
+                "auth-payloads.json"
+            )
 
             app.query_one("#workspace-restore-auth-material", Select).value = "auto"
             await pilot.pause()
@@ -2099,7 +2101,7 @@ def test_textual_app_edit_rebuild_state(monkeypatch: pytest.MonkeyPatch) -> None
             await pilot.pause()
 
             assert app.rebuild_state.qr_chunk_size == 384
-            assert app.rebuild_state.to_compact_args().qr_chunk_size == 384
+            assert app.rebuild_state.to_rebuild_request().qr_chunk_size == 384
             assert "Warning:" in _static_text(app, "#rebuild-advanced-status")
             assert "Custom QR density can change page count" in _preview_text(app)
 
@@ -2123,7 +2125,9 @@ def test_textual_app_rebuild_auth_material_control_is_real() -> None:
 
             assert app.rebuild_state.auth_text_file is None
             assert app.rebuild_state.auth_payloads_file == Path("auth-payloads.json")
-            assert app.rebuild_state.to_compact_args().auth_payloads_file == "auth-payloads.json"
+            assert app.rebuild_state.to_rebuild_request().auth_payloads_file == Path(
+                "auth-payloads.json"
+            )
             assert "Signature payload: auth-payloads.json" in _preview_text(app)
 
             app.query_one("#workspace-rebuild-auth-material", Select).value = "auto"
@@ -2211,7 +2215,8 @@ def test_textual_app_replace_recovery_signing_key_controls_are_real() -> None:
             assert app.replace_recovery_docs_state.mint_signing_key_recovery
             assert app.replace_recovery_docs_state.signing_key_recovery_threshold is None
             assert app.replace_recovery_docs_state.signing_key_recovery_count is None
-            assert app.replace_recovery_docs_state.to_mint_args().mint_signing_key_shards
+            request = app.replace_recovery_docs_state.to_replacement_recovery_request()
+            assert request.mint_signing_key_shards
             assert signing_warning not in _preview_text(app)
             assert _collapsible_title(app, "#replace-signature-panel") == (
                 "Signing-key sheets - Matches recovery sheets"
@@ -2233,7 +2238,7 @@ def test_textual_app_replace_recovery_signing_key_controls_are_real() -> None:
 
             assert app.replace_recovery_docs_state.signing_key_recovery_threshold == 3
             assert app.replace_recovery_docs_state.signing_key_recovery_count == 5
-            args = app.replace_recovery_docs_state.to_mint_args()
+            args = app.replace_recovery_docs_state.to_replacement_recovery_request()
             assert args.signing_key_shard_threshold == 3
             assert args.signing_key_shard_count == 5
             assert app.query_one("#workspace-replace-signing-key-select", Select).value == "custom"
@@ -2248,7 +2253,8 @@ def test_textual_app_replace_recovery_signing_key_controls_are_real() -> None:
             assert not app.replace_recovery_docs_state.mint_signing_key_recovery
             assert app.replace_recovery_docs_state.signing_key_recovery_threshold is None
             assert app.replace_recovery_docs_state.signing_key_recovery_count is None
-            assert not app.replace_recovery_docs_state.to_mint_args().mint_signing_key_shards
+            request = app.replace_recovery_docs_state.to_replacement_recovery_request()
+            assert not request.mint_signing_key_shards
 
     asyncio.run(run())
 
@@ -2277,7 +2283,7 @@ def test_textual_app_replace_recovery_passphrase_replacement_count_is_real() -> 
             state = app.replace_recovery_docs_state
             assert state.mint_passphrase_recovery
             assert state.passphrase_replacement_count == 2
-            assert state.to_mint_args().passphrase_replacement_count == 2
+            assert state.to_replacement_recovery_request().passphrase_replacement_count == 2
             assert app.query_one("#workspace-replace-passphrase-select", Select).value == "replace"
             replacement = app.query_one(
                 "#workflow-replace_recovery_docs-recovery-body-passphrase",
@@ -2312,12 +2318,12 @@ def test_textual_app_replace_recovery_signing_key_payloads_are_real_picker() -> 
             assert app.replace_recovery_docs_state.signing_key_recovery_payload_files == [
                 Path("signing-payloads.txt")
             ]
-            args = app.replace_recovery_docs_state.to_mint_args()
-            assert args.signing_key_shard_payloads_file == ["signing-payloads.txt"]
+            args = app.replace_recovery_docs_state.to_replacement_recovery_request()
+            assert args.signing_key_shard_payload_files == (Path("signing-payloads.txt"),)
             assert "1 key payload file" in _checklist_text(app)
 
             assert app.replace_recovery_docs_state.signing_key_replacement_count == 1
-            args = app.replace_recovery_docs_state.to_mint_args()
+            args = app.replace_recovery_docs_state.to_replacement_recovery_request()
             assert args.mint_signing_key_shards
             assert args.signing_key_replacement_count == 1
             assert "1 replacement sheet" in _checklist_text(app)
@@ -2444,7 +2450,7 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
             await pilot.pause()
 
             assert app.backup_state.qr_chunk_size == 384
-            assert app.backup_state.to_backup_args().qr_chunk_size == 384
+            assert app.backup_state.to_backup_request().qr_chunk_size == 384
             assert "Warning:" in _static_text(app, "#backup-advanced-status")
             assert "384 bytes" in _workspace_text(app)
             assert "Custom QR density can change page count" in _preview_text(app)

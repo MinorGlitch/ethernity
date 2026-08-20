@@ -22,8 +22,6 @@ import hashlib
 import json
 from dataclasses import replace
 
-from ethernity.cli.features.backup.service import PreparedBackupRun
-from ethernity.cli.shared.types import InputFile
 from ethernity.crypto import signing as signing_module
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.formats import envelope_codec, payload_codec as payload_codec_module
@@ -34,12 +32,14 @@ from ethernity.formats.manifest_debug import (
 )
 from ethernity.render.recovery_lines import format_grouped_lines, format_hex_lines
 from ethernity.tasks.models import TaskDiagnosticBlock, TaskDiagnostics
+from ethernity.workflows.execution import BackupPreparation
+from ethernity.workflows.shared.file_inputs import InputFile
 
 DEFAULT_DEBUG_MAX_BYTES = 1024
 
 
 def build_backup_internals_diagnostics(
-    prepared: PreparedBackupRun,
+    prepared: BackupPreparation,
     *,
     passphrase: str | None,
     max_bytes: int | None = DEFAULT_DEBUG_MAX_BYTES,
@@ -99,7 +99,7 @@ def build_backup_internals_diagnostics(
 
 
 def _prepare_debug_envelope(
-    prepared: PreparedBackupRun,
+    prepared: BackupPreparation,
     sign_priv: bytes,
 ) -> tuple[bytes, bytes, EnvelopeManifest, bytes]:
     parts = [

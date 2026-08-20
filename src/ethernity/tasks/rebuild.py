@@ -20,8 +20,6 @@ from pathlib import Path
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from ethernity.cli.features.compact.service import run_compact
-from ethernity.cli.shared.types import CompactArgs
 from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
@@ -51,6 +49,7 @@ from ethernity.tasks.source_assessment import (
     folder_or_scans_source_request,
     source_freshness_status,
 )
+from ethernity.workflows.execution import RebuildRequest, execute_rebuild
 
 
 class RebuildTaskState(SourceAssessableTaskState):
@@ -266,12 +265,12 @@ class RebuildTaskState(SourceAssessableTaskState):
             message = first_issue.message if first_issue is not None else "Rebuild is not ready."
             raise ValueError(message)
 
-        result = run_compact(self.to_compact_args(quiet=True))
+        result = execute_rebuild(self.to_rebuild_request())
         output_paths = (
-            Path(result.qr_path),
-            Path(result.recovery_path),
-            *[Path(path) for path in result.shard_paths],
-            *[Path(path) for path in result.signing_key_shard_paths],
+            result.qr_path,
+            result.recovery_path,
+            *result.shard_paths,
+            *result.signing_key_shard_paths,
         )
         if result.kit_index_path is not None:
             output_paths = (*output_paths, Path(result.kit_index_path))
@@ -288,27 +287,22 @@ class RebuildTaskState(SourceAssessableTaskState):
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:
         return self.validate_task().issues
 
-    def to_compact_args(self, *, quiet: bool = False) -> CompactArgs:
-        return CompactArgs(
-            config=str(self.config_path) if self.config_path is not None else None,
-            root_dir=str(self.backup_folder) if self.backup_folder is not None else None,
-            scan=[str(path) for path in self.source_paths],
-            output_dir=str(self.output_dir) if self.output_dir is not None else None,
+    def to_rebuild_request(self) -> RebuildRequest:
+        return RebuildRequest(
+            config_path=self.config_path,
+            backup_folder=self.backup_folder,
+            scan_paths=tuple(self.source_paths),
+            output_dir=self.output_dir,
             passphrase=self.passphrase,
-            shard_scan=[str(path) for path in self.recovery_documents],
-            shard_payloads_file=[str(path) for path in self.recovery_payload_files],
-            auth_fallback_file=(
-                str(self.auth_text_file) if self.auth_text_file is not None else None
-            ),
-            auth_payloads_file=(
-                str(self.auth_payloads_file) if self.auth_payloads_file is not None else None
-            ),
+            shard_scan_paths=tuple(self.recovery_documents),
+            shard_payload_files=tuple(self.recovery_payload_files),
+            auth_text_file=self.auth_text_file,
+            auth_payloads_file=self.auth_payloads_file,
             expected_head_doc_hash=self.expected_head_doc_hash,
             allow_stale_head=self.allow_stale_head,
-            paper=self.paper_size,
+            paper_size=self.paper_size,
             design=self.design,
             qr_chunk_size=self.qr_chunk_size,
-            quiet=quiet,
         )
 
     def _has_exactly_one_source(self) -> bool:

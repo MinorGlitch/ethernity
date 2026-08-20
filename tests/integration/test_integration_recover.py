@@ -23,8 +23,6 @@ import segno
 import zxingcpp  # noqa: F401
 from PIL import Image  # noqa: F401
 
-from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
-from ethernity.cli.shared.types import RecoverArgs
 from ethernity.config.install import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
@@ -45,6 +43,8 @@ from ethernity.formats.envelope_codec import (
 from ethernity.formats.envelope_types import PAYLOAD_CODEC_GZIP, PayloadPart
 from ethernity.formats.payload_codec import encode_payload_for_manifest
 from ethernity.render.fallback_text import format_zbase32_lines
+from ethernity.workflows.recovery.service import execute_recover_plan, prepare_recover_plan
+from ethernity.workflows.shared.operation_types import RecoverArgs
 from tests.test_support import suppress_output
 
 TEST_SIGNING_SEED = b"\x11" * 32

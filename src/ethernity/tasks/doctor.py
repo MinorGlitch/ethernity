@@ -4,7 +4,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from ethernity.cli.features.doctor.service import reconcile_publication_transactions
 from ethernity.tasks.models import (
     PreviewItem,
     TaskExecutionPlan,
@@ -15,6 +14,7 @@ from ethernity.tasks.models import (
     TaskSection,
     TaskValidation,
 )
+from ethernity.workflows.execution import DoctorRequest, execute_doctor
 
 
 class DoctorTaskState(BaseModel):
@@ -102,10 +102,12 @@ class DoctorTaskState(BaseModel):
         validation = self.validate_task()
         if not validation.ready or self.backup_folder is None:
             raise ValueError(validation.issues[0].message)
-        result = reconcile_publication_transactions(
-            self.backup_folder,
-            passphrase=self.passphrase,
-            repair=self.repair,
+        result = execute_doctor(
+            DoctorRequest(
+                backup_folder=self.backup_folder,
+                passphrase=self.passphrase,
+                repair=self.repair,
+            )
         )
         repaired = sum(1 for item in result.transactions if item.action != "none")
         return TaskExecutionResult(

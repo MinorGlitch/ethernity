@@ -20,8 +20,6 @@ from pathlib import Path
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from ethernity.cli.features.mint.workflow import execute_mint
-from ethernity.cli.shared.types import MintArgs
 from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
@@ -56,6 +54,10 @@ from ethernity.tasks.source_assessment import (
     SourceAssessmentRequest,
     recovery_source_request,
     source_freshness_status,
+)
+from ethernity.workflows.execution import (
+    ReplacementRecoveryRequest,
+    execute_replacement_recovery,
 )
 
 SIGNING_KEY_RECOVERY_OFF_WARNING = (
@@ -430,10 +432,10 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             )
             raise ValueError(message)
 
-        result = execute_mint(self.to_mint_args(quiet=True))
+        result = execute_replacement_recovery(self.to_replacement_recovery_request())
         output_paths = (
-            *[Path(path) for path in result.shard_paths],
-            *[Path(path) for path in result.signing_key_shard_paths],
+            *result.shard_paths,
+            *result.signing_key_shard_paths,
         )
         return TaskExecutionResult(
             ok=True,
@@ -444,31 +446,28 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:
         return self.validate_task().issues
 
-    def to_mint_args(self, *, quiet: bool = False) -> MintArgs:
-        return MintArgs(
-            config=str(self.config_path) if self.config_path is not None else None,
-            paper=self.paper_size,
+    def to_replacement_recovery_request(self) -> ReplacementRecoveryRequest:
+        return ReplacementRecoveryRequest(
+            config_path=self.config_path,
+            paper_size=self.paper_size,
             design=self.design,
-            fallback_file=(
-                str(self.recovery_text_file)
+            recovery_text_file=(
+                self.recovery_text_file
                 if self.recovery_text_file is not None and not self.recovery_text
                 else None
             ),
-            payloads_file=str(self.payloads_file) if self.payloads_file else None,
-            frames=recovery_text_frames(self.recovery_text, quiet=quiet),
+            payloads_file=self.payloads_file,
+            frames=tuple(recovery_text_frames(self.recovery_text, quiet=True) or ()),
             input_label="Pasted recovery text" if self.recovery_text else None,
             input_detail=recovery_text_summary(self.recovery_text) if self.recovery_text else None,
-            scan=[str(path) for path in self.source_paths],
+            scan_paths=tuple(self.source_paths),
             passphrase=self.passphrase,
-            shard_scan=[str(path) for path in self.recovery_documents],
-            shard_payloads_file=[str(path) for path in self.recovery_payload_files],
-            signing_key_shard_payloads_file=[
-                str(path) for path in self.signing_key_recovery_payload_files
-            ],
+            shard_scan_paths=tuple(self.recovery_documents),
+            shard_payload_files=tuple(self.recovery_payload_files),
+            signing_key_shard_payload_files=tuple(self.signing_key_recovery_payload_files),
             expected_head_doc_hash=self.expected_head_doc_hash,
             allow_stale_head=self.allow_stale_head,
-            output_dir=str(self.output_dir) if self.output_dir is not None else None,
-            output_dir_existing_parent=False,
+            output_dir=self.output_dir,
             shard_threshold=self.recovery_threshold,
             shard_count=self.recovery_document_count,
             signing_key_shard_threshold=self.signing_key_recovery_threshold,
@@ -477,7 +476,6 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             signing_key_replacement_count=self.signing_key_replacement_count,
             mint_passphrase_shards=self.mint_passphrase_recovery,
             mint_signing_key_shards=self._creates_signing_key_recovery(),
-            quiet=quiet,
         )
 
     def _read_paths(self) -> tuple[Path, ...]:

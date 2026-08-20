@@ -62,8 +62,8 @@ def test_recovery_source_assessment_exposes_identity_and_document_count(monkeypa
         ),
     )
     monkeypatch.setattr(
-        "ethernity.tasks.source_assessment.inspect_recovery_from_args",
-        lambda _args: inspection,
+        "ethernity.tasks.source_assessment.inspect_recovery",
+        lambda _request: inspection,
     )
 
     assessment = assess_source_request(request)

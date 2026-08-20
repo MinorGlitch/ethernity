@@ -227,8 +227,8 @@ def test_run_backup_yes_executes_task_model(monkeypatch) -> None:
     assert calls[0].input_paths
     assert calls[0].qr_chunk_size == 384
     assert calls[0].passphrase_words == 18
-    assert calls[0].to_backup_args().qr_chunk_size == 384
-    assert calls[0].to_backup_args().passphrase_words == 18
+    assert calls[0].to_backup_request().qr_chunk_size == 384
+    assert calls[0].to_backup_request().passphrase_words == 18
     assert "Backup documents created." in result.output
 
 
@@ -255,7 +255,7 @@ def test_run_backup_yes_uses_automatic_output_folder_when_unset(monkeypatch) -> 
     assert result.exit_code == 0
     assert len(calls) == 1
     assert calls[0].output_dir is None
-    assert calls[0].to_backup_args().output_dir is None
+    assert calls[0].to_backup_request().output_dir is None
     assert "Backup documents created." in result.output
 
 
@@ -285,8 +285,8 @@ def test_run_backup_zero_recovery_count_disables_passphrase_shards(monkeypatch) 
     assert len(calls) == 1
     assert calls[0].recovery_method == "single_phrase"
     assert calls[0].shard_count == 0
-    assert calls[0].to_backup_args().shard_threshold is None
-    assert calls[0].to_backup_args().shard_count is None
+    assert calls[0].to_backup_request().shard_threshold is None
+    assert calls[0].to_backup_request().shard_count is None
 
 
 def test_run_backup_json_yes_executes_task_model(monkeypatch) -> None:
@@ -379,10 +379,10 @@ def test_run_restore_yes_executes_task_model(monkeypatch) -> None:
     assert len(calls) == 1
     assert calls[0].source_paths
     assert calls[0].auth_text_file == Path("auth.txt")
-    assert calls[0].to_recover_args().auth_fallback_file == "auth.txt"
+    assert calls[0].to_recovery_request().auth_text_file == Path("auth.txt")
     assert calls[0].passphrase == "secret"
     assert calls[0].resource_intensive_compatibility_recovery
-    assert calls[0].to_recover_args().resource_intensive_compatibility_recovery
+    assert calls[0].to_recovery_request().resource_intensive_compatibility_recovery
     assert "Recovered files written." in result.output
 
 
@@ -515,13 +515,13 @@ def test_run_rebuild_yes_executes_task_model(monkeypatch) -> None:
     assert len(calls) == 1
     assert str(calls[0].output_dir) == "rebuilt"
     assert calls[0].auth_payloads_file == Path("auth-payloads.json")
-    assert calls[0].to_compact_args().auth_payloads_file == "auth-payloads.json"
+    assert calls[0].to_rebuild_request().auth_payloads_file == Path("auth-payloads.json")
     assert calls[0].qr_chunk_size == 384
-    assert calls[0].to_compact_args().qr_chunk_size == 384
+    assert calls[0].to_rebuild_request().qr_chunk_size == 384
     assert calls[0].paper_size == "LETTER"
     assert calls[0].design == "forge"
-    assert calls[0].to_compact_args().paper == "LETTER"
-    assert calls[0].to_compact_args().design == "forge"
+    assert calls[0].to_rebuild_request().paper_size == "LETTER"
+    assert calls[0].to_rebuild_request().design == "forge"
     assert "Rebuilt backup documents created." in result.output
 
 

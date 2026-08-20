@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from multiprocessing import resource_tracker
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from typing import TypeVar, cast
@@ -48,6 +49,15 @@ class DisposableWorkerError(RuntimeError):
 _active_workers: set[BaseProcess] = set()
 _active_workers_lock = threading.Lock()
 _windows_job_handle: int | None = None
+
+
+def prepare_disposable_worker_runtime() -> None:
+    """Start POSIX spawn support before terminal UI stream redirection begins."""
+
+    if os.name == "nt":
+        return
+    with _active_workers_lock:
+        resource_tracker.ensure_running()
 
 
 def run_disposable_worker(

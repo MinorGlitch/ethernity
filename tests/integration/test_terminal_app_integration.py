@@ -31,7 +31,13 @@ async def _run_final_review(app: EthernityApp, pilot: Any) -> None:
     await pilot.click("#review-execute")
     for _ in range(120):
         await pilot.pause(0.1)
-        if app._last_execution_result is not None:
+        result = app._last_execution_result
+        if result is not None:
+            if not result.ok:
+                screen = app.screen
+                error = getattr(screen, "_error", None)
+                detail = getattr(screen, "_error_detail", None)
+                raise AssertionError(f"task failed: {error}; {detail}")
             return
     raise AssertionError("task did not finish")
 

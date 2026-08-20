@@ -21,7 +21,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ethernity.cli.features.kit.workflow import DEFAULT_KIT_OUTPUT, render_kit_qr_document
 from ethernity.page_sizes import (
     DEFAULT_PAPER_SIZE_NAME,
     PaperSizeName,
@@ -44,6 +43,11 @@ from ethernity.tasks.output_checks import (
     selected_output_status,
 )
 from ethernity.tasks.page_layout import KIT_RENDER_DOC_TYPES, require_workflow_page_size
+from ethernity.workflows.execution import (
+    DEFAULT_KIT_OUTPUT,
+    KitRequest,
+    execute_kit,
+)
 
 KitVariant = Literal["lean", "scanner"]
 
@@ -153,14 +157,15 @@ class PrintKitTaskState(BaseModel):
         if not validation.ready:
             raise ValueError(validation.issues[0].message)
 
-        result = render_kit_qr_document(
-            output_path=self.output_path,
-            config_path=self.config_path,
-            paper_size=self.paper_size,
-            design=self.design,
-            variant=self.variant,
-            chunk_size=self.chunk_size,
-            quiet=True,
+        result = execute_kit(
+            KitRequest(
+                output_path=self.output_path,
+                config_path=self.config_path,
+                paper_size=self.paper_size,
+                design=self.design,
+                variant=self.variant,
+                chunk_size=self.chunk_size,
+            )
         )
         return TaskExecutionResult(
             ok=True,

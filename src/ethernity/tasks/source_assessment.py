@@ -9,25 +9,25 @@ from typing import Literal
 
 from pydantic import BaseModel, PrivateAttr
 
-from ethernity.cli.features.recover.planning import (
-    RecoveryInspection,
-    inspect_from_args as inspect_recovery_from_args,
-)
-from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.io.frames import frames_from_fallback_text
-from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.cli.shared.types import RecoverArgs
 from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.encoding.framing import FrameType
 from ethernity.tasks.file_summary import display_path
 from ethernity.tasks.models import TaskIssue, TaskSectionStatus
 from ethernity.tasks.presentation.recovery import pasted_text_summary
+from ethernity.workflows.execution import (
+    RecoveryRequest,
+    WorkflowExecutionError,
+    inspect_recovery,
+)
 from ethernity.workflows.extension.errors import ExtensionIssue, ExtensionWorkflowError
 from ethernity.workflows.extension.planning import (
     ExtendInspection,
     inspect_from_args as inspect_extend_from_args,
 )
 from ethernity.workflows.extension.request import ExtensionRequest
+from ethernity.workflows.recovery.frame_inputs import frames_from_fallback_text
+from ethernity.workflows.recovery.models import RecoveryInspection
+from ethernity.workflows.shared import api_codes
 
 SourceKind = Literal["backup_folder", "scanned_pages", "recovery_text", "payload_files"]
 
@@ -290,9 +290,9 @@ def assess_source_request(request: SourceAssessmentRequest) -> SourceAssessment:
                     )
                 )
                 return _assessment_from_extend(request, inspection)
-            inspection = inspect_recovery_from_args(_recover_args(request))
+            inspection = inspect_recovery(_recovery_request(request))
             return _assessment_from_recovery(request, inspection)
-    except (ApiCommandError, ExtensionWorkflowError) as exc:
+    except (WorkflowExecutionError, ExtensionWorkflowError) as exc:
         return _failed_assessment(request, code=exc.code, message=exc.message)
     except (OSError, RuntimeError, ValueError) as exc:
         return _failed_assessment(
@@ -302,31 +302,29 @@ def assess_source_request(request: SourceAssessmentRequest) -> SourceAssessment:
         )
 
 
-def _recover_args(request: SourceAssessmentRequest) -> RecoverArgs:
-    frames = None
+def _recovery_request(request: SourceAssessmentRequest) -> RecoveryRequest:
+    frames = ()
     if request.recovery_text:
         frames = frames_from_fallback_text(
             request.recovery_text,
             allow_invalid_auth=request.allow_unsigned,
-            quiet=True,
-        )
-    return RecoverArgs(
-        config=_path_text(request.config_path),
+        ).frames
+    return RecoveryRequest(
+        config_path=request.config_path,
         frames=frames,
-        fallback_file=(
-            _path_text(request.recovery_text_file)
+        recovery_text_file=(
+            request.recovery_text_file
             if request.recovery_text_file is not None and not request.recovery_text
             else None
         ),
-        payloads_file=_path_text(request.payloads_file),
-        scan=[str(path) for path in request.scan_paths] or None,
-        auth_fallback_file=_path_text(request.auth_text_file),
-        auth_payloads_file=_path_text(request.auth_payloads_file),
+        payloads_file=request.payloads_file,
+        scan_paths=request.scan_paths,
+        auth_text_file=request.auth_text_file,
+        auth_payloads_file=request.auth_payloads_file,
         allow_unsigned=request.allow_unsigned,
         resource_intensive_compatibility_recovery=(
             request.resource_intensive_compatibility_recovery
         ),
-        quiet=True,
     )
 
 

@@ -21,9 +21,6 @@ from typing import Literal
 
 from pydantic import ConfigDict, Field
 
-from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
-from ethernity.cli.shared.types import RecoverArgs
-from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
@@ -50,6 +47,7 @@ from ethernity.tasks.source_assessment import (
     SourceAssessmentRequest,
     recovery_source_request,
 )
+from ethernity.workflows.execution import RecoveryRequest, execute_recovery
 
 RestoreTarget = Literal["latest", "original", "specific_update"]
 RESTORE_DESTINATION_NON_EMPTY_WARNING = (
@@ -295,17 +293,11 @@ class RestoreTaskState(SourceAssessableTaskState):
             message = first_issue.message if first_issue is not None else "Restore is not ready."
             raise ValueError(message)
 
-        args = self.to_recover_args(assume_yes=True, quiet=True)
-        with recovery_kdf_budget(
-            allow_resource_intensive_compatibility=(self.resource_intensive_compatibility_recovery)
-        ):
-            plan = prepare_recover_plan(args)
-            result = execute_recover_plan(plan, quiet=True)
-        output_paths = tuple(Path(path) for path in result.written_paths)
+        result = execute_recovery(self.to_recovery_request())
         return TaskExecutionResult(
             ok=True,
             message="Recovered files written.",
-            output_paths=output_paths,
+            output_paths=result.written_paths,
         )
 
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:
@@ -339,40 +331,37 @@ class RestoreTaskState(SourceAssessableTaskState):
             return RESTORE_DESTINATION_NON_EMPTY_WARNING
         return None
 
-    def to_recover_args(self, *, assume_yes: bool = False, quiet: bool = False) -> RecoverArgs:
-        return RecoverArgs(
-            config=str(self.config_path) if self.config_path is not None else None,
-            frames=recovery_text_frames(
-                self.recovery_text,
-                allow_invalid_auth=self.allow_unsigned,
-                quiet=quiet,
+    def to_recovery_request(self) -> RecoveryRequest:
+        return RecoveryRequest(
+            config_path=self.config_path,
+            frames=tuple(
+                recovery_text_frames(
+                    self.recovery_text,
+                    allow_invalid_auth=self.allow_unsigned,
+                    quiet=True,
+                )
+                or ()
             ),
-            fallback_file=(
-                str(self.recovery_text_file)
+            recovery_text_file=(
+                self.recovery_text_file
                 if self.recovery_text_file is not None and not self.recovery_text
                 else None
             ),
-            payloads_file=str(self.payloads_file) if self.payloads_file is not None else None,
-            scan=[str(path) for path in self.source_paths] or None,
+            payloads_file=self.payloads_file,
+            scan_paths=tuple(self.source_paths),
             passphrase=self.passphrase,
-            shard_scan=[str(path) for path in self.recovery_documents] or None,
-            shard_payloads_file=[str(path) for path in self.recovery_payload_files] or None,
-            auth_fallback_file=(
-                str(self.auth_text_file) if self.auth_text_file is not None else None
-            ),
-            auth_payloads_file=(
-                str(self.auth_payloads_file) if self.auth_payloads_file is not None else None
-            ),
+            shard_scan_paths=tuple(self.recovery_documents),
+            shard_payload_files=tuple(self.recovery_payload_files),
+            auth_text_file=self.auth_text_file,
+            auth_payloads_file=self.auth_payloads_file,
             extension_index=self._recover_extension_index(),
             extension_doc_hash=self.extension_doc_hash,
             expected_head_doc_hash=self.expected_head_doc_hash,
-            output=str(self.output_path) if self.output_path is not None else None,
+            output_path=self.output_path,
             allow_unsigned=self.allow_unsigned,
             resource_intensive_compatibility_recovery=(
                 self.resource_intensive_compatibility_recovery
             ),
-            assume_yes=assume_yes,
-            quiet=quiet,
         )
 
     def _read_paths(self) -> tuple[Path, ...]:

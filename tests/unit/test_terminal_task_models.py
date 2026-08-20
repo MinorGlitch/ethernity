@@ -249,7 +249,7 @@ def test_backup_task_rejects_invalid_custom_shard_counts() -> None:
 def test_backup_task_accepts_zero_count_only_for_passphrase_recovery() -> None:
     state = BackupTaskState(recovery_method="single_phrase", shard_count=0)
 
-    args = state.to_backup_args()
+    args = state.to_backup_request()
 
     assert args.shard_threshold is None
     assert args.shard_count is None
@@ -278,7 +278,7 @@ def test_backup_task_exposes_and_validates_advanced_signing_key_options() -> Non
 
     validation = state.validate_task()
     preview = state.preview()
-    args = state.to_backup_args()
+    args = state.to_backup_request()
 
     assert validation.ready
     assert "5 key sheets, any 3 required" in validation.sections[-1].summary
@@ -294,7 +294,7 @@ def test_backup_task_exposes_and_validates_advanced_signing_key_options() -> Non
     assert args.signing_key_shard_threshold == 3
     assert args.signing_key_shard_count == 5
     assert args.passphrase_words == 18
-    assert args.base_dir == "."
+    assert args.base_dir == Path(".")
     assert args.qr_chunk_size == 384
 
 
@@ -396,7 +396,7 @@ def test_restore_task_exposes_unsigned_legacy_recovery_policy() -> None:
     )
 
     preview = state.preview()
-    args = state.to_recover_args()
+    args = state.to_recovery_request()
 
     auth_item = next(item for item in preview.items if item.label == "Signature check")
 
@@ -413,7 +413,7 @@ def test_restore_task_exposes_resource_intensive_compatibility_policy() -> None:
     )
 
     preview = state.preview()
-    args = state.to_recover_args()
+    args = state.to_recovery_request()
 
     assert args.resource_intensive_compatibility_recovery
     assert any(
@@ -431,13 +431,13 @@ def test_restore_task_exposes_auth_material_inputs() -> None:
 
     validation = state.validate_task()
     preview = state.preview()
-    args = state.to_recover_args()
+    args = state.to_recovery_request()
 
     assert validation.ready
     assert next(item.detail for item in preview.items if item.label == "Verification source") == (
         "Signature text: auth.txt"
     )
-    assert args.auth_fallback_file == "auth.txt"
+    assert args.auth_text_file == Path("auth.txt")
     assert args.auth_payloads_file is None
 
 
@@ -449,11 +449,10 @@ def test_restore_task_accepts_pasted_recovery_text() -> None:
     )
 
     validation = state.validate_task()
-    args = state.to_recover_args()
+    args = state.to_recovery_request()
 
     assert validation.ready
-    assert args.fallback_file is None
-    assert args.frames is not None
+    assert args.recovery_text_file is None
     assert len(args.frames) == 1
 
 
@@ -637,9 +636,9 @@ def test_rebuild_task_ready_with_folder_passphrase_and_output() -> None:
     assert preview.title == "Rebuilt backup to create"
     credentials = next(item for item in preview.items if item.label == "Credentials")
     assert credentials.detail == "Same passphrase and signing key"
-    args = state.to_compact_args()
-    assert args.root_dir == "backup-out"
-    assert args.output_dir == "rebuilt"
+    args = state.to_rebuild_request()
+    assert args.backup_folder == Path("backup-out")
+    assert args.output_dir == Path("rebuilt")
 
     plan = state.execution_plan()
     assert "newest valid version in the material you loaded" in plan.trust_notes[1]
@@ -657,14 +656,14 @@ def test_rebuild_task_exposes_auth_material_inputs() -> None:
 
     validation = state.validate_task()
     preview = state.preview()
-    args = state.to_compact_args()
+    args = state.to_rebuild_request()
 
     assert validation.ready
     assert next(item.detail for item in preview.items if item.label == "Verification source") == (
         "Signature payload: auth-payloads.json"
     )
-    assert args.auth_fallback_file is None
-    assert args.auth_payloads_file == "auth-payloads.json"
+    assert args.auth_text_file is None
+    assert args.auth_payloads_file == Path("auth-payloads.json")
 
 
 def test_rebuild_task_exposes_qr_chunk_size_override() -> None:
@@ -677,7 +676,7 @@ def test_rebuild_task_exposes_qr_chunk_size_override() -> None:
 
     validation = state.validate_task()
     preview = state.preview()
-    args = state.to_compact_args()
+    args = state.to_rebuild_request()
 
     assert validation.ready
     assert next(item.detail for item in preview.items if item.label == "QR density") == (
@@ -732,9 +731,9 @@ def test_replace_recovery_docs_task_ready_with_scan_passphrase_and_output() -> N
 
     assert validation.ready
     assert preview.title == "Replacement recovery sheets to create"
-    args = state.to_mint_args()
-    assert args.scan == ["scans"]
-    assert args.output_dir == "replacement-docs"
+    args = state.to_replacement_recovery_request()
+    assert args.scan_paths == (Path("scans"),)
+    assert args.output_dir == Path("replacement-docs")
     assert args.shard_threshold == 2
     assert args.shard_count == 3
     assert args.mint_passphrase_shards
@@ -751,13 +750,13 @@ def test_replace_recovery_docs_signing_key_count_enables_signing_key_replacement
         signing_key_replacement_count=1,
     )
 
-    args = state.to_mint_args()
+    args = state.to_replacement_recovery_request()
     preview = state.preview()
 
     assert not args.mint_passphrase_shards
     assert args.mint_signing_key_shards
     assert args.signing_key_replacement_count == 1
-    assert args.signing_key_shard_payloads_file == ["signing_payloads.txt"]
+    assert args.signing_key_shard_payload_files == (Path("signing_payloads.txt"),)
     assert any(item.label == "Existing key payloads" for item in preview.items)
 
 
@@ -769,11 +768,10 @@ def test_replace_recovery_docs_accepts_pasted_recovery_text() -> None:
     )
 
     validation = state.validate_task()
-    args = state.to_mint_args()
+    args = state.to_replacement_recovery_request()
 
     assert validation.ready
-    assert args.fallback_file is None
-    assert args.frames is not None
+    assert args.recovery_text_file is None
     assert len(args.frames) == 1
     assert args.input_label == "Pasted recovery text"
 
@@ -789,7 +787,7 @@ def test_replace_recovery_docs_signing_key_recovery_outputs_preview_and_args() -
     )
 
     preview = state.preview()
-    args = state.to_mint_args()
+    args = state.to_replacement_recovery_request()
 
     assert any(item.label == "Signing-key sheets" for item in preview.items)
     assert args.mint_signing_key_shards

@@ -23,8 +23,6 @@ from typing import Literal
 
 from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
-from ethernity.cli.features.extension_reporting import CliExtensionReporter
-from ethernity.cli.shared import api_codes
 from ethernity.config import load_cli_defaults, resolve_config_snapshot_path
 from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
 from ethernity.extensions.layout import canonical_extension_dir_name, loose_extension_dir_name
@@ -69,6 +67,7 @@ from ethernity.workflows.extension.service import (
     assess_extension,
     execute_extension,
 )
+from ethernity.workflows.shared import api_codes
 
 AddFilesUnlockPolicy = Literal["self-contained", "reuse-root"]
 AddFilesSigningKeyMode = Literal["not-stored", "sharded"]
@@ -489,7 +488,6 @@ class AddFilesTaskState(SourceAssessableTaskState):
                 assessed=cache.assessed,
             ),
             config_path=str(self.config_path) if self.config_path is not None else None,
-            reporter=CliExtensionReporter(quiet=False),
         )
         if not execution.ok or execution.executed is None:
             issue = execution.issues[0]

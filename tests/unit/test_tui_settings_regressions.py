@@ -51,10 +51,10 @@ def test_saved_settings_hydrate_all_workflow_effective_defaults(tmp_path: Path) 
     )
 
     backup = app.backup_state
-    backup_args = backup.to_backup_args()
+    backup_args = backup.to_backup_request()
     assert backup.validate_task().ready
     assert backup.design == backup_args.design == "forge"
-    assert backup.paper_size == backup_args.paper == "LETTER"
+    assert backup.paper_size == backup_args.paper_size == "LETTER"
     assert backup.output_dir == Path(backup_args.output_dir or "") == tmp_path / "backup-out"
     assert (backup.shard_threshold, backup.shard_count) == (3, 5)
     assert (backup_args.shard_threshold, backup_args.shard_count) == (3, 5)
@@ -65,7 +65,7 @@ def test_saved_settings_hydrate_all_workflow_effective_defaults(tmp_path: Path) 
     assert backup.qr_chunk_size is backup_args.qr_chunk_size is None
 
     assert app.restore_state.output_path == tmp_path / "recovered"
-    assert app.restore_state.to_recover_args().output == str(tmp_path / "recovered")
+    assert app.restore_state.to_recovery_request().output_path == tmp_path / "recovered"
     assert app.add_files_state.base_dir == tmp_path / "updates"
     assert app.add_files_state.unlock_policy == "reuse-root"
     assert app.add_files_state.to_extension_request().unlock_policy == "reuse-root"

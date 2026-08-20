@@ -2618,7 +2618,9 @@ class TestExtendService(unittest.TestCase):
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.shard_validation.shard_frames_from_scan",
-                    side_effect=lambda paths, **_kwargs: shard_frames_by_path[str(paths[0])],
+                    side_effect=lambda paths, **_kwargs: FrameInputResult(
+                        frames=tuple(shard_frames_by_path[str(paths[0])])
+                    ),
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.shard_validation.validate_pdf_has_pages",
@@ -2650,6 +2652,14 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.workflows.extension.main_carrier_validation."
                     "validate_fallback_text_in_pdf",
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.execution."
+                    "validate_staged_chain_bound_kit_carrier"
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.execution."
+                    "validate_staged_recovery_kit_index_document"
                 ),
             ):
                 result = run_extend(
@@ -2897,6 +2907,14 @@ class TestExtendService(unittest.TestCase):
                         "verified",
                     ),
                 ),
+                mock.patch(
+                    "ethernity.workflows.extension.execution."
+                    "validate_staged_chain_bound_kit_carrier"
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.execution."
+                    "validate_staged_recovery_kit_index_document"
+                ),
             ):
                 with self.assertRaises(ExtensionWorkflowError) as ctx:
                     execute_staged_extension_publish(
@@ -2971,7 +2989,7 @@ class TestExtendService(unittest.TestCase):
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.shard_validation.shard_frames_from_scan",
-                    return_value=[invalid_frame],
+                    return_value=FrameInputResult(frames=(invalid_frame,)),
                 ),
                 mock.patch(
                     "ethernity.workflows.extension.execution.render_module.render_frames_to_pdf",
@@ -3011,6 +3029,14 @@ class TestExtendService(unittest.TestCase):
                         ),
                         "verified",
                     ),
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.execution."
+                    "validate_staged_chain_bound_kit_carrier"
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.execution."
+                    "validate_staged_recovery_kit_index_document"
                 ),
             ):
                 with self.assertRaises(ExtensionWorkflowError) as ctx:
@@ -3056,7 +3082,7 @@ class TestExtendService(unittest.TestCase):
         with (
             mock.patch(
                 "ethernity.workflows.extension.shard_validation.shard_frames_from_scan",
-                return_value=[frame, frame],
+                return_value=FrameInputResult(frames=(frame, frame)),
             ),
             mock.patch(
                 "ethernity.workflows.extension.shard_validation.verify_shard",
@@ -3102,7 +3128,7 @@ class TestExtendService(unittest.TestCase):
         with (
             mock.patch(
                 "ethernity.workflows.extension.shard_validation.shard_frames_from_scan",
-                return_value=[frame],
+                return_value=FrameInputResult(frames=(frame,)),
             ),
             mock.patch(
                 "ethernity.workflows.extension.shard_validation.verify_shard",
@@ -3210,6 +3236,14 @@ class TestExtendService(unittest.TestCase):
                         ),
                         "verified",
                     ),
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.execution."
+                    "validate_staged_chain_bound_kit_carrier"
+                ),
+                mock.patch(
+                    "ethernity.workflows.extension.execution."
+                    "validate_staged_recovery_kit_index_document"
                 ),
             ):
                 result = run_extend(

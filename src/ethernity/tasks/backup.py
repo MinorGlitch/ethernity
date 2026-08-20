@@ -21,8 +21,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ethernity.cli.features.backup.service import execute_prepared_backup, prepare_backup_run
-from ethernity.cli.shared.types import BackupArgs
 from ethernity.crypto.passphrases import MNEMONIC_WORD_COUNTS
 from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
 from ethernity.tasks.backup_debug import build_backup_internals_diagnostics
@@ -50,6 +48,11 @@ from ethernity.tasks.page_layout import (
     require_workflow_page_size,
 )
 from ethernity.tasks.quorum import validate_optional_shard_count, validate_required_shard_count
+from ethernity.workflows.execution import (
+    BackupRequest,
+    execute_backup,
+    prepare_backup,
+)
 
 RecoveryMethod = Literal["recommended_shards", "single_phrase", "custom_shards"]
 SigningKeyMode = Literal["embedded", "sharded"]
@@ -259,13 +262,12 @@ class BackupTaskState(BaseModel):
             message = first_issue.message if first_issue is not None else "Backup is not ready."
             raise ValueError(message)
 
-        prepared = prepare_backup_run(self.to_backup_args(assume_yes=True, quiet=True))
-        result = execute_prepared_backup(prepared)
+        result = execute_backup(self.to_backup_request())
         output_paths = (
-            Path(result.qr_path),
-            Path(result.recovery_path),
-            *[Path(path) for path in result.shard_paths],
-            *[Path(path) for path in result.signing_key_shard_paths],
+            result.qr_path,
+            result.recovery_path,
+            *result.shard_paths,
+            *result.signing_key_shard_paths,
         )
         if result.kit_index_path is not None:
             output_paths = (*output_paths, Path(result.kit_index_path))
@@ -286,7 +288,7 @@ class BackupTaskState(BaseModel):
             return TaskDiagnostics(title="Backup diagnostics")
 
         try:
-            prepared = prepare_backup_run(self.to_backup_args(assume_yes=True, quiet=True))
+            prepared = prepare_backup(self.to_backup_request())
         except Exception as exc:
             return TaskDiagnostics(
                 title="Backup diagnostics",
@@ -300,15 +302,14 @@ class BackupTaskState(BaseModel):
 
         return build_backup_internals_diagnostics(prepared, passphrase=self.passphrase)
 
-    def to_backup_args(self, *, assume_yes: bool = False, quiet: bool = False) -> BackupArgs:
+    def to_backup_request(self) -> BackupRequest:
         shard_threshold, shard_count = self._legacy_shard_args()
-        return BackupArgs(
-            config=str(self.config_path) if self.config_path is not None else None,
-            input=[str(path) for path in self.input_paths],
-            input_dir=[str(path) for path in self.input_dirs],
-            base_dir=str(self.base_dir) if self.base_dir is not None else None,
-            output_dir=str(self.output_dir) if self.output_dir is not None else None,
-            output_dir_existing_parent=False,
+        return BackupRequest(
+            config_path=self.config_path,
+            input_paths=tuple(self.input_paths),
+            input_dirs=tuple(self.input_dirs),
+            base_dir=self.base_dir,
+            output_dir=self.output_dir,
             passphrase=self.passphrase,
             passphrase_words=self.passphrase_words,
             shard_threshold=shard_threshold,
@@ -316,11 +317,9 @@ class BackupTaskState(BaseModel):
             signing_key_mode=self.signing_key_mode,
             signing_key_shard_threshold=self.signing_key_shard_threshold,
             signing_key_shard_count=self.signing_key_shard_count,
-            paper=self.paper_size,
+            paper_size=self.paper_size,
             design=self.design,
             qr_chunk_size=self.qr_chunk_size,
-            assume_yes=assume_yes,
-            quiet=quiet,
         )
 
     def _legacy_shard_args(self) -> tuple[int | None, int | None]:

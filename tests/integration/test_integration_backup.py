@@ -17,9 +17,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.cli.features.backup.service import execute_prepared_backup, prepare_backup_run
-from ethernity.cli.shared.types import BackupArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
+from ethernity.workflows.execution import BackupRequest, execute_backup
 from tests.test_support import suppress_output, temp_env
 
 
@@ -37,32 +36,18 @@ class TestIntegrationBackup(unittest.TestCase):
                 input_path.write_bytes(payload)
                 output_dir = tmp_path / "backup"
 
-                args = BackupArgs(
-                    config=str(config_path),
-                    paper=None,
-                    input=[str(input_path)],
-                    input_dir=[],
-                    base_dir=None,
-                    output_dir=str(output_dir),
-                    passphrase=None,
-                    passphrase_generate=True,
-                    sealed=False,
-                    shard_threshold=None,
-                    shard_count=None,
-                    signing_key_mode=None,
-                    signing_key_shard_threshold=None,
-                    signing_key_shard_count=None,
-                    debug=False,
-                    debug_max_bytes=0,
-                    quiet=True,
+                request = BackupRequest(
+                    config_path=config_path,
+                    input_paths=(input_path,),
+                    output_dir=output_dir,
                 )
                 with suppress_output():
-                    result = execute_prepared_backup(prepare_backup_run(args))
+                    result = execute_backup(request)
 
                 qr_path = output_dir / "qr_document.pdf"
                 recovery_path = output_dir / "recovery_document.pdf"
-                self.assertEqual(Path(result.qr_path), qr_path)
-                self.assertEqual(Path(result.recovery_path), recovery_path)
+                self.assertEqual(result.qr_path, qr_path)
+                self.assertEqual(result.recovery_path, recovery_path)
                 self.assertTrue(qr_path.exists())
                 self.assertTrue(recovery_path.exists())
                 self.assertTrue(qr_path.read_bytes().startswith(b"%PDF"))

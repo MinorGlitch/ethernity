@@ -25,6 +25,7 @@ from ethernity.app.source_assessment_controller import SourceAssessmentControlle
 from ethernity.app.task_catalog import review_label
 from ethernity.app.task_view import TaskViewActions
 from ethernity.app.workflow_presenter import initial_workflow_ui_states
+from ethernity.security import prepare_disposable_worker_runtime
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
@@ -114,6 +115,7 @@ class EthernityApp(
         kit_state: PrintKitTaskState | None = None,
         settings_state: SettingsTaskState | None = None,
     ) -> None:
+        prepare_disposable_worker_runtime()
         super().__init__()
         self.register_theme(ETHERNITY_DARK_THEME)
         self.register_theme(ETHERNITY_LIGHT_THEME)

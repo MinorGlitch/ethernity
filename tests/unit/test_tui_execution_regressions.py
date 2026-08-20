@@ -635,19 +635,18 @@ def test_large_result_paths_scroll_while_actions_stay_visible() -> None:
 
 
 def test_replacement_result_reports_only_files_in_the_output_folder(monkeypatch) -> None:
-    def fake_execute_mint(args: object) -> SimpleNamespace:
+    def fake_execute_replacement_recovery(request: object) -> SimpleNamespace:
         return SimpleNamespace(
-            output_dir="replacement-docs",
             shard_paths=(
-                "replacement-docs/passphrase-1.pdf",
-                "replacement-docs/passphrase-2.pdf",
+                Path("replacement-docs/passphrase-1.pdf"),
+                Path("replacement-docs/passphrase-2.pdf"),
             ),
-            signing_key_shard_paths=("replacement-docs/signing-key-1.pdf",),
+            signing_key_shard_paths=(Path("replacement-docs/signing-key-1.pdf"),),
         )
 
     monkeypatch.setattr(
-        "ethernity.tasks.replace_recovery_docs.execute_mint",
-        fake_execute_mint,
+        "ethernity.tasks.replace_recovery_docs.execute_replacement_recovery",
+        fake_execute_replacement_recovery,
     )
     state = ReplaceRecoveryDocsTaskState(
         source_paths=[Path("scan.pdf")],

@@ -4,8 +4,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol
 
-from ethernity.cli.shared.io.frames import frames_from_fallback_text
 from ethernity.encoding.framing import Frame
+from ethernity.workflows.recovery.frame_inputs import frames_from_fallback_text
 
 __all__ = [
     "RecoverySourceMaterial",
@@ -63,13 +63,14 @@ def recovery_text_frames(
     allow_invalid_auth: bool = False,
     quiet: bool,
 ) -> list[Frame] | None:
+    _ = quiet
     if not value:
         return None
-    return frames_from_fallback_text(
+    result = frames_from_fallback_text(
         value,
         allow_invalid_auth=allow_invalid_auth,
-        quiet=quiet,
     )
+    return list(result.frames)
 
 
 def recovery_text_error(

@@ -1,0 +1,1 @@
+"""Mint CLI feature."""
