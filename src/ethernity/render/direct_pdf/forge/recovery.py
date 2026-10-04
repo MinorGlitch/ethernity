@@ -1,9 +1,4 @@
-"""Forge recovery document rendering through direct PDF primitives.
-
-This module is the first `RenderInputs`-driven production slice of the direct renderer. It keeps
-browser-independent geometry here, while reusing the existing render semantics for copy, fallback
-encoding, doc types, recovery metadata, and proofs.
-"""
+"""Forge recovery document layout, passphrase display, and fallback text pages."""
 
 from __future__ import annotations
 
@@ -12,14 +7,15 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import (
     Panel,
     Rule,
     TextAlign,
     TextBox,
 )
-from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import build_recovery_document_plan
 from ethernity.render.direct_pdf.fallback_layout import (
     FallbackEntry as _FallbackEntry,
     FallbackLineEntry as _FallbackLineEntry,
@@ -27,11 +23,11 @@ from ethernity.render.direct_pdf.fallback_layout import (
     FallbackPageEntry,
     FallbackSectionLines as _FallbackSectionLines,
     FallbackTitleEntry as _FallbackTitleEntry,
-    build_fallback_proof,
+    build_fallback_summary,
     fallback_entries as _fallback_entries,
     fallback_sections as _fallback_sections,
 )
-from ethernity.render.direct_pdf.forge.common import (
+from ethernity.render.direct_pdf.forge.shell import (
     FORGE_SLATE_50,
     FORGE_SLATE_100,
     FORGE_SLATE_200,
@@ -41,15 +37,12 @@ from ethernity.render.direct_pdf.forge.common import (
     FORGE_SLATE_800,
     FORGE_SLATE_900,
     ForgePageLayout,
-    ForgeShellContext,
     build_forge_content_constraints,
     build_forge_footer_plans,
     build_forge_header_plan,
     build_forge_page_layout,
-    build_forge_shell_context,
 )
 from ethernity.render.direct_pdf.forge.theme import FORGE_THEME
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
     DirectPdfPagePlan,
@@ -63,20 +56,17 @@ from ethernity.render.direct_pdf.recovery_metadata import (
     RecoveryPassphrasePagination,
     paginate_recovery_passphrase,
 )
-from ethernity.render.direct_pdf.structured_common import component_prefix
-from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
+from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy, fit_text_to_width
 from ethernity.render.direct_pdf.text_measure import measured_grouped_line_length
 from ethernity.render.direct_pdf.types import PdfRect, TextStyle
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
-from ethernity.render.proofs import build_render_artifact_proof
 from ethernity.render.recovery_meta import RecoveryMeta, recovery_passphrase_display
 from ethernity.render.types import (
     FallbackSection,
-    RenderArtifactProof,
-    RenderFallbackProof,
+    FallbackSummary,
     RenderInputs,
-    RenderResult,
+    RenderTextMetadata,
 )
 
 _COMPONENT_BASE = "forge-recovery"
@@ -90,15 +80,6 @@ _FALLBACK_PAYLOAD_MIN_FIT_SIZE_PT = 7.0
 _METADATA_VALUE_PADDING_TOP_MM = 2.0
 _METADATA_VALUE_PADDING_BOTTOM_MM = 0.2
 _ICON_WARNING = chr(0xE002)
-
-
-@dataclass(frozen=True)
-class ForgeRecoveryDirectPlan:
-    """Measured pages and app-wide proofs for one direct Forge recovery render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    fallback_proof: RenderFallbackProof
-    artifact_proof: RenderArtifactProof
 
 
 @dataclass(frozen=True)
@@ -120,6 +101,7 @@ class _ForgeMetadataRowGeometry:
     guidance_height_mm: float
     text: str
     box_height_mm: float
+    text_metadata: RenderTextMetadata
 
 
 @dataclass(frozen=True)
@@ -142,10 +124,12 @@ def _forge_recovery_geometry(
     surface: PdfSurface,
     inputs: RenderInputs,
     recovery_meta: RecoveryMeta,
-    context: ForgeShellContext | None = None,
+    context: document_inputs.DocumentRenderContext | None = None,
 ) -> _ForgeRecoveryGeometry:
     layout = build_forge_page_layout(resolve_page_geometry(inputs))
-    resolved_context = context or build_forge_shell_context(inputs, doc_type=DOC_TYPE_RECOVERY)
+    resolved_context = context or document_inputs.build_document_render_context(
+        inputs, doc_type=DOC_TYPE_RECOVERY
+    )
     metadata_rows = _metadata_row_geometries(
         surface,
         recovery_meta,
@@ -215,38 +199,14 @@ def _metadata_row_advance_mm(row: _ForgeMetadataRowGeometry) -> float:
     return 5.2 + row.box_height_mm + 3.0
 
 
-def render_forge_recovery_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Forge recovery document directly to PDF and return validation proofs."""
-
-    page = resolve_page_geometry(inputs)
-    surface = FpdfSurface(page_width_mm=page.width_mm, page_height_mm=page.height_mm)
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = build_forge_recovery_direct_plan(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name="forge",
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(
-        fallback_proof=plan.fallback_proof,
-        artifact_proof=plan.artifact_proof,
-        layout_proof=layout_proof,
-    )
-
-
 def build_forge_recovery_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> ForgeRecoveryDirectPlan:
-    """Build measured direct-PDF plans and render proofs for Forge recovery inputs."""
+) -> DirectPdfDocumentPlan:
+    """Build measured direct-PDF plans and render layouts for Forge recovery inputs."""
 
-    _validate_inputs(inputs)
-    context = build_forge_shell_context(inputs, doc_type=DOC_TYPE_RECOVERY)
+    document_inputs.validate_recovery_inputs(inputs)
+    context = document_inputs.build_document_render_context(inputs, doc_type=DOC_TYPE_RECOVERY)
     recovery_meta = inputs.recovery_meta or RecoveryMeta()
     layout = build_forge_page_layout(resolve_page_geometry(inputs))
     passphrase_pagination = _paginate_forge_passphrase(
@@ -267,42 +227,28 @@ def build_forge_recovery_direct_plan(
         geometry=geometry,
         first_page_single_section=context.capabilities.recovery_first_page_single_section,
     )
-    total_pages = len(fallback_pages) + len(passphrase_pagination.continuation_pages)
-    fallback_page_plans = tuple(
-        _build_page(
+    return build_recovery_document_plan(
+        inputs,
+        fallback_pages=fallback_pages,
+        passphrase_pages=passphrase_pagination.continuation_pages,
+        fallback_summary=_build_fallback_layout(inputs, sections, fallback_pages),
+        fallback_page_builder=lambda fallback_page, total_pages: _build_page(
             surface,
             context,
             geometry=geometry,
             fallback_page=fallback_page,
             total_pages=total_pages,
-        )
-        for fallback_page in fallback_pages
-    )
-    passphrase_page_plans = tuple(
-        _build_passphrase_continuation_page(
-            surface,
-            context,
-            layout=layout,
-            continuation_page=continuation_page,
-            page_number=len(fallback_pages) + continuation_page.page_index,
-            total_pages=total_pages,
-        )
-        for continuation_page in passphrase_pagination.continuation_pages
-    )
-    page_plans = fallback_page_plans + passphrase_page_plans
-    fallback_proof = _build_fallback_proof(inputs, sections, fallback_pages)
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        encoded_payload_count=len(inputs.qr_payloads or inputs.frames),
-        physical_qr_count=0,
-        physical_qr_payload_indexes=(),
-        page_count=len(page_plans),
-        fallback_proof=fallback_proof,
-    )
-    return ForgeRecoveryDirectPlan(
-        page_plans=page_plans,
-        fallback_proof=fallback_proof,
-        artifact_proof=artifact_proof,
+        ),
+        passphrase_page_builder=lambda continuation_page, page_number, total_pages: (
+            _build_passphrase_continuation_page(
+                surface,
+                context,
+                layout=layout,
+                continuation_page=continuation_page,
+                page_number=page_number,
+                total_pages=total_pages,
+            )
+        ),
     )
 
 
@@ -311,7 +257,7 @@ def _paginate_forge_passphrase(
     recovery_meta: RecoveryMeta,
     *,
     layout: ForgePageLayout,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
 ) -> RecoveryPassphrasePagination:
     style = _metadata_value_style()
     guidance_style = _metadata_guidance_style()
@@ -359,24 +305,6 @@ def _passphrase_continuation_value_rect(
         layout.regions.safe.width_mm - 6.0,
         panel_height_mm - 4.0,
     )
-
-
-def _validate_inputs(inputs: RenderInputs) -> None:
-    normalized_doc_type = inputs.doc_type.strip().lower()
-    if normalized_doc_type != DOC_TYPE_RECOVERY:
-        raise ValueError("direct Forge recovery renderer only supports recovery documents")
-    if inputs.render_qr:
-        raise ValueError("direct Forge recovery renderer does not place physical QR codes")
-    if not inputs.render_fallback:
-        raise ValueError("direct Forge recovery renderer requires fallback rendering")
-    if not inputs.frames:
-        raise ValueError("frames cannot be empty for direct Forge recovery rendering")
-    if not inputs.fallback_sections:
-        raise ValueError("fallback_sections are required for direct Forge recovery rendering")
-    if inputs.recovery_meta is None:
-        raise ValueError("recovery metadata is required for direct Forge recovery rendering")
-
-    resolve_page_geometry(inputs)
 
 
 def _responsive_fallback_layout(
@@ -546,12 +474,12 @@ def _entry_section_index(entry: _FallbackEntry) -> int:
     return entry.section_index
 
 
-def _build_fallback_proof(
+def _build_fallback_layout(
     inputs: RenderInputs,
     sections: Sequence[_FallbackSectionLines],
     pages: Sequence[_FallbackPageLayout],
-) -> RenderFallbackProof:
-    proof_pages = tuple(
+) -> FallbackSummary:
+    layout_pages = tuple(
         FallbackPage(
             page_number=page.page_number,
             entries=tuple(
@@ -565,12 +493,12 @@ def _build_fallback_proof(
         )
         for page in pages
     )
-    return build_fallback_proof(inputs, sections, proof_pages)
+    return build_fallback_summary(inputs, sections, layout_pages)
 
 
 def _build_page(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     geometry: _ForgeRecoveryGeometry,
     fallback_page: _FallbackPageLayout,
@@ -639,7 +567,7 @@ def _build_page(
             page_rect=geometry.layout.page.rect,
         )
     )
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
     fallback_ids = tuple(
         (
             f"{prefix}-fallback-title-{index}"
@@ -706,14 +634,14 @@ def _build_page(
 
 def _build_passphrase_continuation_page(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     continuation_page: RecoveryPassphraseContinuationPage,
     page_number: int,
     total_pages: int,
 ) -> DirectPdfPagePlan:
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
     page_label = f"PAGE {page_number} / {total_pages}"
     header = build_forge_header_plan(
         surface,
@@ -785,6 +713,11 @@ def _build_passphrase_continuation_page(
             TextBox(
                 component_id=f"{prefix}-passphrase-continuation-value",
                 text=continuation_page.text,
+                text_metadata=RenderTextMetadata(
+                    "recovery_passphrase",
+                    print_mode=continuation_page.print_mode,
+                    continuation_index=continuation_page.page_index,
+                ),
                 style=_metadata_value_style(),
                 policy=TextFitPolicy.FAIL,
                 line_height_multiplier=1.2,
@@ -822,13 +755,13 @@ def _build_passphrase_continuation_page(
 
 def _warning_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     page_number: int,
     top_mm: float,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
     x_mm = layout.regions.safe.x_mm
     width_mm = layout.regions.safe.width_mm
     return [
@@ -862,7 +795,7 @@ def _warning_plans(
 
 def _instruction_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     top_mm: float,
@@ -900,13 +833,13 @@ def _instruction_plans(
 
 def _continuation_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     page_number: int,
     top_mm: float,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
     return [
         Panel(
             component_id=f"{prefix}-continuation-panel",
@@ -945,7 +878,7 @@ def _fallback_plans(
     surface: PdfSurface,
     fallback_page: _FallbackPageLayout,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     area = fallback_page.area
     line_number_width_mm = _fallback_line_number_width_mm(surface, fallback_page)
     plans: list[PaintPlan] = []
@@ -1174,7 +1107,7 @@ def _metadata_plans(
     layout: ForgePageLayout,
     top_mm: float,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     x_mm = layout.regions.safe.x_mm
     width_mm = layout.regions.safe.width_mm
     plans: list[PaintPlan] = [
@@ -1205,17 +1138,42 @@ def _metadata_plans(
     return plans
 
 
-def _metadata_rows(meta: RecoveryMeta) -> tuple[tuple[str, tuple[str, ...], str], ...]:
-    rows: list[tuple[str, tuple[str, ...], str]] = []
+def _metadata_rows(
+    meta: RecoveryMeta,
+) -> tuple[tuple[str, tuple[str, ...], str, RenderTextMetadata], ...]:
+    rows: list[tuple[str, tuple[str, ...], str, RenderTextMetadata]] = []
     if meta.quorum_value:
-        rows.append((meta.quorum_label, (meta.quorum_value,), ""))
+        rows.append(
+            (meta.quorum_label, (meta.quorum_value,), "", RenderTextMetadata("recovery_quorum"))
+        )
     if meta.passphrase_lines:
         passphrase = recovery_passphrase_display(meta)
-        rows.append((passphrase.label, passphrase.value_lines, passphrase.guidance))
+        rows.append(
+            (
+                passphrase.label,
+                passphrase.value_lines,
+                passphrase.guidance,
+                RenderTextMetadata("recovery_passphrase", meta.passphrase_print_mode),
+            )
+        )
     elif meta.passphrase:
-        rows.append((meta.passphrase_label, (meta.passphrase,), ""))
+        rows.append(
+            (
+                meta.passphrase_label,
+                (meta.passphrase,),
+                "",
+                RenderTextMetadata("recovery_passphrase", meta.passphrase_print_mode),
+            )
+        )
     if meta.signing_pub_lines:
-        rows.append(("Master Signing Public Key", tuple(meta.signing_pub_lines), ""))
+        rows.append(
+            (
+                "Master Signing Public Key",
+                tuple(meta.signing_pub_lines),
+                "",
+                RenderTextMetadata("recovery_signing_public_key"),
+            )
+        )
     return tuple(rows)
 
 
@@ -1231,7 +1189,7 @@ def _metadata_row_geometries(
     value_style = _metadata_value_style()
     guidance_style = _metadata_guidance_style()
     rows: list[_ForgeMetadataRowGeometry] = []
-    for label, lines, guidance in _metadata_rows(meta):
+    for label, lines, guidance, text_metadata in _metadata_rows(meta):
         text = "\n".join(lines)
         fit = fit_text_to_width(
             surface,
@@ -1267,6 +1225,7 @@ def _metadata_row_geometries(
                 guidance_height_mm=guidance_height_mm,
                 text=text,
                 box_height_mm=box_height_mm,
+                text_metadata=text_metadata,
             )
         )
     return tuple(rows)
@@ -1291,7 +1250,7 @@ def _metadata_row_plans(
 ) -> tuple[list[PaintPlan], float]:
     box_height = row.box_height_mm
     box_y = y_mm + 5.2
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     plans: list[PaintPlan] = [
         TextBox(
             component_id=f"{prefix}-metadata-label-{index}",
@@ -1331,6 +1290,7 @@ def _metadata_row_plans(
         TextBox(
             component_id=f"{prefix}-metadata-value-{index}",
             text=row.text,
+            text_metadata=row.text_metadata,
             style=_metadata_value_style(),
             policy=TextFitPolicy.WRAP,
         ).plan(
@@ -1347,7 +1307,5 @@ def _metadata_row_plans(
 
 
 __all__ = [
-    "ForgeRecoveryDirectPlan",
     "build_forge_recovery_direct_plan",
-    "render_forge_recovery_direct_pdf",
 ]

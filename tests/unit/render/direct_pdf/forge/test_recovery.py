@@ -7,11 +7,16 @@ import ethernity.render.direct_pdf.forge.recovery as forge_recovery_module
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.page_sizes import PaperSize
 from ethernity.render import render_frames_to_pdf
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
-from ethernity.render.direct_pdf.forge.recovery import (
-    build_forge_recovery_direct_plan,
-    render_forge_recovery_direct_pdf,
+from ethernity.render.checks import (
+    validate_fallback_summary,
+    validate_fallback_text_in_pdf,
+    validate_layout_report,
+    validate_pdf_has_pages,
+    validate_rendered_document_summary,
+    validate_text_in_pdf,
 )
+from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf.forge.recovery import build_forge_recovery_direct_plan
 from ethernity.render.direct_pdf.page_geometry import (
     A4_HEIGHT_MM,
     A4_WIDTH_MM,
@@ -20,16 +25,8 @@ from ethernity.render.direct_pdf.page_geometry import (
 )
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
-from ethernity.render.proofs import (
-    validate_fallback_render_proof,
-    validate_fallback_text_in_pdf,
-    validate_pdf_has_pages,
-    validate_render_artifact_proof,
-    validate_render_layout_proof,
-    validate_text_in_pdf,
-)
 from ethernity.render.recovery_meta import build_recovery_meta
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 _TWENTY_FOUR_WORD_PASSPHRASE = (
     "able acid also apex arch atom aunt away baby back bake bald "
@@ -76,7 +73,7 @@ def _inputs(
         },
         doc_type=DOC_TYPE_RECOVERY,
         design_name="forge",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=False,
         render_fallback=True,
         key_lines=("recovery-key-line",),
@@ -95,7 +92,7 @@ def _inputs(
 
 
 class TestDirectPdfForgeRecovery(unittest.TestCase):
-    def test_build_plan_consumes_real_render_inputs_and_fallback_proof(self) -> None:
+    def test_build_plan_consumes_real_render_inputs_and_fallback_layout(self) -> None:
         with TemporaryDirectory() as tmp:
             inputs = _inputs(Path(tmp) / "recovery.pdf")
             surface = FpdfSurface(page_width_mm=A4_WIDTH_MM, page_height_mm=A4_HEIGHT_MM)
@@ -104,56 +101,56 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
             plan = build_forge_recovery_direct_plan(surface, inputs)
 
             self.assertEqual(len(plan.page_plans), 2)
-            self.assertFalse(plan.page_plans[0].proof.overflow)
+            self.assertFalse(plan.page_plans[0].layout.overflow)
             self.assertNotIn(
                 "forge-recovery-p1-fallback-panel",
-                plan.page_plans[0].proof.component_ids,
+                plan.page_plans[0].layout.component_ids,
             )
             self.assertIn(
                 "forge-recovery-p1-fallback-line-box-1",
-                plan.page_plans[0].proof.component_ids,
+                plan.page_plans[0].layout.component_ids,
             )
-            validate_render_artifact_proof(
-                artifact_label="direct Forge recovery document",
+            validate_rendered_document_summary(
+                document_label="direct Forge recovery document",
                 inputs=inputs,
-                artifact_proof=plan.artifact_proof,
+                document_summary=plan.document_summary,
             )
-            validate_fallback_render_proof(
-                artifact_label="direct Forge recovery document",
+            validate_fallback_summary(
+                document_label="direct Forge recovery document",
                 frames=tuple(section.frame for section in inputs.fallback_sections or ()),
-                fallback_proof=plan.fallback_proof,
+                fallback_summary=plan.fallback_summary,
             )
-            self.assertIn("AUTH FRAME", plan.fallback_proof.section_titles)
+            self.assertIn("AUTH FRAME", plan.fallback_summary.section_titles)
 
     def test_render_writes_valid_pdf_with_extractable_fallback_text(self) -> None:
         with TemporaryDirectory() as tmp:
             output_path = Path(tmp) / "recovery.pdf"
             inputs = _inputs(output_path)
 
-            result = render_forge_recovery_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct Forge recovery document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct Forge recovery document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
-            validate_render_layout_proof(
-                artifact_label="direct Forge recovery document",
-                layout_proof=result.layout_proof,
+            validate_layout_report(
+                document_label="direct Forge recovery document",
+                layout_report=result.layout_report,
                 expected_page_count=len(reader.pages),
             )
-            validate_fallback_render_proof(
-                artifact_label="direct Forge recovery document",
+            validate_fallback_summary(
+                document_label="direct Forge recovery document",
                 frames=tuple(section.frame for section in inputs.fallback_sections or ()),
-                fallback_proof=result.fallback_proof,
+                fallback_summary=result.fallback_summary,
             )
             validate_fallback_text_in_pdf(
-                artifact_label="direct Forge recovery document",
+                document_label="direct Forge recovery document",
                 reader=reader,
                 fallback_sections=inputs.fallback_sections or (),
-                fallback_proof=result.fallback_proof,
+                fallback_summary=result.fallback_summary,
             )
 
     def test_public_render_fits_24_word_passphrase_on_a4_and_letter(self) -> None:
@@ -179,28 +176,28 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                         result = render_frames_to_pdf(inputs)
                         reader = validate_pdf_has_pages(output_path)
 
-                        validate_render_layout_proof(
-                            artifact_label="public Forge 24-word recovery document",
-                            layout_proof=result.layout_proof,
+                        validate_layout_report(
+                            document_label="public Forge 24-word recovery document",
+                            layout_report=result.layout_report,
                             expected_page_count=len(reader.pages),
                         )
-                        assert result.layout_proof is not None
+                        assert result.layout_report is not None
                         self.assertTrue(
                             all(
                                 constraint.satisfied
-                                for page in result.layout_proof.pages
+                                for page in result.layout_report.pages
                                 for constraint in page.separation_constraints
                             )
                         )
                         passphrase = next(
                             component
-                            for component in result.layout_proof.pages[0].components
+                            for component in result.layout_report.pages[0].components
                             if component.component_id.endswith("-metadata-value-0")
                         )
                         self.assertEqual(passphrase.line_count, 4)
                         self.assertGreaterEqual(passphrase.font_size_pt or 0.0, 9.0)
                         validate_text_in_pdf(
-                            artifact_label="public Forge 24-word recovery document",
+                            document_label="public Forge 24-word recovery document",
                             reader=reader,
                             expected_text=recovery_meta.passphrase_lines,
                         )
@@ -213,15 +210,15 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
             packaged_direct_pdf_assets().register_fonts(surface)
 
             plan = build_forge_recovery_direct_plan(surface, inputs)
-            result = render_forge_recovery_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
             reader = validate_pdf_has_pages(output_path)
 
             self.assertGreater(len(plan.page_plans), 1)
-            self.assertEqual(plan.artifact_proof.page_count, len(plan.page_plans))
-            self.assertTrue(plan.fallback_proof.fully_consumed)
-            self.assertEqual(max(map(len, plan.fallback_proof.emitted_fallback_lines)), 44)
+            self.assertEqual(plan.document_summary.page_count, len(plan.page_plans))
+            self.assertTrue(plan.fallback_summary.fully_consumed)
+            self.assertEqual(max(map(len, plan.fallback_summary.emitted_fallback_lines)), 44)
             fallback_text_components = [
-                item.proof
+                item.layout
                 for page in plan.page_plans
                 for item in page.plans
                 if "fallback-line-text" in item.component_id
@@ -236,7 +233,7 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                 line_number_items = [
                     item for item in page.plans if "fallback-line-number" in item.component_id
                 ]
-                self.assertTrue(all(item.proof.font_size_pt >= 6.5 for item in line_number_items))
+                self.assertTrue(all(item.layout.font_size_pt >= 6.5 for item in line_number_items))
                 labels = [
                     placement.text
                     for item in line_number_items
@@ -245,16 +242,16 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                 if labels:
                     self.assertEqual(labels[0], "01.")
                     self.assertTrue(all(len(label.removesuffix(".")) <= 4 for label in labels))
-            validate_render_layout_proof(
-                artifact_label="large direct Forge recovery document",
-                layout_proof=result.layout_proof,
+            validate_layout_report(
+                document_label="large direct Forge recovery document",
+                layout_report=result.layout_report,
                 expected_page_count=len(reader.pages),
             )
             validate_fallback_text_in_pdf(
-                artifact_label="large direct Forge recovery document",
+                document_label="large direct Forge recovery document",
                 reader=reader,
                 fallback_sections=inputs.fallback_sections or (),
-                fallback_proof=result.fallback_proof,
+                fallback_summary=result.fallback_summary,
             )
 
     def test_custom_paginator_resets_display_numbers_per_page_and_section(self) -> None:
@@ -319,13 +316,13 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
             packaged_direct_pdf_assets().register_fonts(surface)
 
             plan = build_forge_recovery_direct_plan(surface, inputs)
-            result = render_forge_recovery_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             self.assertGreater(len(plan.page_plans), 1)
             for page in plan.page_plans:
                 self.assertAlmostEqual(page.rect.width_mm, LETTER_WIDTH_MM)
                 self.assertAlmostEqual(page.rect.height_mm, LETTER_HEIGHT_MM)
-                self.assertTrue(all(item.satisfied for item in page.proof.separation_constraints))
+                self.assertTrue(all(item.satisfied for item in page.layout.separation_constraints))
             continuation = plan.page_plans[1]
             intro = next(
                 item
@@ -347,19 +344,19 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
             )
             self.assertTrue(fallback_boxes)
             self.assertLessEqual(
-                header_rule.proof.rect.bottom_mm + 2.0,
-                intro.proof.rect.y_mm,
+                header_rule.layout.rect.bottom_mm + 2.0,
+                intro.layout.rect.y_mm,
             )
             self.assertLessEqual(
-                intro.proof.rect.bottom_mm + 3.0,
-                min(item.proof.rect.y_mm for item in fallback_boxes),
+                intro.layout.rect.bottom_mm + 3.0,
+                min(item.layout.rect.y_mm for item in fallback_boxes),
             )
             self.assertLessEqual(
-                max(item.proof.rect.bottom_mm for item in fallback_boxes) + 3.0,
-                footer_rule.proof.rect.y_mm,
+                max(item.layout.rect.bottom_mm for item in fallback_boxes) + 3.0,
+                footer_rule.layout.rect.y_mm,
             )
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
             width_mm = float(reader.pages[0].mediabox.width) * 25.4 / 72.0
             height_mm = float(reader.pages[0].mediabox.height) * 25.4 / 72.0
             self.assertAlmostEqual(width_mm, LETTER_WIDTH_MM, places=1)
@@ -392,12 +389,12 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                     )
 
                     self.assertLessEqual(
-                        header_rule.proof.rect.bottom_mm + 2.0,
-                        warning.proof.rect.y_mm,
+                        header_rule.layout.rect.bottom_mm + 2.0,
+                        warning.layout.rect.y_mm,
                     )
                     header_clearance = next(
                         constraint
-                        for constraint in first_page.proof.separation_constraints
+                        for constraint in first_page.layout.separation_constraints
                         if constraint.constraint_id == "forge-recovery-p1-content-after-header"
                     )
                     self.assertAlmostEqual(header_clearance.measured_clearance_mm, 2.0)
@@ -441,8 +438,8 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                     if item.component_id.endswith("-passphrase-continuation-title")
                 )
                 self.assertLessEqual(
-                    header_rule.proof.rect.bottom_mm + 2.0,
-                    title.proof.rect.y_mm,
+                    header_rule.layout.rect.bottom_mm + 2.0,
+                    title.layout.rect.y_mm,
                 )
 
     def test_large_custom_pages_expand_line_number_gutter_for_three_digit_rows(self) -> None:
@@ -470,9 +467,9 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                         if "fallback-line-number" in item.component_id
                     )
                     self.assertTrue(line_numbers)
-                    self.assertTrue(all(not item.proof.overflow for item in line_numbers))
+                    self.assertTrue(all(not item.layout.overflow for item in line_numbers))
                     self.assertGreaterEqual(
-                        min(item.proof.font_size_pt for item in line_numbers),
+                        min(item.layout.font_size_pt for item in line_numbers),
                         6.5,
                     )
                     maximum_display_number = max(
@@ -491,13 +488,13 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                     )
                     self.assertTrue(three_digit_numbers)
                     self.assertTrue(
-                        all(item.proof.rect.width_mm > 8.5 for item in three_digit_numbers)
+                        all(item.layout.rect.width_mm > 8.5 for item in three_digit_numbers)
                     )
                     self.assertTrue(
                         all(
                             constraint.satisfied
                             for page in plan.page_plans
-                            for constraint in page.proof.separation_constraints
+                            for constraint in page.layout.separation_constraints
                         )
                     )
 
@@ -548,19 +545,19 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                         ),
                     )
                     plan = build_forge_recovery_direct_plan(surface, inputs)
-                    result = render_forge_recovery_direct_pdf(inputs)
+                    result = render_frames_to_pdf(inputs)
                     reader = validate_pdf_has_pages(inputs.output_path)
 
                     self.assertEqual(
-                        max(map(len, plan.fallback_proof.emitted_fallback_lines)),
+                        max(map(len, plan.fallback_summary.emitted_fallback_lines)),
                         measured_line_length,
                     )
                     self.assertEqual(len(reader.pages), len(fallback_pages))
                     validate_fallback_text_in_pdf(
-                        artifact_label=f"{paper.name} Forge recovery document",
+                        document_label=f"{paper.name} Forge recovery document",
                         reader=reader,
                         fallback_sections=inputs.fallback_sections or (),
-                        fallback_proof=result.fallback_proof,
+                        fallback_summary=result.fallback_summary,
                     )
                     full_lines = tuple(
                         item
@@ -575,7 +572,7 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                     self.assertTrue(full_lines)
                     self.assertGreaterEqual(
                         min(
-                            item.proof.used_rect.width_mm / item.proof.rect.width_mm
+                            item.layout.used_rect.width_mm / item.layout.rect.width_mm
                             for item in full_lines
                         ),
                         0.95,
@@ -628,9 +625,9 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                     )
                     self.assertTrue(payload_text)
                     self.assertTrue(line_numbers)
-                    self.assertTrue(all(not item.proof.overflow for item in payload_text))
+                    self.assertTrue(all(not item.layout.overflow for item in payload_text))
                     self.assertGreaterEqual(
-                        min(item.proof.font_size_pt for item in payload_text),
+                        min(item.layout.font_size_pt for item in payload_text),
                         7.0,
                     )
                     self.assertGreaterEqual(
@@ -642,20 +639,20 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                         100,
                     )
                     self.assertLess(
-                        max(map(len, plan.fallback_proof.emitted_fallback_lines)),
+                        max(map(len, plan.fallback_summary.emitted_fallback_lines)),
                         44,
                     )
                     self.assertTrue(
                         all(
                             constraint.satisfied
                             for page in plan.page_plans
-                            for constraint in page.proof.separation_constraints
+                            for constraint in page.layout.separation_constraints
                         )
                     )
-                    validate_fallback_render_proof(
-                        artifact_label="narrow tall Forge recovery document",
+                    validate_fallback_summary(
+                        document_label="narrow tall Forge recovery document",
                         frames=tuple(section.frame for section in inputs.fallback_sections or ()),
-                        fallback_proof=plan.fallback_proof,
+                        fallback_summary=plan.fallback_summary,
                     )
 
     def test_sparse_very_tall_page_uses_actual_gutter_instead_of_unused_capacity(self) -> None:
@@ -730,9 +727,9 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
             self.assertEqual(settled_line_length, minimum_gutter_line_length)
             self.assertGreater(settled_line_length, capacity_reserved_line_length)
             self.assertTrue(payload_text)
-            self.assertTrue(all(not item.proof.overflow for item in payload_text))
+            self.assertTrue(all(not item.layout.overflow for item in payload_text))
             self.assertGreaterEqual(
-                min(item.proof.font_size_pt for item in payload_text),
+                min(item.layout.font_size_pt for item in payload_text),
                 forge_recovery_module._FALLBACK_PAYLOAD_MIN_FIT_SIZE_PT,
             )
 
@@ -805,9 +802,9 @@ class TestDirectPdfForgeRecovery(unittest.TestCase):
                 )
             )
             self.assertTrue(payload_text)
-            self.assertTrue(all(not item.proof.overflow for item in payload_text))
+            self.assertTrue(all(not item.layout.overflow for item in payload_text))
             self.assertGreaterEqual(
-                min(item.proof.font_size_pt for item in payload_text),
+                min(item.layout.font_size_pt for item in payload_text),
                 forge_recovery_module._FALLBACK_PAYLOAD_MIN_FIT_SIZE_PT,
             )
 

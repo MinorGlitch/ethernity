@@ -1,4 +1,4 @@
-"""Forge recovery-kit document rendering through direct PDF primitives."""
+"""Forge recovery-kit document rendering through measured PDF components."""
 
 from __future__ import annotations
 
@@ -6,11 +6,14 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from ethernity.qr.codec import QrConfig
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import ImageBox, Panel, Rule, TextAlign, TextBox
-from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
-from ethernity.render.direct_pdf.forge.common import (
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import (
+    assemble_document_plan,
+    build_qr_document_plan,
+)
+from ethernity.render.direct_pdf.forge.shell import (
     FORGE_SLATE_50,
     FORGE_SLATE_100,
     FORGE_SLATE_200,
@@ -20,16 +23,13 @@ from ethernity.render.direct_pdf.forge.common import (
     FORGE_SLATE_900,
     FORGE_WHITE,
     ForgePageLayout,
-    ForgeShellContext,
     build_forge_content_constraints,
     build_forge_footer_plans,
     build_forge_header_plan,
     build_forge_header_plans,
     build_forge_page_layout,
-    build_forge_shell_context,
 )
 from ethernity.render.direct_pdf.forge.theme import FORGE_THEME
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
     DirectPdfPagePlan,
@@ -40,19 +40,11 @@ from ethernity.render.direct_pdf.page import (
 )
 from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
 from ethernity.render.direct_pdf.responsive_layout import GridPolicy, ResolvedGrid, resolve_grid
-from ethernity.render.direct_pdf.structured_common import (
-    QrPage,
-    QrPayloadItem,
-    component_prefix,
-    qr_payload_items,
-    resolved_qr_payloads,
-)
-from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
+from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect, TextStyle
 from ethernity.render.doc_types import DOC_TYPE_KIT, DOC_TYPE_KIT_INDEX
-from ethernity.render.proofs import build_render_artifact_proof
-from ethernity.render.types import RenderArtifactProof, RenderInputs, RenderResult
+from ethernity.render.types import RenderInputs
 
 _KIT_COMPONENT_BASE = "forge-kit"
 _KIT_INDEX_COMPONENT_BASE = "forge-kit-index"
@@ -79,22 +71,6 @@ _FORGE_BLUE_50 = PdfColor(239, 246, 255)
 
 
 @dataclass(frozen=True)
-class ForgeKitDirectPlan:
-    """Measured pages and app-wide proof for one direct Forge kit render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    artifact_proof: RenderArtifactProof
-
-
-@dataclass(frozen=True)
-class ForgeKitIndexDirectPlan:
-    """Measured pages and app-wide proof for one direct Forge kit-index render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    artifact_proof: RenderArtifactProof
-
-
-@dataclass(frozen=True)
 class _ForgeKitGeometry:
     layout: ForgePageLayout
     qr_grid: ResolvedGrid
@@ -108,7 +84,7 @@ class _ForgeKitIndexGeometry:
     first_table_top_mm: float
     continuation_panel_top_mm: float
     continuation_table_top_mm: float
-    first_custody_top_mm: float
+    first_instruction_top_mm: float
 
 
 def _forge_kit_geometry(inputs: RenderInputs) -> _ForgeKitGeometry:
@@ -144,7 +120,7 @@ def _forge_kit_geometry(inputs: RenderInputs) -> _ForgeKitGeometry:
 def _forge_kit_index_geometry(
     surface: PdfSurface,
     inputs: RenderInputs,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
 ) -> _ForgeKitIndexGeometry:
     layout = build_forge_page_layout(resolve_page_geometry(inputs))
     first_table_top_mm = layout.regions.body.y_mm + 81.5
@@ -159,12 +135,12 @@ def _forge_kit_index_geometry(
     )
     continuation_panel_top_mm = header.bottom_mm + 2.0
     continuation_table_top_mm = continuation_panel_top_mm + 16.0
-    custody_height_mm = 59.5
-    first_custody_top_mm = layout.regions.body.bottom_mm - custody_height_mm
+    instruction_height_mm = 59.5
+    first_instruction_top_mm = layout.regions.body.bottom_mm - instruction_height_mm
     first_table_body_top_mm = first_table_top_mm + 10.0
     continuation_table_body_top_mm = continuation_table_top_mm + 10.0
     first_capacity = int(
-        (first_custody_top_mm - first_table_body_top_mm) // _INDEX_TABLE_ROW_HEIGHT_MM
+        (first_instruction_top_mm - first_table_body_top_mm) // _INDEX_TABLE_ROW_HEIGHT_MM
     )
     continuation_capacity = int(
         (layout.regions.body.bottom_mm - continuation_table_body_top_mm)
@@ -179,7 +155,7 @@ def _forge_kit_index_geometry(
         first_table_top_mm=first_table_top_mm,
         continuation_panel_top_mm=continuation_panel_top_mm,
         continuation_table_top_mm=continuation_table_top_mm,
-        first_custody_top_mm=first_custody_top_mm,
+        first_instruction_top_mm=first_instruction_top_mm,
     )
 
 
@@ -196,96 +172,40 @@ class _InventoryPage:
     rows: tuple[_InventoryRow, ...]
 
 
-def render_forge_kit_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Forge recovery-kit QR document directly to PDF."""
+def build_forge_kit_direct_plan(surface: PdfSurface, inputs: RenderInputs) -> DirectPdfDocumentPlan:
+    """Build measured Forge kit pages through the shared QR planner."""
 
-    page = resolve_page_geometry(inputs)
-    surface = FpdfSurface(page_width_mm=page.width_mm, page_height_mm=page.height_mm)
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = build_forge_kit_direct_plan(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name="forge",
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(artifact_proof=plan.artifact_proof, layout_proof=layout_proof)
-
-
-def render_forge_kit_index_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Forge recovery-kit index document directly to PDF."""
-
-    page = resolve_page_geometry(inputs)
-    surface = FpdfSurface(page_width_mm=page.width_mm, page_height_mm=page.height_mm)
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = build_forge_kit_index_direct_plan(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name="forge",
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(artifact_proof=plan.artifact_proof, layout_proof=layout_proof)
-
-
-def build_forge_kit_direct_plan(
-    surface: PdfSurface,
-    inputs: RenderInputs,
-) -> ForgeKitDirectPlan:
-    """Build measured direct-PDF plans and render proof for Forge kit inputs."""
-
-    _validate_kit_inputs(inputs)
+    document_inputs.validate_qr_inputs(inputs, expected_doc_type=DOC_TYPE_KIT)
     geometry = _forge_kit_geometry(inputs)
-    payloads = resolved_qr_payloads(inputs)
-    items = qr_payload_items(payloads, config=inputs.qr_config or QrConfig())
-    qr_pages = _paginate_qr_items(items, capacity=geometry.qr_grid.capacity)
-    context = build_forge_shell_context(inputs, doc_type=DOC_TYPE_KIT)
-    page_plans = tuple(
-        _build_kit_qr_page(
+    context = document_inputs.build_document_render_context(inputs, doc_type=DOC_TYPE_KIT)
+    return build_qr_document_plan(
+        inputs,
+        capacity=geometry.qr_grid.capacity,
+        page_builder=lambda qr_page, total_pages, item_count: _build_kit_qr_page(
             surface,
             context,
             qr_page,
             geometry=geometry,
-            total_pages=len(qr_pages) + 1,
-        )
-        for qr_page in qr_pages
+            total_pages=total_pages,
+        ),
+        trailing_page_builder=lambda page_number, total_pages: _build_kit_instruction_page(
+            surface,
+            context,
+            layout=geometry.layout,
+            page_number=page_number,
+            total_pages=total_pages,
+        ),
     )
-    instructions_page = _build_kit_instruction_page(
-        surface,
-        context,
-        layout=geometry.layout,
-        page_number=len(page_plans) + 1,
-        total_pages=len(page_plans) + 1,
-    )
-    page_plans = (*page_plans, instructions_page)
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=payloads,
-        encoded_payload_count=len(payloads),
-        physical_qr_count=len(items),
-        physical_qr_payload_indexes=tuple(item.payload_index for item in items),
-        page_count=len(page_plans),
-        fallback_proof=None,
-    )
-    return ForgeKitDirectPlan(page_plans=page_plans, artifact_proof=artifact_proof)
 
 
 def build_forge_kit_index_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> ForgeKitIndexDirectPlan:
-    """Build measured direct-PDF plans and render proof for Forge kit-index inputs."""
+) -> DirectPdfDocumentPlan:
+    """Build measured direct-PDF plans and render layout for Forge kit-index inputs."""
 
-    _validate_kit_index_inputs(inputs)
-    context = build_forge_shell_context(inputs, doc_type=DOC_TYPE_KIT_INDEX)
+    document_inputs.validate_kit_index_inputs(inputs)
+    context = document_inputs.build_document_render_context(inputs, doc_type=DOC_TYPE_KIT_INDEX)
     geometry = _forge_kit_index_geometry(surface, inputs, context)
     rows = _inventory_rows(inputs)
     pages = _paginate_inventory_rows(rows, geometry=geometry)
@@ -299,69 +219,13 @@ def build_forge_kit_index_direct_plan(
         )
         for page in pages
     )
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=(),
-        encoded_payload_count=0,
-        physical_qr_count=0,
-        physical_qr_payload_indexes=(),
-        page_count=len(page_plans),
-        fallback_proof=None,
-    )
-    return ForgeKitIndexDirectPlan(page_plans=page_plans, artifact_proof=artifact_proof)
-
-
-def _validate_kit_inputs(inputs: RenderInputs) -> None:
-    if inputs.doc_type.strip().lower() != DOC_TYPE_KIT:
-        raise ValueError("direct Forge kit renderer only supports kit documents")
-    if not inputs.render_qr:
-        raise ValueError("direct Forge kit renderer requires QR rendering")
-    if inputs.render_fallback:
-        raise ValueError("direct Forge kit renderer does not render fallback text")
-    if not inputs.frames:
-        raise ValueError("frames cannot be empty for direct Forge kit rendering")
-
-    resolve_page_geometry(inputs)
-
-    qr_config = inputs.qr_config or QrConfig()
-    qr_kind = str(qr_config.kind or "png").strip().lower()
-    if qr_kind != "png":
-        raise ValueError("direct Forge kit renderer currently supports PNG QR images only")
-
-
-def _validate_kit_index_inputs(inputs: RenderInputs) -> None:
-    if inputs.doc_type.strip().lower() != DOC_TYPE_KIT_INDEX:
-        raise ValueError("direct Forge kit-index renderer only supports kit-index documents")
-    if inputs.render_qr or inputs.render_fallback:
-        raise ValueError("direct Forge kit-index renderer does not render QR or fallback text")
-    if inputs.frames:
-        raise ValueError("direct Forge kit-index renderer expects no frames")
-
-    resolve_page_geometry(inputs)
-
-
-def _paginate_qr_items(
-    items: Sequence[QrPayloadItem],
-    *,
-    capacity: int,
-) -> tuple[QrPage, ...]:
-    if not items:
-        raise ValueError("direct Forge kit renderer has no QR payloads to render")
-    pages: list[QrPage] = []
-    for start in range(0, len(items), capacity):
-        pages.append(
-            QrPage(
-                page_number=len(pages) + 1,
-                items=tuple(items[start : start + capacity]),
-            )
-        )
-    return tuple(pages)
+    return assemble_document_plan(inputs, page_plans, qr_payloads=(), encoded_payload_count=0)
 
 
 def _build_kit_qr_page(
     surface: PdfSurface,
-    context: ForgeShellContext,
-    qr_page: QrPage,
+    context: document_inputs.DocumentRenderContext,
+    qr_page: document_inputs.QrPage,
     *,
     geometry: _ForgeKitGeometry,
     total_pages: int,
@@ -399,7 +263,7 @@ def _build_kit_qr_page(
             page_rect=geometry.layout.page.rect,
         )
     )
-    prefix = component_prefix(_KIT_COMPONENT_BASE, qr_page.page_number)
+    prefix = document_inputs.component_prefix(_KIT_COMPONENT_BASE, qr_page.page_number)
     content_ids = (f"{prefix}-warning-panel",) + tuple(
         f"{prefix}-qr-card-{item.payload_index}" for item in qr_page.items
     )
@@ -418,12 +282,12 @@ def _build_kit_qr_page(
 
 def _kit_warning_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     page_number: int,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_KIT_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_KIT_COMPONENT_BASE, page_number)
     x_mm = layout.regions.safe.x_mm
     width_mm = layout.regions.safe.width_mm
     return [
@@ -455,11 +319,11 @@ def _kit_warning_plans(
 
 def _kit_qr_grid_plans(
     surface: PdfSurface,
-    qr_page: QrPage,
+    qr_page: document_inputs.QrPage,
     *,
     geometry: _ForgeKitGeometry,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_KIT_COMPONENT_BASE, qr_page.page_number)
+    prefix = document_inputs.component_prefix(_KIT_COMPONENT_BASE, qr_page.page_number)
     plans: list[PaintPlan] = []
     rects = geometry.qr_grid.item_rects(len(qr_page.items), reserve_all_rows=True)
     for item, rect in zip(qr_page.items, rects, strict=True):
@@ -471,7 +335,7 @@ def _kit_qr_card_plans(
     surface: PdfSurface,
     *,
     prefix: str,
-    item: QrPayloadItem,
+    item: document_inputs.QrPayloadItem,
     rect: PdfRect,
 ) -> list[PaintPlan]:
     image_size_mm = rect.height_mm * (_QR_IMAGE_SIZE_MM / _QR_CARD_HEIGHT_MM)
@@ -517,13 +381,13 @@ def _kit_qr_card_plans(
 
 def _build_kit_instruction_page(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     page_number: int,
     total_pages: int,
 ) -> DirectPdfPagePlan:
-    prefix = component_prefix(_KIT_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_KIT_COMPONENT_BASE, page_number)
     safe = layout.regions.safe
     inner_x_mm = safe.x_mm + 7.0
     inner_width_mm = safe.width_mm - 14.0
@@ -782,7 +646,7 @@ def _instruction_badge_plans(
 
 def _instruction_right_column_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     rect: PdfRect,
@@ -869,7 +733,7 @@ def _instruction_info_card_plans(
 
 def _instruction_checklist_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     rect: PdfRect,
@@ -923,7 +787,7 @@ def _instruction_checklist_plans(
             ).plan(surface, PdfRect(rect.x_mm + 4.0, y_mm, 6.0, 7.0))
         )
         plans.append(text_plan)
-        y_mm += max(9.0, text_plan.proof.used_rect.height_mm + 2.0)
+        y_mm += max(9.0, text_plan.layout.used_rect.height_mm + 2.0)
     return plans
 
 
@@ -936,8 +800,12 @@ def _inventory_rows(inputs: RenderInputs) -> tuple[_InventoryRow, ...]:
         if mapped_rows:
             return mapped_rows
 
-    page_count = _positive_int(inputs.context.get("kit_qr_page_count"), default=0)
-    chunk_count = _positive_int(inputs.context.get("kit_qr_chunk_count"), default=0)
+    page_count = document_inputs.non_negative_int(
+        inputs.context.get("kit_qr_page_count"), default=0
+    )
+    chunk_count = document_inputs.non_negative_int(
+        inputs.context.get("kit_qr_chunk_count"), default=0
+    )
     rows: list[_InventoryRow] = []
     if page_count <= 0:
         return (_InventoryRow("KIT-PAGE-01", "No QR chunks", "Generated"),)
@@ -968,12 +836,6 @@ def _inventory_row_from_mapping(row: Mapping[object, object]) -> _InventoryRow:
     )
 
 
-def _positive_int(value: object, *, default: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return default
-    return max(0, value)
-
-
 def _paginate_inventory_rows(
     rows: Sequence[_InventoryRow],
     *,
@@ -999,7 +861,7 @@ def _paginate_inventory_rows(
 
 def _build_index_page(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     page: _InventoryPage,
     *,
     geometry: _ForgeKitIndexGeometry,
@@ -1059,12 +921,12 @@ def _build_index_page(
     )
     if page.page_number == 1:
         plans.extend(
-            _custody_plans(
+            _kit_loading_instruction_plans(
                 surface,
                 context,
                 layout=geometry.layout,
                 page_number=page.page_number,
-                top_mm=geometry.first_custody_top_mm,
+                top_mm=geometry.first_instruction_top_mm,
             )
         )
     plans.extend(
@@ -1076,12 +938,12 @@ def _build_index_page(
             page_number=page.page_number,
         )
     )
-    prefix = component_prefix(_KIT_INDEX_COMPONENT_BASE, page.page_number)
+    prefix = document_inputs.component_prefix(_KIT_INDEX_COMPONENT_BASE, page.page_number)
     content_ids = [f"{prefix}-inventory-header"]
     content_ids.extend(f"{prefix}-inventory-row-{index}" for index in range(len(page.rows)))
     if page.page_number == 1:
         content_ids.extend(
-            f"{prefix}-custody-card-{index}"
+            f"{prefix}-kit-instructions-card-{index}"
             for index in range(min(4, len(context.instruction_lines)))
         )
     return build_page_plan(
@@ -1099,12 +961,12 @@ def _build_index_page(
 
 def _index_stats_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     page_number: int,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
     x_mm = layout.regions.safe.x_mm
     second_x_mm = x_mm + layout.regions.safe.width_mm / 2.0
     qr_pages = str(context.values.get("kit_qr_page_count") or 0)
@@ -1139,12 +1001,12 @@ def _index_stats_plans(
 
 def _index_warning_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     page_number: int,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
     x_mm = layout.regions.safe.x_mm
     width_mm = layout.regions.safe.width_mm
     return [
@@ -1182,13 +1044,13 @@ def _index_warning_plans(
 
 def _index_continuation_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     page_number: int,
     top_mm: float,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
     return [
         Panel(
             component_id=f"{prefix}-continuation-panel",
@@ -1225,13 +1087,13 @@ def _index_continuation_plans(
 
 def _inventory_table_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     page: _InventoryPage,
     *,
     layout: ForgePageLayout,
     table_top_mm: float,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_KIT_INDEX_COMPONENT_BASE, page.page_number)
+    prefix = document_inputs.component_prefix(_KIT_INDEX_COMPONENT_BASE, page.page_number)
     x_mm = layout.regions.safe.x_mm
     width_mm = layout.regions.safe.width_mm
     title_y_mm = table_top_mm - 13.8
@@ -1373,15 +1235,15 @@ def _inventory_row_plans(
     ]
 
 
-def _custody_plans(
+def _kit_loading_instruction_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     page_number: int,
     top_mm: float,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
     x_mm = layout.regions.safe.x_mm
     width_mm = layout.regions.safe.width_mm
     column_gap_mm = 2.0
@@ -1389,19 +1251,19 @@ def _custody_plans(
     lines = tuple(context.instruction_lines)
     plans: list[PaintPlan] = [
         TextBox(
-            component_id=f"{prefix}-custody-icon",
+            component_id=f"{prefix}-kit-instructions-icon",
             text=_ICON_VERIFIED_USER,
             style=FORGE_THEME.symbol_style(size_pt=15.0, color=FORGE_SLATE_900),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(x_mm, top_mm, 8.0, 7.0)),
         TextBox(
-            component_id=f"{prefix}-custody-title",
-            text=str(context.copy.get("chain_of_custody_label") or "Chain of Custody").upper(),
+            component_id=f"{prefix}-kit-instructions-title",
+            text=context.instructions_label.upper(),
             style=TextStyle(family="Helvetica", size_pt=14.0, style="B", color=FORGE_SLATE_900),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(x_mm + 9.0, top_mm - 1.5, 96.0, 7.5)),
         Rule(
-            component_id=f"{prefix}-custody-title-rule",
+            component_id=f"{prefix}-kit-instructions-title-rule",
             color=FORGE_SLATE_200,
         ).plan(surface, PdfRect(x_mm, top_mm + 8.5, width_mm, 0.35)),
     ]
@@ -1411,19 +1273,19 @@ def _custody_plans(
         plans.extend(
             [
                 Panel(
-                    component_id=f"{prefix}-custody-card-{index}",
+                    component_id=f"{prefix}-kit-instructions-card-{index}",
                     stroke=FORGE_SLATE_200,
                     fill=FORGE_SLATE_50,
                     line_width_mm=0.12,
                 ).plan(surface, PdfRect(x, y, card_width_mm, 21.5)),
                 Panel(
-                    component_id=f"{prefix}-custody-check-{index}",
+                    component_id=f"{prefix}-kit-instructions-check-{index}",
                     stroke=FORGE_SLATE_300,
                     fill=FORGE_WHITE,
                     line_width_mm=0.25,
                 ).plan(surface, PdfRect(x + 3.5, y + 4.2, 5.8, 5.8)),
                 TextBox(
-                    component_id=f"{prefix}-custody-line-{index}",
+                    component_id=f"{prefix}-kit-instructions-line-{index}",
                     text=line,
                     style=TextStyle(
                         family="Helvetica",
@@ -1441,13 +1303,13 @@ def _custody_plans(
 
 def _kit_index_footer_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
     page_label: str,
     page_number: int,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_KIT_INDEX_COMPONENT_BASE, page_number)
     footer = layout.regions.footer
     right_mm = footer.right_mm
     return [
@@ -1506,10 +1368,6 @@ def _kit_index_footer_plans(
 
 
 __all__ = [
-    "ForgeKitDirectPlan",
-    "ForgeKitIndexDirectPlan",
     "build_forge_kit_direct_plan",
     "build_forge_kit_index_direct_plan",
-    "render_forge_kit_direct_pdf",
-    "render_forge_kit_index_direct_pdf",
 ]

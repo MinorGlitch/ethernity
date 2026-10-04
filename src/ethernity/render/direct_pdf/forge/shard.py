@@ -1,24 +1,31 @@
-"""Forge shard document rendering through direct PDF primitives."""
+"""Forge shard document rendering through measured PDF components."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Sequence
 
-from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
-from ethernity.qr.codec import QrConfig
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import ImageBox, Panel, Rule, TextAlign, TextBox
-from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import build_single_qr_fallback_plan
+from ethernity.render.direct_pdf.fallback_fit import (
+    SinglePageFallbackProfile,
+    fallback_column_width,
+    fit_single_page_fallback,
+)
 from ethernity.render.direct_pdf.fallback_layout import (
+    FallbackColumnPlacement as _FallbackPageEntry,
     FallbackEntry as _FallbackEntry,
     FallbackSectionLines as _FallbackSectionLines,
     FallbackTitleEntry as _FallbackTitleEntry,
-    build_fallback_proof_from_entry_groups,
-    fallback_entries,
-    fallback_sections,
 )
-from ethernity.render.direct_pdf.forge.common import (
+from ethernity.render.direct_pdf.forge.shard_fallback import (
+    ForgeShardFallbackLayoutProfile as _FallbackLayoutProfile,
+    forge_shard_fallback_profiles,
+    place_forge_shard_fallback_entries,
+)
+from ethernity.render.direct_pdf.forge.shell import (
     FORGE_SLATE_50,
     FORGE_SLATE_100,
     FORGE_SLATE_300,
@@ -28,23 +35,11 @@ from ethernity.render.direct_pdf.forge.common import (
     FORGE_SLATE_900,
     FORGE_WHITE,
     ForgePageLayout,
-    ForgeShellContext,
     build_forge_content_constraints,
     build_forge_header_plans,
     build_forge_page_layout,
-    build_forge_shell_context,
-    explicit_creation_date,
-)
-from ethernity.render.direct_pdf.forge.shard_fallback import (
-    ForgeShardFallbackLayoutProfile as _FallbackLayoutProfile,
-    ForgeShardFallbackPageEntry as _FallbackPageEntry,
-    forge_shard_fallback_capacity,
-    forge_shard_fallback_column_width,
-    forge_shard_fallback_profiles,
-    place_forge_shard_fallback_entries,
 )
 from ethernity.render.direct_pdf.forge.theme import FORGE_THEME
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
     DirectPdfPagePlan,
@@ -53,24 +48,13 @@ from ethernity.render.direct_pdf.page import (
     build_page_plan,
 )
 from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
-from ethernity.render.direct_pdf.shard_contract import validate_single_shard_fallback_contract
-from ethernity.render.direct_pdf.structured_common import (
-    component_prefix,
-    qr_image,
-    resolved_single_qr_payload,
-)
-from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
+from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
-from ethernity.render.direct_pdf.text_measure import measured_grouped_line_length
 from ethernity.render.direct_pdf.types import PdfRect, TextStyle
 from ethernity.render.doc_types import DOC_TYPE_SHARD
-from ethernity.render.proofs import build_render_artifact_proof
 from ethernity.render.types import (
     FallbackSection,
-    RenderArtifactProof,
-    RenderFallbackProof,
     RenderInputs,
-    RenderResult,
 )
 
 _COMPONENT_BASE = "forge-shard"
@@ -86,15 +70,6 @@ _FALLBACK_LAYOUT_PROFILES = forge_shard_fallback_profiles(
     standard_row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
     dense_row_height_mm=_FALLBACK_DENSE_ROW_HEIGHT_MM,
 )
-
-
-@dataclass(frozen=True)
-class ForgeShardDirectPlan:
-    """Measured pages and app-wide proofs for one direct Forge shard render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    fallback_proof: RenderFallbackProof
-    artifact_proof: RenderArtifactProof
 
 
 @dataclass(frozen=True)
@@ -138,99 +113,35 @@ def _forge_shard_geometry(inputs: RenderInputs) -> _ForgeShardGeometry:
     )
 
 
-def render_forge_shard_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Forge shard document directly to PDF and return validation proofs."""
-
-    page = resolve_page_geometry(inputs)
-    surface = FpdfSurface(page_width_mm=page.width_mm, page_height_mm=page.height_mm)
-    creation_date = explicit_creation_date(inputs)
-    if creation_date is not None:
-        surface.set_creation_date(creation_date)
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = build_forge_shard_direct_plan(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name="forge",
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(
-        fallback_proof=plan.fallback_proof,
-        artifact_proof=plan.artifact_proof,
-        layout_proof=layout_proof,
-    )
-
-
 def build_forge_shard_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> ForgeShardDirectPlan:
-    """Build measured direct-PDF plans and render proofs for Forge shard inputs."""
+) -> DirectPdfDocumentPlan:
+    """Build measured direct-PDF plans and render layouts for Forge shard inputs."""
 
-    _validate_inputs(inputs)
+    document_inputs.validate_single_qr_fallback_inputs(inputs, expected_doc_type=DOC_TYPE_SHARD)
     geometry = _forge_shard_geometry(inputs)
-    payload = resolved_single_qr_payload(inputs)
-    qr_image_bytes = qr_image(payload, config=inputs.qr_config or QrConfig())
-    context = build_forge_shell_context(inputs, doc_type=inputs.doc_type.strip().lower())
+    context = document_inputs.build_document_render_context(
+        inputs, doc_type=inputs.doc_type.strip().lower()
+    )
     sections, fallback_pages = _responsive_fallback_layout(
         surface,
         inputs.fallback_sections or (),
         geometry=geometry,
     )
-    page_plans = tuple(
-        _build_page(
+    return build_single_qr_fallback_plan(
+        inputs,
+        sections=sections,
+        fallback_pages=fallback_pages,
+        page_entries=lambda page: tuple(item.entry for item in page.entries),
+        page_builder=lambda fallback_page, qr_image, total_pages: _build_page(
             surface,
             context,
             fallback_page,
             geometry=geometry,
-            qr_image=qr_image_bytes,
-        )
-        for fallback_page in fallback_pages
+            qr_image=qr_image,
+        ),
     )
-    fallback_proof = build_fallback_proof_from_entry_groups(
-        inputs,
-        sections,
-        tuple(tuple(page_entry.entry for page_entry in page.entries) for page in fallback_pages),
-    )
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=(payload,),
-        encoded_payload_count=1,
-        physical_qr_count=len(page_plans),
-        physical_qr_payload_indexes=tuple(0 for _ in page_plans),
-        page_count=len(page_plans),
-        fallback_proof=fallback_proof,
-    )
-    return ForgeShardDirectPlan(
-        page_plans=page_plans,
-        fallback_proof=fallback_proof,
-        artifact_proof=artifact_proof,
-    )
-
-
-def _validate_inputs(inputs: RenderInputs) -> None:
-    normalized_doc_type = inputs.doc_type.strip().lower()
-    if normalized_doc_type != DOC_TYPE_SHARD:
-        raise ValueError("direct Forge shard renderer only supports shard documents")
-    if not inputs.render_qr:
-        raise ValueError("direct Forge shard renderer requires QR rendering")
-    if not inputs.render_fallback:
-        raise ValueError("direct Forge shard renderer requires fallback rendering")
-    validate_single_shard_fallback_contract(
-        inputs,
-        renderer_label="direct Forge shard renderer",
-    )
-
-    resolve_page_geometry(inputs)
-
-    qr_config = inputs.qr_config or QrConfig()
-    qr_kind = str(qr_config.kind or "png").strip().lower()
-    if qr_kind != "png":
-        raise ValueError("direct Forge shard renderer currently supports PNG QR images only")
 
 
 def _responsive_fallback_layout(
@@ -258,59 +169,29 @@ def _fallback_layout_for_area(
     sections: Sequence[FallbackSection],
     *,
     area: PdfRect,
-) -> tuple[
-    tuple[_FallbackSectionLines, ...],
-    tuple[_FallbackEntry, ...],
-    _FallbackLayoutProfile,
-]:
-    """Resolve the least-dense measured profile that fits the supplied panel area."""
-
-    for profile in _FALLBACK_LAYOUT_PROFILES:
-        resolved_sections, entries = _fallback_candidate_for_profile(
-            surface,
-            sections,
-            area=area,
-            profile=profile,
-        )
-        capacity = forge_shard_fallback_capacity(
-            area,
-            profile=profile,
-            reserved_height_mm=7.0,
-        )
-        if len(entries) <= capacity:
-            return resolved_sections, entries, profile
-
-    raise ValueError(
-        "Forge shard fallback exceeds the single-page capacity at the readable font floor"
-    )
-
-
-def _fallback_candidate_for_profile(
-    surface: PdfSurface,
-    sections: Sequence[FallbackSection],
-    *,
-    area: PdfRect,
-    profile: _FallbackLayoutProfile,
-) -> tuple[tuple[_FallbackSectionLines, ...], tuple[_FallbackEntry, ...]]:
-    column_width_mm = forge_shard_fallback_column_width(
-        area,
-        column_count=profile.column_count,
-        horizontal_padding_mm=_FALLBACK_HORIZONTAL_PADDING_MM,
-        column_gap_mm=_FALLBACK_COLUMN_GAP_MM,
-    )
-    line_length = measured_grouped_line_length(
+) -> tuple[tuple[_FallbackSectionLines, ...], tuple[_FallbackEntry, ...], _FallbackLayoutProfile]:
+    fitted = fit_single_page_fallback(
         surface,
-        style=_fallback_payload_style(font_size_pt=profile.font_size_pt),
-        alphabet=ZBASE32_ALPHABET,
-        group_size=_FALLBACK_GROUP_SIZE,
-        max_width_mm=column_width_mm,
-    )
-    resolved_sections = fallback_sections(
         sections,
+        area=area,
+        profiles=tuple(
+            SinglePageFallbackProfile(
+                columns=profile.column_count,
+                row_height_mm=profile.row_height_mm,
+                body_style=_fallback_payload_style(font_size_pt=profile.font_size_pt),
+                column_gap_mm=_FALLBACK_COLUMN_GAP_MM,
+                horizontal_padding_mm=_FALLBACK_HORIZONTAL_PADDING_MM,
+                reserved_height_mm=7.0,
+                safety_mm=0.0,
+            )
+            for profile in _FALLBACK_LAYOUT_PROFILES
+        ),
         group_size=_FALLBACK_GROUP_SIZE,
-        line_length=line_length,
+        overflow_message=(
+            "Forge shard fallback exceeds the single-page capacity at the readable font floor"
+        ),
     )
-    return resolved_sections, fallback_entries(resolved_sections)
+    return fitted.sections, fitted.entries, _FALLBACK_LAYOUT_PROFILES[fitted.profile_index]
 
 
 def _fallback_payload_style(*, font_size_pt: float) -> TextStyle:
@@ -343,7 +224,7 @@ def _paginate_fallback_entries(
 
 def _build_page(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     fallback_page: _FallbackPage,
     *,
     geometry: _ForgeShardGeometry,
@@ -375,7 +256,7 @@ def _build_page(
     )
     plans.extend(_signature_plans(surface, layout=geometry.layout))
     plans.extend(_fallback_plans(surface, fallback_page, context=context))
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     intro_id = f"{prefix}-qr-frame"
     content_ids = (
         intro_id,
@@ -451,19 +332,19 @@ def _build_page(
     )
 
 
-def _classification_default(context: ForgeShellContext) -> str:
-    if context.copy.get("key_material_label"):
+def _classification_default(context: document_inputs.DocumentRenderContext) -> str:
+    if context.copy.get("key_share_label"):
         return "Restricted Access"
     return "Confidential"
 
 
 def _warning_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     x_mm = layout.regions.safe.x_mm + _QR_FRAME_SIZE_MM + 8.0
     top_mm = layout.regions.body.y_mm + 10.0
     width_mm = layout.regions.safe.right_mm - x_mm
@@ -506,7 +387,7 @@ def _warning_plans(
 
 def _shard_stats_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ForgePageLayout,
 ) -> list[PaintPlan]:
@@ -623,9 +504,9 @@ def _fallback_plans(
     surface: PdfSurface,
     fallback_page: _FallbackPage,
     *,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     plans: list[PaintPlan] = [
         Panel(
             component_id=f"{prefix}-fallback-panel",
@@ -652,9 +533,9 @@ def _fallback_plans(
         ),
     ]
     line_start_y = fallback_page.area.y_mm + 7.0
-    column_width_mm = forge_shard_fallback_column_width(
+    column_width_mm = fallback_column_width(
         fallback_page.area,
-        column_count=fallback_page.profile.column_count,
+        columns=fallback_page.profile.column_count,
         horizontal_padding_mm=_FALLBACK_HORIZONTAL_PADDING_MM,
         column_gap_mm=_FALLBACK_COLUMN_GAP_MM,
     )
@@ -711,7 +592,5 @@ def _fallback_plans(
 
 
 __all__ = [
-    "ForgeShardDirectPlan",
     "build_forge_shard_direct_plan",
-    "render_forge_shard_direct_pdf",
 ]

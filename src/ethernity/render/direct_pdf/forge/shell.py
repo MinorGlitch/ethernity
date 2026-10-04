@@ -1,16 +1,15 @@
-"""Shared Forge direct-PDF shell helpers.
+"""Build the Forge direct-PDF page shell.
 
-These helpers centralize the Forge document chrome used by direct renderers: colors, page
+This module centralizes the Forge document chrome used by direct renderers: colors, page
 constants, timestamp/doc-id normalization, copy lookup, and measured header/footer components.
-Document-specific renderers own their content areas and proof construction.
+Document-specific renderers own their content areas and layout construction.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
 
-from ethernity.render.copy_catalog import build_copy_bundle, build_instruction_copy
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import Panel, Rule, TextAlign, TextBox
 from ethernity.render.direct_pdf.forge.theme import FORGE_THEME
 from ethernity.render.direct_pdf.page import (
@@ -19,15 +18,8 @@ from ethernity.render.direct_pdf.page import (
     PaintPlan,
     SeparationConstraint,
 )
-from ethernity.render.direct_pdf.page_geometry import PageGeometry, resolve_page_geometry
+from ethernity.render.direct_pdf.page_geometry import PageGeometry
 from ethernity.render.direct_pdf.responsive_layout import Insets, PageRegions, resolve_page_regions
-from ethernity.render.direct_pdf.structured_common import (
-    component_prefix,
-    generator_label,
-    lineage_payload,
-    resolve_doc_id,
-    timestamp_from_string,
-)
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
 from ethernity.render.direct_pdf.types import PdfRect
@@ -35,9 +27,6 @@ from ethernity.render.doc_types import (
     DOC_TYPE_KIT_INDEX,
     DOC_TYPE_SHARD,
 )
-from ethernity.render.template_style import TemplateCapabilities, load_template_style
-from ethernity.render.types import RenderInputs, RenderLineage
-from ethernity.version import get_ethernity_version
 
 FORGE_CONTENT_X_MM = FORGE_THEME.layout.content_x_mm
 FORGE_CONTENT_WIDTH_MM = FORGE_THEME.layout.content_width_mm
@@ -136,11 +125,11 @@ def build_forge_content_constraints(
     footer_clearance_mm: float = 3.0,
     header_bottom_mm: float | None = None,
 ) -> tuple[SeparationConstraint, ...]:
-    """Prove that declared body components stay clear of Forge shell regions."""
+    """Require declared body components to stay clear of Forge shell regions."""
 
-    prefix = component_prefix(component_base, page_number)
+    prefix = document_inputs.component_prefix(component_base, page_number)
     content = ComponentGroup(
-        group_id=f"{prefix}-semantic-content",
+        group_id=f"{prefix}-body-content",
         component_ids=content_component_ids,
     )
     header_region = layout.regions.header
@@ -175,110 +164,9 @@ def build_forge_content_constraints(
     )
 
 
-@dataclass(frozen=True)
-class ForgeShellContext:
-    """Shared copy and metadata used by Forge direct-PDF document shells."""
-
-    doc_type: str
-    doc_id: str
-    created_timestamp_utc: str
-    copy: dict[str, object]
-    instructions_label: str
-    instruction_lines: tuple[str, ...]
-    footer_left: str
-    footer_right: str
-    lineage: RenderLineage
-    values: dict[str, object]
-    capabilities: TemplateCapabilities
-
-
-def build_forge_shell_context(inputs: RenderInputs, *, doc_type: str) -> ForgeShellContext:
-    """Build Forge shell context from existing render inputs and copy catalogs."""
-
-    base_context = dict(inputs.context)
-    created_timestamp_utc = resolve_created_timestamp(base_context)
-    doc_id = resolve_doc_id(inputs, base_context)
-    base_context["doc_id"] = doc_id
-    base_context["lineage"] = lineage_payload(inputs.lineage)
-
-    page = resolve_page_geometry(inputs)
-    base_context["paper_size"] = page.paper_size
-    copy = build_copy_bundle(doc_type=doc_type, context=base_context)
-    instructions = build_instruction_copy(doc_type=doc_type, context=base_context)
-    return ForgeShellContext(
-        doc_type=doc_type,
-        doc_id=doc_id,
-        created_timestamp_utc=created_timestamp_utc,
-        copy=copy,
-        instructions_label=instructions.label,
-        instruction_lines=instructions.lines,
-        footer_left=generator_label(get_ethernity_version()),
-        footer_right=str(copy.get("footer_guidance") or ""),
-        lineage=inputs.lineage,
-        values=base_context,
-        capabilities=load_template_style(inputs.design_name).capabilities,
-    )
-
-
-def resolve_created_timestamp(base_context: dict[str, object]) -> str:
-    """Normalize created timestamp fields for direct Forge display."""
-
-    created_value = base_context.get("created_timestamp_utc")
-    if created_value is None:
-        created_value = base_context.get("created_date")
-
-    created_dt = None
-    created_timestamp_utc = None
-    if isinstance(created_value, datetime):
-        if created_value.tzinfo is None:
-            created_value = created_value.replace(tzinfo=timezone.utc)
-        created_dt = created_value.astimezone(timezone.utc)
-    elif isinstance(created_value, date):
-        created_dt = datetime.combine(created_value, datetime.min.time(), tzinfo=timezone.utc)
-    elif isinstance(created_value, str):
-        created_timestamp_utc, created_dt = timestamp_from_string(created_value)
-
-    if created_timestamp_utc is None:
-        created_dt = created_dt or datetime.now(timezone.utc)
-        created_timestamp_utc = created_dt.strftime("%Y-%m-%d %H:%M UTC")
-
-    base_context["created_timestamp_utc"] = created_timestamp_utc
-    if created_dt is not None:
-        base_context["created_date"] = created_dt.date().isoformat()
-    return created_timestamp_utc
-
-
-def explicit_creation_date(inputs: RenderInputs) -> datetime | None:
-    """Resolve explicit render timestamps for deterministic PDF metadata."""
-
-    value = inputs.context.get("created_timestamp_utc")
-    if value is None:
-        value = inputs.context.get("created_date")
-    if isinstance(value, datetime):
-        resolved = value
-    elif isinstance(value, date):
-        resolved = datetime.combine(value, time.min, tzinfo=timezone.utc)
-    elif isinstance(value, str):
-        normalized = value.strip()
-        resolved = None
-        for pattern in ("%Y-%m-%d %H:%M UTC", "%Y-%m-%d"):
-            try:
-                resolved = datetime.strptime(normalized, pattern).replace(tzinfo=timezone.utc)
-                break
-            except ValueError:
-                continue
-        if resolved is None:
-            return None
-    else:
-        return None
-    if resolved.tzinfo is None:
-        return resolved.replace(tzinfo=timezone.utc)
-    return resolved.astimezone(timezone.utc)
-
-
 def build_forge_header_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     page_label: str,
     page_number: int,
@@ -293,14 +181,14 @@ def build_forge_header_plans(
 ) -> list[PaintPlan]:
     """Build measured Forge header plans for a direct-PDF page."""
 
-    prefix = component_prefix(component_base, page_number)
+    prefix = document_inputs.component_prefix(component_base, page_number)
     title = str(context.copy.get("title") or title_default)
     subtitle = str(context.copy.get("subtitle") or subtitle_default)
     guidance = str(context.copy.get("header_guidance") or "")
     classification = str(
         classification_override
         if classification_override is not None
-        else context.copy.get("lineage_badge") or classification_default
+        else context.copy.get("origin_badge") or classification_default
     )
     resolved_kicker = _forge_header_kicker_text(context) if kicker_text is None else kicker_text
     resolved_icon = _forge_header_icon_text(context) if icon_text is None else icon_text
@@ -339,7 +227,7 @@ def build_forge_header_plans(
     ).plan(surface, PdfRect(FORGE_CONTENT_X_MM, title_y, text_column_width_mm, 23.5))
     plans.append(title_plan)
 
-    subtitle_y = title_plan.proof.used_rect.bottom_mm + 2.1
+    subtitle_y = title_plan.layout.used_rect.bottom_mm + 2.1
     subtitle_plan = TextBox(
         component_id=f"{prefix}-header-subtitle",
         text=subtitle,
@@ -352,7 +240,7 @@ def build_forge_header_plans(
     ).plan(surface, PdfRect(FORGE_CONTENT_X_MM, subtitle_y, text_column_width_mm, 5.6))
     plans.append(subtitle_plan)
 
-    content_bottom_y = subtitle_plan.proof.used_rect.bottom_mm
+    content_bottom_y = subtitle_plan.layout.used_rect.bottom_mm
     if guidance.strip():
         guidance_y = content_bottom_y + 2.1
         guidance_plan = TextBox(
@@ -363,7 +251,7 @@ def build_forge_header_plans(
             min_size_pt=6.0,
         ).plan(surface, PdfRect(FORGE_CONTENT_X_MM, guidance_y, text_column_width_mm, 4.0))
         plans.append(guidance_plan)
-        content_bottom_y = guidance_plan.proof.used_rect.bottom_mm
+        content_bottom_y = guidance_plan.layout.used_rect.bottom_mm
 
     rule_y = max(minimum_rule_y, content_bottom_y + 6.8)
 
@@ -443,7 +331,7 @@ def build_forge_header_plans(
 
 def build_forge_header_plan(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     page_label: str,
     page_number: int,
@@ -474,14 +362,14 @@ def build_forge_header_plan(
             page_rect=page_rect,
         )
     )
-    prefix = component_prefix(component_base, page_number)
+    prefix = document_inputs.component_prefix(component_base, page_number)
     header_rule = next(plan for plan in plans if plan.component_id == f"{prefix}-header-rule")
-    return ForgeHeaderPlan(plans=plans, bottom_mm=header_rule.proof.rect.bottom_mm)
+    return ForgeHeaderPlan(plans=plans, bottom_mm=header_rule.layout.rect.bottom_mm)
 
 
 def build_forge_footer_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     page_label: str,
     page_number: int,
@@ -490,7 +378,7 @@ def build_forge_footer_plans(
 ) -> list[PaintPlan]:
     """Build measured Forge footer plans for a direct-PDF page."""
 
-    prefix = component_prefix(component_base, page_number)
+    prefix = document_inputs.component_prefix(component_base, page_number)
     mono_style = FORGE_THEME.mono_style(
         size_pt=FORGE_THEME.text.footer_pt,
         color=FORGE_SLATE_500,
@@ -534,13 +422,13 @@ def build_forge_footer_plans(
     ]
 
 
-def _forge_header_kicker_text(context: ForgeShellContext) -> str:
+def _forge_header_kicker_text(context: document_inputs.DocumentRenderContext) -> str:
     if context.doc_type in {DOC_TYPE_KIT_INDEX, DOC_TYPE_SHARD}:
         return FORGE_HEADER_KICKER
     return ""
 
 
-def _forge_header_icon_text(context: ForgeShellContext) -> str:
+def _forge_header_icon_text(context: document_inputs.DocumentRenderContext) -> str:
     if context.doc_type == DOC_TYPE_KIT_INDEX:
         return FORGE_ICON_INVENTORY
     return ""
@@ -568,13 +456,9 @@ __all__ = [
     "FORGE_WHITE",
     "ForgePageLayout",
     "ForgeHeaderPlan",
-    "ForgeShellContext",
     "build_forge_content_constraints",
     "build_forge_footer_plans",
     "build_forge_header_plans",
     "build_forge_header_plan",
     "build_forge_page_layout",
-    "build_forge_shell_context",
-    "explicit_creation_date",
-    "resolve_created_timestamp",
 ]

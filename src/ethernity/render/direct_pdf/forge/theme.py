@@ -1,10 +1,4 @@
-"""Forge design tokens for direct PDF rendering.
-
-The HTML Forge templates use Tailwind utility classes with these reference families:
-Libre Baskerville, Public Sans, Roboto Mono, and Material Symbols. The packaged HTML currently
-bundles only Material Symbols, so the direct renderer maps text roles to stable PDF built-ins that
-match the current rendered baselines instead of silently changing typography.
-"""
+"""Forge colors, fonts, text sizes, and page dimensions for direct PDF rendering."""
 
 from __future__ import annotations
 
@@ -40,7 +34,7 @@ class ForgeFontRole:
 
 @dataclass(frozen=True)
 class ForgeFonts:
-    """Font roles from the Forge HTML templates mapped to direct-PDF families."""
+    """Reference font names and the corresponding PDF families used by Forge."""
 
     serif: ForgeFontRole
     sans: ForgeFontRole
@@ -76,7 +70,7 @@ class ForgeLayoutScale:
 
 @dataclass(frozen=True)
 class ForgeTheme:
-    """Direct-PDF representation of the Forge design contract."""
+    """Direct-PDF Forge theme values."""
 
     palette: ForgePalette
     fonts: ForgeFonts

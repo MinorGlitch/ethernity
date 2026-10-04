@@ -1,6 +1,6 @@
 import unittest
 
-from ethernity.render.direct_pdf.forge.common import (
+from ethernity.render.direct_pdf.forge.shell import (
     FORGE_CONTENT_WIDTH_MM,
     FORGE_CONTENT_X_MM,
     FORGE_MONO_FONT,

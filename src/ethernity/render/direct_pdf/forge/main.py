@@ -1,15 +1,14 @@
-"""Forge main document rendering through direct PDF primitives."""
+"""Forge main document rendering through measured PDF components."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Sequence
 
-from ethernity.qr.codec import QrConfig
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import ImageBox, Panel, Rule, TextAlign, TextBox
-from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
-from ethernity.render.direct_pdf.forge.common import (
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import build_qr_document_plan
+from ethernity.render.direct_pdf.forge.shell import (
     FORGE_SLATE_50,
     FORGE_SLATE_100,
     FORGE_SLATE_200,
@@ -20,31 +19,20 @@ from ethernity.render.direct_pdf.forge.common import (
     FORGE_SLATE_900,
     FORGE_WHITE,
     ForgePageLayout,
-    ForgeShellContext,
     build_forge_content_constraints,
     build_forge_footer_plans,
     build_forge_header_plans,
     build_forge_page_layout,
-    build_forge_shell_context,
 )
 from ethernity.render.direct_pdf.forge.theme import FORGE_THEME
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
 from ethernity.render.direct_pdf.page import DirectPdfPagePlan, PaintPlan, build_page_plan
 from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
 from ethernity.render.direct_pdf.responsive_layout import GridPolicy, ResolvedGrid, resolve_grid
-from ethernity.render.direct_pdf.structured_common import (
-    QrPage,
-    QrPayloadItem,
-    component_prefix,
-    qr_payload_items,
-    resolved_qr_payloads,
-)
-from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
+from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
 from ethernity.render.direct_pdf.types import PdfRect
 from ethernity.render.doc_types import DOC_TYPE_MAIN
-from ethernity.render.proofs import build_render_artifact_proof
-from ethernity.render.types import RenderArtifactProof, RenderInputs, RenderResult
+from ethernity.render.types import RenderInputs
 
 _COMPONENT_BASE = "forge-main"
 _QR_COLUMNS = 3
@@ -69,14 +57,6 @@ _DIRECTIVE_ICONS = (
     chr(0xE9B0),
     chr(0xE873),
 )
-
-
-@dataclass(frozen=True)
-class ForgeMainDirectPlan:
-    """Measured pages and app-wide proof for one direct Forge main render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    artifact_proof: RenderArtifactProof
 
 
 @dataclass(frozen=True)
@@ -132,111 +112,32 @@ def _forge_main_geometry(inputs: RenderInputs) -> _ForgeMainGeometry:
     )
 
 
-def render_forge_main_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Forge main document directly to PDF and return validation proofs."""
-
-    geometry = resolve_page_geometry(inputs)
-    surface = FpdfSurface(
-        page_width_mm=geometry.width_mm,
-        page_height_mm=geometry.height_mm,
-    )
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = build_forge_main_direct_plan(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name="forge",
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(artifact_proof=plan.artifact_proof, layout_proof=layout_proof)
-
-
 def build_forge_main_direct_plan(
-    surface: PdfSurface,
-    inputs: RenderInputs,
-) -> ForgeMainDirectPlan:
-    """Build measured direct-PDF plans and render proofs for Forge main inputs."""
+    surface: PdfSurface, inputs: RenderInputs
+) -> DirectPdfDocumentPlan:
+    """Build measured Forge main pages through the shared QR planner."""
 
-    _validate_inputs(inputs)
+    document_inputs.validate_qr_inputs(inputs, expected_doc_type=DOC_TYPE_MAIN)
     geometry = _forge_main_geometry(inputs)
-    payloads = resolved_qr_payloads(inputs)
-    items = qr_payload_items(payloads, config=inputs.qr_config or QrConfig())
-    qr_pages = _paginate_qr_items(items, geometry=geometry)
-    context = build_forge_shell_context(inputs, doc_type=DOC_TYPE_MAIN)
-    page_plans = tuple(
-        _build_page(
+    context = document_inputs.build_document_render_context(inputs, doc_type=inputs.doc_type)
+    return build_qr_document_plan(
+        inputs,
+        capacity=geometry.continuation_grid.capacity,
+        first_page_capacity=geometry.first_page_grid.capacity,
+        page_builder=lambda qr_page, total_pages, item_count: _build_page(
             surface,
             context,
             qr_page,
             geometry=geometry,
-            total_pages=len(qr_pages),
-        )
-        for qr_page in qr_pages
+            total_pages=total_pages,
+        ),
     )
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=payloads,
-        encoded_payload_count=len(payloads),
-        physical_qr_count=len(items),
-        physical_qr_payload_indexes=tuple(item.payload_index for item in items),
-        page_count=len(page_plans),
-        fallback_proof=None,
-    )
-    return ForgeMainDirectPlan(page_plans=page_plans, artifact_proof=artifact_proof)
-
-
-def _validate_inputs(inputs: RenderInputs) -> None:
-    normalized_doc_type = inputs.doc_type.strip().lower()
-    if normalized_doc_type != DOC_TYPE_MAIN:
-        raise ValueError("direct Forge main renderer only supports main documents")
-    if not inputs.render_qr:
-        raise ValueError("direct Forge main renderer requires QR rendering")
-    if inputs.render_fallback:
-        raise ValueError("direct Forge main renderer does not render fallback text")
-    if not inputs.frames:
-        raise ValueError("frames cannot be empty for direct Forge main rendering")
-
-    resolve_page_geometry(inputs)
-
-    qr_config = inputs.qr_config or QrConfig()
-    qr_kind = str(qr_config.kind or "png").strip().lower()
-    if qr_kind != "png":
-        raise ValueError("direct Forge main renderer currently supports PNG QR images only")
-
-
-def _paginate_qr_items(
-    items: Sequence[QrPayloadItem],
-    *,
-    geometry: _ForgeMainGeometry,
-) -> tuple[QrPage, ...]:
-    if not items:
-        raise ValueError("direct Forge main renderer has no QR payloads to render")
-
-    pages: list[QrPage] = []
-    cursor = 0
-    page_number = 1
-    while cursor < len(items):
-        capacity = _page_qr_capacity(page_number, geometry=geometry)
-        page_items = tuple(items[cursor : cursor + capacity])
-        pages.append(QrPage(page_number=page_number, items=page_items))
-        cursor += len(page_items)
-        page_number += 1
-    return tuple(pages)
-
-
-def _page_qr_capacity(page_number: int, *, geometry: _ForgeMainGeometry) -> int:
-    grid = geometry.first_page_grid if page_number <= 1 else geometry.continuation_grid
-    return grid.capacity
 
 
 def _build_page(
     surface: PdfSurface,
-    context: ForgeShellContext,
-    qr_page: QrPage,
+    context: document_inputs.DocumentRenderContext,
+    qr_page: document_inputs.QrPage,
     *,
     geometry: _ForgeMainGeometry,
     total_pages: int,
@@ -276,7 +177,7 @@ def _build_page(
             page_rect=geometry.layout.page.rect,
         )
     )
-    prefix = component_prefix(_COMPONENT_BASE, qr_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, qr_page.page_number)
     content_ids = tuple(f"{prefix}-qr-card-{item.payload_index}" for item in qr_page.items)
     content_ids += (
         (f"{prefix}-directives-title",)
@@ -299,12 +200,15 @@ def _build_page(
 
 def _directive_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     geometry: _ForgeMainGeometry,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     lines = tuple(context.instruction_lines) + (
-        "Store this QR document separately from the recovery document.",
+        str(
+            context.copy.get("replacement_instruction")
+            or "Store this QR document separately from the recovery document."
+        ),
     )
     content = geometry.layout.regions.safe
     card_width = (content.width_mm - _DIRECTIVE_CARD_GAP_MM * 3) / 4.0
@@ -350,7 +254,7 @@ def _directive_card_plans(
     component_index: int,
     rect: PdfRect,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     icon = (
         _DIRECTIVE_ICONS[component_index]
         if component_index < len(_DIRECTIVE_ICONS)
@@ -382,12 +286,12 @@ def _directive_card_plans(
 
 def _continuation_hint_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     geometry: _ForgeMainGeometry,
     *,
     page_number: int,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
     return [
         Panel(
             component_id=f"{prefix}-continuation-panel",
@@ -424,11 +328,11 @@ def _continuation_hint_plans(
 
 def _qr_grid_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
-    qr_page: QrPage,
+    context: document_inputs.DocumentRenderContext,
+    qr_page: document_inputs.QrPage,
     geometry: _ForgeMainGeometry,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, qr_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, qr_page.page_number)
     grid = geometry.first_page_grid if qr_page.page_number <= 1 else geometry.continuation_grid
     segment_prefix = str(context.copy.get("segment_prefix") or "Segment").upper()
 
@@ -454,7 +358,7 @@ def _qr_card_plans(
     *,
     prefix: str,
     segment_prefix: str,
-    item: QrPayloadItem,
+    item: document_inputs.QrPayloadItem,
     rect: PdfRect,
     image_size_mm: float,
 ) -> list[PaintPlan]:
@@ -487,7 +391,5 @@ def _qr_card_plans(
 
 
 __all__ = [
-    "ForgeMainDirectPlan",
     "build_forge_main_direct_plan",
-    "render_forge_main_direct_pdf",
 ]

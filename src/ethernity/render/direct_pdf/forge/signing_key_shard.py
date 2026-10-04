@@ -1,25 +1,33 @@
-"""Forge signing-key shard rendering through direct PDF primitives."""
+"""Forge signing-key shard rendering through measured PDF components."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
-from ethernity.qr.codec import QrConfig
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import ImageBox, Panel, Rule, TextAlign, TextBox
-from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import build_single_qr_fallback_plan
+from ethernity.render.direct_pdf.fallback_fit import (
+    SinglePageFallbackProfile,
+    fallback_column_width,
+    fit_single_page_fallback,
+)
 from ethernity.render.direct_pdf.fallback_layout import (
+    FallbackColumnPlacement as _FallbackPageEntry,
     FallbackEntry as _FallbackEntry,
     FallbackLineEntry as _FallbackLineEntry,
     FallbackSectionLines as _FallbackSectionLines,
     FallbackTitleEntry as _FallbackTitleEntry,
-    build_fallback_proof_from_entry_groups,
     fallback_entries,
-    fallback_sections,
 )
-from ethernity.render.direct_pdf.forge.common import (
+from ethernity.render.direct_pdf.forge.shard_fallback import (
+    ForgeShardFallbackLayoutProfile as _FallbackLayoutProfile,
+    forge_shard_fallback_profiles,
+    place_forge_shard_fallback_entries,
+)
+from ethernity.render.direct_pdf.forge.shell import (
     FORGE_SLATE_50,
     FORGE_SLATE_300,
     FORGE_SLATE_700,
@@ -27,24 +35,12 @@ from ethernity.render.direct_pdf.forge.common import (
     FORGE_SLATE_900,
     FORGE_WHITE,
     ForgePageLayout,
-    ForgeShellContext,
     build_forge_content_constraints,
     build_forge_footer_plans,
     build_forge_header_plans,
     build_forge_page_layout,
-    build_forge_shell_context,
-    explicit_creation_date,
-)
-from ethernity.render.direct_pdf.forge.shard_fallback import (
-    ForgeShardFallbackLayoutProfile as _FallbackLayoutProfile,
-    ForgeShardFallbackPageEntry as _FallbackPageEntry,
-    forge_shard_fallback_capacity,
-    forge_shard_fallback_column_width,
-    forge_shard_fallback_profiles,
-    place_forge_shard_fallback_entries,
 )
 from ethernity.render.direct_pdf.forge.theme import FORGE_THEME
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
     DirectPdfPagePlan,
@@ -53,24 +49,13 @@ from ethernity.render.direct_pdf.page import (
     build_page_plan,
 )
 from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
-from ethernity.render.direct_pdf.shard_contract import validate_single_shard_fallback_contract
-from ethernity.render.direct_pdf.structured_common import (
-    component_prefix,
-    qr_image,
-    resolved_single_qr_payload,
-)
-from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
+from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
-from ethernity.render.direct_pdf.text_measure import measured_grouped_line_length
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect, TextStyle
 from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
-from ethernity.render.proofs import build_render_artifact_proof
 from ethernity.render.types import (
     FallbackSection,
-    RenderArtifactProof,
-    RenderFallbackProof,
     RenderInputs,
-    RenderResult,
 )
 
 _COMPONENT_BASE = "forge-signing-key-shard"
@@ -94,15 +79,6 @@ _FALLBACK_LAYOUT_PROFILES = forge_shard_fallback_profiles(
     standard_row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
     dense_row_height_mm=_FALLBACK_DENSE_ROW_HEIGHT_MM,
 )
-
-
-@dataclass(frozen=True)
-class ForgeSigningKeyShardDirectPlan:
-    """Measured pages and proofs for one direct Forge signing-key shard render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    fallback_proof: RenderFallbackProof
-    artifact_proof: RenderArtifactProof
 
 
 @dataclass(frozen=True)
@@ -204,100 +180,38 @@ def _forge_signing_key_shard_geometry(inputs: RenderInputs) -> _ForgeSigningKeyS
     )
 
 
-def render_forge_signing_key_shard_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Forge signing-key shard document directly to PDF."""
-
-    page = resolve_page_geometry(inputs)
-    surface = FpdfSurface(page_width_mm=page.width_mm, page_height_mm=page.height_mm)
-    creation_date = explicit_creation_date(inputs)
-    if creation_date is not None:
-        surface.set_creation_date(creation_date)
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = build_forge_signing_key_shard_direct_plan(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name="forge",
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(
-        fallback_proof=plan.fallback_proof,
-        artifact_proof=plan.artifact_proof,
-        layout_proof=layout_proof,
-    )
-
-
 def build_forge_signing_key_shard_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> ForgeSigningKeyShardDirectPlan:
-    """Build measured direct-PDF plans and proofs for Forge signing-key shard inputs."""
+) -> DirectPdfDocumentPlan:
+    """Build measured direct-PDF plans and layouts for Forge signing-key shard inputs."""
 
-    _validate_inputs(inputs)
+    document_inputs.validate_single_qr_fallback_inputs(
+        inputs, expected_doc_type=DOC_TYPE_SIGNING_KEY_SHARD
+    )
     geometry = _forge_signing_key_shard_geometry(inputs)
-    payload = resolved_single_qr_payload(inputs)
-    qr_image_bytes = qr_image(payload, config=inputs.qr_config or QrConfig())
-    context = build_forge_shell_context(inputs, doc_type=DOC_TYPE_SIGNING_KEY_SHARD)
+    context = document_inputs.build_document_render_context(
+        inputs, doc_type=DOC_TYPE_SIGNING_KEY_SHARD
+    )
     sections, fallback_pages = _responsive_fallback_layout(
         surface,
         inputs.fallback_sections or (),
         geometry=geometry,
     )
-    page_plans = tuple(
-        _build_page(
+    return build_single_qr_fallback_plan(
+        inputs,
+        sections=sections,
+        fallback_pages=fallback_pages,
+        page_entries=lambda page: fallback_entries(sections),
+        page_builder=lambda fallback_page, qr_image, total_pages: _build_page(
             surface,
             context,
             fallback_page,
             geometry=geometry,
-            qr_image=qr_image_bytes,
-            total_pages=len(fallback_pages),
-        )
-        for fallback_page in fallback_pages
+            qr_image=qr_image,
+            total_pages=total_pages,
+        ),
     )
-    fallback_proof = build_fallback_proof_from_entry_groups(
-        inputs,
-        sections,
-        (fallback_entries(sections),),
-    )
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=(payload,),
-        encoded_payload_count=1,
-        physical_qr_count=len(page_plans),
-        physical_qr_payload_indexes=tuple(0 for _ in page_plans),
-        page_count=len(page_plans),
-        fallback_proof=fallback_proof,
-    )
-    return ForgeSigningKeyShardDirectPlan(
-        page_plans=page_plans,
-        fallback_proof=fallback_proof,
-        artifact_proof=artifact_proof,
-    )
-
-
-def _validate_inputs(inputs: RenderInputs) -> None:
-    normalized_doc_type = inputs.doc_type.strip().lower()
-    if normalized_doc_type != DOC_TYPE_SIGNING_KEY_SHARD:
-        raise ValueError("direct Forge signing-key shard renderer only supports signing-key shards")
-    if not inputs.render_qr:
-        raise ValueError("direct Forge signing-key shard renderer requires QR rendering")
-    if not inputs.render_fallback:
-        raise ValueError("direct Forge signing-key shard renderer requires fallback rendering")
-    validate_single_shard_fallback_contract(
-        inputs,
-        renderer_label="direct Forge signing-key shard renderer",
-    )
-
-    resolve_page_geometry(inputs)
-
-    qr_config = inputs.qr_config or QrConfig()
-    qr_kind = str(qr_config.kind or "png").strip().lower()
-    if qr_kind != "png":
-        raise ValueError("direct Forge signing-key shard renderer supports PNG QR images only")
 
 
 def _responsive_fallback_layout(
@@ -325,60 +239,31 @@ def _fallback_layout_for_area(
     sections: Sequence[FallbackSection],
     *,
     area: PdfRect,
-) -> tuple[
-    tuple[_FallbackSectionLines, ...],
-    tuple[_FallbackEntry, ...],
-    _FallbackLayoutProfile,
-]:
-    """Resolve the least-dense measured profile that fits the supplied text area."""
-
-    for profile in _FALLBACK_LAYOUT_PROFILES:
-        resolved_sections, entries = _fallback_candidate_for_profile(
-            surface,
-            sections,
-            area=area,
-            profile=profile,
-        )
-        capacity = forge_shard_fallback_capacity(
-            area,
-            profile=profile,
-            reserved_height_mm=0.0,
-        )
-        if len(entries) <= capacity:
-            return resolved_sections, entries, profile
-
-    raise ValueError(
-        "Forge signing-key shard fallback exceeds the single-page capacity "
-        "at the readable font floor"
-    )
-
-
-def _fallback_candidate_for_profile(
-    surface: PdfSurface,
-    sections: Sequence[FallbackSection],
-    *,
-    area: PdfRect,
-    profile: _FallbackLayoutProfile,
-) -> tuple[tuple[_FallbackSectionLines, ...], tuple[_FallbackEntry, ...]]:
-    column_width_mm = forge_shard_fallback_column_width(
-        area,
-        column_count=profile.column_count,
-        horizontal_padding_mm=0.0,
-        column_gap_mm=_FALLBACK_COLUMN_GAP_MM,
-    )
-    line_length = measured_grouped_line_length(
+) -> tuple[tuple[_FallbackSectionLines, ...], tuple[_FallbackEntry, ...], _FallbackLayoutProfile]:
+    fitted = fit_single_page_fallback(
         surface,
-        style=_fallback_payload_style(font_size_pt=profile.font_size_pt),
-        alphabet=ZBASE32_ALPHABET,
-        group_size=_FALLBACK_GROUP_SIZE,
-        max_width_mm=column_width_mm,
-    )
-    resolved_sections = fallback_sections(
         sections,
+        area=area,
+        profiles=tuple(
+            SinglePageFallbackProfile(
+                columns=profile.column_count,
+                row_height_mm=profile.row_height_mm,
+                body_style=_fallback_payload_style(font_size_pt=profile.font_size_pt),
+                column_gap_mm=_FALLBACK_COLUMN_GAP_MM,
+                horizontal_padding_mm=0.0,
+                reserved_height_mm=0.0,
+                safety_mm=0.0,
+            )
+            for profile in _FALLBACK_LAYOUT_PROFILES
+        ),
         group_size=_FALLBACK_GROUP_SIZE,
-        line_length=line_length,
+        entries_builder=_fallback_entries,
+        overflow_message=(
+            "Forge signing-key shard fallback exceeds the single-page capacity "
+            "at the readable font floor"
+        ),
     )
-    return resolved_sections, _fallback_entries(resolved_sections)
+    return fitted.sections, fitted.entries, _FALLBACK_LAYOUT_PROFILES[fitted.profile_index]
 
 
 def _fallback_payload_style(*, font_size_pt: float) -> TextStyle:
@@ -429,7 +314,7 @@ def _paginate_fallback_entries(
 
 def _build_page(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     fallback_page: _FallbackPage,
     *,
     geometry: _ForgeSigningKeyShardGeometry,
@@ -437,7 +322,7 @@ def _build_page(
     total_pages: int,
 ) -> DirectPdfPagePlan:
     page_label = f"PAGE {fallback_page.page_number} / {total_pages}"
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     header_plans = build_forge_header_plans(
         surface,
         context,
@@ -452,7 +337,7 @@ def _build_page(
     header_rule = next(
         plan for plan in header_plans if plan.component_id == f"{prefix}-header-rule"
     )
-    placed_geometry = geometry.with_actual_header_bottom(header_rule.proof.rect.bottom_mm)
+    placed_geometry = geometry.with_actual_header_bottom(header_rule.layout.rect.bottom_mm)
 
     plans: list[PaintPlan] = list(header_plans)
     plans.extend(
@@ -464,7 +349,7 @@ def _build_page(
         )
     )
     plans.extend(
-        _key_material_plans(
+        _key_share_plans(
             surface,
             context,
             fallback_page,
@@ -570,12 +455,12 @@ def _build_page(
 
 def _warning_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     page_number: int,
     *,
     geometry: _ForgeSigningKeyShardGeometry,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
     qr_rect = geometry.qr_frame_rect
     rect = PdfRect(
         qr_rect.right_mm + 8.0,
@@ -629,15 +514,15 @@ def _warning_plans(
     return plans
 
 
-def _key_material_plans(
+def _key_share_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     fallback_page: _FallbackPage,
     *,
     geometry: _ForgeSigningKeyShardGeometry,
     qr_image: bytes,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     panel_rect = geometry.payload_panel_rect
     qr_rect = geometry.qr_frame_rect
     plans: list[PaintPlan] = [
@@ -668,9 +553,7 @@ def _key_material_plans(
         ),
         TextBox(
             component_id=f"{prefix}-key-section-title",
-            text=(
-                f"01. {str(context.copy.get('key_material_label') or 'Key Material Payload')}"
-            ).upper(),
+            text=(f"01. {str(context.copy.get('key_share_label') or 'Key Share')}").upper(),
             style=FORGE_THEME.sans_style(size_pt=7.0, bold=True, color=FORGE_SLATE_900),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(panel_rect.x_mm + 4.0, panel_rect.y_mm + 2.0, 92.0, 4.0)),
@@ -696,7 +579,7 @@ def _payload_fallback_plans(
     *,
     geometry: _ForgeSigningKeyShardGeometry,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     payload_text_area = geometry.payload_text_area
     plans: list[PaintPlan] = [
         TextBox(
@@ -706,9 +589,9 @@ def _payload_fallback_plans(
             policy=TextFitPolicy.FAIL,
         ).plan(surface, geometry.payload_label_rect),
     ]
-    column_width_mm = forge_shard_fallback_column_width(
+    column_width_mm = fallback_column_width(
         payload_text_area,
-        column_count=fallback_page.profile.column_count,
+        columns=fallback_page.profile.column_count,
         horizontal_padding_mm=0.0,
         column_gap_mm=_FALLBACK_COLUMN_GAP_MM,
     )
@@ -753,12 +636,12 @@ def _payload_fallback_plans(
 
 def _reference_and_specs_plans(
     surface: PdfSurface,
-    context: ForgeShellContext,
+    context: document_inputs.DocumentRenderContext,
     page_number: int,
     *,
     geometry: _ForgeSigningKeyShardGeometry,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
     qr_rect = geometry.qr_frame_rect
     top_mm = geometry.intro_top_mm + 35.0
     x_mm = qr_rect.right_mm + 8.0
@@ -798,8 +681,8 @@ def _reference_and_specs_plans(
             ),
         ),
         TextBox(
-            component_id=f"{prefix}-fingerprint-helper",
-            text="Use this value to verify shard set integrity.",
+            component_id=f"{prefix}-fingerprint-guidance",
+            text="Match this ID to the backup document.",
             style=FORGE_THEME.sans_style(size_pt=6.0, color=FORGE_SLATE_700),
             policy=TextFitPolicy.WRAP,
             line_height_multiplier=1.05,
@@ -846,7 +729,7 @@ def _intact_notice_plans(
     *,
     geometry: _ForgeSigningKeyShardGeometry,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
     return [
         TextBox(
             component_id=f"{prefix}-intact-notice",
@@ -943,7 +826,7 @@ def _dashed_border_plans(
     return plans
 
 
-def _context_int(context: ForgeShellContext, key: str) -> int:
+def _context_int(context: document_inputs.DocumentRenderContext, key: str) -> int:
     value = context.values.get(key)
     if isinstance(value, bool):
         return 0
@@ -958,7 +841,5 @@ def _context_int(context: ForgeShellContext, key: str) -> int:
 
 
 __all__ = [
-    "ForgeSigningKeyShardDirectPlan",
     "build_forge_signing_key_shard_direct_plan",
-    "render_forge_signing_key_shard_direct_pdf",
 ]
