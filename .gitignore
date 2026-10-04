@@ -50,3 +50,9 @@ src/ethernity.zip
 
 # Local config overrides
 *.local.toml
+
+# Local previews and recovery smoke-test output
+/tmp/
+/output/pdf/
+/recovery_kit_qr.pdf
+/test-recovered
