@@ -1,8 +1,8 @@
-# Stable v1.0 E2E Test Procedures
+# Stable v1.0 E2E test procedures
 
 This fixture and procedure set defines the release baseline for backup/recovery behavior.
 
-## Fixture Root
+## Fixture files
 
 - `tests/fixtures/v1_0/source/standalone_secret.txt`
 - `tests/fixtures/v1_0/source/mixed_input.txt`
@@ -10,7 +10,7 @@ This fixture and procedure set defines the release baseline for backup/recovery 
 - `tests/fixtures/v1_0/source/directory_payload/nested/beta.json`
 - `tests/fixtures/v1_0/source/directory_payload/nested/raw.bin`
 
-## Covered Profiles
+## Covered scenarios
 
 1. No sharding, file input (`input_origin=file`)
 2. No sharding, directory input (`input_origin=directory`)
@@ -18,7 +18,7 @@ This fixture and procedure set defines the release baseline for backup/recovery 
 4. Sharded passphrase + embedded signing key
 5. Sharded passphrase + sharded signing key
 
-## Required Artifact Assertions
+## Required file checks
 
 - Always required:
   - `qr_document.pdf`
@@ -29,7 +29,7 @@ This fixture and procedure set defines the release baseline for backup/recovery 
 - Signing-key-sharded profile additionally requires:
   - `signing-key-shard-*.pdf`
 
-## Restore Procedure Rules
+## Restore procedure
 
 - Main/auth frames are recovered from generated `qr_document.pdf` via `run restore --scan`.
 - Shard recovery uses payloads scanned from generated shard PDFs and passed via

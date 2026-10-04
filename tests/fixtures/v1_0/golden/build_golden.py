@@ -26,6 +26,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 from typing import Any, cast
 
@@ -38,7 +39,7 @@ from ethernity.encoding.qr_payloads import (
     decode_qr_payload,
     encode_qr_payload,
 )
-from ethernity.formats.envelope_codec import decode_envelope
+from ethernity.formats.document_codec import decode_backup_document
 from ethernity.qr.scan import scan_qr_payloads
 
 PASS_PHRASE = "stable-v1-baseline-passphrase"
@@ -47,31 +48,31 @@ _BINARY_PAYLOADS_VERSION = 1
 _FROZEN_PROFILES: tuple[tuple[str, str], ...] = (("base64", "base64"), ("raw", "raw"))
 
 
-def _mint_support() -> Any:
+def _replacement_support() -> Any:
     repo_root = Path(__file__).resolve().parents[4]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
-    return importlib.import_module("tests.e2e._mint_fixture_support")
+    return importlib.import_module("tests.e2e._replacement_fixture_support")
 
 
-def _mint_snapshot_filename() -> str:
-    return str(_mint_support().MINT_SNAPSHOT_FILENAME)
+def _replacement_snapshot_filename() -> str:
+    return str(_replacement_support().MINT_SNAPSHOT_FILENAME)
 
 
 def _signing_key_payloads_text() -> str:
-    return str(_mint_support().SIGNING_KEY_PAYLOADS_TEXT)
+    return str(_replacement_support().SIGNING_KEY_PAYLOADS_TEXT)
 
 
 def _signing_key_payloads_binary() -> str:
-    return str(_mint_support().SIGNING_KEY_PAYLOADS_BINARY)
+    return str(_replacement_support().SIGNING_KEY_PAYLOADS_BINARY)
 
 
-def _mint_cases_for_scenario(scenario_id: str) -> tuple[Any, ...]:
-    return tuple(_mint_support().mint_cases_for_scenario(scenario_id))
+def _replacement_cases_for_scenario(scenario_id: str) -> tuple[Any, ...]:
+    return tuple(_replacement_support().mint_cases_for_scenario(scenario_id))
 
 
-def _mint_cli_args(case: Any, scenario_root: Path, passphrase: str) -> list[str]:
-    return list(_mint_support().mint_cli_args(case, scenario_root, passphrase))
+def _replacement_cli_args(case: Any, scenario_root: Path, passphrase: str) -> list[str]:
+    return list(_replacement_support().mint_cli_args(case, scenario_root, passphrase))
 
 
 def _scenario_definitions(source_root: Path) -> list[dict[str, object]]:
@@ -244,7 +245,7 @@ def _write_payloads_binary_file(payloads: list[bytes], destination: Path) -> Non
     destination.write_bytes(bytes(out))
 
 
-def _manifest_projection(payloads_file: Path, passphrase: str) -> dict[str, object]:
+def _manifest_details(payloads_file: Path, passphrase: str) -> dict[str, object]:
     payload_lines = payloads_file.read_text(encoding="utf-8").splitlines()
     frames = [
         decode_frame(decode_qr_payload(line.strip())) for line in payload_lines if line.strip()
@@ -252,7 +253,7 @@ def _manifest_projection(payloads_file: Path, passphrase: str) -> dict[str, obje
     main_frames = [frame for frame in frames if frame.frame_type == FrameType.MAIN_DOCUMENT]
     ciphertext = reassemble_payload(main_frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
     plaintext = decrypt_bytes(ciphertext, passphrase=passphrase)
-    manifest, _payload = decode_envelope(plaintext)
+    manifest, _payload = decode_backup_document(plaintext)
     files = [
         {
             "path": entry.path,
@@ -286,13 +287,13 @@ def _valid_scanned_frames(pdf_path: Path) -> list:
     return frames
 
 
-def _shard_projections_by_file(pdf_paths: list[Path]) -> dict[str, list[dict[str, object]]]:
-    shard_projections: dict[str, list[dict[str, object]]] = {}
+def _shard_details_by_file(pdf_paths: list[Path]) -> dict[str, list[dict[str, object]]]:
+    shard_records_by_file: dict[str, list[dict[str, object]]] = {}
     for pdf_path in pdf_paths:
-        projections: list[dict[str, object]] = []
+        shard_records: list[dict[str, object]] = []
         for frame in _valid_scanned_frames(pdf_path):
             payload = decode_shard_payload(frame.data)
-            projection = {
+            shard_record = {
                 "doc_id": frame.doc_id.hex(),
                 "share_index": payload.share_index,
                 "threshold": payload.threshold,
@@ -302,10 +303,10 @@ def _shard_projections_by_file(pdf_paths: list[Path]) -> dict[str, list[dict[str
                 "doc_hash": payload.doc_hash.hex(),
                 "sign_pub": payload.sign_pub.hex(),
             }
-            if projection not in projections:
-                projections.append(projection)
-        shard_projections[pdf_path.name] = projections
-    return shard_projections
+            if shard_record not in shard_records:
+                shard_records.append(shard_record)
+        shard_records_by_file[pdf_path.name] = shard_records
+    return shard_records_by_file
 
 
 def _file_sha256(path: Path) -> str:
@@ -315,11 +316,15 @@ def _file_sha256(path: Path) -> str:
 
 
 def _config_with_qr_payload_codec(base_config: str, codec: str) -> str:
-    return base_config.replace(
-        'qr_payload_codec = "raw" # required: raw | base64',
-        f'qr_payload_codec = "{codec}" # required: raw | base64',
+    config_text = base_config.replace(
+        '\nqr_payload_codec = "raw" # required: raw | base64',
+        f'\nqr_payload_codec = "{codec}" # required: raw | base64',
         1,
     )
+    configured_codec = tomllib.loads(config_text)["defaults"]["backup"]["qr_payload_codec"]
+    if configured_codec != codec:
+        raise RuntimeError(f"failed to configure QR payload codec: {codec}")
+    return config_text
 
 
 def _write_signing_key_payload_fixtures(scenario_root: Path) -> None:
@@ -337,7 +342,7 @@ def _write_signing_key_payload_fixtures(scenario_root: Path) -> None:
     _write_payloads_binary_file(signing_key_payload_bytes, binary_path)
 
 
-def _write_mint_snapshot(
+def _write_replacement_snapshot(
     repo_root: Path,
     *,
     scenario_root: Path,
@@ -348,17 +353,17 @@ def _write_mint_snapshot(
 ) -> None:
     _write_signing_key_payload_fixtures(scenario_root)
     mint_cases: dict[str, object] = {}
-    for mint_case in _mint_cases_for_scenario(scenario_id):
+    for mint_case in _replacement_cases_for_scenario(scenario_id):
         mint_output_dir = scenario_root / "mint-output" / mint_case.case_id
         _run_cli(
             repo_root,
-            _mint_cli_args(mint_case, scenario_root, PASS_PHRASE),
+            _replacement_cli_args(mint_case, scenario_root, PASS_PHRASE),
             xdg_config_home,
             profile_config_path,
         )
         mint_pdfs = sorted(mint_output_dir.glob("*.pdf"))
         mint_cases[mint_case.case_id] = {
-            "shard_projections": _shard_projections_by_file(mint_pdfs),
+            "shard_projections": _shard_details_by_file(mint_pdfs),
             "expected_shard_pdfs": len(list(mint_output_dir.glob("shard-*.pdf"))),
             "expected_signing_key_shard_pdfs": len(
                 list(mint_output_dir.glob("signing-key-shard-*.pdf"))
@@ -370,13 +375,13 @@ def _write_mint_snapshot(
         "profile": profile_name,
         "mint_cases": mint_cases,
     }
-    (scenario_root / _mint_snapshot_filename()).write_text(
+    (scenario_root / _replacement_snapshot_filename()).write_text(
         json.dumps(mint_snapshot, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
 
-def _generate_mint_golden() -> None:
+def _generate_replacement_golden() -> None:
     repo_root = Path(__file__).resolve().parents[4]
     golden_root = repo_root / "tests" / "fixtures" / "v1_0" / "golden"
 
@@ -394,10 +399,10 @@ def _generate_mint_golden() -> None:
             profile_index = json.loads((profile_root / "index.json").read_text(encoding="utf-8"))
             for scenario in cast(list[dict[str, object]], profile_index["scenarios"]):
                 scenario_id = str(scenario["id"])
-                if not _mint_cases_for_scenario(scenario_id):
+                if not _replacement_cases_for_scenario(scenario_id):
                     continue
                 scenario_root = profile_root / scenario_id
-                _write_mint_snapshot(
+                _write_replacement_snapshot(
                     repo_root,
                     scenario_root=scenario_root,
                     scenario_id=scenario_id,
@@ -486,16 +491,14 @@ def _generate_full_golden() -> None:
                         shard_payloads_binary_path.unlink()
                 _write_signing_key_payload_fixtures(scenario_root)
 
-                artifact_hashes = {}
-                for artifact in sorted(backup_dir.glob("*.pdf")):
-                    artifact_hashes[artifact.name] = _file_sha256(artifact)
-                artifact_hashes["main_payloads.txt"] = _file_sha256(main_payloads)
-                artifact_hashes["main_payloads.bin"] = _file_sha256(main_payloads_binary)
+                file_hashes = {}
+                for file in sorted(backup_dir.glob("*.pdf")):
+                    file_hashes[file.name] = _file_sha256(file)
+                file_hashes["main_payloads.txt"] = _file_sha256(main_payloads)
+                file_hashes["main_payloads.bin"] = _file_sha256(main_payloads_binary)
                 if shard_payload_count > 0:
-                    artifact_hashes["shard_payloads_threshold.txt"] = _file_sha256(
-                        shard_payloads_path
-                    )
-                    artifact_hashes["shard_payloads_threshold.bin"] = _file_sha256(
+                    file_hashes["shard_payloads_threshold.txt"] = _file_sha256(shard_payloads_path)
+                    file_hashes["shard_payloads_threshold.bin"] = _file_sha256(
                         shard_payloads_binary_path
                     )
 
@@ -511,8 +514,8 @@ def _generate_full_golden() -> None:
                     "passphrase": PASS_PHRASE,
                     "expected_relative_paths": expected_relative_paths,
                     "expected_file_sha256": expected_files,
-                    "artifact_hashes": artifact_hashes,
-                    "manifest_projection": _manifest_projection(main_payloads, PASS_PHRASE),
+                    "file_hashes": file_hashes,
+                    "manifest_projection": _manifest_details(main_payloads, PASS_PHRASE),
                     "shard_payload_count": shard_payload_count,
                     "expected_shard_pdfs": len(shard_paths),
                     "expected_signing_key_shard_pdfs": len(
@@ -523,8 +526,8 @@ def _generate_full_golden() -> None:
                     json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",
                 )
-                if _mint_cases_for_scenario(scenario_id):
-                    _write_mint_snapshot(
+                if _replacement_cases_for_scenario(scenario_id):
+                    _write_replacement_snapshot(
                         repo_root,
                         scenario_root=scenario_root,
                         scenario_id=scenario_id,
@@ -559,7 +562,7 @@ def main() -> None:
     parser.add_argument("--mint-only", action="store_true")
     args = parser.parse_args()
     if args.mint_only:
-        _generate_mint_golden()
+        _generate_replacement_golden()
         return
     _generate_full_golden()
 

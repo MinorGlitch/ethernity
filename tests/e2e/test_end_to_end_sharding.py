@@ -18,8 +18,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
-from ethernity.cli.shared.types import RecoverArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
@@ -28,8 +26,10 @@ from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.encoding.zbase32 import encode_zbase32
-from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
+from ethernity.formats.document_codec import build_single_file_manifest, encode_backup_document
 from ethernity.render.fallback_text import format_zbase32_lines
+from ethernity.workflows.recovery.service import execute_recover_plan, prepare_recover_plan
+from ethernity.workflows.shared.operation_types import RecoverArgs
 from tests.test_support import suppress_output
 
 TEST_SIGNING_SEED = b"\x11" * 32
@@ -63,8 +63,8 @@ class TestEndToEndSharding(unittest.TestCase):
                 payload,
                 signing_seed=TEST_SIGNING_SEED,
             )
-            envelope = encode_envelope(payload, manifest)
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            backup_document = encode_backup_document(payload, manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             sign_priv = TEST_SIGNING_SEED
@@ -143,8 +143,8 @@ class TestEndToEndSharding(unittest.TestCase):
                 payload,
                 signing_seed=TEST_SIGNING_SEED,
             )
-            envelope = encode_envelope(payload, manifest)
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            backup_document = encode_backup_document(payload, manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             sign_priv = TEST_SIGNING_SEED

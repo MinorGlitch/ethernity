@@ -15,20 +15,25 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
+from ethernity.crypto import decrypt_bytes
+from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import FrameType, decode_frame
 from ethernity.encoding.qr_payloads import (
     QR_PAYLOAD_CODEC_BASE64,
     decode_qr_payload,
     encode_qr_payload,
 )
+from ethernity.formats.document_codec import decode_backup_document
 from ethernity.qr.scan import scan_qr_payloads
 from tests.test_support import (
     build_cli_env,
@@ -38,6 +43,7 @@ from tests.test_support import (
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CONFIG_PATH = DEFAULT_CONFIG_PATH
 _FIXTURE_SOURCE = _REPO_ROOT / "tests" / "fixtures" / "v1_0" / "source"
+_FROZEN_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_0" / "golden"
 _TEST_PASSPHRASE = "stable-v1-baseline-passphrase"
 
 _DIRECTORY_EXPECTED = [
@@ -55,9 +61,16 @@ _MIXED_EXPECTED = [
 
 class TestStableV1Baseline(unittest.TestCase):
     def test_file_mode_no_sharding_backup_and_restore(self) -> None:
+        self._assert_file_mode_round_trip(qr_payload_codec="raw")
+
+    def test_base64_file_mode_backup_and_restore(self) -> None:
+        self._assert_file_mode_round_trip(qr_payload_codec="base64")
+
+    def _assert_file_mode_round_trip(self, *, qr_payload_codec: str) -> None:
         with self._workspace() as workspace:
             output_dir = workspace / "backup-file"
             input_file = workspace / "source" / "standalone_secret.txt"
+            config_path = self._profile_config_path(workspace, qr_payload_codec)
             self._run_cli(
                 [
                     "backup",
@@ -73,8 +86,14 @@ class TestStableV1Baseline(unittest.TestCase):
                     "forge",
                 ],
                 workspace,
+                config_path=config_path,
             )
-            self._assert_backup_artifacts(output_dir, expected_shards=0, expected_signing_shards=0)
+            self._assert_backup_files(output_dir, expected_shards=0, expected_signing_shards=0)
+            self._assert_manifest_matches_frozen(
+                output_dir,
+                profile=qr_payload_codec,
+                scenario_id="file_no_shard",
+            )
 
             restored_path = workspace / "restored-file.bin"
             self._run_cli(
@@ -88,6 +107,7 @@ class TestStableV1Baseline(unittest.TestCase):
                     str(restored_path),
                 ],
                 workspace,
+                config_path=config_path,
             )
 
             self.assertEqual(restored_path.read_bytes(), input_file.read_bytes())
@@ -112,7 +132,12 @@ class TestStableV1Baseline(unittest.TestCase):
                 ],
                 workspace,
             )
-            self._assert_backup_artifacts(output_dir, expected_shards=0, expected_signing_shards=0)
+            self._assert_backup_files(output_dir, expected_shards=0, expected_signing_shards=0)
+            self._assert_manifest_matches_frozen(
+                output_dir,
+                profile="raw",
+                scenario_id="directory_no_shard",
+            )
 
             restored_dir = workspace / "restored-directory"
             self._run_cli(
@@ -158,7 +183,12 @@ class TestStableV1Baseline(unittest.TestCase):
                 ],
                 workspace,
             )
-            self._assert_backup_artifacts(output_dir, expected_shards=0, expected_signing_shards=0)
+            self._assert_backup_files(output_dir, expected_shards=0, expected_signing_shards=0)
+            self._assert_manifest_matches_frozen(
+                output_dir,
+                profile="raw",
+                scenario_id="mixed_no_shard",
+            )
 
             restored_dir = workspace / "restored-mixed"
             self._run_cli(
@@ -204,12 +234,17 @@ class TestStableV1Baseline(unittest.TestCase):
                 ],
                 workspace,
             )
-            shard_paths, signing_paths = self._assert_backup_artifacts(
+            shard_paths, signing_paths = self._assert_backup_files(
                 output_dir,
                 expected_shards=3,
                 expected_signing_shards=0,
             )
             self.assertEqual(len(signing_paths), 0)
+            self._assert_manifest_matches_frozen(
+                output_dir,
+                profile="raw",
+                scenario_id="sharded_embedded",
+            )
 
             shard_payloads_file = workspace / "shard_payloads_embedded.txt"
             self._write_scanned_payloads(shard_paths[:2], shard_payloads_file)
@@ -266,10 +301,15 @@ class TestStableV1Baseline(unittest.TestCase):
                 ],
                 workspace,
             )
-            shard_paths, signing_paths = self._assert_backup_artifacts(
+            shard_paths, signing_paths = self._assert_backup_files(
                 output_dir,
                 expected_shards=3,
                 expected_signing_shards=2,
+            )
+            self._assert_manifest_matches_frozen(
+                output_dir,
+                profile="raw",
+                scenario_id="sharded_signing_sharded",
             )
 
             signing_payloads = scan_qr_payloads([str(path) for path in signing_paths])
@@ -322,7 +362,13 @@ class TestStableV1Baseline(unittest.TestCase):
 
         return _WorkspaceContext()
 
-    def _run_cli(self, cli_args: list[str], workspace: Path) -> subprocess.CompletedProcess[str]:
+    def _run_cli(
+        self,
+        cli_args: list[str],
+        workspace: Path,
+        *,
+        config_path: Path = _CONFIG_PATH,
+    ) -> subprocess.CompletedProcess[str]:
         env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(workspace / "xdg")})
         command_args = [*cli_args]
         if "--yes" not in command_args:
@@ -334,7 +380,7 @@ class TestStableV1Baseline(unittest.TestCase):
                 "ethernity",
                 "run",
                 "--config",
-                str(_CONFIG_PATH),
+                str(config_path),
                 *command_args,
             ],
             cwd=_REPO_ROOT,
@@ -351,7 +397,66 @@ class TestStableV1Baseline(unittest.TestCase):
         )
         return result
 
-    def _assert_backup_artifacts(
+    def _assert_manifest_matches_frozen(
+        self,
+        output_dir: Path,
+        *,
+        profile: str,
+        scenario_id: str,
+    ) -> None:
+        payloads = scan_qr_payloads([str(output_dir / "qr_document.pdf")])
+        frames = []
+        for payload in payloads:
+            try:
+                frame = (
+                    decode_frame(decode_qr_payload(payload))
+                    if profile == "base64"
+                    else decode_frame(payload)
+                )
+            except ValueError:
+                continue
+            if frame.frame_type == FrameType.MAIN_DOCUMENT:
+                frames.append(frame)
+        ciphertext = reassemble_payload(frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
+        plaintext = decrypt_bytes(ciphertext, passphrase=_TEST_PASSPHRASE)
+        manifest, _payload = decode_backup_document(plaintext)
+        files = sorted(
+            (
+                {
+                    "path": entry.path,
+                    "size": entry.size,
+                    "sha256": entry.sha256.hex(),
+                }
+                for entry in manifest.files
+            ),
+            key=lambda item: item["path"],
+        )
+        details = {
+            "version": manifest.format_version,
+            "sealed": manifest.sealed,
+            "input_origin": manifest.input_origin,
+            "input_roots": list(manifest.input_roots),
+            "files": files,
+        }
+        snapshot_path = _FROZEN_ROOT / profile / scenario_id / "snapshot.json"
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        self.assertEqual(details, snapshot["manifest_projection"])
+
+    @staticmethod
+    def _profile_config_path(workspace: Path, qr_payload_codec: str) -> Path:
+        config_text = _CONFIG_PATH.read_text(encoding="utf-8").replace(
+            '\nqr_payload_codec = "raw" # required: raw | base64',
+            f'\nqr_payload_codec = "{qr_payload_codec}" # required: raw | base64',
+            1,
+        )
+        configured_codec = tomllib.loads(config_text)["defaults"]["backup"]["qr_payload_codec"]
+        if configured_codec != qr_payload_codec:
+            raise AssertionError(f"failed to configure QR payload codec: {qr_payload_codec}")
+        path = workspace / f"config-{qr_payload_codec}.toml"
+        path.write_text(config_text, encoding="utf-8")
+        return path
+
+    def _assert_backup_files(
         self,
         output_dir: Path,
         *,
@@ -364,8 +469,8 @@ class TestStableV1Baseline(unittest.TestCase):
             output_dir / "recovery_kit_index.pdf",
         ]
         for path in required:
-            self.assertTrue(path.exists(), msg=f"missing artifact: {path}")
-            self.assertGreater(path.stat().st_size, 0, msg=f"artifact is empty: {path}")
+            self.assertTrue(path.exists(), msg=f"missing file: {path}")
+            self.assertGreater(path.stat().st_size, 0, msg=f"file is empty: {path}")
 
         shard_paths = sorted(output_dir.glob("shard-*.pdf"))
         signing_paths = sorted(output_dir.glob("signing-key-shard-*.pdf"))

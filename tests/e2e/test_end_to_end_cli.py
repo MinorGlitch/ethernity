@@ -35,7 +35,7 @@ def _run_cli(repo_root: Path, tmp_path: Path, *args: str) -> subprocess.Complete
     )
 
 
-def test_root_help_points_to_terminal_app_and_run_surface(tmp_path: Path) -> None:
+def test_root_help_points_to_terminal_app_and_run_commands(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
 
     result = _run_cli(repo_root, tmp_path, "--help")
