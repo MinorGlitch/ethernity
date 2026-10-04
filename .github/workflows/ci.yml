@@ -224,7 +224,7 @@ jobs:
             src/ethernity/resources/kit/recovery_kit.bundle.html \
             src/ethernity/resources/kit/recovery_kit.scanner.bundle.html)"
           if [ -n "$TRACKED" ]; then
-            echo "ERROR: recovery kit bundles are generated release artifacts and must not be committed."
+            echo "ERROR: recovery kit bundles are generated release files and must not be committed."
             echo "$TRACKED"
             exit 1
           fi
@@ -239,7 +239,7 @@ jobs:
         run: npm ci
       - name: Install kit gzip compressor
         run: sudo apt-get update && sudo apt-get install --yes libdeflate-tools
-      - name: Generate kit bundles for package artifacts
+      - name: Generate kit bundles for packages
         working-directory: kit
         run: node build_kit.mjs
       - name: Verify generated kit bundles
@@ -294,8 +294,8 @@ jobs:
           rm -rf "$SMOKE_OUT"
           mkdir -p "$SMOKE_OUT"
           python3 -m ethernity run restore \
-            --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/qr_document.pdf \
-            --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/extensions/01/qr_document-01-*.pdf \
+            --scan tests/fixtures/v1_2/extension_golden/base64/gzip_replacement_chain/chain/qr_document.pdf \
+            --scan tests/fixtures/v1_2/extension_golden/base64/gzip_replacement_chain/chain/extensions/01/qr_document-01-*.pdf \
             --passphrase stable-v1_2-extension-passphrase \
             --output "$SMOKE_OUT/recovered" \
             --yes

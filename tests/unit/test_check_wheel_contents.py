@@ -16,7 +16,7 @@ _SPEC.loader.exec_module(_MODULE)
 
 
 class TestCheckWheelContents(unittest.TestCase):
-    def test_package_configuration_only_includes_canonical_kit_bundles(self) -> None:
+    def test_package_configuration_only_includes_required_kit_bundles(self) -> None:
         with (_PROJECT_ROOT / "pyproject.toml").open("rb") as handle:
             pyproject = tomllib.load(handle)
 
@@ -39,13 +39,13 @@ class TestCheckWheelContents(unittest.TestCase):
                 "include src/ethernity/resources/kit/recovery_kit.bundle.html",
                 "include src/ethernity/resources/kit/recovery_kit.scanner.bundle.html",
                 (
-                    "recursive-include tests/fixtures/v1_2/extension_golden/raw/"
+                    "recursive-include tests/fixtures/v1_2/extension_golden/base64/"
                     "gzip_replacement_chain/chain *.pdf"
                 ),
             ],
         )
 
-    def test_expected_source_entries_ignores_python_cache_artifacts(self) -> None:
+    def test_expected_source_entries_ignores_python_cache_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             package_root = Path(temp_dir) / "src" / "ethernity"
             (package_root / "__pycache__").mkdir(parents=True)
@@ -60,28 +60,28 @@ class TestCheckWheelContents(unittest.TestCase):
                 {"module.py", "resources/config.toml"},
             )
 
-    def test_expected_source_entries_only_requires_canonical_kit_bundles(self) -> None:
+    def test_expected_source_entries_only_requires_required_kit_bundles(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             package_root = Path(temp_dir) / "src" / "ethernity"
             kit_root = package_root / "resources" / "kit"
             kit_root.mkdir(parents=True)
-            canonical_names = (
+            published_names = (
                 "recovery_kit.bundle.html",
                 "recovery_kit.scanner.bundle.html",
             )
-            for name in canonical_names:
-                (kit_root / name).write_text("canonical\n", encoding="utf-8")
+            for name in published_names:
+                (kit_root / name).write_text("required\n", encoding="utf-8")
             for name in (
                 "recovery_kit.gzip.bundle.html",
                 "recovery_kit.brotli.bundle.html",
                 "recovery_kit.scanner.gzip.bundle.html",
                 "recovery_kit.scanner.brotli.bundle.html",
             ):
-                (kit_root / name).write_text("noncanonical\n", encoding="utf-8")
+                (kit_root / name).write_text("extra\n", encoding="utf-8")
 
             self.assertEqual(
                 _MODULE.expected_source_entries(package_root),
-                {f"resources/kit/{name}" for name in canonical_names},
+                {f"resources/kit/{name}" for name in published_names},
             )
 
     def test_wheel_package_entries_returns_relative_package_paths(self) -> None:

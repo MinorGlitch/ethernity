@@ -50,7 +50,7 @@ def _normalize_os(value: str) -> str:
         return "macos"
     if normalized in {"windows", "windows-latest", "win32"}:
         return "windows"
-    raise SystemExit(f"unsupported ARTIFACT_OS value: {value}")
+    raise SystemExit(f"unsupported TARGET_OS value: {value}")
 
 
 def _normalize_arch(value: str) -> str:
@@ -64,7 +64,7 @@ def _normalize_arch(value: str) -> str:
     }
     arch = aliases.get(normalized)
     if arch is None:
-        raise SystemExit(f"unsupported ARTIFACT_ARCH value: {value}")
+        raise SystemExit(f"unsupported TARGET_ARCH value: {value}")
     return arch
 
 
@@ -85,8 +85,8 @@ def _ensure_dist_layout() -> None:
         raise SystemExit("dist/ethernity is empty")
 
 
-def _archive_root_name(release_tag: str, artifact_os: str, artifact_arch: str) -> str:
-    return f"ethernity-{release_tag}-{artifact_os}-{artifact_arch}"
+def _archive_root_name(release_tag: str, target_os: str, target_arch: str) -> str:
+    return f"ethernity-{release_tag}-{target_os}-{target_arch}"
 
 
 def _create_zip(output: Path, archive_root: str) -> None:
@@ -117,8 +117,8 @@ def _create_tar_gz(output: Path, archive_root: str) -> None:
 
 def main() -> None:
     release_tag = _normalize_tag(_required_env("RELEASE_TAG"))
-    artifact_os = _normalize_os(_required_env("ARTIFACT_OS"))
-    artifact_arch = _normalize_arch(_required_env("ARTIFACT_ARCH"))
+    target_os = _normalize_os(_required_env("TARGET_OS"))
+    target_arch = _normalize_arch(_required_env("TARGET_ARCH"))
     runner_arch_raw = os.environ.get("RUNNER_ARCH", "").strip()
     packager = _required_env("PACKAGER").lower()
     package_mode = _required_env("PACKAGE_MODE").lower()
@@ -128,16 +128,16 @@ def main() -> None:
         raise SystemExit(f"PACKAGE_MODE must be {PACKAGE_MODE_EXPECTED!r}, got: {package_mode!r}")
     if runner_arch_raw:
         runner_arch = _normalize_arch(runner_arch_raw)
-        if runner_arch != artifact_arch:
+        if runner_arch != target_arch:
             raise SystemExit(
-                "ARTIFACT_ARCH does not match runner architecture: "
-                f"{artifact_arch!r} vs {runner_arch!r}"
+                "TARGET_ARCH does not match runner architecture: "
+                f"{target_arch!r} vs {runner_arch!r}"
             )
 
     _ensure_dist_layout()
-    archive_root = _archive_root_name(release_tag, artifact_os, artifact_arch)
-    base_name = f"ethernity-{release_tag}-{artifact_os}-{artifact_arch}"
-    if artifact_os == "windows":
+    archive_root = _archive_root_name(release_tag, target_os, target_arch)
+    base_name = f"ethernity-{release_tag}-{target_os}-{target_arch}"
+    if target_os == "windows":
         output = Path(f"{base_name}.zip")
         _create_zip(output, archive_root)
     else:

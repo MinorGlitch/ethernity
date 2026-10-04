@@ -11,8 +11,6 @@ class Ethernity < Formula
   depends_on "rust" => :build
   depends_on "pillow"
   depends_on "python@3.13"
-  uses_from_macos "libxml2"
-  uses_from_macos "libxslt"
 
   resource "cbor2" do
     url "https://files.pythonhosted.org/packages/d6/4f/101071f880b4da05771128c0b89f41e334cff044dee05fb013c8f4be661c/cbor2-5.8.0-py3-none-any.whl"
@@ -39,23 +37,6 @@ class Ethernity < Formula
     sha256 "464658b896c6b0fcbf883abb316b8f0a52d582eb959d71822ba254d6c790bfdd"
   end
 
-  if OS.mac?
-    resource "lxml" do
-      url "https://files.pythonhosted.org/packages/53/fd/4e8f0540608977aea078bf6d79f128e0e2c2bba8af1acf775c30baa70460/lxml-6.0.2-cp313-cp313-macosx_10_13_universal2.whl"
-      sha256 "9b33d21594afab46f37ae58dfadd06636f154923c4e8a4d754b0127554eb2e77"
-    end
-  elsif Hardware::CPU.arm?
-    resource "lxml" do
-      url "https://files.pythonhosted.org/packages/25/2e/4efa677fa6b322013035d38016f6ae859d06cac67437ca7dc708a6af7028/lxml-6.0.2-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl"
-      sha256 "1941354d92699fb5ffe6ed7b32f9649e43c2feb4b97205f75866f7d21aa91452"
-    end
-  else
-    resource "lxml" do
-      url "https://files.pythonhosted.org/packages/ce/0f/526e78a6d38d109fdbaa5049c62e1d32fdd70c75fb61c4eadf3045d3d124/lxml-6.0.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
-      sha256 "bb2f6ca0ae2d983ded09357b84af659c954722bbf04dea98030064996d156048"
-    end
-  end
-
   resource "markdown-it-py" do
     url "https://files.pythonhosted.org/packages/94/54/e7d793b573f298e1c9013b8c4dade17d481164aa517d1d7148619c2cedbf/markdown_it_py-4.0.0-py3-none-any.whl"
     sha256 "87327c59b172c5011896038353a81343b6754500a08cd7a4973bb48c6d578147"
@@ -79,11 +60,6 @@ class Ethernity < Formula
   resource "psutil" do
     url "https://files.pythonhosted.org/packages/aa/c6/d1ddf4abb55e93cebc4f2ed8b5d6dbad109ecb8d63748dd2b20ab5e57ebe/psutil-7.2.2.tar.gz"
     sha256 "0746f5f8d406af344fd547f1c8daa5f5c33dbc293bb8d6a16d80b4bb88f59372"
-  end
-
-  resource "portalocker" do
-    url "https://files.pythonhosted.org/packages/5e/77/65b857a69ed876e1951e88aaba60f5ce6120c33703f7cb61a3c894b8c1b6/portalocker-3.2.0.tar.gz"
-    sha256 "1f3002956a54a8c3730586c5c77bf18fae4149e07eaf1c29fc3faf4d5a3f89ac"
   end
 
   resource "pycryptodome" do
@@ -118,6 +94,28 @@ class Ethernity < Formula
     sha256 "331b63cd66f63138f152a700565b3e0cebdf4ec8bec3b7594b2522418782f1f3"
   end
 
+  if OS.mac? && Hardware::CPU.arm?
+    resource "pypdfium2" do
+      url "https://files.pythonhosted.org/packages/08/99/1fe58428b69d2722dcbcfaa08ce71834a332c5b518fd58874bcef936b823/pypdfium2-5.13.0-py3-none-macosx_13_0_arm64.whl"
+      sha256 "da5c7b74eebf40b5c1fbe1de01aa1edc8827a79fb1efd999616bc20dcaf77ba4"
+    end
+  elsif OS.mac?
+    resource "pypdfium2" do
+      url "https://files.pythonhosted.org/packages/9f/41/06e26da88a4f5b4ed289325868717a186020661b7b221aa6df622711d31b/pypdfium2-5.13.0-py3-none-macosx_13_0_x86_64.whl"
+      sha256 "2abedfb5c70992b19c780ed58d7f7b929e8ce8ee52c9140158f44317c90ec6c7"
+    end
+  elsif Hardware::CPU.arm?
+    resource "pypdfium2" do
+      url "https://files.pythonhosted.org/packages/fe/31/f8210d53775f142be934336665b1d60e800c3f176f28c29b4908d945c518/pypdfium2-5.13.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
+      sha256 "9ee8c2bb2e68b396ab4a763215ac100dacb6b96d0da5bebeb239a021aecc3a7e"
+    end
+  else
+    resource "pypdfium2" do
+      url "https://files.pythonhosted.org/packages/d3/7c/74a2fb48e5b0d2402d9ca64b39074c722d67e9a8a2c58449a843a8c2329a/pypdfium2-5.13.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+      sha256 "81df25c1ab4c13ff773102d3cbea1967511d079123b067fc077bd0c4d57d91d8"
+    end
+  end
+
   resource "pydantic" do
     url "https://files.pythonhosted.org/packages/fd/7b/122376b1fd3c62c1ed9dc80c931ace4844b3c55407b6fb2d199377c9736f/pydantic-2.13.4-py3-none-any.whl"
     sha256 "45a282cde31d808236fd7ea9d919b128653c8b38b393d1c4ab335c62924d9aba"
@@ -126,11 +124,6 @@ class Ethernity < Formula
   resource "pydantic-core" do
     url "https://files.pythonhosted.org/packages/9d/56/921726b776ace8d8f5db44c4ef961006580d91dc52b803c489fafd1aa249/pydantic_core-2.46.4.tar.gz"
     sha256 "62f875393d7f270851f20523dd2e29f082bcc82292d66db2b64ea71f64b6e1c1"
-  end
-
-  resource "python-docx" do
-    url "https://files.pythonhosted.org/packages/d0/00/1e03a4989fa5795da308cd774f05b704ace555a70f9bf9d3be057b680bcf/python_docx-1.2.0-py3-none-any.whl"
-    sha256 "3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7"
   end
 
   resource "rich" do
@@ -203,10 +196,10 @@ class Ethernity < Formula
     end
 
     venv.pip_install_and_link buildpath
-    smoke_root = "tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/" \
+    smoke_root = "tests/fixtures/v1_2/extension_golden/base64/gzip_replacement_chain/chain/" \
       "qr_document.pdf"
     smoke_extension = Dir[
-      "tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/" \
+      "tests/fixtures/v1_2/extension_golden/base64/gzip_replacement_chain/chain/" \
         "extensions/01/qr_document-01-*.pdf"
     ].first
     odie "missing extension smoke fixture" if smoke_extension.nil?

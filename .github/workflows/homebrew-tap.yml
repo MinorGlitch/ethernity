@@ -240,7 +240,7 @@ jobs:
           compgen -G 'ethernity--*.bottle.tar.gz' >/dev/null
           compgen -G 'ethernity--*.bottle.json' >/dev/null
 
-      - name: Upload validated bottle artifacts
+      - name: Upload validated bottle files
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bottles-${{ matrix.id }}

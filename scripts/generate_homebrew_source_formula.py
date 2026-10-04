@@ -122,10 +122,10 @@ def _normalize_package_name(name: str) -> str:
 def _sha256_from_lock_hash(value: str) -> str:
     prefix = "sha256:"
     if not value.startswith(prefix):
-        raise ValueError(f"locked artifact hash is not SHA-256: {value!r}")
+        raise ValueError(f"lockfile hash is not SHA-256: {value!r}")
     digest = value[len(prefix) :]
     if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
-        raise ValueError(f"locked artifact has invalid SHA-256 digest: {value!r}")
+        raise ValueError(f"locked package file has invalid SHA-256 digest: {value!r}")
     return digest
 
 
@@ -151,7 +151,7 @@ def _choose_wheel(package: dict[str, object], predicate: str) -> dict[str, objec
     return matches[0]
 
 
-def _choose_artifact_for_block(
+def _choose_package_file_for_resource(
     package: dict[str, object], current_url: str
 ) -> tuple[str, str] | None:
     sdist = package.get("sdist")
@@ -426,12 +426,12 @@ def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str,
         if current_url_match is None:
             raise ValueError(f"formula resource URL is malformed: {package_name}")
         current_url = current_url_match.group(1)
-        selected = _choose_artifact_for_block(package, current_url)
+        selected = _choose_package_file_for_resource(package, current_url)
         if selected is None:
-            raise ValueError(f"no locked artifact matches formula resource: {package_name}")
+            raise ValueError(f"no locked package file matches formula resource: {package_name}")
         new_url, new_sha = selected
         if not new_url.startswith("https://"):
-            raise ValueError(f"locked artifact URL is not HTTPS for resource: {package_name}")
+            raise ValueError(f"locked package URL is not HTTPS for resource: {package_name}")
         url_indent = lines[url_idx][: len(lines[url_idx]) - len(lines[url_idx].lstrip())]
         sha_indent = lines[sha_idx][: len(lines[sha_idx]) - len(lines[sha_idx].lstrip())]
         lines[url_idx] = f'{url_indent}url "{new_url}"\n'

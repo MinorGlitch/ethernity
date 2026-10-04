@@ -6,7 +6,7 @@ import tarfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
-_CANONICAL_KIT_BUNDLE_ENTRIES = frozenset(
+_REQUIRED_KIT_BUNDLE_ENTRIES = frozenset(
     {
         "resources/kit/recovery_kit.bundle.html",
         "resources/kit/recovery_kit.scanner.bundle.html",
@@ -46,7 +46,7 @@ def _is_packaged_source_entry(relative_path: Path) -> bool:
     entry = relative_path.as_posix()
     if relative_path.parent.as_posix() != "resources/kit" or relative_path.suffix != ".html":
         return True
-    return entry in _CANONICAL_KIT_BUNDLE_ENTRIES
+    return entry in _REQUIRED_KIT_BUNDLE_ENTRIES
 
 
 def wheel_package_entries(wheel_path: Path) -> set[str]:
