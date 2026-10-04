@@ -63,6 +63,7 @@ def test_backup_task_reports_missing_required_sections() -> None:
     assert [(section.key, section.status) for section in validation.sections] == [
         ("files", "missing"),
         ("recovery", "ready"),
+        ("print", "ready"),
         ("output", "ready"),
         ("advanced", "optional"),
     ]
@@ -77,10 +78,11 @@ def test_backup_task_preview_uses_beginner_language() -> None:
 
     assert preview.title == "Documents to create"
     assert [item.label for item in preview.items] == [
-        "Main backup document",
+        "Backup pages",
         "Recovery guide",
         "3 recovery sheets",
-        "Kit index",
+        "Document inventory",
+        "Print setup",
     ]
     assert preview.warnings == ()
     assert state.validate_task().ready
@@ -101,6 +103,8 @@ def test_backup_task_presentation_owns_workspace_and_outcome_copy() -> None:
 
     assert [group.key for group in presentation.workspace_groups] == [
         "files",
+        "print",
+        "documents",
         "recovery",
         "destination",
         "advanced",
@@ -111,10 +115,11 @@ def test_backup_task_presentation_owns_workspace_and_outcome_copy() -> None:
     ]
     assert presentation.summary.warnings == ()
     assert [item.label for item in presentation.summary.items] == [
-        "Main backup document",
+        "Backup pages",
         "Recovery guide",
         "3 recovery sheets",
-        "Kit index",
+        "Document inventory",
+        "Print setup",
     ]
     assert not presentation.primary_action.enabled
     assert presentation.primary_action.label == "Review backup"
@@ -144,7 +149,7 @@ def test_task_presentations_only_build_workspace_groups_rendered_outside_guided_
             "backup",
             "Create a backup",
             BackupTaskState(),
-            ("files", "recovery", "destination", "advanced"),
+            ("files", "print", "documents", "recovery", "destination", "advanced"),
         ),
         (
             "restore",
@@ -206,10 +211,12 @@ def test_backup_task_diagnostics_redact_sensitive_values(tmp_path) -> None:
 
     diagnostics = state.diagnostics()
     block_titles = {block.title for block in diagnostics.blocks}
-    secret_block = next(block for block in diagnostics.blocks if block.title == "Secret Material")
-    manifest_block = next(block for block in diagnostics.blocks if block.title == "Manifest JSON")
-    envelope_manifest_block = next(
-        block for block in diagnostics.blocks if block.title == "Envelope Manifest"
+    secret_block = next(block for block in diagnostics.blocks if block.title == "Passphrase")
+    manifest_block = next(
+        block for block in diagnostics.blocks if block.title == "Backup metadata (JSON)"
+    )
+    metadata_block = next(
+        block for block in diagnostics.blocks if block.title == "Backup metadata (CBOR)"
     )
     signing_seed_block = next(
         block for block in diagnostics.blocks if block.title == "Signing Private Key (hex)"
@@ -219,24 +226,24 @@ def test_backup_task_diagnostics_redact_sensitive_values(tmp_path) -> None:
     assert diagnostics.has_sensitive_values
     assert "<masked chars=" in secret_block.display_content(reveal_sensitive=False)
     assert secret_block.display_content(reveal_sensitive=True) == "Passphrase\nsuper secret"
-    assert "Secret Material" in block_titles
-    assert "Manifest JSON" in block_titles
-    assert "Envelope Manifest" in block_titles
+    assert "Passphrase" in block_titles
+    assert "Backup metadata (JSON)" in block_titles
+    assert "Backup metadata (CBOR)" in block_titles
     assert "Input entries" in block_titles
-    assert "Payload Preview (hex)" in block_titles
-    assert "Envelope Preview (hex)" in block_titles
-    assert "Payload Preview (z-base-32)" in block_titles
+    assert "File data (hex)" in block_titles
+    assert "Backup document (hex)" in block_titles
+    assert "File data (z-base-32)" in block_titles
     assert "<masked bytes=" in manifest_block.display_content(reveal_sensitive=False)
     assert "<masked bytes=" not in manifest_block.display_content(reveal_sensitive=True)
-    envelope_manifest_redacted = envelope_manifest_block.display_content(reveal_sensitive=False)
-    envelope_manifest_revealed = envelope_manifest_block.display_content(reveal_sensitive=True)
-    assert "canonical_cbor_bytes" in envelope_manifest_redacted
-    assert '"cbor"' in envelope_manifest_redacted
-    assert '"files"' in envelope_manifest_redacted
-    assert '"seed": "<masked bytes=' in envelope_manifest_redacted
-    assert '"seed": "<masked bytes=' not in envelope_manifest_revealed
-    assert '"seed": "' in envelope_manifest_revealed
-    assert "00000000" not in envelope_manifest_revealed
+    metadata_redacted = metadata_block.display_content(reveal_sensitive=False)
+    metadata_revealed = metadata_block.display_content(reveal_sensitive=True)
+    assert "manifest_cbor_bytes" in metadata_redacted
+    assert '"cbor"' in metadata_redacted
+    assert '"files"' in metadata_redacted
+    assert '"seed": "<masked bytes=' in metadata_redacted
+    assert '"seed": "<masked bytes=' not in metadata_revealed
+    assert '"seed": "' in metadata_revealed
+    assert "00000000" not in metadata_revealed
     assert signing_seed_block.display_content(reveal_sensitive=False).startswith("<masked bytes=")
     assert signing_seed_block.display_content(reveal_sensitive=True)
 
@@ -283,11 +290,12 @@ def test_backup_task_exposes_and_validates_advanced_signing_key_options() -> Non
     assert validation.ready
     assert "5 key sheets, any 3 required" in validation.sections[-1].summary
     assert [item.label for item in preview.items] == [
-        "Main backup document",
+        "Backup pages",
         "Recovery guide",
         "3 recovery sheets",
         "5 signing-key recovery sheets",
-        "Kit index",
+        "Document inventory",
+        "Print setup",
         "QR density",
     ]
     assert args.signing_key_mode == "sharded"
@@ -317,10 +325,6 @@ def test_task_models_reject_quorum_counts_above_shamir_limit() -> None:
         BackupTaskState(shard_count=256)
     with pytest.raises(ValidationError):
         BackupTaskState(signing_key_shard_threshold=2, signing_key_shard_count=256)
-    with pytest.raises(ValidationError):
-        AddFilesTaskState(recovery_document_count=256)
-    with pytest.raises(ValidationError):
-        AddFilesTaskState(signing_key_recovery_threshold=2, signing_key_recovery_count=256)
     with pytest.raises(ValidationError):
         ReplaceRecoveryDocsTaskState(recovery_document_count=256)
     with pytest.raises(ValidationError):
@@ -421,7 +425,7 @@ def test_restore_task_exposes_resource_intensive_compatibility_policy() -> None:
     )
 
 
-def test_restore_task_exposes_auth_material_inputs() -> None:
+def test_restore_task_exposes_signature_source_inputs() -> None:
     state = RestoreTaskState(
         source_paths=[Path("scans")],
         passphrase="secret",
@@ -456,7 +460,7 @@ def test_restore_task_accepts_pasted_recovery_text() -> None:
     assert len(args.frames) == 1
 
 
-def test_restore_task_rejects_conflicting_auth_material_inputs() -> None:
+def test_restore_task_rejects_conflicting_signature_source_inputs() -> None:
     state = RestoreTaskState(
         source_paths=[Path("scans")],
         passphrase="secret",
@@ -468,7 +472,7 @@ def test_restore_task_rejects_conflicting_auth_material_inputs() -> None:
     validation = state.validate_task()
 
     assert not validation.ready
-    assert "RESTORE_AUTH_MATERIAL_CONFLICT" in [issue.code for issue in validation.issues]
+    assert "RESTORE_SIGNATURE_SOURCE_CONFLICT" in [issue.code for issue in validation.issues]
 
 
 def test_print_kit_task_is_ready_with_default_output() -> None:
@@ -478,7 +482,7 @@ def test_print_kit_task_is_ready_with_default_output() -> None:
     preview = state.preview()
 
     assert validation.ready
-    assert preview.title == "Unanchored rescue kit to create"
+    assert preview.title == "Offline recovery kit to create"
     assert [section.key for section in validation.sections] == [
         "output",
         "layout",
@@ -503,12 +507,15 @@ def test_add_files_task_reports_missing_required_sections() -> None:
         "ADD_FILES_SOURCE_REQUIRED",
         "ADD_FILES_INPUT_REQUIRED",
         "ADD_FILES_UNLOCK_REQUIRED",
+        "ADD_FILES_OUTPUT_REQUIRED",
     ]
 
 
-def test_add_files_task_ready_with_folder_files_and_passphrase() -> None:
+def test_add_files_task_ready_with_documents_files_and_passphrase() -> None:
     state = AddFilesTaskState(
-        backup_folder=Path("backup-out"),
+        source_paths=[Path("backup-out")],
+        output_dir=Path("update-out"),
+        allow_stale_head=True,
         input_paths=[Path("new-file.txt")],
         passphrase="secret",
     )
@@ -518,54 +525,141 @@ def test_add_files_task_ready_with_folder_files_and_passphrase() -> None:
 
     assert validation.ready
     assert preview.title == "Backup update to create"
-    args = state.to_extension_request()
-    assert args.publish_root == "backup-out"
+    args = state.to_add_files_request()
+    assert args.scan_paths == ("backup-out",)
+    assert args.output_dir == "update-out"
+    assert args.allow_stale_head
     assert args.input_paths == ("new-file.txt",)
+
+
+def test_add_files_task_rejects_removed_folder_identity_field() -> None:
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        AddFilesTaskState(backup_folder=Path("backup-out"))
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"source_paths": [Path("renamed.pdf")]},
+        {"recovery_text_file": Path("transcribed.txt")},
+        {"payloads_file": Path("collected-payloads.txt")},
+    ],
+)
+def test_add_files_requires_freshness_for_every_document_source(source) -> None:
+    state = AddFilesTaskState(
+        **source,
+        input_paths=[Path("new-file.txt")],
+        passphrase="secret",
+        output_dir=Path("update-out"),
+    )
+
+    validation = state.validate_task()
+
+    assert not validation.ready
+    assert len(validation.issues) == 1
+    assert validation.issues[0].code == "ADD_FILES_HEAD_TRUST_REQUIRED"
+
+    state.allow_stale_head = True
+    assert state.validate_task().ready
+    state.allow_stale_head = False
+    state.expected_head_doc_hash = "ab" * 32
+    assert state.validate_task().ready
+
+
+def test_add_files_documents_do_not_supply_an_implicit_destination() -> None:
+    state = AddFilesTaskState(
+        source_paths=[Path("documents")],
+        input_paths=[Path("new-file.txt")],
+        passphrase="secret",
+        allow_stale_head=True,
+    )
+
+    assert [issue.code for issue in state.validate_task().issues] == ["ADD_FILES_OUTPUT_REQUIRED"]
+
+
+def test_add_files_task_decodes_pasted_text_and_forwards_signature_source() -> None:
+    state = AddFilesTaskState(
+        recovery_text=_fallback_text_frame(),
+        auth_text_file=Path("signature.txt"),
+        input_paths=[Path("new-file.txt")],
+        passphrase="secret",
+        output_dir=Path("update-out"),
+        allow_stale_head=True,
+    )
+
+    request = state.to_add_files_request()
+
+    assert state.validate_task().ready
+    assert len(request.frames) == 1
+    assert request.frames[0].frame_type == FrameType.MAIN_DOCUMENT
+    assert request.auth_text_file == "signature.txt"
+    assert request.scan_paths == ()
+    assert request.recovery_text_file is None
+
+
+def test_add_files_task_preserves_mixed_document_carriers() -> None:
+    state = AddFilesTaskState(
+        source_paths=[Path("renamed-root.pdf"), Path("scanned-update.png")],
+        recovery_text=_fallback_text_frame(),
+        recovery_text_file=Path("transcribed.txt"),
+        payloads_file=Path("payloads.txt"),
+        input_paths=[Path("new-file.txt")],
+        passphrase="secret",
+        output_dir=Path("update-out"),
+        expected_head_doc_hash="ab" * 32,
+    )
+
+    request = state.to_add_files_request()
+    source_request = state.source_assessment_request()
+
+    assert state.validate_task().ready
+    assert source_request is not None
+    assert source_request.source_kind == "recovery_inputs"
+    assert request.scan_paths == ("renamed-root.pdf", "scanned-update.png")
+    assert len(request.frames) == 1
+    assert request.recovery_text_file == "transcribed.txt"
+    assert request.payloads_file == "payloads.txt"
 
 
 def test_add_files_task_exposes_advanced_update_options() -> None:
     state = AddFilesTaskState(
-        backup_folder=Path("backup-out"),
+        source_paths=[Path("backup-out")],
+        output_dir=Path("update-out"),
         input_paths=[Path("new-file.txt")],
         passphrase="secret",
         base_dir=Path("."),
-        recovery_document_threshold=3,
-        recovery_document_count=5,
-        signing_key_mode="sharded",
-        signing_key_recovery_threshold=2,
-        signing_key_recovery_count=4,
+        expected_head_doc_hash="ab" * 32,
         qr_chunk_size=384,
     )
 
     validation = state.validate_task()
     preview = state.preview()
-    args = state.to_extension_request()
+    args = state.to_add_files_request()
 
     assert validation.ready
     assert validation.sections[-1].key == "advanced"
-    assert "5 recovery sheets; any 3 required" in validation.sections[-1].summary
+    assert "No new recovery sheets" in validation.sections[-1].summary
     assert [item.label for item in preview.items] == [
         "Backup source",
         "Files",
         "Unlock",
         "Destination",
+        "Backup version",
+        "Verification source",
         "Recovery sheets",
-        "Signing-key recovery",
         "New documents",
         "QR density",
     ]
     assert args.base_directory == "."
-    assert args.shard_threshold == 3
-    assert args.shard_count == 5
-    assert args.signing_key_mode == "sharded"
-    assert args.signing_key_shard_threshold == 2
-    assert args.signing_key_shard_count == 4
+    assert args.expected_head_doc_hash == "ab" * 32
     assert args.qr_chunk_size == 384
 
 
 def test_add_files_review_states_update_rules_and_freshness_scope() -> None:
     state = AddFilesTaskState(
-        backup_folder=Path("backup-out"),
+        source_paths=[Path("backup-out")],
+        output_dir=Path("update-out"),
+        allow_stale_head=True,
         input_paths=[Path("new-file.txt")],
         passphrase="secret",
     )
@@ -574,9 +668,14 @@ def test_add_files_review_states_update_rules_and_freshness_scope() -> None:
 
     assert "Matching paths are replaced" in plan.safety_notes[1]
     assert "not deleted or renamed" in plan.safety_notes[1]
-    assert "newest valid version in the material you loaded" in plan.trust_notes[1]
-    assert "original backup and enough recovery material" in plan.recovery_notes[3]
-    assert "do not add another approval" in plan.recovery_notes[3]
+    assert "newest valid version in the documents you loaded" in plan.trust_notes[1]
+    assert plan.output_paths == (Path("update-out"),)
+    assert plan.read_paths[0] == Path("backup-out")
+    recovery_sheet_note = next(
+        note for note in plan.recovery_notes if "passphrase and signing key" in note
+    )
+    assert "inherits the backup's passphrase and signing key" in recovery_sheet_note
+    assert "No new recovery sheets" in recovery_sheet_note
 
 
 def test_add_files_task_rejects_invalid_qr_chunk_size() -> None:
@@ -584,29 +683,13 @@ def test_add_files_task_rejects_invalid_qr_chunk_size() -> None:
         AddFilesTaskState(qr_chunk_size=0)
 
 
-def test_add_files_task_blocks_invalid_advanced_update_options() -> None:
-    reuse_root = AddFilesTaskState(
-        backup_folder=Path("backup-out"),
-        input_paths=[Path("new-file.txt")],
-        passphrase="secret",
-        unlock_policy="reuse-root",
-        recovery_document_threshold=2,
-        recovery_document_count=3,
-    )
-    invalid_quorum = AddFilesTaskState(
-        backup_folder=Path("backup-out"),
-        input_paths=[Path("new-file.txt")],
-        passphrase="secret",
-        recovery_document_threshold=4,
-        recovery_document_count=3,
-    )
-
-    assert [issue.code for issue in reuse_root.validate_task().issues] == [
-        "ADD_FILES_REUSE_ROOT_RECOVERY_OVERRIDE"
-    ]
-    assert [issue.code for issue in invalid_quorum.validate_task().issues] == [
-        "ADD_FILES_RECOVERY_QUORUM_INVALID"
-    ]
+def test_add_files_task_rejects_invalid_recovery_sheet_quorum() -> None:
+    with pytest.raises(ValidationError):
+        AddFilesTaskState(
+            create_recovery_sheets=True,
+            recovery_threshold=4,
+            recovery_sheet_count=3,
+        )
 
 
 def test_rebuild_task_reports_missing_required_sections() -> None:
@@ -622,9 +705,26 @@ def test_rebuild_task_reports_missing_required_sections() -> None:
     ]
 
 
+def test_rebuild_folder_import_requires_an_explicit_freshness_basis() -> None:
+    state = RebuildTaskState(
+        backup_folder=Path("renamed-documents"),
+        passphrase="secret",
+        output_dir=Path("rebuilt"),
+    )
+
+    assert [issue.code for issue in state.validate_task().issues] == ["REBUILD_HEAD_TRUST_REQUIRED"]
+
+    state.expected_head_doc_hash = "ab" * 32
+    assert state.validate_task().ready
+    state.expected_head_doc_hash = None
+    state.allow_stale_head = True
+    assert state.validate_task().ready
+
+
 def test_rebuild_task_ready_with_folder_passphrase_and_output() -> None:
     state = RebuildTaskState(
         backup_folder=Path("backup-out"),
+        allow_stale_head=True,
         passphrase="secret",
         output_dir=Path("rebuilt"),
     )
@@ -635,20 +735,24 @@ def test_rebuild_task_ready_with_folder_passphrase_and_output() -> None:
     assert validation.ready
     assert preview.title == "Rebuilt backup to create"
     credentials = next(item for item in preview.items if item.label == "Credentials")
-    assert credentials.detail == "Same passphrase and signing key"
+    assert credentials.detail == "Same passphrase; embedded signing key preserved"
     args = state.to_rebuild_request()
     assert args.backup_folder == Path("backup-out")
     assert args.output_dir == Path("rebuilt")
 
     plan = state.execution_plan()
-    assert "newest valid version in the material you loaded" in plan.trust_notes[1]
-    assert "passphrase and signing key stay the same" in plan.recovery_notes[2]
+    assert "newest valid version in the documents you loaded" in plan.trust_notes[1]
+    assert (
+        "passphrase stays the same; an embedded signing key is preserved"
+        in (plan.recovery_notes[2])
+    )
     assert "Use Create backup" in plan.recovery_notes[3]
 
 
-def test_rebuild_task_exposes_auth_material_inputs() -> None:
+def test_rebuild_task_exposes_signature_source_inputs() -> None:
     state = RebuildTaskState(
         backup_folder=Path("backup-out"),
+        allow_stale_head=True,
         passphrase="secret",
         output_dir=Path("rebuilt"),
         auth_payloads_file=Path("auth-payloads.json"),
@@ -669,6 +773,7 @@ def test_rebuild_task_exposes_auth_material_inputs() -> None:
 def test_rebuild_task_exposes_qr_chunk_size_override() -> None:
     state = RebuildTaskState(
         backup_folder=Path("backup-out"),
+        allow_stale_head=True,
         passphrase="secret",
         output_dir=Path("rebuilt"),
         qr_chunk_size=384,
@@ -690,9 +795,10 @@ def test_rebuild_task_rejects_invalid_qr_chunk_size() -> None:
         RebuildTaskState(qr_chunk_size=0)
 
 
-def test_rebuild_task_rejects_conflicting_auth_material_inputs() -> None:
+def test_rebuild_task_rejects_conflicting_signature_source_inputs() -> None:
     state = RebuildTaskState(
         backup_folder=Path("backup-out"),
+        allow_stale_head=True,
         passphrase="secret",
         output_dir=Path("rebuilt"),
         auth_text_file=Path("auth.txt"),
@@ -702,7 +808,7 @@ def test_rebuild_task_rejects_conflicting_auth_material_inputs() -> None:
     validation = state.validate_task()
 
     assert not validation.ready
-    assert "REBUILD_AUTH_MATERIAL_CONFLICT" in [issue.code for issue in validation.issues]
+    assert "REBUILD_SIGNATURE_SOURCE_CONFLICT" in [issue.code for issue in validation.issues]
 
 
 def test_replace_recovery_docs_task_reports_missing_required_sections() -> None:
@@ -736,8 +842,8 @@ def test_replace_recovery_docs_task_ready_with_scan_passphrase_and_output() -> N
     assert args.output_dir == Path("replacement-docs")
     assert args.shard_threshold == 2
     assert args.shard_count == 3
-    assert args.mint_passphrase_shards
-    assert not args.mint_signing_key_shards
+    assert args.create_passphrase_shards
+    assert not args.create_signing_key_shards
 
 
 def test_replace_recovery_docs_signing_key_count_enables_signing_key_replacements() -> None:
@@ -746,15 +852,15 @@ def test_replace_recovery_docs_signing_key_count_enables_signing_key_replacement
         recovery_payload_files=[Path("recovery_payloads.txt")],
         signing_key_recovery_payload_files=[Path("signing_payloads.txt")],
         output_dir=Path("replacement-docs"),
-        mint_passphrase_recovery=False,
+        create_passphrase_recovery=False,
         signing_key_replacement_count=1,
     )
 
     args = state.to_replacement_recovery_request()
     preview = state.preview()
 
-    assert not args.mint_passphrase_shards
-    assert args.mint_signing_key_shards
+    assert not args.create_passphrase_shards
+    assert args.create_signing_key_shards
     assert args.signing_key_replacement_count == 1
     assert args.signing_key_shard_payload_files == (Path("signing_payloads.txt"),)
     assert any(item.label == "Existing key payloads" for item in preview.items)
@@ -781,7 +887,7 @@ def test_replace_recovery_docs_signing_key_recovery_outputs_preview_and_args() -
         payloads_file=Path("main_payloads.txt"),
         recovery_payload_files=[Path("recovery_payloads.txt")],
         output_dir=Path("replacement-docs"),
-        mint_signing_key_recovery=True,
+        create_signing_key_recovery=True,
         signing_key_recovery_threshold=3,
         signing_key_recovery_count=5,
     )
@@ -790,7 +896,7 @@ def test_replace_recovery_docs_signing_key_recovery_outputs_preview_and_args() -
     args = state.to_replacement_recovery_request()
 
     assert any(item.label == "Signing-key sheets" for item in preview.items)
-    assert args.mint_signing_key_shards
+    assert args.create_signing_key_shards
     assert args.signing_key_shard_threshold == 3
     assert args.signing_key_shard_count == 5
 
@@ -810,7 +916,7 @@ def test_settings_task_reports_unsupported_design() -> None:
     assert [issue.code for issue in validation.issues] == ["SETTINGS_UNSUPPORTED_VALUE"]
 
 
-def test_settings_descriptors_cover_config_api_snapshot_surface() -> None:
+def test_settings_descriptors_cover_config_api_snapshot() -> None:
     snapshot = get_api_config_snapshot(DEFAULT_CONFIG_PATH)
     state = SettingsTaskState.from_current(DEFAULT_CONFIG_PATH)
 
@@ -832,6 +938,31 @@ def test_settings_enum_descriptors_reference_config_api_options() -> None:
         value = state.setting_value(descriptor.key)
         if value is not None:
             assert str(value) in options
+
+
+def test_settings_task_validates_extension_chunking_profile() -> None:
+    state = SettingsTaskState.from_current(DEFAULT_CONFIG_PATH)
+    state.set_setting_value("extension_chunk_target", 32 * 1024)
+    state.set_setting_value("extension_chunk_min", 64 * 1024)
+    state.set_setting_value("extension_chunk_max", 128 * 1024)
+
+    validation = state.validate_task()
+
+    assert not validation.ready
+    assert [issue.code for issue in validation.issues] == ["SETTINGS_EXTENSION_CHUNKING_INVALID"]
+
+
+def test_settings_task_warns_once_for_custom_extension_chunking_profile() -> None:
+    state = SettingsTaskState.from_current(DEFAULT_CONFIG_PATH)
+    state.set_setting_value("extension_chunk_target", 32 * 1024)
+    state.set_setting_value("extension_chunk_min", 8 * 1024)
+    state.set_setting_value("extension_chunk_max", 128 * 1024)
+
+    validation = state.validate_task()
+
+    assert validation.ready
+    assert [issue.code for issue in validation.issues] == ["SETTINGS_RISKY_CUSTOM_VALUE"]
+    assert validation.issues[0].section == "extension_chunk_target"
 
 
 def test_settings_task_writes_common_defaults(tmp_path) -> None:

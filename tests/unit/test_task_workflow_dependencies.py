@@ -22,7 +22,7 @@ def test_tasks_and_workflows_do_not_import_cli_implementation() -> None:
                             f"{relative_path}:{node.lineno} imports {imported_module}"
                         )
 
-    assert not violations, "layer boundary violations:\n" + "\n".join(violations)
+    assert not violations, "task/workflow dependency violations:\n" + "\n".join(violations)
 
 
 def _imported_modules(node: ast.AST) -> tuple[str, ...]:

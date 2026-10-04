@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from ethernity.crypto.sharding import MAX_SHARES
 
-MAX_SHARDS = MAX_SHARES
-
 
 def validate_required_shard_count(value: int, *, label: str) -> int:
     if value < 1:
         raise ValueError(f"{label} must be at least 1")
-    if value > MAX_SHARDS:
-        raise ValueError(f"{label} must be at most {MAX_SHARDS}")
+    if value > MAX_SHARES:
+        raise ValueError(f"{label} must be at most {MAX_SHARES}")
     return value
 
 

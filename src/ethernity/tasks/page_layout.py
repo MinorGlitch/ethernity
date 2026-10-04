@@ -1,10 +1,14 @@
-"""Task-boundary preflight for design, document, and physical page combinations."""
+"""Preflight design, document, and physical page combinations for task execution."""
 
 from __future__ import annotations
 
-from ethernity.page_sizes import PaperSize
+from typing import Annotated, TypeAlias, TypeVar
+
+from pydantic import AfterValidator, BaseModel
+
+from ethernity.page_sizes import PaperSize, PaperSizeName, resolve_paper_size
 from ethernity.render.designs import (
-    load_design_manifest_by_name,
+    load_design_definition_by_name,
     require_supported_paper_size,
 )
 from ethernity.render.doc_types import (
@@ -25,6 +29,27 @@ BACKUP_RENDER_DOC_TYPES = frozenset(
     }
 )
 KIT_RENDER_DOC_TYPES = frozenset({DOC_TYPE_KIT, DOC_TYPE_KIT_INDEX})
+PrintTask = TypeVar("PrintTask", bound=BaseModel)
+
+
+def with_print_layout(state: PrintTask, *, paper_size: str | None, design: str | None) -> PrintTask:
+    """Validate a complete print choice before replacing either coupled field."""
+    candidate = state.model_validate(
+        {**state.model_dump(), "paper_size": paper_size, "design": design}
+    )
+    updates = {
+        key: value
+        for key, value in candidate.model_dump(include={"paper_size", "design"}).items()
+        if value != getattr(state, key)
+    }
+    return state.model_copy(update=updates)
+
+
+def _normalize_paper_size(value: str) -> PaperSizeName:
+    return resolve_paper_size(value).name
+
+
+ValidatedPaperSizeName: TypeAlias = Annotated[PaperSizeName, AfterValidator(_normalize_paper_size)]
 
 
 def require_workflow_page_size(
@@ -35,15 +60,15 @@ def require_workflow_page_size(
 ) -> PaperSize:
     """Require a registered page to support every document this workflow can emit."""
 
-    manifest = load_design_manifest_by_name(design_name)
-    selected_doc_types = manifest.documents & candidate_doc_types
+    definition = load_design_definition_by_name(design_name)
+    selected_doc_types = definition.documents & candidate_doc_types
     if not selected_doc_types:
         raise ValueError(
-            f"design {manifest.name!r} supports none of the workflow document types: "
+            f"design {definition.name!r} supports none of the workflow document types: "
             f"{', '.join(sorted(candidate_doc_types))}"
         )
     return require_supported_paper_size(
-        manifest.name,
+        definition.name,
         paper_size,
         doc_types=selected_doc_types,
     )
@@ -52,5 +77,7 @@ def require_workflow_page_size(
 __all__ = [
     "BACKUP_RENDER_DOC_TYPES",
     "KIT_RENDER_DOC_TYPES",
+    "ValidatedPaperSizeName",
     "require_workflow_page_size",
+    "with_print_layout",
 ]

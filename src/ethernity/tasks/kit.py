@@ -19,13 +19,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ethernity.page_sizes import (
     DEFAULT_PAPER_SIZE_NAME,
-    PaperSizeName,
     paper_size_display_name,
-    resolve_paper_size,
 )
 from ethernity.tasks.file_summary import format_count
 from ethernity.tasks.models import (
@@ -42,32 +40,31 @@ from ethernity.tasks.output_checks import (
     existing_output_warning,
     selected_output_status,
 )
-from ethernity.tasks.page_layout import KIT_RENDER_DOC_TYPES, require_workflow_page_size
-from ethernity.workflows.execution import (
+from ethernity.tasks.page_layout import (
+    KIT_RENDER_DOC_TYPES,
+    ValidatedPaperSizeName,
+    require_workflow_page_size,
+)
+from ethernity.workflows.kit.service import (
     DEFAULT_KIT_OUTPUT,
     KitRequest,
-    execute_kit,
+    create_kit,
 )
 
 KitVariant = Literal["lean", "scanner"]
 
 
 class PrintKitTaskState(BaseModel):
-    """Expert-facing state for printing an unanchored offline rescue kit."""
+    """Expert-facing state for printing an offline recovery kit."""
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
     output_path: Path = Field(default_factory=lambda: Path(DEFAULT_KIT_OUTPUT))
     config_path: Path | None = None
     variant: KitVariant = "lean"
-    paper_size: PaperSizeName = DEFAULT_PAPER_SIZE_NAME
+    paper_size: ValidatedPaperSizeName = DEFAULT_PAPER_SIZE_NAME
     design: str = "sentinel"
     chunk_size: int | None = None
-
-    @field_validator("paper_size")
-    @classmethod
-    def _validate_paper_size(cls, value: str) -> PaperSizeName:
-        return resolve_paper_size(value).name
 
     @model_validator(mode="after")
     def _validate_chunk_size(self) -> PrintKitTaskState:
@@ -132,14 +129,14 @@ class PrintKitTaskState(BaseModel):
             *self._qr_sizing_warnings(),
         )
         return TaskPreview(
-            title="Unanchored rescue kit to create",
+            title="Offline recovery kit to create",
             items=tuple(items),
             warnings=warnings,
         )
 
     def execution_plan(self) -> TaskExecutionPlan:
         return TaskExecutionPlan(
-            summary=f"Create unanchored rescue kit PDF at {self._output_summary()}",
+            summary=f"Create offline recovery kit PDF at {self._output_summary()}",
             output_paths=(self.output_path,),
             writes_files=True,
             safety_notes=(
@@ -147,8 +144,8 @@ class PrintKitTaskState(BaseModel):
                 "writable.",
             ),
             recovery_notes=(
-                "This unanchored rescue kit cannot authenticate the latest backup state and does "
-                "not replace backup documents, chain-bound kits, or recovery sheets.",
+                "This offline recovery kit cannot authenticate the latest backup state and does "
+                "not replace backup documents or recovery sheets.",
             ),
         )
 
@@ -157,7 +154,7 @@ class PrintKitTaskState(BaseModel):
         if not validation.ready:
             raise ValueError(validation.issues[0].message)
 
-        result = execute_kit(
+        result = create_kit(
             KitRequest(
                 output_path=self.output_path,
                 config_path=self.config_path,
@@ -168,9 +165,9 @@ class PrintKitTaskState(BaseModel):
             )
         )
         return TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message=(
-                f"Unanchored rescue kit created with {format_count(result.chunk_count, 'QR code')} "
+                f"Offline recovery kit created with {format_count(result.chunk_count, 'QR code')} "
                 f"from {format_count(result.bytes_total, 'byte')}."
             ),
             output_paths=(result.output_path,),

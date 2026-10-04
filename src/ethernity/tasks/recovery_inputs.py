@@ -2,22 +2,23 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from ethernity.encoding.framing import Frame
 from ethernity.workflows.recovery.frame_inputs import frames_from_fallback_text
 
 __all__ = [
-    "RecoverySourceMaterial",
-    "UnlockMaterial",
+    "RecoverySourceInputs",
+    "UnlockInputs",
     "has_recovery_source",
-    "has_unlock_material",
+    "has_unlock_inputs",
+    "detected_unlock_summary",
     "recovery_text_error",
     "recovery_text_frames",
 ]
 
 
-class RecoverySourceMaterial(Protocol):
+class RecoverySourceInputs(Protocol):
     @property
     def source_paths(self) -> Sequence[Path]: ...
 
@@ -31,7 +32,7 @@ class RecoverySourceMaterial(Protocol):
     def payloads_file(self) -> Path | None: ...
 
 
-class UnlockMaterial(Protocol):
+class UnlockInputs(Protocol):
     @property
     def passphrase(self) -> str | None: ...
 
@@ -42,18 +43,44 @@ class UnlockMaterial(Protocol):
     def recovery_payload_files(self) -> Sequence[Path]: ...
 
 
-def has_unlock_material(material: UnlockMaterial) -> bool:
+class _DetectedUnlock(Protocol):
+    @property
+    def unlock_ready(self) -> bool: ...
+
+    @property
+    def unlock_summary(self) -> str: ...
+
+
+@runtime_checkable
+class _AssessedUnlockInputs(Protocol):
+    def current_source_assessment(self) -> _DetectedUnlock | None: ...
+
+
+def detected_unlock_summary(inputs: UnlockInputs) -> str | None:
+    """Describe validated sheets decoded from the current source collection."""
+
+    if isinstance(inputs, _AssessedUnlockInputs):
+        assessment = inputs.current_source_assessment()
+        if assessment is not None and assessment.unlock_ready:
+            return assessment.unlock_summary
+    return None
+
+
+def has_unlock_inputs(inputs: UnlockInputs) -> bool:
     return bool(
-        material.passphrase or material.recovery_documents or material.recovery_payload_files
+        inputs.passphrase
+        or inputs.recovery_documents
+        or inputs.recovery_payload_files
+        or detected_unlock_summary(inputs)
     )
 
 
-def has_recovery_source(material: RecoverySourceMaterial) -> bool:
+def has_recovery_source(inputs: RecoverySourceInputs) -> bool:
     return bool(
-        material.source_paths
-        or material.recovery_text
-        or material.recovery_text_file
-        or material.payloads_file
+        inputs.source_paths
+        or inputs.recovery_text
+        or inputs.recovery_text_file
+        or inputs.payloads_file
     )
 
 

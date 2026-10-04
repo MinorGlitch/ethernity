@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 from ethernity.tasks.models import TaskSection
-from ethernity.tasks.presentation.common import (
-    qr_chunk_size_control_value,
-    qr_chunk_size_summary,
-)
 from ethernity.tasks.presentation.models import (
     WorkspaceAction,
     WorkspaceGroup,
     WorkspaceValue,
 )
+from ethernity.tasks.presentation.presentation_values import (
+    qr_chunk_size_control_value,
+    qr_chunk_size_summary,
+)
 from ethernity.tasks.presentation.recovery import (
-    auth_material_control_value,
-    auth_material_summary,
+    signature_source_control_value,
+    signature_source_summary,
 )
 from ethernity.tasks.rebuild import RebuildTaskState
 
@@ -31,16 +31,16 @@ def rebuild_auxiliary_groups(
             kind="fields",
             values=(
                 WorkspaceValue(
-                    "auth-material",
+                    "signature-source",
                     "Verification source",
                     (
-                        auth_material_summary(state.auth_text_file, state.auth_payloads_file)
+                        signature_source_summary(state.auth_text_file, state.auth_payloads_file)
                         if source_loaded
                         or state.auth_text_file is not None
                         or state.auth_payloads_file is not None
                         else "Choose a backup first"
                     ),
-                    control_value=auth_material_control_value(
+                    control_value=signature_source_control_value(
                         state.auth_text_file,
                         state.auth_payloads_file,
                     ),
@@ -52,7 +52,7 @@ def rebuild_auxiliary_groups(
                     control_value=qr_chunk_size_control_value(state.qr_chunk_size),
                 ),
                 WorkspaceValue(
-                    "source-context",
+                    "source-status",
                     "Backup state",
                     "Loaded backup" if source_loaded else "No backup loaded",
                     control_value="loaded" if source_loaded else "empty",

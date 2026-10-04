@@ -14,27 +14,25 @@ from ethernity.encoding.framing import FrameType
 from ethernity.tasks.file_summary import display_path
 from ethernity.tasks.models import TaskIssue, TaskSectionStatus
 from ethernity.tasks.presentation.recovery import pasted_text_summary
+from ethernity.tasks.recovery_resources import recovery_resource_retry
 from ethernity.workflows.execution import (
     RecoveryRequest,
     WorkflowExecutionError,
     inspect_recovery,
 )
-from ethernity.workflows.extension.errors import ExtensionIssue, ExtensionWorkflowError
-from ethernity.workflows.extension.planning import (
-    ExtendInspection,
-    inspect_from_args as inspect_extend_from_args,
-)
-from ethernity.workflows.extension.request import ExtensionRequest
 from ethernity.workflows.recovery.frame_inputs import frames_from_fallback_text
 from ethernity.workflows.recovery.models import RecoveryInspection
 from ethernity.workflows.shared import api_codes
 
-SourceKind = Literal["backup_folder", "scanned_pages", "recovery_text", "payload_files"]
+SourceKind = Literal[
+    "backup_folder", "scanned_pages", "recovery_text", "payload_files", "recovery_inputs"
+]
 
 _UNLOCK_ONLY_BLOCKERS = frozenset(
     {
         api_codes.PASSPHRASE_REQUIRED,
         api_codes.PASSPHRASE_SHARDS_UNDER_QUORUM,
+        api_codes.PASSPHRASE_SHARDS_INVALID,
     }
 )
 
@@ -58,7 +56,7 @@ class SourceAssessmentRequest:
 
     source_kind: SourceKind
     source_label: str
-    material_summary: str
+    source_summary: str
     issue_section: str
     backup_folder: Path | None = None
     scan_paths: tuple[Path, ...] = ()
@@ -94,14 +92,20 @@ class SourceAssessmentRequest:
 
 @dataclass(frozen=True, slots=True)
 class SourceAssessment:
-    """Facts and any source-local failure discovered without writing or decrypting data."""
+    """Decoded source details and errors found without writing any data."""
 
     source_kind: SourceKind
     source_label: str
-    material_summary: str
+    source_summary: str
     backup_identity: str = ""
     version_summary: str = ""
     issue: TaskIssue | None = None
+    document_summary: str = ""
+    unlock_summary: str = ""
+    unlock_ready: bool = False
+    has_updates: bool = False
+    document_count: int = 0
+    root_doc_hash: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,55 +183,33 @@ def recovery_source_request(
     allow_unsigned: bool = False,
     resource_intensive_compatibility_recovery: bool = False,
 ) -> SourceAssessmentRequest | None:
-    """Normalize the mutually exclusive recovery source shapes used by guided tasks."""
+    """Describe selected backup documents, payloads, and fallback text."""
 
     paths = tuple(scan_paths)
-    selected = sum(
-        (
-            bool(paths),
-            bool(recovery_text or recovery_text_file is not None),
-            payloads_file is not None,
-        )
-    )
-    if selected != 1:
-        return None
+    sources: list[tuple[SourceKind, str, str]] = []
     if paths:
-        return SourceAssessmentRequest(
-            source_kind="scanned_pages",
-            source_label="Scanned pages",
-            material_summary=_paths_material_summary(paths),
-            issue_section=issue_section,
-            scan_paths=paths,
-            auth_text_file=auth_text_file,
-            auth_payloads_file=auth_payloads_file,
-            config_path=config_path,
-            allow_unsigned=allow_unsigned,
-            resource_intensive_compatibility_recovery=(resource_intensive_compatibility_recovery),
-        )
-    if recovery_text or recovery_text_file is not None:
-        material_summary = (
-            pasted_text_summary(recovery_text)
-            if recovery_text
-            else display_path(recovery_text_file or "")
-        )
-        return SourceAssessmentRequest(
-            source_kind="recovery_text",
-            source_label="Recovery text",
-            material_summary=material_summary,
-            issue_section=issue_section,
-            recovery_text=recovery_text,
-            recovery_text_file=recovery_text_file,
-            auth_text_file=auth_text_file,
-            auth_payloads_file=auth_payloads_file,
-            config_path=config_path,
-            allow_unsigned=allow_unsigned,
-            resource_intensive_compatibility_recovery=(resource_intensive_compatibility_recovery),
-        )
+        sources.append(("scanned_pages", "Backup documents", _paths_source_summary(paths)))
+    if recovery_text:
+        sources.append(("recovery_text", "Recovery text", pasted_text_summary(recovery_text)))
+    if recovery_text_file is not None:
+        sources.append(("recovery_text", "Recovery text", display_path(recovery_text_file)))
+    if payloads_file is not None:
+        sources.append(("payload_files", "Backup payload file", display_path(payloads_file)))
+    if not sources:
+        return None
+    source_kind, source_label, source_summary = sources[0]
+    if len(sources) > 1:
+        source_kind = "recovery_inputs"
+        source_label = "Backup documents"
+        source_summary = "; ".join(source[2] for source in sources)
     return SourceAssessmentRequest(
-        source_kind="payload_files",
-        source_label="Backup payload file",
-        material_summary=display_path(payloads_file or ""),
+        source_kind=source_kind,
+        source_label=source_label,
+        source_summary=source_summary,
         issue_section=issue_section,
+        scan_paths=paths,
+        recovery_text=recovery_text,
+        recovery_text_file=recovery_text_file,
         payloads_file=payloads_file,
         auth_text_file=auth_text_file,
         auth_payloads_file=auth_payloads_file,
@@ -255,15 +237,17 @@ def folder_or_scans_source_request(
         return SourceAssessmentRequest(
             source_kind="backup_folder",
             source_label="Backup folder",
-            material_summary=display_path(backup_folder),
+            source_summary=display_path(backup_folder),
             issue_section=issue_section,
             backup_folder=backup_folder,
+            auth_text_file=auth_text_file,
+            auth_payloads_file=auth_payloads_file,
             config_path=config_path,
         )
     return SourceAssessmentRequest(
         source_kind="scanned_pages",
-        source_label="Scanned pages",
-        material_summary=_paths_material_summary(paths),
+        source_label="Backup documents",
+        source_summary=_paths_source_summary(paths),
         issue_section=issue_section,
         scan_paths=paths,
         auth_text_file=auth_text_file,
@@ -273,7 +257,7 @@ def folder_or_scans_source_request(
 
 
 def assess_source_request(request: SourceAssessmentRequest) -> SourceAssessment:
-    """Inspect source material through the existing recovery and extension planners."""
+    """Inspect source documents through the existing recovery and extension planners."""
 
     try:
         with recovery_kdf_budget(
@@ -281,20 +265,25 @@ def assess_source_request(request: SourceAssessmentRequest) -> SourceAssessment:
                 request.resource_intensive_compatibility_recovery
             )
         ):
-            if request.source_kind == "backup_folder":
-                inspection = inspect_extend_from_args(
-                    ExtensionRequest(
-                        config_path=_path_text(request.config_path),
-                        publish_root=_path_text(request.backup_folder),
-                        quiet=True,
-                    )
-                )
-                return _assessment_from_extend(request, inspection)
             inspection = inspect_recovery(_recovery_request(request))
             return _assessment_from_recovery(request, inspection)
-    except (WorkflowExecutionError, ExtensionWorkflowError) as exc:
+    except WorkflowExecutionError as exc:
         return _failed_assessment(request, code=exc.code, message=exc.message)
     except (OSError, RuntimeError, ValueError) as exc:
+        retry = recovery_resource_retry(exc)
+        if retry is not None:
+            return SourceAssessment(
+                source_kind=request.source_kind,
+                source_label=request.source_label,
+                source_summary=request.source_summary,
+                issue=TaskIssue(
+                    code="RECOVERY_HIGHER_LIMITS_NEEDED",
+                    message="Unlocking exceeds the normal recovery work limit. "
+                    "You can retry with higher limits after the restore stops.",
+                    severity="warning",
+                    section=request.issue_section,
+                ),
+            )
         return _failed_assessment(
             request,
             code="SOURCE_ASSESSMENT_FAILED",
@@ -312,13 +301,9 @@ def _recovery_request(request: SourceAssessmentRequest) -> RecoveryRequest:
     return RecoveryRequest(
         config_path=request.config_path,
         frames=frames,
-        recovery_text_file=(
-            request.recovery_text_file
-            if request.recovery_text_file is not None and not request.recovery_text
-            else None
-        ),
+        recovery_text_file=request.recovery_text_file,
         payloads_file=request.payloads_file,
-        scan_paths=request.scan_paths,
+        scan_paths=(request.backup_folder,) if request.backup_folder else request.scan_paths,
         auth_text_file=request.auth_text_file,
         auth_payloads_file=request.auth_payloads_file,
         allow_unsigned=request.allow_unsigned,
@@ -338,49 +323,57 @@ def _assessment_from_recovery(
     }
     document_count = len(document_ids)
     issue = _first_source_issue(request, inspection.blocking_issues)
-    identity = inspection.doc_id.hex() if document_count <= 1 else ""
+    root_known = document_count == 1 or inspection.decoded_import_session is not None
+    identity = inspection.doc_id.hex() if root_known else ""
     noun = "document" if document_count == 1 else "documents"
     version_summary = f"{document_count} backup {noun} found"
+    unlock = inspection.unlock
+    auth_count = len(
+        {
+            frame.doc_id
+            for frame in (*source_frames, *inspection.auth_frames)
+            if frame.frame_type == FrameType.AUTH
+        }
+    )
+    document_summary = (
+        f"{document_count} complete backup {noun}; authentication found for {auth_count}"
+    )
     return SourceAssessment(
         source_kind=request.source_kind,
         source_label=request.source_label,
-        material_summary=request.material_summary,
+        source_summary=request.source_summary,
         backup_identity=identity,
         version_summary=version_summary,
         issue=issue,
+        document_summary=document_summary,
+        unlock_summary=_source_unlock_summary(inspection),
+        unlock_ready=unlock.satisfied,
+        has_updates=document_count > 1,
+        document_count=document_count,
+        root_doc_hash=inspection.doc_hash.hex() if root_known else "",
     )
 
 
-def _assessment_from_extend(
-    request: SourceAssessmentRequest,
-    inspection: ExtendInspection,
-) -> SourceAssessment:
-    issue = _first_source_issue(request, inspection.blocking_issues)
-    if inspection.validated_head_index is not None:
-        version_summary = (
-            "Initial backup"
-            if inspection.validated_head_index == 0
-            else f"Update {inspection.validated_head_index} validated"
-        )
-    elif inspection.discovered_extension_dirs:
-        update_count = len(inspection.discovered_extension_dirs)
-        noun = "update" if update_count == 1 else "updates"
-        version_summary = f"{update_count} {noun} found; unlock to validate the newest version"
-    else:
-        version_summary = "Initial backup only"
-    return SourceAssessment(
-        source_kind=request.source_kind,
-        source_label=request.source_label,
-        material_summary=request.material_summary,
-        backup_identity=inspection.root_doc_id or inspection.doc_id or "",
-        version_summary=version_summary,
-        issue=issue,
-    )
+def _source_unlock_summary(inspection: RecoveryInspection) -> str:
+    unlock = inspection.unlock
+    count = unlock.validated_shard_count
+    if unlock.mode != "shards":
+        return "Enter a passphrase or load recovery sheets to unlock."
+    threshold = unlock.required_shard_threshold
+    if unlock.satisfied:
+        return f"Recovery sheets ready: {count} validated."
+    if threshold is not None:
+        missing = max(0, threshold - count)
+        if missing == 0:
+            return "Recovery sheets found; resolve the document error before unlocking."
+        noun = "sheet" if missing == 1 else "sheets"
+        return f"Recovery sheets: {count} of {threshold} required. Load {missing} more {noun}."
+    return "The loaded recovery sheets cannot unlock this backup."
 
 
 def _first_source_issue(
     request: SourceAssessmentRequest,
-    blockers: tuple[dict[str, object], ...] | tuple[ExtensionIssue, ...],
+    blockers: tuple[dict[str, object], ...],
 ) -> TaskIssue | None:
     blocker = next(
         (item for item in blockers if _issue_code(item) not in _UNLOCK_ONLY_BLOCKERS), None
@@ -394,12 +387,12 @@ def _first_source_issue(
     )
 
 
-def _issue_code(issue: dict[str, object] | ExtensionIssue) -> str:
-    return issue.code if isinstance(issue, ExtensionIssue) else str(issue.get("code") or "")
+def _issue_code(issue: dict[str, object]) -> str:
+    return str(issue.get("code") or "")
 
 
-def _issue_message(issue: dict[str, object] | ExtensionIssue) -> str:
-    return issue.message if isinstance(issue, ExtensionIssue) else str(issue.get("message") or "")
+def _issue_message(issue: dict[str, object]) -> str:
+    return str(issue.get("message") or "")
 
 
 def _failed_assessment(
@@ -411,7 +404,7 @@ def _failed_assessment(
     return SourceAssessment(
         source_kind=request.source_kind,
         source_label=request.source_label,
-        material_summary=request.material_summary,
+        source_summary=request.source_summary,
         issue=TaskIssue(
             code=code,
             message=message or "The selected backup source could not be assessed.",
@@ -420,7 +413,7 @@ def _failed_assessment(
     )
 
 
-def _paths_material_summary(paths: tuple[Path, ...]) -> str:
+def _paths_source_summary(paths: tuple[Path, ...]) -> str:
     first_path = display_path(paths[0])
     if len(paths) == 1:
         return first_path

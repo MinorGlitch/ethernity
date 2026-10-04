@@ -4,7 +4,6 @@ from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.models import TaskPreview, TaskValidation
-from ethernity.tasks.presentation.common import validation_readiness
 from ethernity.tasks.presentation.models import (
     PresentationState,
     PresentationTaskKey,
@@ -14,6 +13,7 @@ from ethernity.tasks.presentation.models import (
     WorkspaceGroup,
     WorkspaceValue,
 )
+from ethernity.tasks.presentation.presentation_values import validation_readiness
 from ethernity.tasks.presentation.workflow_add_files import add_files_auxiliary_groups
 from ethernity.tasks.presentation.workflow_backup import backup_groups
 from ethernity.tasks.presentation.workflow_kit import kit_groups

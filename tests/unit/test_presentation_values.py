@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ethernity.tasks.presentation.common import middle_truncate_path
+from ethernity.tasks.presentation.presentation_values import middle_truncate_path
 
 
 def test_middle_truncate_path_preserves_parent_and_filename_when_possible() -> None:

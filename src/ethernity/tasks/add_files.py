@@ -19,20 +19,15 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
-from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
+from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
 from ethernity.config import load_cli_defaults, resolve_config_snapshot_path
-from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
-from ethernity.extensions.layout import canonical_extension_dir_name, loose_extension_dir_name
-from ethernity.page_sizes import PaperSizeName, resolve_paper_size
+from ethernity.tasks.backup_inputs import has_selected_inputs
 from ethernity.tasks.file_summary import (
     display_path,
-    format_count,
     selected_paths_summary,
 )
-from ethernity.tasks.input_material import has_selected_inputs
 from ethernity.tasks.models import (
     PreviewItem,
     TaskExecutionPlan,
@@ -43,40 +38,45 @@ from ethernity.tasks.models import (
     TaskSection,
     TaskSectionStatus,
     TaskValidation,
+    optional_section_status,
 )
 from ethernity.tasks.page_layout import (
     BACKUP_RENDER_DOC_TYPES,
+    ValidatedPaperSizeName,
     require_workflow_page_size,
 )
-from ethernity.tasks.presentation.recovery import unlock_material_summary
-from ethernity.tasks.quorum import validate_optional_shard_count
-from ethernity.tasks.recovery_material import has_unlock_material
+from ethernity.tasks.presentation.recovery import (
+    signature_source_summary,
+    unlock_input_summary,
+)
+from ethernity.tasks.recovery_inputs import (
+    has_recovery_source,
+    has_unlock_inputs,
+    recovery_text_error,
+    recovery_text_frames,
+)
 from ethernity.tasks.source_assessment import (
     SourceAssessableTaskState,
     SourceAssessmentRequest,
-    folder_or_scans_source_request,
-    source_freshness_status,
+    recovery_source_request,
 )
-from ethernity.workflows.extension.request import ExtensionRequest
-from ethernity.workflows.extension.service import (
-    AssessedExtendRun,
-    ExtensionAssessment,
-    ExtensionPassphraseShards,
-    ExtensionSigningKeyShards,
-    ReuseRootPassphraseShards,
-    assess_extension,
-    execute_extension,
+from ethernity.workflows.add_files.request import (
+    AddFilesRequest,
+    validate_recovery_sheet_counts,
+)
+from ethernity.workflows.add_files.service import (
+    AddFilesAssessment,
+    AddFilesIssue,
+    assess_add_files,
+    execute_add_files,
 )
 from ethernity.workflows.shared import api_codes
-
-AddFilesUnlockPolicy = Literal["self-contained", "reuse-root"]
-AddFilesSigningKeyMode = Literal["not-stored", "sharded"]
 
 
 @dataclass(frozen=True)
 class _AssessmentCache:
     key: bytes
-    assessed: AssessedExtendRun | None = None
+    assessment: AddFilesAssessment | None = None
     issue: TaskIssue | None = None
 
 
@@ -85,10 +85,14 @@ class AddFilesTaskState(SourceAssessableTaskState):
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
-    backup_folder: Path | None = None
-    loose_output_folder: Path | None = None
-    config_path: Path | None = None
     source_paths: list[Path] = Field(default_factory=list)
+    recovery_text: str | None = None
+    recovery_text_file: Path | None = None
+    payloads_file: Path | None = None
+    auth_text_file: Path | None = None
+    auth_payloads_file: Path | None = None
+    output_dir: Path | None = None
+    config_path: Path | None = None
     input_paths: list[Path] = Field(default_factory=list)
     input_dirs: list[Path] = Field(default_factory=list)
     base_dir: Path | None = None
@@ -97,49 +101,17 @@ class AddFilesTaskState(SourceAssessableTaskState):
     recovery_payload_files: list[Path] = Field(default_factory=list)
     expected_head_doc_hash: str | None = None
     allow_stale_head: bool = False
-    unlock_policy: AddFilesUnlockPolicy | None = None
-    recovery_document_threshold: int | None = None
-    recovery_document_count: int | None = None
-    signing_key_mode: AddFilesSigningKeyMode | None = None
-    signing_key_recovery_threshold: int | None = None
-    signing_key_recovery_count: int | None = None
-    paper_size: PaperSizeName | None = None
+    paper_size: ValidatedPaperSizeName | None = None
     design: str | None = None
     qr_chunk_size: int | None = None
+    create_recovery_sheets: bool = False
+    recovery_threshold: int = 2
+    recovery_sheet_count: int = 3
 
     _assessment_cache: _AssessmentCache | None = PrivateAttr(default=None)
 
-    @field_validator("paper_size")
-    @classmethod
-    def _validate_paper_size(cls, value: str | None) -> PaperSizeName | None:
-        return resolve_paper_size(value).name if value is not None else None
-
-    @field_validator("recovery_document_threshold")
-    @classmethod
-    def _validate_recovery_threshold(cls, value: int | None) -> int | None:
-        return validate_optional_shard_count(value, label="recovery document threshold")
-
-    @field_validator("recovery_document_count")
-    @classmethod
-    def _validate_recovery_count(cls, value: int | None) -> int | None:
-        return validate_optional_shard_count(
-            value,
-            label="recovery document count",
-            allow_zero=True,
-        )
-
-    @field_validator("signing_key_recovery_threshold")
-    @classmethod
-    def _validate_signing_key_threshold(cls, value: int | None) -> int | None:
-        return validate_optional_shard_count(value, label="signing key recovery threshold")
-
-    @field_validator("signing_key_recovery_count")
-    @classmethod
-    def _validate_signing_key_count(cls, value: int | None) -> int | None:
-        return validate_optional_shard_count(value, label="signing key recovery count")
-
     @model_validator(mode="after")
-    def _validate_qr_chunk_size(self) -> AddFilesTaskState:
+    def _validate_advanced_options(self) -> AddFilesTaskState:
         if self.design is not None and self.paper_size is not None:
             require_workflow_page_size(
                 self.design,
@@ -148,27 +120,17 @@ class AddFilesTaskState(SourceAssessableTaskState):
             )
         if self.qr_chunk_size is not None and self.qr_chunk_size < 1:
             raise ValueError("QR chunk size must be positive")
+        validate_recovery_sheet_counts(self.recovery_threshold, self.recovery_sheet_count)
         return self
 
     def sections(self) -> tuple[TaskSection, ...]:
         sections = (
             TaskSection(
-                key="backup",
-                title="Current backup",
-                status=self._backup_source_status(),
-                summary=self._backup_source_summary(),
-                action_label="Choose backup source...",
-            ),
-            TaskSection(
                 key="source",
-                title="Scan version",
-                status=source_freshness_status(
-                    self.source_paths,
-                    expected_head_doc_hash=self.expected_head_doc_hash,
-                    allow_stale_head=self.allow_stale_head,
-                ),
+                title="Current backup",
+                status=self._source_status(),
                 summary=self._source_summary(),
-                action_label="Load scanned pages...",
+                action_label="Choose backup source...",
             ),
             TaskSection(
                 key="files",
@@ -182,21 +144,37 @@ class AddFilesTaskState(SourceAssessableTaskState):
             TaskSection(
                 key="unlock",
                 title="Unlock backup",
-                status="ready" if has_unlock_material(self) else "missing",
-                summary=unlock_material_summary(self),
+                status="ready" if has_unlock_inputs(self) else "missing",
+                summary=unlock_input_summary(self),
                 action_label="Set unlock method...",
+            ),
+            TaskSection(
+                key="freshness",
+                title="Backup version",
+                status=(
+                    "ready"
+                    if self.expected_head_doc_hash is not None or self.allow_stale_head
+                    else "missing"
+                ),
+                summary=self._freshness_summary(),
+                action_label="Confirm source",
             ),
             TaskSection(
                 key="output",
                 title="Save update to",
-                status="ready" if self._output_folder() is not None else "missing",
-                summary=self._output_summary(),
+                status="ready" if self.output_dir is not None else "missing",
+                summary=display_path(self.output_dir)
+                if self.output_dir is not None
+                else "Choose an output folder.",
                 action_label="Choose output folder...",
             ),
             TaskSection(
                 key="advanced",
                 title="Advanced",
-                status=self._advanced_status(),
+                status=optional_section_status(
+                    (),
+                    self._advanced_warnings(),
+                ),
                 summary=self._advanced_summary(),
                 action_label="Review options",
             ),
@@ -204,7 +182,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
         cache = self._current_assessment_cache()
         if cache is None or cache.issue is None:
             return sections
-        issue_section = cache.issue.section or "backup"
+        issue_section = cache.issue.section or "source"
         return tuple(
             section.model_copy(
                 update={
@@ -228,10 +206,14 @@ class AddFilesTaskState(SourceAssessableTaskState):
         )
 
     def source_assessment_request(self) -> SourceAssessmentRequest | None:
-        return folder_or_scans_source_request(
-            issue_section="backup",
-            backup_folder=self.backup_folder,
+        return recovery_source_request(
+            issue_section="source",
             scan_paths=self.source_paths,
+            recovery_text=self.recovery_text,
+            recovery_text_file=self.recovery_text_file,
+            payloads_file=self.payloads_file,
+            auth_text_file=self.auth_text_file,
+            auth_payloads_file=self.auth_payloads_file,
             config_path=self.config_path,
         )
 
@@ -245,7 +227,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
             self._assessment_cache = None
             return
         key = self._assessment_key()
-        assessment = assess_extension(self.to_extension_request(quiet=True))
+        assessment = assess_add_files(self.to_add_files_request(quiet=True))
         if assessment.issues:
             issue = assessment.issues[0]
             self._assessment_cache = _AssessmentCache(
@@ -253,39 +235,47 @@ class AddFilesTaskState(SourceAssessableTaskState):
                 issue=TaskIssue(
                     code=issue.code,
                     message=issue.message,
-                    section=_assessment_issue_section(issue.code),
+                    section=_assessment_issue_section(issue),
                 ),
             )
             return
-        self._assessment_cache = _AssessmentCache(key=key, assessed=assessment.assessed)
+        self._assessment_cache = _AssessmentCache(key=key, assessment=assessment)
 
     def _basic_issues(self) -> tuple[TaskIssue, ...]:
         issues: list[TaskIssue] = []
-        if self.backup_folder is None and not self.source_paths:
+        if not has_recovery_source(self):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_SOURCE_REQUIRED",
-                    message="Choose a backup folder or scanned pages.",
-                    section="backup",
+                    message="Choose backup documents, recovery text, or exported payloads.",
+                    section="source",
                 )
             )
-        if self.backup_folder is not None and self.source_paths:
+        if self.recovery_text and recovery_text_error(self.recovery_text) is not None:
             issues.append(
                 TaskIssue(
-                    code="ADD_FILES_SOURCE_CONFLICT",
-                    message="Choose either a backup folder or scanned pages, not both.",
-                    section="backup",
+                    code="ADD_FILES_RECOVERY_TEXT_INVALID",
+                    message="Pasted recovery text is not valid recovery text.",
+                    section="source",
+                )
+            )
+        if self.auth_text_file is not None and self.auth_payloads_file is not None:
+            issues.append(
+                TaskIssue(
+                    code="ADD_FILES_SIGNATURE_SOURCE_CONFLICT",
+                    message="Choose either signature text or a signature payload, not both.",
+                    section="advanced",
                 )
             )
         if not has_selected_inputs(self.input_paths, self.input_dirs):
             issues.append(
                 TaskIssue(
-                    code="ADD_FILES_INPUT_REQUIRED",
+                    code=api_codes.ADD_FILES_INPUT_REQUIRED,
                     message="Choose at least one file or folder to add.",
                     section="files",
                 )
             )
-        if not has_unlock_material(self):
+        if not has_unlock_inputs(self):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_UNLOCK_REQUIRED",
@@ -293,75 +283,69 @@ class AddFilesTaskState(SourceAssessableTaskState):
                     section="unlock",
                 )
             )
-        if self.source_paths and self.loose_output_folder is None:
-            issues.append(
-                TaskIssue(
-                    code="ADD_FILES_OUTPUT_REQUIRED",
-                    message="Choose a new or empty folder for the scan-based update documents.",
-                    section="output",
-                )
-            )
-        if self.backup_folder is not None and self.loose_output_folder is not None:
-            issues.append(
-                TaskIssue(
-                    code="ADD_FILES_OUTPUT_MODE_CONFLICT",
-                    message=(
-                        "A separate output folder is only used when scanned pages are the "
-                        "backup source."
-                    ),
-                    section="output",
-                )
-            )
-        if self.source_paths and self.expected_head_doc_hash is None and not self.allow_stale_head:
+        if (
+            has_recovery_source(self)
+            and self.expected_head_doc_hash is None
+            and not self.allow_stale_head
+        ):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_HEAD_TRUST_REQUIRED",
                     message=(
-                        "Enter the expected latest fingerprint, or accept that the scans may "
-                        "be stale."
+                        "Enter the expected latest fingerprint, or accept the newest loaded "
+                        "version."
                     ),
-                    section="source",
+                    section="freshness",
                 )
             )
-        issues.extend(self._advanced_issues())
+        if self.output_dir is None:
+            issues.append(
+                TaskIssue(
+                    code="ADD_FILES_OUTPUT_REQUIRED",
+                    message="Choose where the new update documents will be saved.",
+                    section="output",
+                )
+            )
         return tuple(issues)
 
     def preview(self) -> TaskPreview:
         cache = self._current_assessment_cache()
-        assessed = cache.assessed if cache is not None else None
-        recovery_summary = (
-            _resolved_recovery_summary(assessed)
-            if assessed is not None
-            else self._recovery_documents_summary()
-        )
-        signing_summary = (
-            _resolved_signing_summary(assessed)
-            if assessed is not None
-            else self._signing_key_summary()
-        )
-        warnings = (
-            *self._source_warnings(),
-            *self._advanced_warnings(),
-        )
+        assessment = cache.assessment if cache is not None else None
+        assessed = assessment.assessed if assessment is not None else None
+        warnings = (*self._freshness_warnings(), *self._advanced_warnings())
         items = [
-            PreviewItem(label="Backup source", detail=self._backup_source_summary()),
+            PreviewItem(label="Backup source", detail=self._source_summary()),
             PreviewItem(label="Files", detail=self._input_summary()),
-            PreviewItem(label="Unlock", detail=unlock_material_summary(self)),
-            PreviewItem(label="Destination", detail=self._output_summary()),
-            PreviewItem(label="Recovery sheets", detail=recovery_summary),
-            PreviewItem(label="Signing-key recovery", detail=signing_summary),
+            PreviewItem(label="Unlock", detail=unlock_input_summary(self)),
+            PreviewItem(
+                label="Destination",
+                detail=display_path(self.output_dir)
+                if self.output_dir is not None
+                else "Not selected",
+            ),
+            PreviewItem(label="Backup version", detail=self._freshness_summary()),
+            PreviewItem(
+                label="Verification source",
+                detail=signature_source_summary(self.auth_text_file, self.auth_payloads_file),
+            ),
+            PreviewItem(label="Recovery sheets", detail=self.recovery_sheet_summary()),
             PreviewItem(
                 label="New documents",
-                detail="Backup update, recovery guide, and selected sheets",
+                detail="Backup update and recovery guide",
             ),
         ]
         if assessed is not None:
+            assert assessment is not None
             prepared = assessed.prepared
             encrypted = assessed.encrypted
             stats = encrypted.built.stats
             items.extend(
                 (
                     PreviewItem(label="Next update", detail=f"{prepared.next_index:02d}"),
+                    PreviewItem(
+                        label="Recovery chain",
+                        detail=self._chain_recovery_guidance(prepared.next_index),
+                    ),
                     PreviewItem(
                         label="File changes",
                         detail=(
@@ -381,23 +365,26 @@ class AddFilesTaskState(SourceAssessableTaskState):
                     PreviewItem(label="New fingerprint", detail=encrypted.doc_hash.hex()),
                     PreviewItem(
                         label="Update folder",
-                        detail=str(
-                            self._planned_output_path(
-                                assessed,
-                                output_folder=self._output_folder(),
-                            )
-                        ),
+                        detail=str(self.output_dir),
                     ),
                     PreviewItem(
                         label="Print layout",
                         detail=(
-                            f"{assessed.runtime.config.paper_size}, "
-                            f"{assessed.runtime.config.design_name}, "
-                            f"{assessed.runtime.qr_chunk_size} bytes per QR"
+                            f"{assessed.output_settings.config.paper_size}, "
+                            f"{assessed.output_settings.config.design_name}, "
+                            f"{assessed.output_settings.qr_chunk_size} bytes per QR"
                         ),
                     ),
                 )
             )
+            recovery_output = assessment.recovery_sheet_output_dir
+            if recovery_output is not None:
+                items.append(
+                    PreviewItem(
+                        label="Recovery sheet folder",
+                        detail=str(recovery_output),
+                    )
+                )
         if self.qr_chunk_size is not None:
             items.append(PreviewItem(label="QR density", detail=f"{self.qr_chunk_size} bytes"))
         return TaskPreview(
@@ -407,26 +394,16 @@ class AddFilesTaskState(SourceAssessableTaskState):
         )
 
     def execution_plan(self) -> TaskExecutionPlan:
-        output_folder = self._output_folder()
+        output_folder = self.output_dir
         cache = self._current_assessment_cache()
-        assessed = cache.assessed if cache is not None else None
-        planned_output = self._planned_output_path(assessed, output_folder=output_folder)
-        outputs = (planned_output,) if planned_output is not None else ()
+        assessment = cache.assessment if cache is not None else None
+        assessed = assessment.assessed if assessment is not None else None
+        recovery_output = self._recovery_sheet_output_path(assessment)
+        outputs = tuple(path for path in (output_folder, recovery_output) if path is not None)
         summary = (
             f"Create backup update {assessed.prepared.next_index:02d} in {output_folder}"
             if assessed is not None
             else f"Add files to {output_folder or 'missing output folder'}"
-        )
-        source_safety_note = (
-            (
-                "A scan-based update writes separate update documents; choose a new or empty "
-                "destination folder."
-            )
-            if self.source_paths
-            else (
-                "Update documents are appended under the existing backup folder; existing "
-                "backup documents are not replaced."
-            )
         )
         return TaskExecutionPlan(
             summary=summary,
@@ -434,39 +411,19 @@ class AddFilesTaskState(SourceAssessableTaskState):
             output_paths=outputs,
             writes_files=True,
             safety_notes=(
-                source_safety_note,
+                "New update documents are written to the selected output folder.",
                 "Matching paths are replaced. Other paths are not deleted or renamed.",
             ),
             trust_notes=(
-                f"Scan version: {self._source_summary()}",
-                "Latest means the newest valid version in the material you loaded.",
+                f"Backup version: {self._freshness_summary()}",
+                "Latest means the newest valid version in the documents you loaded.",
             ),
             recovery_notes=(
-                f"Unlock: {unlock_material_summary(self)}",
-                "Recovery sheets: "
-                + (
-                    _resolved_recovery_summary(assessed)
-                    if assessed is not None
-                    else self._recovery_documents_summary()
+                f"Unlock: {unlock_input_summary(self)}",
+                self._chain_recovery_guidance(
+                    assessed.prepared.next_index if assessed is not None else None
                 ),
-                "Signing-key recovery: "
-                + (
-                    _resolved_signing_summary(assessed)
-                    if assessed is not None
-                    else self._signing_key_summary()
-                ),
-                (
-                    "The original backup and enough recovery material authorize this update. "
-                    "Key sheets recover the signing key; they do not add another approval."
-                ),
-                *(
-                    (
-                        "Keep these scan-based update documents with the original backup and "
-                        "every earlier update; they cannot restore files on their own.",
-                    )
-                    if self.source_paths
-                    else ()
-                ),
+                self._recovery_plan_note(),
             ),
         )
 
@@ -480,13 +437,10 @@ class AddFilesTaskState(SourceAssessableTaskState):
             raise ValueError(message)
 
         cache = self._current_assessment_cache()
-        if cache is None or cache.assessed is None:
+        if cache is None or cache.assessment is None:
             raise ValueError("The update could not be prepared for review.")
-        execution = execute_extension(
-            ExtensionAssessment(
-                request=self.to_extension_request(quiet=True),
-                assessed=cache.assessed,
-            ),
+        execution = execute_add_files(
+            cache.assessment,
             config_path=str(self.config_path) if self.config_path is not None else None,
         )
         if not execution.ok or execution.executed is None:
@@ -497,134 +451,165 @@ class AddFilesTaskState(SourceAssessableTaskState):
         output_paths = (
             result.qr_document_path,
             result.recovery_document_path,
-            result.recovery_kit_path,
-            *result.shard_paths,
-            *result.signing_key_shard_paths,
         )
-        if result.recovery_kit_index_path is not None:
-            output_paths = (*output_paths, result.recovery_kit_index_path)
         prepared = executed.prepared
         encrypted = executed.publish.encrypted
         stats = encrypted.built.stats
-        publish_layout = executed.publish.artifacts.publish_layout
-        scan_next_steps = (
-            (
-                (
-                    "Keep the original backup, every earlier update, and this update together. "
-                    "This scan-based update cannot restore files by itself."
-                ),
-            )
-            if self.source_paths
-            else ()
+        details = (
+            TaskResultDetail(key="index", label="Update index", value=result.index),
+            TaskResultDetail(key="doc_id", label="Document ID", value=result.doc_id.hex()),
+            TaskResultDetail(
+                key="doc_hash",
+                label="New full fingerprint",
+                value=result.doc_hash.hex(),
+            ),
+            TaskResultDetail(
+                key="parent_head_index",
+                label="Parent update index",
+                value=result.parent_head_index,
+            ),
+            TaskResultDetail(
+                key="parent_head_doc_hash",
+                label="Parent full fingerprint",
+                value=prepared.parent_doc_hash.hex(),
+            ),
+            TaskResultDetail(
+                key="output_dir",
+                label="Update output folder",
+                value=str(result.final_dir),
+            ),
+            TaskResultDetail(
+                key="changed_path_count",
+                label="Changed paths",
+                value=len(prepared.changed_paths),
+            ),
+            TaskResultDetail(
+                key="new_path_count",
+                label="New paths",
+                value=len(prepared.new_paths),
+            ),
+            TaskResultDetail(
+                key="unchanged_path_count",
+                label="Unchanged selected paths",
+                value=len(prepared.unchanged_paths),
+            ),
+            TaskResultDetail(
+                key="file_bytes",
+                label="Changed logical bytes",
+                value=stats.file_bytes,
+            ),
+            TaskResultDetail(key="new_chunks", label="New chunks", value=stats.new_chunks),
+            TaskResultDetail(
+                key="reused_chunks",
+                label="Reused chunks",
+                value=stats.reused_chunks,
+            ),
+            TaskResultDetail(
+                key="extension_plaintext_bytes",
+                label="Update payload bytes",
+                value=len(encrypted.plaintext),
+            ),
+            TaskResultDetail(
+                key="extension_ciphertext_bytes",
+                label="Encrypted update bytes",
+                value=len(encrypted.ciphertext),
+            ),
         )
         next_steps = (
-            *scan_next_steps,
-            "Replace and test the previous recovery kit.",
+            (
+                "Keep the original backup, every update through "
+                f"{result.index:02d}, and the recovery kit."
+            ),
+            "Use Rebuild when you want a new standalone backup instead of the full update chain.",
             "Save the new fingerprint as the expected latest version before the next update.",
         )
+        recovery_sheets = execution.recovery_sheets
+        if recovery_sheets.status == "failed":
+            return TaskExecutionResult(
+                status="partially_succeeded",
+                message=(
+                    f"Added files as backup update {result.index:02d}, but recovery sheets "
+                    "were not created."
+                ),
+                output_paths=output_paths,
+                recovery_check_paths=(result.qr_document_path,),
+                details=(
+                    *details,
+                    TaskResultDetail(
+                        key="recovery_sheets",
+                        label="Recovery sheets",
+                        value=f"Not created: {recovery_sheets.error}",
+                    ),
+                ),
+                next_steps=(
+                    (
+                        "The update is already published. Do not run Add Files again; run "
+                        "Replace Recovery Docs for the new fingerprint."
+                    ),
+                    *next_steps,
+                ),
+            )
+        if recovery_sheets.status == "created":
+            output_paths = (*output_paths, *recovery_sheets.paths)
+            details = (
+                *details,
+                TaskResultDetail(
+                    key="recovery_sheets",
+                    label="Recovery sheets",
+                    value=(
+                        f"{self.recovery_sheet_count} created; "
+                        f"{self.recovery_threshold} needed to restore"
+                    ),
+                ),
+            )
+            next_steps = (
+                "Keep the new recovery sheets separate from the backup and from one another.",
+                *next_steps,
+            )
         return TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message=f"Added files as backup update {result.index:02d}.",
             output_paths=output_paths,
-            details=(
-                TaskResultDetail(key="index", label="Update index", value=result.index),
-                TaskResultDetail(key="doc_id", label="Document ID", value=result.doc_id.hex()),
-                TaskResultDetail(
-                    key="doc_hash",
-                    label="New full fingerprint",
-                    value=result.doc_hash.hex(),
-                ),
-                TaskResultDetail(
-                    key="parent_head_index",
-                    label="Parent update index",
-                    value=result.parent_head_index,
-                ),
-                TaskResultDetail(
-                    key="parent_head_doc_hash",
-                    label="Parent full fingerprint",
-                    value=prepared.parent_doc_hash.hex(),
-                ),
-                TaskResultDetail(
-                    key="publish_layout",
-                    label="Publication layout",
-                    value=publish_layout,
-                ),
-                TaskResultDetail(
-                    key="publish_root",
-                    label="Publication root",
-                    value=str(result.publish_root or result.final_dir.parent),
-                ),
-                TaskResultDetail(
-                    key="changed_path_count",
-                    label="Changed paths",
-                    value=len(prepared.changed_paths),
-                ),
-                TaskResultDetail(
-                    key="new_path_count",
-                    label="New paths",
-                    value=len(prepared.new_paths),
-                ),
-                TaskResultDetail(
-                    key="unchanged_path_count",
-                    label="Unchanged selected paths",
-                    value=len(prepared.unchanged_paths),
-                ),
-                TaskResultDetail(
-                    key="logical_bytes",
-                    label="Changed logical bytes",
-                    value=stats.logical_bytes,
-                ),
-                TaskResultDetail(
-                    key="new_chunks",
-                    label="New chunks",
-                    value=stats.new_chunks,
-                ),
-                TaskResultDetail(
-                    key="reused_chunks",
-                    label="Reused chunks",
-                    value=stats.reused_chunks,
-                ),
-                TaskResultDetail(
-                    key="extension_plaintext_bytes",
-                    label="Extension payload bytes",
-                    value=len(encrypted.plaintext),
-                ),
-                TaskResultDetail(
-                    key="extension_ciphertext_bytes",
-                    label="Encrypted extension bytes",
-                    value=len(encrypted.ciphertext),
-                ),
+            recovery_check_paths=(
+                result.qr_document_path,
+                *(recovery_sheets.paths if recovery_sheets.status == "created" else ()),
             ),
+            details=details,
             next_steps=next_steps,
         )
 
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:
         return self.validate_task().issues
 
-    def to_extension_request(self, *, quiet: bool = False) -> ExtensionRequest:
-        root_dir = self.loose_output_folder if self.source_paths else self.backup_folder
+    def to_add_files_request(self, *, quiet: bool = False) -> AddFilesRequest:
         base_dir = self.base_dir
         if base_dir is None:
-            defaults = load_cli_defaults(self.config_path).extend
+            defaults = load_cli_defaults(self.config_path).add_files
             base_dir = Path(defaults.base_dir) if defaults.base_dir is not None else None
-        return ExtensionRequest(
+        return AddFilesRequest(
             config_path=str(self.config_path) if self.config_path is not None else None,
-            publish_root=str(root_dir) if root_dir is not None else None,
             scan_paths=tuple(str(path) for path in self.source_paths),
+            recovery_text_file=str(self.recovery_text_file)
+            if self.recovery_text_file is not None
+            else None,
+            payloads_file=str(self.payloads_file) if self.payloads_file is not None else None,
+            frames=tuple(recovery_text_frames(self.recovery_text, quiet=quiet) or ()),
+            auth_text_file=str(self.auth_text_file) if self.auth_text_file is not None else None,
+            auth_payloads_file=str(self.auth_payloads_file)
+            if self.auth_payloads_file is not None
+            else None,
+            output_dir=str(self.output_dir) if self.output_dir is not None else None,
             input_paths=tuple(str(path) for path in self.input_paths),
             input_directories=tuple(str(path) for path in self.input_dirs),
             base_directory=str(base_dir) if base_dir is not None else None,
             passphrase=self.passphrase,
             shard_scan_paths=tuple(str(path) for path in self.recovery_documents),
             shard_payload_files=tuple(str(path) for path in self.recovery_payload_files),
-            unlock_policy=self.unlock_policy,
-            shard_threshold=self.recovery_document_threshold,
-            shard_count=self.recovery_document_count,
-            signing_key_mode=self.signing_key_mode,
-            signing_key_shard_threshold=self.signing_key_recovery_threshold,
-            signing_key_shard_count=self.signing_key_recovery_count,
             expected_head_doc_hash=self.expected_head_doc_hash,
             allow_stale_head=self.allow_stale_head,
+            create_recovery_sheets=self.create_recovery_sheets,
+            recovery_threshold=self.recovery_threshold,
+            recovery_sheet_count=self.recovery_sheet_count,
             paper_size=self.paper_size,
             design=self.design,
             qr_chunk_size=self.qr_chunk_size,
@@ -646,43 +631,14 @@ class AddFilesTaskState(SourceAssessableTaskState):
             return None
         return cache if cache.key == self._assessment_key() else None
 
-    def _backup_source_status(self) -> TaskSectionStatus:
-        if self.backup_folder is not None and self.source_paths:
-            return "blocked"
-        if self.backup_folder is not None or self.source_paths:
-            return "ready"
-        return "missing"
+    def _source_status(self) -> TaskSectionStatus:
+        return "ready" if has_recovery_source(self) else "missing"
 
-    def _backup_source_summary(self) -> str:
-        if self.backup_folder is not None and self.source_paths:
-            return "Choose either the backup folder or scanned pages, not both."
-        if self.source_paths:
-            return format_count(len(self.source_paths), "scanned page")
-        if self.backup_folder is not None:
-            return display_path(self.backup_folder)
-        return "Choose a backup folder or scanned pages."
-
-    def _output_folder(self) -> Path | None:
-        return self.loose_output_folder if self.source_paths else self.backup_folder
-
-    def _planned_output_path(
-        self,
-        assessed: AssessedExtendRun | None,
-        *,
-        output_folder: Path | None,
-    ) -> Path | None:
-        if output_folder is None or assessed is None:
-            return output_folder
-        if self.source_paths:
-            return output_folder / loose_extension_dir_name(
-                assessed.prepared.next_index,
-                assessed.encrypted.doc_id.hex(),
-            )
-        return (
-            output_folder
-            / EXTENSIONS_DIR_NAME
-            / canonical_extension_dir_name(assessed.prepared.next_index)
-        )
+    def _source_summary(self) -> str:
+        request = self.source_assessment_request()
+        if request is not None:
+            return request.source_summary
+        return "Choose backup documents, recovery text, or exported payloads."
 
     def _read_paths(self) -> tuple[Path, ...]:
         paths = [
@@ -692,29 +648,46 @@ class AddFilesTaskState(SourceAssessableTaskState):
             *self.recovery_documents,
             *self.recovery_payload_files,
         ]
-        if self.backup_folder is not None:
-            paths.insert(0, self.backup_folder)
+        for path in (
+            self.recovery_text_file,
+            self.payloads_file,
+            self.auth_text_file,
+            self.auth_payloads_file,
+        ):
+            if path is not None:
+                paths.append(path)
         return tuple(paths)
 
-    def _source_summary(self) -> str:
-        if self.source_paths:
-            if self.expected_head_doc_hash is not None:
-                return "Latest fingerprint provided"
-            if self.allow_stale_head:
-                return "Latest loaded version accepted"
-            return "Confirm the scans contain the latest version"
-        return "Backup folder"
+    def _freshness_summary(self) -> str:
+        if self.expected_head_doc_hash is not None:
+            return "Latest fingerprint provided"
+        if self.allow_stale_head:
+            return "Newest loaded version accepted"
+        return "Confirm the loaded documents contain the latest version"
+
+    def _freshness_warnings(self) -> tuple[TaskIssue, ...]:
+        if not self.allow_stale_head:
+            return ()
+        return (
+            TaskIssue(
+                code="ADD_FILES_STALE_SOURCE_ACCEPTED",
+                message="The loaded documents may omit a newer backup version.",
+                severity="warning",
+                section="freshness",
+            ),
+        )
 
     def _input_summary(self) -> str:
         base_dir = self.base_dir
         cache = self._current_assessment_cache()
+        assessment = cache.assessment if cache is not None else None
         if (
             base_dir is None
-            and cache is not None
-            and cache.assessed is not None
-            and cache.assessed.prepared.args.base_directory is not None
+            and assessment is not None
+            and assessment.assessed is not None
+            and assessment.assessed.prepared.request.base_directory is not None
         ):
-            base_dir = Path(cache.assessed.prepared.args.base_directory)
+            base_dir = Path(assessment.assessed.prepared.request.base_directory)
         return selected_paths_summary(
             input_paths=self.input_paths,
             input_dirs=self.input_dirs,
@@ -722,76 +695,24 @@ class AddFilesTaskState(SourceAssessableTaskState):
             empty_label="No files selected.",
         )
 
-    def _output_summary(self) -> str:
-        output_folder = self._output_folder()
-        if output_folder is None and self.source_paths:
-            return "Choose a new or empty folder for the scan-based update documents."
-        if output_folder is None:
-            return "Choose the backup folder that will receive the update."
-        if self.source_paths:
-            return f"Separate update: {display_path(output_folder)}"
-        return f"Add to backup: {display_path(output_folder)}"
-
     def _advanced_summary(self) -> str:
         cache = self._current_assessment_cache()
-        assessed = cache.assessed if cache is not None else None
+        assessment = cache.assessment if cache is not None else None
+        assessed = assessment.assessed if assessment is not None else None
         if assessed is not None:
             return ", ".join(
                 (
-                    _resolved_recovery_summary(assessed),
-                    _resolved_signing_summary(assessed),
-                    f"{assessed.runtime.config.paper_size} {assessed.runtime.config.design_name}",
+                    self.recovery_sheet_summary(),
+                    f"{assessed.output_settings.config.paper_size} "
+                    f"{assessed.output_settings.config.design_name}",
                 )
             )
-        parts = [
-            {
-                None: "Recovery from settings",
-                "self-contained": "Self-contained update",
-                "reuse-root": "Reuse original recovery",
-            }[self.unlock_policy],
-            self._recovery_documents_summary(),
-            self._signing_key_summary(),
-        ]
+        parts = [self.recovery_sheet_summary()]
         if self.base_dir is not None:
             parts.append(f"base {display_path(self.base_dir)}")
         if self.qr_chunk_size is not None:
             parts.append(f"QR {self.qr_chunk_size} bytes")
         return ", ".join(parts)
-
-    def _advanced_status(self) -> TaskSectionStatus:
-        if self._advanced_issues():
-            return "blocked"
-        if self._advanced_warnings():
-            return "warning"
-        return "optional"
-
-    def _recovery_documents_summary(self) -> str:
-        if self.recovery_document_count == 0:
-            return "Reuse original recovery sheets"
-        if (
-            self.recovery_document_threshold is not None
-            and self.recovery_document_count is not None
-        ):
-            return (
-                f"{self.recovery_document_count} recovery sheets; "
-                f"any {self.recovery_document_threshold} required"
-            )
-        return "Recovery sheets from settings"
-
-    def _signing_key_summary(self) -> str:
-        if self.signing_key_mode is None:
-            return "From settings"
-        if self.signing_key_mode == "not-stored":
-            return "No separate key sheets"
-        if (
-            self.signing_key_recovery_threshold is not None
-            and self.signing_key_recovery_count is not None
-        ):
-            return (
-                f"{self.signing_key_recovery_count} key sheets; "
-                f"any {self.signing_key_recovery_threshold} can recover the key"
-            )
-        return "Separate key sheets"
 
     def _advanced_warnings(self) -> tuple[TaskIssue, ...]:
         warnings: list[TaskIssue] = []
@@ -806,199 +727,61 @@ class AddFilesTaskState(SourceAssessableTaskState):
                     section="advanced",
                 )
             )
-        if self.recovery_document_count == 0 and self.unlock_policy == "reuse-root":
-            warnings.append(
-                TaskIssue(
-                    code="ADD_FILES_RECOVERY_SHEETS_SKIPPED",
-                    message=(
-                        "This update will rely on the original recovery sheets; no new "
-                        "passphrase shards will be created."
-                    ),
-                    severity="warning",
-                    section="advanced",
-                )
-            )
-        elif (
-            self.recovery_document_threshold is not None
-            and self.recovery_document_count is not None
-        ):
-            warnings.append(
-                TaskIssue(
-                    code="ADD_FILES_CUSTOM_RECOVERY_QUORUM",
-                    message=(
-                        "A custom quorum changes how many sheets you need to recover this update."
-                    ),
-                    severity="warning",
-                    section="advanced",
-                )
-            )
-        if self.signing_key_mode == "not-stored":
-            warnings.append(
-                TaskIssue(
-                    code="ADD_FILES_SIGNING_KEY_NOT_STORED",
-                    message=(
-                        "No separate signing-key recovery sheets will be created. The update "
-                        "remains signed."
-                    ),
-                    severity="warning",
-                    section="advanced",
-                )
-            )
-        elif (
-            self.signing_key_mode == "sharded"
-            and self.signing_key_recovery_threshold is not None
-            and self.signing_key_recovery_count is not None
-        ):
-            warnings.append(
-                TaskIssue(
-                    code="ADD_FILES_CUSTOM_SIGNING_KEY_QUORUM",
-                    message=(
-                        "A custom key-sheet quorum changes how many sheets you need to recover "
-                        "the signing key."
-                    ),
-                    severity="warning",
-                    section="advanced",
-                )
-            )
         return tuple(warnings)
 
-    def _advanced_issues(self) -> tuple[TaskIssue, ...]:
-        issues: list[TaskIssue] = []
-        if self.unlock_policy == "reuse-root" and (
-            self.recovery_document_threshold is not None
-            or self.recovery_document_count not in {None, 0}
-        ):
-            issues.append(
-                TaskIssue(
-                    code="ADD_FILES_REUSE_ROOT_RECOVERY_OVERRIDE",
-                    message=(
-                        "Original recovery cannot be combined with new recovery-sheet settings."
-                    ),
-                    section="advanced",
-                )
-            )
-        if self.recovery_document_count == 0 and self.unlock_policy != "reuse-root":
-            issues.append(
-                TaskIssue(
-                    code="ADD_FILES_ZERO_RECOVERY_REQUIRES_REUSE_ROOT",
-                    message=(
-                        "Zero new recovery sheets is valid only when reusing original recovery."
-                    ),
-                    section="advanced",
-                )
-            )
-        elif self.recovery_document_count == 0 and self.recovery_document_threshold is not None:
-            issues.append(
-                TaskIssue(
-                    code="ADD_FILES_RECOVERY_THRESHOLD_WITHOUT_DOCUMENTS",
-                    message="Clear the recovery threshold when reusing original recovery sheets.",
-                    section="advanced",
-                )
-            )
-        if (
-            self.recovery_document_threshold is not None
-            and self.recovery_document_count is not None
-            and self.recovery_document_count > 0
-            and self.recovery_document_threshold > self.recovery_document_count
-        ):
-            issues.append(
-                TaskIssue(
-                    code="ADD_FILES_RECOVERY_QUORUM_INVALID",
-                    message="Required recovery sheets cannot exceed the total.",
-                    section="advanced",
-                )
-            )
-        if self.signing_key_mode == "not-stored" and (
-            self.signing_key_recovery_threshold is not None
-            or self.signing_key_recovery_count is not None
-        ):
-            issues.append(
-                TaskIssue(
-                    code="ADD_FILES_SIGNING_KEY_SHARDS_NOT_STORED",
-                    message="Choose separate key sheets before setting their quorum.",
-                    section="advanced",
-                )
-            )
-        if (
-            self.signing_key_recovery_threshold is not None
-            and self.signing_key_recovery_count is not None
-            and self.signing_key_recovery_threshold > self.signing_key_recovery_count
-        ):
-            issues.append(
-                TaskIssue(
-                    code="ADD_FILES_SIGNING_KEY_QUORUM_INVALID",
-                    message="Required key sheets cannot exceed the total.",
-                    section="advanced",
-                )
-            )
-        if self.signing_key_mode == "sharded" and self.recovery_document_count == 0:
-            issues.append(
-                TaskIssue(
-                    code="ADD_FILES_SIGNING_KEY_REQUIRES_RECOVERY_DOCS",
-                    message="Signing-key recovery sheets require passphrase recovery sheets.",
-                    section="advanced",
-                )
-            )
-        return tuple(issues)
-
-    def _source_warnings(self) -> tuple[TaskIssue, ...]:
-        if not self.source_paths or not self.allow_stale_head:
-            return ()
+    def recovery_sheet_summary(self) -> str:
+        if not self.create_recovery_sheets:
+            return "No new recovery sheets"
         return (
-            TaskIssue(
-                code="ADD_FILES_STALE_SOURCE_ACCEPTED",
-                message="These scans may not contain the latest backup version.",
-                severity="warning",
-                section="source",
-            ),
+            f"{self.recovery_sheet_count} new recovery sheets, "
+            f"{self.recovery_threshold} needed to restore"
         )
 
+    def _recovery_plan_note(self) -> str:
+        inherited = "The update inherits the backup's passphrase and signing key."
+        if not self.create_recovery_sheets:
+            return f"{inherited} No new recovery sheets will be created."
+        return (
+            f"{inherited} After publication, Replace Recovery Docs will create "
+            f"{self.recovery_sheet_count} passphrase recovery sheets bound to the new head."
+        )
 
-def _assessment_issue_section(code: str) -> str:
+    @staticmethod
+    def _chain_recovery_guidance(next_index: int | None) -> str:
+        if next_index is None:
+            return (
+                "Recovery requires the original backup and every update. Rebuild creates a new "
+                "standalone backup when carrying the full chain is inconvenient."
+            )
+        return (
+            f"Recovery requires the original backup and updates 01 through {next_index:02d}. "
+            "Rebuild after publication to create a new standalone backup."
+        )
+
+    def _recovery_sheet_output_path(
+        self,
+        assessment: AddFilesAssessment | None,
+    ) -> Path | None:
+        return assessment.recovery_sheet_output_dir if assessment is not None else None
+
+
+def _assessment_issue_section(issue: AddFilesIssue) -> str:
+    code = issue.code
     if code in {
         "DELETE_NOT_SUPPORTED",
-        "EXTENSION_INPUT_REQUIRED",
-        "EXTENSION_NO_CHANGES",
-        "EXTENSION_TOO_LARGE",
+        api_codes.ADD_FILES_INPUT_REQUIRED,
+        api_codes.ADD_FILES_NO_CHANGES,
+        api_codes.ADD_FILES_NOT_REBUILDABLE,
+        api_codes.EXTENSION_TOO_LARGE,
+        api_codes.ADD_FILES_RECOVERY_OUTPUT_EXISTS,
     }:
-        return "files"
-    if code == api_codes.EXTENSION_PUBLISH_TARGET_INVALID:
+        return "advanced" if code == api_codes.ADD_FILES_RECOVERY_OUTPUT_EXISTS else "files"
+    if code in {api_codes.EXTENSION_PUBLISH_TARGET_INVALID, api_codes.OUTPUT_REQUIRED}:
         return "output"
-    return "backup"
-
-
-def _looks_like_output_error(message: str) -> bool:
-    normalized = message.lower()
-    return any(
-        phrase in normalized
-        for phrase in (
-            "output",
-            "publish target",
-            "not writable",
-            "empty directory",
-            "render",
-        )
-    )
-
-
-def _resolved_recovery_summary(assessed: AssessedExtendRun) -> str:
-    passphrase = assessed.runtime.passphrase
-    if isinstance(passphrase, ReuseRootPassphraseShards):
-        return (
-            f"Original recovery sheets; any {passphrase.threshold} of "
-            f"{passphrase.share_count} required"
-        )
-    if isinstance(passphrase, ExtensionPassphraseShards):
-        return (
-            f"{passphrase.share_count} update recovery sheets; any {passphrase.threshold} required"
-        )
-    raise TypeError(f"unsupported extension passphrase policy: {type(passphrase).__qualname__}")
-
-
-def _resolved_signing_summary(assessed: AssessedExtendRun) -> str:
-    signing_key = assessed.runtime.signing_key
-    if isinstance(signing_key, ExtensionSigningKeyShards):
-        return (
-            f"{signing_key.share_count} key sheets; any {signing_key.threshold} can recover the key"
-        )
-    return "No separate key sheets"
+    if code == "ADD_FILES_HEAD_TRUST_REQUIRED":
+        return "freshness"
+    if code == api_codes.RECOVERY_HEAD_UNTRUSTED and (
+        "expected_head_doc_hash" in issue.details or "freshness_scope" in issue.details
+    ):
+        return "freshness"
+    return "source"

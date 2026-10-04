@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Structured backup diagnostics for the Textual app."""
+"""Backup diagnostics for the Textual app."""
 
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ from dataclasses import replace
 
 from ethernity.crypto import signing as signing_module
 from ethernity.encoding.zbase32 import encode_zbase32
-from ethernity.formats import envelope_codec, payload_codec as payload_codec_module
-from ethernity.formats.envelope_types import EnvelopeManifest, PayloadPart
+from ethernity.formats import document_codec, payload_codec as payload_codec_module
+from ethernity.formats.manifest import BackupFile, BackupManifest
 from ethernity.formats.manifest_debug import (
     decode_manifest_debug_value,
     json_safe_debug_value,
@@ -47,7 +47,7 @@ def build_backup_internals_diagnostics(
     """Build a no-write snapshot for the backup diagnostics modal."""
 
     sign_priv, sign_pub = signing_module.generate_signing_keypair()
-    envelope, payload, manifest, manifest_bytes = _prepare_debug_envelope(prepared, sign_priv)
+    document, payload, manifest, manifest_bytes = _prepare_debug_document(prepared, sign_priv)
     masked_passphrase = (
         _format_masked_text_secret(passphrase)
         if passphrase is not None
@@ -55,31 +55,31 @@ def build_backup_internals_diagnostics(
     )
     blocks = [
         TaskDiagnosticBlock(
-            title="Secret Material",
+            title="Passphrase",
             content=f"Passphrase\n{masked_passphrase}",
             sensitive_content=(f"Passphrase\n{passphrase}" if passphrase is not None else None),
         ),
         TaskDiagnosticBlock(
-            title="Manifest JSON",
+            title="Backup metadata (JSON)",
             content=_manifest_json(manifest, reveal_sensitive=False),
             sensitive_content=_manifest_json(manifest, reveal_sensitive=True),
         ),
         TaskDiagnosticBlock(
-            title="Envelope Manifest",
+            title="Backup metadata (CBOR)",
             content=_manifest_cbor_json(manifest, manifest_bytes, reveal_sensitive=False),
             sensitive_content=_manifest_cbor_json(manifest, manifest_bytes, reveal_sensitive=True),
         ),
         TaskDiagnosticBlock(title="Input entries", content=_input_entries(prepared.input_files)),
         TaskDiagnosticBlock(
-            title="Payload Preview (hex)",
+            title="File data (hex)",
             content=_hexdump(payload, max_bytes=max_bytes),
         ),
         TaskDiagnosticBlock(
-            title="Envelope Preview (hex)",
-            content=_hexdump(envelope, max_bytes=max_bytes),
+            title="Backup document (hex)",
+            content=_hexdump(document, max_bytes=max_bytes),
         ),
         TaskDiagnosticBlock(
-            title="Payload Preview (z-base-32)",
+            title="File data (z-base-32)",
             content=_zbase32_preview(payload, max_bytes=max_bytes),
         ),
         TaskDiagnosticBlock(
@@ -98,15 +98,15 @@ def build_backup_internals_diagnostics(
     )
 
 
-def _prepare_debug_envelope(
+def _prepare_debug_document(
     prepared: BackupPreparation,
     sign_priv: bytes,
-) -> tuple[bytes, bytes, EnvelopeManifest, bytes]:
+) -> tuple[bytes, bytes, BackupManifest, bytes]:
     parts = [
-        PayloadPart(path=item.relative_path, data=item.data, mtime=item.mtime)
+        BackupFile(path=item.relative_path, data=item.data, mtime=item.mtime)
         for item in prepared.input_files
     ]
-    manifest, payload = envelope_codec.build_manifest_and_payload(
+    manifest, payload = document_codec.build_manifest_and_payload(
         parts,
         sealed=prepared.plan.sealed,
         signing_seed=sign_priv if not prepared.plan.sealed else None,
@@ -124,12 +124,12 @@ def _prepare_debug_envelope(
         payload_codec=payload_codec,
         payload_raw_len=payload_raw_len,
     )
-    manifest_bytes = envelope_codec.encode_manifest(manifest)
-    envelope = envelope_codec.encode_envelope(encoded_payload, manifest)
-    return envelope, payload, manifest, manifest_bytes
+    manifest_bytes = document_codec.encode_manifest(manifest)
+    document = document_codec.encode_backup_document(encoded_payload, manifest)
+    return document, payload, manifest, manifest_bytes
 
 
-def _manifest_json(manifest: EnvelopeManifest, *, reveal_sensitive: bool) -> str:
+def _manifest_json(manifest: BackupManifest, *, reveal_sensitive: bool) -> str:
     manifest_dict = json_safe_debug_value(manifest.to_dict())
     if (
         not reveal_sensitive
@@ -141,7 +141,7 @@ def _manifest_json(manifest: EnvelopeManifest, *, reveal_sensitive: bool) -> str
 
 
 def _manifest_cbor_json(
-    manifest: EnvelopeManifest,
+    manifest: BackupManifest,
     manifest_bytes: bytes,
     *,
     reveal_sensitive: bool,
@@ -153,7 +153,7 @@ def _manifest_cbor_json(
         decoded["seed"] = _format_masked_bytes_secret(manifest.signing_seed)
     return json.dumps(
         {
-            "canonical_cbor_bytes": len(manifest_bytes),
+            "manifest_cbor_bytes": len(manifest_bytes),
             "cbor": decoded,
         },
         indent=2,

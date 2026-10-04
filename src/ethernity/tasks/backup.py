@@ -19,13 +19,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 from ethernity.crypto.passphrases import MNEMONIC_WORD_COUNTS
-from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
+from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, paper_size_display_name
+from ethernity.render.recovery_kit_index import supports_recovery_kit_index_style
 from ethernity.tasks.backup_debug import build_backup_internals_diagnostics
-from ethernity.tasks.file_summary import display_path, selected_paths_summary
-from ethernity.tasks.input_material import has_selected_inputs
+from ethernity.tasks.backup_estimate import BackupEstimate
+from ethernity.tasks.backup_inputs import has_selected_inputs
+from ethernity.tasks.file_summary import display_path, format_count, selected_paths_summary
 from ethernity.tasks.models import (
     PreviewItem,
     TaskDiagnosticBlock,
@@ -34,9 +38,11 @@ from ethernity.tasks.models import (
     TaskExecutionResult,
     TaskIssue,
     TaskPreview,
+    TaskResultDetail,
     TaskSection,
     TaskSectionStatus,
     TaskValidation,
+    optional_section_status,
 )
 from ethernity.tasks.output_checks import (
     existing_output_summary,
@@ -45,6 +51,7 @@ from ethernity.tasks.output_checks import (
 )
 from ethernity.tasks.page_layout import (
     BACKUP_RENDER_DOC_TYPES,
+    ValidatedPaperSizeName,
     require_workflow_page_size,
 )
 from ethernity.tasks.quorum import validate_optional_shard_count, validate_required_shard_count
@@ -75,17 +82,15 @@ class BackupTaskState(BaseModel):
     shard_count: int = 3
     passphrase: str | None = None
     passphrase_words: int | None = None
-    paper_size: PaperSizeName = DEFAULT_PAPER_SIZE_NAME
+    paper_size: ValidatedPaperSizeName = DEFAULT_PAPER_SIZE_NAME
     design: str = "sentinel"
     qr_chunk_size: int | None = None
     signing_key_mode: SigningKeyMode | None = "embedded"
     signing_key_shard_threshold: int | None = None
     signing_key_shard_count: int | None = None
-
-    @field_validator("paper_size")
-    @classmethod
-    def _validate_paper_size(cls, value: str) -> PaperSizeName:
-        return resolve_paper_size(value).name
+    _estimate_request: BackupRequest | None = PrivateAttr(default=None)
+    _estimate: BackupEstimate | None = PrivateAttr(default=None)
+    _estimate_error: str | None = PrivateAttr(default=None)
 
     @field_validator("shard_threshold")
     @classmethod
@@ -168,6 +173,13 @@ class BackupTaskState(BaseModel):
                 action_label="Change recovery method...",
             ),
             TaskSection(
+                key="print",
+                title="Print setup",
+                status="ready",
+                summary=f"{paper_size_display_name(self.paper_size)}, {self.design.title()}",
+                action_label="Change print setup",
+            ),
+            TaskSection(
                 key="output",
                 title="Save documents to",
                 status=self._output_status(),
@@ -177,7 +189,10 @@ class BackupTaskState(BaseModel):
             TaskSection(
                 key="advanced",
                 title="Advanced",
-                status=self._advanced_status(),
+                status=optional_section_status(
+                    self._advanced_issues(),
+                    self._advanced_warnings(),
+                ),
                 summary=self._advanced_summary(),
                 action_label="Change advanced options",
             ),
@@ -197,9 +212,17 @@ class BackupTaskState(BaseModel):
         return TaskValidation(sections=self.sections(), issues=tuple(issues))
 
     def preview(self) -> TaskPreview:
+        estimate = self.current_estimate()
         items = [
-            PreviewItem(label="Main backup document"),
-            PreviewItem(label="Recovery guide"),
+            PreviewItem(
+                label=(
+                    f"About {format_count(estimate.backup_pages, 'backup page')}"
+                    if estimate is not None
+                    else "Backup pages"
+                ),
+                detail="Contain your encrypted files",
+            ),
+            PreviewItem(label="Recovery guide", detail="Instructions and a full text backup"),
         ]
         if self.recovery_method == "single_phrase":
             items.append(PreviewItem(label="One recovery phrase"))
@@ -207,7 +230,7 @@ class BackupTaskState(BaseModel):
             items.append(
                 PreviewItem(
                     label=f"{self.shard_count} recovery sheets",
-                    detail=f"any {self.shard_threshold} can restore",
+                    detail=f"Any {self.shard_threshold} unlock the backup",
                 )
             )
             if self.signing_key_mode == "sharded":
@@ -219,10 +242,12 @@ class BackupTaskState(BaseModel):
                         detail=f"any {signing_threshold} can restore",
                     )
                 )
+        if supports_recovery_kit_index_style(self.design):
+            items.append(PreviewItem(label="Document inventory", detail="Lists the printed kit"))
         items.append(
             PreviewItem(
-                label="Kit index",
-                detail="Included when the selected design supports it",
+                label="Print setup",
+                detail=f"{paper_size_display_name(self.paper_size)}, {self.design.title()}",
             )
         )
         if self.qr_chunk_size is not None:
@@ -272,10 +297,62 @@ class BackupTaskState(BaseModel):
         if result.kit_index_path is not None:
             output_paths = (*output_paths, Path(result.kit_index_path))
         return TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message="Backup documents created.",
             output_paths=output_paths,
+            recovery_check_paths=(
+                result.qr_path,
+                *result.shard_paths,
+                *result.signing_key_shard_paths,
+            ),
+            details=_created_document_details(output_paths, result.qr_path, result.doc_hash),
+            next_steps=("Verify recovery before relying on the printed documents.",),
         )
+
+    def estimate_request(self) -> BackupRequest | None:
+        """Return the inputs that affect print estimates, without recovery secrets."""
+
+        if not has_selected_inputs(self.input_paths, self.input_dirs):
+            return None
+        return BackupRequest(
+            config_path=self.config_path,
+            input_paths=tuple(self.input_paths),
+            input_dirs=tuple(self.input_dirs),
+            base_dir=self.base_dir,
+            paper_size=self.paper_size,
+            design=self.design,
+            qr_chunk_size=self.qr_chunk_size,
+            signing_key_mode="embedded",
+        )
+
+    def store_estimate(
+        self,
+        request: BackupRequest,
+        estimate: BackupEstimate | None,
+        *,
+        error: str | None = None,
+    ) -> bool:
+        if request != self.estimate_request():
+            return False
+        self._estimate_request = request
+        self._estimate = estimate
+        self._estimate_error = error
+        return True
+
+    def clear_estimate(self) -> None:
+        self._estimate_request = None
+        self._estimate = None
+        self._estimate_error = None
+
+    def current_estimate(self) -> BackupEstimate | None:
+        if self._estimate_request != self.estimate_request():
+            return None
+        return self._estimate
+
+    def estimate_error(self) -> str | None:
+        if self._estimate_request != self.estimate_request():
+            return None
+        return self._estimate_error
 
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:
         return self.validate_task().issues
@@ -303,7 +380,7 @@ class BackupTaskState(BaseModel):
         return build_backup_internals_diagnostics(prepared, passphrase=self.passphrase)
 
     def to_backup_request(self) -> BackupRequest:
-        shard_threshold, shard_count = self._legacy_shard_args()
+        shard_threshold, shard_count = self._shard_configuration()
         return BackupRequest(
             config_path=self.config_path,
             input_paths=tuple(self.input_paths),
@@ -322,7 +399,7 @@ class BackupTaskState(BaseModel):
             qr_chunk_size=self.qr_chunk_size,
         )
 
-    def _legacy_shard_args(self) -> tuple[int | None, int | None]:
+    def _shard_configuration(self) -> tuple[int | None, int | None]:
         if self.recovery_method == "single_phrase":
             return None, None
         return self.shard_threshold, self.shard_count
@@ -415,13 +492,6 @@ class BackupTaskState(BaseModel):
             parts.append(f"QR {self.qr_chunk_size} bytes")
         return ", ".join(parts)
 
-    def _advanced_status(self) -> TaskSectionStatus:
-        if self._advanced_issues():
-            return "blocked"
-        if self._advanced_warnings():
-            return "warning"
-        return "optional"
-
     def _advanced_warnings(self) -> tuple[TaskIssue, ...]:
         if self.qr_chunk_size is None:
             return ()
@@ -466,3 +536,29 @@ class BackupTaskState(BaseModel):
                 )
             )
         return issues
+
+
+def _created_document_details(
+    output_paths: tuple[Path, ...], backup_path: Path, doc_hash: bytes | None
+) -> tuple[TaskResultDetail, ...]:
+    """Report generated identity and page counts available from the created PDFs."""
+
+    identity = (
+        (TaskResultDetail(key="doc_hash", label="Full fingerprint", value=doc_hash.hex()),)
+        if doc_hash is not None
+        else ()
+    )
+    try:
+        if not output_paths or any(not path.is_file() for path in output_paths):
+            return identity
+        counts = {path: len(PdfReader(path).pages) for path in output_paths}
+    except (OSError, ValueError, PdfReadError):
+        return identity
+    return (
+        *identity,
+        TaskResultDetail(key="backup_pages", label="Backup pages", value=counts[backup_path]),
+        TaskResultDetail(
+            key="printed_pages", label="Total printed pages", value=sum(counts.values())
+        ),
+        TaskResultDetail(key="documents", label="PDF documents", value=len(output_paths)),
+    )

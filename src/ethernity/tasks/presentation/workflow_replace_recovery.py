@@ -3,8 +3,8 @@ from __future__ import annotations
 from ethernity.tasks.file_summary import format_count
 from ethernity.tasks.models import TaskSection
 from ethernity.tasks.presentation.models import (
+    ChoicePresentation,
     WorkspaceAction,
-    WorkspaceChoice,
     WorkspaceGroup,
     WorkspaceValue,
 )
@@ -35,20 +35,20 @@ def replace_recovery_auxiliary_groups(
                 ),
             ),
             choices=(
-                WorkspaceChoice(
+                ChoicePresentation(
                     "off",
                     "Do not create signing-key recovery sheets",
                     not state._creates_signing_key_recovery(),
                 ),
-                WorkspaceChoice(
+                ChoicePresentation(
                     "same",
                     "Match recovery-sheet quorum",
-                    state.mint_signing_key_recovery
+                    state.create_signing_key_recovery
                     and state.signing_key_recovery_threshold is None
                     and state.signing_key_recovery_count is None
                     and state.signing_key_replacement_count is None,
                 ),
-                WorkspaceChoice(
+                ChoicePresentation(
                     "custom",
                     "Custom quorum",
                     (
@@ -56,7 +56,7 @@ def replace_recovery_auxiliary_groups(
                         or state.signing_key_recovery_count is not None
                     ),
                 ),
-                WorkspaceChoice(
+                ChoicePresentation(
                     "replace",
                     "Replace existing key sheets",
                     state.signing_key_replacement_count is not None,
@@ -65,7 +65,7 @@ def replace_recovery_auxiliary_groups(
             actions=(
                 WorkspaceAction("workspace-replace-signing-key-quorum", "Set quorum..."),
                 WorkspaceAction("workspace-replace-signing-key-count", "Set count..."),
-                WorkspaceAction("workspace-replace-signing-key-payloads", "Load key payloads..."),
+                WorkspaceAction("workspace-replace-signing-key-payloads", "Key payloads..."),
             ),
             status=signature_section.status,
             status_summary=signature_section.summary,

@@ -28,17 +28,18 @@ from ethernity.tasks.models import (
     TaskExecutionResult,
     TaskIssue,
     TaskPreview,
+    TaskResultDetail,
     TaskSection,
     TaskValidation,
 )
 from ethernity.tasks.presentation.recovery import (
-    auth_material_summary,
     recovery_text_summary,
-    unlock_material_summary,
+    signature_source_summary,
+    unlock_input_summary,
 )
-from ethernity.tasks.recovery_material import (
+from ethernity.tasks.recovery_inputs import (
     has_recovery_source,
-    has_unlock_material,
+    has_unlock_inputs,
     recovery_text_error,
     recovery_text_frames,
 )
@@ -101,15 +102,15 @@ class RestoreTaskState(SourceAssessableTaskState):
                     if source_error is not None
                     else self._source_summary()
                     if has_recovery_source(self)
-                    else "Choose backup material."
+                    else "Choose backup documents."
                 ),
                 action_label="Load backup...",
             ),
             TaskSection(
                 key="unlock",
                 title="Unlock",
-                status="ready" if has_unlock_material(self) else "missing",
-                summary=unlock_material_summary(self),
+                status="ready" if has_unlock_inputs(self) else "missing",
+                summary=unlock_input_summary(self),
                 action_label="Set unlock method...",
             ),
             TaskSection(
@@ -144,7 +145,7 @@ class RestoreTaskState(SourceAssessableTaskState):
             issues.append(
                 TaskIssue(
                     code="RESTORE_SOURCE_REQUIRED",
-                    message="Choose backup material.",
+                    message="Choose backup documents.",
                     section="source",
                 )
             )
@@ -163,7 +164,7 @@ class RestoreTaskState(SourceAssessableTaskState):
                     section="source",
                 )
             )
-        if not has_unlock_material(self):
+        if not has_unlock_inputs(self):
             issues.append(
                 TaskIssue(
                     code="RESTORE_UNLOCK_REQUIRED",
@@ -194,7 +195,7 @@ class RestoreTaskState(SourceAssessableTaskState):
         if self.auth_text_file is not None and self.auth_payloads_file is not None:
             issues.append(
                 TaskIssue(
-                    code="RESTORE_AUTH_MATERIAL_CONFLICT",
+                    code="RESTORE_SIGNATURE_SOURCE_CONFLICT",
                     message="Choose either signature text or a signature payload, not both.",
                     section="source",
                 )
@@ -235,10 +236,7 @@ class RestoreTaskState(SourceAssessableTaskState):
             warnings.append(
                 TaskIssue(
                     code="RESTORE_RESOURCE_INTENSIVE_COMPATIBILITY",
-                    message=(
-                        "Resource-intensive compatibility recovery is enabled; hostile or "
-                        "legacy inputs may consume substantially more CPU and memory."
-                    ),
+                    message=("Higher recovery limits are enabled for this attempt."),
                     severity="warning",
                     section="authentication",
                 )
@@ -258,12 +256,12 @@ class RestoreTaskState(SourceAssessableTaskState):
             items=(
                 PreviewItem(label="Backup source", detail=self._source_summary()),
                 PreviewItem(label="Latest fingerprint", detail=self._expected_head_summary()),
-                PreviewItem(label="Unlock", detail=unlock_material_summary(self)),
+                PreviewItem(label="Unlock", detail=unlock_input_summary(self)),
                 PreviewItem(label="Version", detail=self._target_summary()),
                 PreviewItem(label="Signature check", detail=self._authentication_summary()),
                 PreviewItem(
                     label="Verification source",
-                    detail=auth_material_summary(self.auth_text_file, self.auth_payloads_file),
+                    detail=signature_source_summary(self.auth_text_file, self.auth_payloads_file),
                 ),
             ),
             warnings=tuple(warnings),
@@ -280,10 +278,10 @@ class RestoreTaskState(SourceAssessableTaskState):
             trust_notes=(
                 f"Signature check: {self._authentication_summary()}",
                 "Verification source: "
-                f"{auth_material_summary(self.auth_text_file, self.auth_payloads_file)}",
+                f"{signature_source_summary(self.auth_text_file, self.auth_payloads_file)}",
                 f"Latest fingerprint: {self._expected_head_summary()}",
             ),
-            recovery_notes=(f"Unlock: {unlock_material_summary(self)}",),
+            recovery_notes=(f"Unlock: {unlock_input_summary(self)}",),
         )
 
     def execute(self) -> TaskExecutionResult:
@@ -295,9 +293,31 @@ class RestoreTaskState(SourceAssessableTaskState):
 
         result = execute_recovery(self.to_recovery_request())
         return TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message="Recovered files written.",
             output_paths=result.written_paths,
+            details=(
+                TaskResultDetail(
+                    key="trust_basis",
+                    label="Verification",
+                    value={
+                        "matched_expected_head": "Matched the trusted full fingerprint",
+                        "internally_consistent": "Internally consistent; freshness unknown",
+                        "unauthenticated": "Unauthenticated recovery",
+                    }[result.trust_basis],
+                ),
+                *(
+                    (
+                        TaskResultDetail(
+                            key="signing_key_verified",
+                            label="Signing key",
+                            value="Verified against the trusted full fingerprint",
+                        ),
+                    )
+                    if result.signing_key_verified
+                    else ()
+                ),
+            ),
         )
 
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:
@@ -381,6 +401,9 @@ class RestoreTaskState(SourceAssessableTaskState):
         return tuple(paths)
 
     def _source_summary(self) -> str:
+        request = self.source_assessment_request()
+        if request is not None and request.source_kind == "recovery_inputs":
+            return request.source_summary
         if self.source_paths:
             return format_count(len(self.source_paths), "scanned page")
         if self.recovery_text:

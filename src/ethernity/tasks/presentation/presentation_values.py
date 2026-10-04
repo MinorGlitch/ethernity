@@ -1,3 +1,5 @@
+"""Convert task state into values displayed by workspace presenters."""
+
 from __future__ import annotations
 
 from pathlib import Path

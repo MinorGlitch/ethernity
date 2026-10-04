@@ -24,7 +24,10 @@ from typing import Literal, cast
 from pydantic import BaseModel, ConfigDict, Field
 
 from ethernity.config import apply_api_config_patch, get_api_config_snapshot
+from ethernity.config.types import DEFAULT_EXTENSION_CHUNKING_PROFILE
 from ethernity.core.app_paths import DEFAULT_CONFIG_FILENAME, user_config_file_path
+from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.formats.extension_document import ExtensionChunkingProfile
 from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
 from ethernity.tasks.models import (
     PreviewItem,
@@ -36,7 +39,7 @@ from ethernity.tasks.models import (
     TaskValidation,
 )
 
-SettingKind = Literal["enum", "int", "optional_int", "path", "save_path", "bool", "render_jobs"]
+SettingKind = Literal["enum", "int", "optional_int", "path", "save_path", "bool"]
 
 
 @dataclass(frozen=True)
@@ -109,8 +112,8 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
         "Update chunk target",
         "int",
         "Change",
-        "Typical chunk size in bytes. Keep all three values matched to the backup chain.",
-        16384,
+        "Typical chunk size for the first update in a new backup chain, in bytes.",
+        DEFAULT_EXTENSION_CHUNKING_PROFILE.target_size,
         placeholder="16384",
     ),
     SettingDescriptor(
@@ -120,8 +123,8 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
         "Update chunk minimum",
         "int",
         "Change",
-        "Smallest chunk the update may create, in bytes.",
-        4096,
+        "Smallest chunk for the first update in a new backup chain, in bytes.",
+        DEFAULT_EXTENSION_CHUNKING_PROFILE.min_size,
         placeholder="4096",
     ),
     SettingDescriptor(
@@ -131,8 +134,8 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
         "Update chunk maximum",
         "int",
         "Change",
-        "Largest chunk the update may create, in bytes.",
-        65536,
+        "Largest chunk for the first update in a new backup chain, in bytes.",
+        DEFAULT_EXTENSION_CHUNKING_PROFILE.max_size,
         placeholder="65536",
     ),
     SettingDescriptor(
@@ -252,8 +255,8 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
         empty_label="Ask every time",
     ),
     SettingDescriptor(
-        "extend_base_dir",
-        ("defaults", "extend", "base_dir"),
+        "add_files_base_dir",
+        ("defaults", "add_files", "base_dir"),
         "Backup defaults",
         "Update base folder",
         "path",
@@ -263,78 +266,8 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
         empty_label="Automatic",
     ),
     SettingDescriptor(
-        "extend_unlock_policy",
-        ("defaults", "extend", "unlock_policy"),
-        "Recovery defaults",
-        "Update recovery",
-        "enum",
-        "Change",
-        "Create recovery sheets for each update, or use the original recovery set.",
-        None,
-        "extension_unlock_policies",
-        "self-contained",
-        empty_label="Use built-in default (New recovery sheets)",
-    ),
-    SettingDescriptor(
-        "extend_shard_threshold",
-        ("defaults", "extend", "shard_threshold"),
-        "Recovery defaults",
-        "Update: sheets required",
-        "optional_int",
-        "Change",
-        "Sheets needed to recover a self-contained update.",
-        None,
-        placeholder="2",
-    ),
-    SettingDescriptor(
-        "extend_shard_count",
-        ("defaults", "extend", "shard_count"),
-        "Recovery defaults",
-        "Update: sheets created",
-        "optional_int",
-        "Change",
-        "Recovery sheets created for a self-contained update.",
-        None,
-        placeholder="3",
-    ),
-    SettingDescriptor(
-        "extend_signing_key_mode",
-        ("defaults", "extend", "signing_key_mode"),
-        "Security defaults",
-        "Update signing key",
-        "enum",
-        "Change",
-        "Do not store the key, or protect it with separate recovery sheets.",
-        None,
-        "extension_signing_key_modes",
-        "not-stored",
-        empty_label="Use built-in default (Do not store)",
-    ),
-    SettingDescriptor(
-        "extend_signing_key_shard_threshold",
-        ("defaults", "extend", "signing_key_shard_threshold"),
-        "Security defaults",
-        "Update key sheets required",
-        "optional_int",
-        "Change",
-        "Sheets needed to recover the update signing key.",
-        None,
-        placeholder="2",
-    ),
-    SettingDescriptor(
-        "extend_signing_key_shard_count",
-        ("defaults", "extend", "signing_key_shard_count"),
-        "Security defaults",
-        "Update key sheets created",
-        "optional_int",
-        "Change",
-        "Sheets created for the update signing key.",
-        None,
-        placeholder="3",
-    ),
-    SettingDescriptor(
-        "extend_qr_payload_codec",
-        ("defaults", "extend", "qr_payload_codec"),
+        "add_files_qr_payload_codec",
+        ("defaults", "add_files", "qr_payload_codec"),
         "Advanced",
         "Update QR encoding",
         "enum",
@@ -395,17 +328,6 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
         1024,
         placeholder="1024",
     ),
-    SettingDescriptor(
-        "runtime_render_jobs",
-        ("runtime", "render_jobs"),
-        "Advanced",
-        "Render jobs",
-        "render_jobs",
-        "Change",
-        "Parallel PDF and QR render jobs. Automatic uses available CPU.",
-        "auto",
-        placeholder="auto",
-    ),
 )
 
 RISKY_CUSTOM_SETTING_MESSAGES: dict[str, str] = {
@@ -413,13 +335,7 @@ RISKY_CUSTOM_SETTING_MESSAGES: dict[str, str] = {
         "A custom QR size changes page count and scan reliability. Test a printed code first."
     ),
     "extension_chunk_target": (
-        "Target size must match the backup chain, or Ethernity may be unable to apply the update."
-    ),
-    "extension_chunk_min": (
-        "Minimum size must match the chain, or Ethernity may be unable to apply the update."
-    ),
-    "extension_chunk_max": (
-        "Maximum size must match the chain, or Ethernity may be unable to apply the update."
+        "The first update locks its FastCDC profile; existing chains keep their locked values."
     ),
 }
 
@@ -498,6 +414,15 @@ class SettingsTaskState(BaseModel):
         return self.setting_value(key) == descriptor.default
 
     def setting_is_risky_custom(self, key: str) -> bool:
+        if key == "extension_chunk_target":
+            return any(
+                not self.setting_is_default(chunk_key)
+                for chunk_key in (
+                    "extension_chunk_target",
+                    "extension_chunk_min",
+                    "extension_chunk_max",
+                )
+            )
         return key in RISKY_CUSTOM_SETTING_MESSAGES and not self.setting_is_default(key)
 
     def reset_group(self, group: str) -> bool:
@@ -586,7 +511,7 @@ class SettingsTaskState(BaseModel):
 
         snapshot = apply_api_config_patch(self.config_path, self._config_patch())
         return TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message="Settings saved.",
             output_paths=(Path(snapshot.path),),
         )
@@ -651,35 +576,10 @@ class SettingsTaskState(BaseModel):
                     section=descriptor.key,
                 ),
             )
-        if descriptor.kind == "render_jobs" and not (
-            value is None or value == "auto" or _is_positive_int(value)
-        ):
-            return (
-                TaskIssue(
-                    code="SETTINGS_RENDER_JOBS_INVALID",
-                    message="Use auto, a positive whole number, or blank.",
-                    section=descriptor.key,
-                ),
-            )
         return ()
 
     def _relationship_issues(self) -> tuple[TaskIssue, ...]:
         issues: list[TaskIssue] = []
-        chunk_min = self.setting_value("extension_chunk_min")
-        chunk_target = self.setting_value("extension_chunk_target")
-        chunk_max = self.setting_value("extension_chunk_max")
-        if all(_is_positive_int(value) for value in (chunk_min, chunk_target, chunk_max)):
-            chunk_min_int = cast(int, chunk_min)
-            chunk_target_int = cast(int, chunk_target)
-            chunk_max_int = cast(int, chunk_max)
-            if not chunk_min_int <= chunk_target_int <= chunk_max_int:
-                issues.append(
-                    TaskIssue(
-                        code="SETTINGS_CHUNKING_ORDER_INVALID",
-                        message="Update chunk sizes must follow minimum <= target <= maximum.",
-                        section="extension_chunk_target",
-                    )
-                )
         issues.extend(
             _paired_count_issues(
                 threshold=self.setting_value("backup_shard_threshold"),
@@ -696,36 +596,28 @@ class SettingsTaskState(BaseModel):
                 label="Backup signing key",
             )
         )
-        issues.extend(
-            _paired_count_issues(
-                threshold=self.setting_value("extend_shard_threshold"),
-                count=self.setting_value("extend_shard_count"),
-                section="extend_shard_threshold",
-                label="Update recovery",
-            )
+        chunk_sizes = (
+            self.setting_value("extension_chunk_target"),
+            self.setting_value("extension_chunk_min"),
+            self.setting_value("extension_chunk_max"),
         )
-        issues.extend(
-            _paired_count_issues(
-                threshold=self.setting_value("extend_signing_key_shard_threshold"),
-                count=self.setting_value("extend_signing_key_shard_count"),
-                section="extend_signing_key_shard_threshold",
-                label="Update signing key",
-            )
-        )
-        if self.setting_value("extend_unlock_policy") == "reuse-root" and (
-            self.setting_value("extend_shard_threshold") is not None
-            or self.setting_value("extend_shard_count") is not None
-        ):
-            issues.append(
-                TaskIssue(
-                    code="SETTINGS_EXTEND_REUSE_ROOT_CONFLICT",
-                    message=(
-                        "The original recovery set cannot be combined with separate update "
-                        "recovery counts."
-                    ),
-                    section="extend_unlock_policy",
+        if all(_is_positive_int(value) for value in chunk_sizes):
+            target_size, min_size, max_size = (cast(int, value) for value in chunk_sizes)
+            try:
+                ExtensionChunkingProfile(
+                    algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+                    target_size=target_size,
+                    min_size=min_size,
+                    max_size=max_size,
                 )
-            )
+            except ValueError as exc:
+                issues.append(
+                    TaskIssue(
+                        code="SETTINGS_EXTENSION_CHUNKING_INVALID",
+                        message=str(exc),
+                        section="extension_chunk_target",
+                    )
+                )
         return tuple(issues)
 
 

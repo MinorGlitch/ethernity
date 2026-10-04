@@ -5,10 +5,10 @@ from pathlib import Path
 from ethernity.tasks.file_summary import display_path
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.models import TaskSection
-from ethernity.tasks.presentation.common import (
+from ethernity.tasks.presentation.models import WorkspaceAction, WorkspaceGroup, WorkspaceValue
+from ethernity.tasks.presentation.presentation_values import (
     qr_chunk_size_control_value,
 )
-from ethernity.tasks.presentation.models import WorkspaceAction, WorkspaceGroup, WorkspaceValue
 
 
 def kit_groups(
@@ -28,8 +28,15 @@ def kit_groups(
             key="output",
             title="PDF file",
             kind="output",
-            values=(WorkspaceValue("output", "Save as", _kit_output_display(state)),),
-            actions=(WorkspaceAction("workspace-kit-output", "Choose PDF file..."),),
+            values=(
+                WorkspaceValue(
+                    "output",
+                    "Save as",
+                    _kit_output_display(state),
+                    control_value=str(state.output_path),
+                ),
+            ),
+            actions=(WorkspaceAction("workspace-kit-output", "Choose PDF..."),),
             status=sections["output"].status,
             status_summary=_kit_output_display(state),
         ),

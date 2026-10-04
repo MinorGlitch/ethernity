@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -43,6 +44,19 @@ class TaskIssue(BaseModel):
     message: str
     severity: TaskIssueSeverity = "error"
     section: str | None = None
+
+
+def optional_section_status(
+    blocking_issues: Collection[TaskIssue],
+    warnings: Collection[TaskIssue],
+) -> TaskSectionStatus:
+    """Resolve the shared blocked/warning/optional section policy."""
+
+    if blocking_issues:
+        return "blocked"
+    if warnings:
+        return "warning"
+    return "optional"
 
 
 class PreviewItem(BaseModel):
@@ -95,11 +109,19 @@ class TaskResultDetail(BaseModel):
 class TaskExecutionResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    ok: bool
+    status: Literal["succeeded", "partially_succeeded", "failed"]
     message: str
     output_paths: tuple[Path, ...] = Field(default_factory=tuple)
+    recovery_check_paths: tuple[Path, ...] = Field(
+        default_factory=tuple,
+        description="Generated QR-bearing documents to use for a disposable recovery check.",
+    )
     details: tuple[TaskResultDetail, ...] = Field(default_factory=tuple)
     next_steps: tuple[str, ...] = Field(default_factory=tuple)
+
+    @property
+    def ok(self) -> bool:
+        return self.status != "failed"
 
 
 class TaskDiagnosticBlock(BaseModel):

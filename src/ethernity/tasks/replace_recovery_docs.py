@@ -20,7 +20,7 @@ from pathlib import Path
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
+from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
@@ -39,13 +39,14 @@ from ethernity.tasks.output_checks import (
 )
 from ethernity.tasks.page_layout import (
     BACKUP_RENDER_DOC_TYPES,
+    ValidatedPaperSizeName,
     require_workflow_page_size,
 )
-from ethernity.tasks.presentation.recovery import recovery_text_summary, unlock_material_summary
+from ethernity.tasks.presentation.recovery import recovery_text_summary, unlock_input_summary
 from ethernity.tasks.quorum import validate_optional_shard_count, validate_required_shard_count
-from ethernity.tasks.recovery_material import (
+from ethernity.tasks.recovery_inputs import (
     has_recovery_source,
-    has_unlock_material,
+    has_unlock_inputs,
     recovery_text_error,
     recovery_text_frames,
 )
@@ -85,19 +86,14 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
     allow_stale_head: bool = False
     recovery_threshold: int = 2
     recovery_document_count: int = 3
-    mint_passphrase_recovery: bool = True
-    mint_signing_key_recovery: bool = False
+    create_passphrase_recovery: bool = True
+    create_signing_key_recovery: bool = False
     signing_key_recovery_threshold: int | None = None
     signing_key_recovery_count: int | None = None
     passphrase_replacement_count: int | None = None
     signing_key_replacement_count: int | None = None
-    paper_size: PaperSizeName = DEFAULT_PAPER_SIZE_NAME
+    paper_size: ValidatedPaperSizeName = DEFAULT_PAPER_SIZE_NAME
     design: str = "sentinel"
-
-    @field_validator("paper_size")
-    @classmethod
-    def _validate_paper_size(cls, value: str) -> PaperSizeName:
-        return resolve_paper_size(value).name
 
     @field_validator("recovery_threshold", "recovery_document_count")
     @classmethod
@@ -158,8 +154,8 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             TaskSection(
                 key="unlock",
                 title="Unlock existing backup",
-                status="ready" if has_unlock_material(self) else "missing",
-                summary=unlock_material_summary(self),
+                status="ready" if has_unlock_inputs(self) else "missing",
+                summary=unlock_input_summary(self),
                 action_label="Set unlock method...",
             ),
             TaskSection(
@@ -223,7 +219,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             issues.append(
                 TaskIssue(
                     code="REPLACE_RECOVERY_SOURCE_REQUIRED",
-                    message="Choose backup material.",
+                    message="Choose backup documents.",
                     section="source",
                 )
             )
@@ -235,7 +231,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                     section="source",
                 )
             )
-        if not has_unlock_material(self):
+        if not has_unlock_inputs(self):
             issues.append(
                 TaskIssue(
                     code="REPLACE_RECOVERY_UNLOCK_REQUIRED",
@@ -277,7 +273,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                     section="signature",
                 )
             )
-        if not self.mint_passphrase_recovery and not self._creates_signing_key_recovery():
+        if not self.create_passphrase_recovery and not self._creates_signing_key_recovery():
             issues.append(
                 TaskIssue(
                     code="REPLACE_RECOVERY_DOCUMENT_TYPE_REQUIRED",
@@ -285,7 +281,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                     section="recovery",
                 )
             )
-        if self.passphrase_replacement_count is not None and not self.mint_passphrase_recovery:
+        if self.passphrase_replacement_count is not None and not self.create_passphrase_recovery:
             issues.append(
                 TaskIssue(
                     code="REPLACE_RECOVERY_PASSPHRASE_REPLACEMENT_DISABLED",
@@ -332,7 +328,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
     def preview(self) -> TaskPreview:
         items = [
             PreviewItem(label="Existing backup", detail=self._source_summary()),
-            PreviewItem(label="Unlock", detail=unlock_material_summary(self)),
+            PreviewItem(label="Unlock", detail=unlock_input_summary(self)),
             PreviewItem(
                 label="Destination",
                 detail=(
@@ -344,7 +340,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                 detail="Left unchanged",
             ),
         ]
-        if self.mint_passphrase_recovery:
+        if self.create_passphrase_recovery:
             if self.passphrase_replacement_count is not None:
                 items.append(
                     PreviewItem(
@@ -416,8 +412,10 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             recovery_notes=(
                 f"Passphrase recovery: {self.passphrase_recovery_summary()}",
                 f"Signing-key recovery: {self._signing_key_section_summary()}",
-                "Existing recovery sheets are not modified; retire old sheets only after the new "
-                "set is printed and stored.",
+                "The new recovery sheets unlock the original backup and any intact version "
+                "of its update chain.",
+                "Test the new recovery sheets before retiring old sheets. Existing sheets "
+                "remain valid while the credentials stay unchanged.",
             ),
         )
 
@@ -438,7 +436,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             *result.signing_key_shard_paths,
         )
         return TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message="Replacement recovery sheets created.",
             output_paths=output_paths,
         )
@@ -474,8 +472,8 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             signing_key_shard_count=self.signing_key_recovery_count,
             passphrase_replacement_count=self.passphrase_replacement_count,
             signing_key_replacement_count=self.signing_key_replacement_count,
-            mint_passphrase_shards=self.mint_passphrase_recovery,
-            mint_signing_key_shards=self._creates_signing_key_recovery(),
+            create_passphrase_shards=self.create_passphrase_recovery,
+            create_signing_key_shards=self._creates_signing_key_recovery(),
         )
 
     def _read_paths(self) -> tuple[Path, ...]:
@@ -492,7 +490,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
 
     def _creates_signing_key_recovery(self) -> bool:
         return bool(
-            self.mint_signing_key_recovery
+            self.create_signing_key_recovery
             or self.signing_key_replacement_count is not None
             or self.signing_key_recovery_threshold is not None
             or self.signing_key_recovery_count is not None
@@ -511,7 +509,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
         return self._signing_key_recovery_summary()
 
     def passphrase_recovery_summary(self) -> str:
-        if not self.mint_passphrase_recovery:
+        if not self.create_passphrase_recovery:
             return "No passphrase recovery sheets"
         if self.passphrase_replacement_count is not None:
             return f"Replace {format_count(self.passphrase_replacement_count, 'sheet')}"
@@ -543,6 +541,9 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
         return format_count(len(self.signing_key_recovery_payload_files), "key payload file")
 
     def _source_summary(self) -> str:
+        request = self.source_assessment_request()
+        if request is not None and request.source_kind == "recovery_inputs":
+            return request.source_summary
         sources = len(self.source_paths)
         if sources:
             return format_count(sources, "scanned page")
@@ -552,7 +553,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             return display_path(self.recovery_text_file)
         if self.payloads_file is not None:
             return display_path(self.payloads_file)
-        return "Choose backup material."
+        return "Choose backup documents."
 
     def _freshness_summary(self) -> str:
         if not self.source_paths:

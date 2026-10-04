@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, TypeAlias
 
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
@@ -31,10 +32,12 @@ PresentationState = (
     | SettingsTaskState
 )
 
-StepState = Literal["locked", "available", "current", "complete"]
+StepState = Literal["available", "current", "complete"]
 StepSeverity = Literal["none", "warning", "error"]
 NoticeTone = Literal["info", "warning", "error", "success"]
-SourceKind = Literal["backup_folder", "scanned_pages", "recovery_text", "payload_files"]
+SourceKind = Literal[
+    "backup_folder", "scanned_pages", "recovery_text", "payload_files", "recovery_inputs"
+]
 
 
 @dataclass(frozen=True)
@@ -46,11 +49,15 @@ class WorkspaceAction:
     requires_selection: bool = False
 
 
-@dataclass(frozen=True)
-class WorkspaceChoice:
+@dataclass(frozen=True, slots=True)
+class ChoicePresentation:
+    """One option in a single-choice control."""
+
     key: str
     label: str
     selected: bool = False
+    enabled: bool = True
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -68,7 +75,7 @@ class WorkspaceGroup:
     title: str
     kind: str
     values: tuple[WorkspaceValue, ...] = ()
-    choices: tuple[WorkspaceChoice, ...] = ()
+    choices: tuple[ChoicePresentation, ...] = ()
     actions: tuple[WorkspaceAction, ...] = ()
     empty_label: str = ""
     status: str = "ready"
@@ -76,19 +83,8 @@ class WorkspaceGroup:
 
 
 @dataclass(frozen=True, slots=True)
-class ChoicePresentation:
-    """One semantic option rendered by a native single-choice control."""
-
-    key: str
-    label: str
-    selected: bool = False
-    enabled: bool = True
-    description: str = ""
-
-
-@dataclass(frozen=True, slots=True)
 class InlineNoticePresentation:
-    """A concise message owned by exactly one visible presentation surface."""
+    """A concise message owned by exactly one visible workspace region."""
 
     message: str
     tone: NoticeTone = "info"
@@ -96,13 +92,16 @@ class InlineNoticePresentation:
 
 @dataclass(frozen=True, slots=True)
 class SourceAssessmentPresentation:
-    """Read-only source facts supplied by the task layer, never parsed from display copy."""
+    """Source details supplied by the task layer."""
 
     source_kind: SourceKind
     source_label: str
-    material_summary: str
+    source_summary: str
     backup_identity: str = ""
     version_summary: str = ""
+    document_summary: str = ""
+    unlock_summary: str = ""
+    has_updates: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,22 +115,28 @@ class PathItemPresentation:
 @dataclass(frozen=True, slots=True)
 class SourceBodyPresentation:
     kind: Literal["source"] = field(init=False, default="source")
-    methods: tuple[ChoicePresentation, ...] = ()
+    primary_action: WorkspaceAction | None = None
+    secondary_actions: tuple[WorkspaceAction, ...] = ()
     assessment: SourceAssessmentPresentation | None = None
-    change_action: WorkspaceAction | None = None
     loading: bool = False
     notice: InlineNoticePresentation | None = None
 
     def __post_init__(self) -> None:
-        _require_at_most_one_selected(self.methods, owner="source methods")
+        actions = (
+            (self.primary_action,) if self.primary_action is not None else ()
+        ) + self.secondary_actions
+        keys = tuple(action.key for action in actions)
+        if len(keys) != len(set(keys)):
+            raise ValueError("source action keys must be unique")
 
 
 @dataclass(frozen=True, slots=True)
 class UnlockBodyPresentation:
     kind: Literal["unlock"] = field(init=False, default="unlock")
     methods: tuple[ChoicePresentation, ...] = ()
-    contextual_action: WorkspaceAction | None = None
-    material_summary: str = ""
+    method_action: WorkspaceAction | None = None
+    input_summary: str = ""
+    passphrase_set: bool = False
     notice: InlineNoticePresentation | None = None
 
     def __post_init__(self) -> None:
@@ -175,7 +180,7 @@ class QuorumBodyPresentation:
     threshold: int | None = None
     count: int | None = None
     minimum: int = 1
-    maximum: int = 255
+    maximum: int = MAX_SHARES
     threshold_label: str = "Required"
     count_label: str = "Total"
     copy: QuorumCopyPresentation = field(default_factory=QuorumCopyPresentation)
@@ -242,7 +247,7 @@ class OptionsBodyPresentation:
             raise ValueError("option select keys must be unique")
 
 
-AtomicStepBodyPresentation: TypeAlias = (
+ControlBodyPresentation: TypeAlias = (
     SourceBodyPresentation
     | UnlockBodyPresentation
     | PathSelectionBodyPresentation
@@ -254,15 +259,16 @@ AtomicStepBodyPresentation: TypeAlias = (
 
 @dataclass(frozen=True, slots=True)
 class CompositeBodyPartPresentation:
-    """One stable, keyed atomic region in a composite workflow step body."""
+    """One group of controls within a workflow step."""
 
     key: str
-    body: AtomicStepBodyPresentation
+    body: ControlBodyPresentation
+    title: str
 
 
 @dataclass(frozen=True, slots=True)
 class CompositeBodyPresentation:
-    """A semantic step composed from multiple independently typed control regions."""
+    """A workflow step containing multiple groups of controls."""
 
     kind: Literal["composite"] = field(init=False, default="composite")
     parts: tuple[CompositeBodyPartPresentation, ...] = ()
@@ -275,7 +281,7 @@ class CompositeBodyPresentation:
             raise ValueError("composite body part keys must be unique")
 
 
-StepBodyPresentation: TypeAlias = AtomicStepBodyPresentation | CompositeBodyPresentation
+StepBodyPresentation: TypeAlias = ControlBodyPresentation | CompositeBodyPresentation
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +293,7 @@ class StepPresentation:
     body: StepBodyPresentation
     issue: InlineNoticePresentation | None = None
     severity: StepSeverity = "none"
+    visible: bool = True
 
 
 @dataclass(frozen=True)
@@ -299,7 +306,7 @@ class SummaryPresentation:
 
 @dataclass(frozen=True, slots=True)
 class WorkflowPresentation:
-    """Complete, typed presentation for a dependent guided workflow."""
+    """The steps, current selection, and review summary for a guided task."""
 
     task_key: PresentationTaskKey
     title: str

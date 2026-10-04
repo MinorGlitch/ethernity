@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ethernity.tasks.input_material import has_selected_inputs
+from ethernity.tasks.backup_inputs import has_selected_inputs
 
 
 def test_has_selected_inputs_accepts_files_or_directories() -> None:
