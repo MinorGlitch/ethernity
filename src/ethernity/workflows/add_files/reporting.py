@@ -1,11 +1,13 @@
-"""Adapter-neutral reporting port for extension execution."""
+"""Adapter-neutral reporting port for Add Files execution."""
 
 from __future__ import annotations
 
 from typing import Mapping, Protocol
 
+from ethernity.workflows.shared import api_codes
 
-class ExtensionReporter(Protocol):
+
+class AddFilesReporter(Protocol):
     def phase(self, *, phase: str, label: str) -> None: ...
 
     def progress(
@@ -23,12 +25,12 @@ class ExtensionReporter(Protocol):
         self,
         message: str,
         *,
-        code: str = "WARNING",
+        code: str = api_codes.WARNING,
         details: Mapping[str, object] | None = None,
     ) -> None: ...
 
 
-class NullExtensionReporter:
+class NullAddFilesReporter:
     """Default reporter for adapters that do not expose progress or warnings."""
 
     def phase(self, *, phase: str, label: str) -> None:
@@ -50,12 +52,12 @@ class NullExtensionReporter:
         self,
         message: str,
         *,
-        code: str = "WARNING",
+        code: str = api_codes.WARNING,
         details: Mapping[str, object] | None = None,
     ) -> None:
         pass
 
 
-NULL_EXTENSION_REPORTER = NullExtensionReporter()
+NULL_ADD_FILES_REPORTER = NullAddFilesReporter()
 
-__all__ = ["ExtensionReporter", "NULL_EXTENSION_REPORTER", "NullExtensionReporter"]
+__all__ = ["AddFilesReporter", "NULL_ADD_FILES_REPORTER", "NullAddFilesReporter"]

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Recovery-document helpers for extension rendering."""
+"""Build extension recovery-document render inputs."""
 
 from __future__ import annotations
 
@@ -26,35 +26,31 @@ from ethernity.render.fallback_labels import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_
 from ethernity.render.recovery_lines import append_signing_key_lines
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
-from ethernity.render.types import RenderInputs, RenderLineage
-from ethernity.workflows.extension.errors import ExtensionWorkflowError
+from ethernity.render.types import DocumentOrigin, RenderInputs
 
 from .models import (
-    ExtensionPassphraseShards,
-    ExtensionSigningKeyShards,
-    PreparedExtensionPublishPlan,
-    ResolvedExtendRuntime,
-    ReuseRootPassphraseShards,
+    ExtensionOutputSettings,
+    ExtensionPublication,
 )
 
 
 def build_recovery_inputs(
-    plan: PreparedExtensionPublishPlan,
+    plan: ExtensionPublication,
     *,
-    runtime: ResolvedExtendRuntime,
+    output_settings: ExtensionOutputSettings,
     render_service: RenderService,
     frames: list[Frame],
     auth_frame: Frame,
     layout_debug_json_path: Callable[[str | None, str], str | None],
-    lineage: RenderLineage,
+    origin: DocumentOrigin,
 ) -> RenderInputs:
-    key_lines = build_recovery_key_lines(plan, runtime=runtime)
+    key_lines = build_recovery_key_lines(output_settings=output_settings)
     recovery_meta = build_recovery_meta(
         passphrase=None,
-        quorum_threshold=runtime.passphrase.threshold,
-        quorum_shares=runtime.passphrase.share_count,
-        signing_pub=runtime.sign_pub,
-        quorum_label=_recovery_quorum_label(runtime.passphrase),
+        quorum_threshold=None,
+        quorum_shares=None,
+        signing_pub=output_settings.sign_pub,
+        quorum_label="Root Backup Recovery",
     )
     fallback_sections = [
         render_module.FallbackSection(label=AUTH_FALLBACK_LABEL, frame=auth_frame),
@@ -72,60 +68,34 @@ def build_recovery_inputs(
     ]
     return render_service.recovery_inputs(
         frames,
-        plan.artifacts.recovery_document_path,
+        plan.paths.recovery_document_path,
         key_lines=key_lines,
         recovery_meta=recovery_meta,
         fallback_sections=fallback_sections,
         layout_debug_json_path=layout_debug_json_path(
-            runtime.layout_debug_dir,
+            output_settings.layout_debug_dir,
             "recovery_document",
         ),
-        lineage=lineage,
+        origin=origin,
     )
 
 
-def _recovery_quorum_label(policy: object) -> str:
-    if isinstance(policy, ReuseRootPassphraseShards):
-        return "Root Shard Quorum"
-    if isinstance(policy, ExtensionPassphraseShards):
-        return "Extension Shard Quorum"
-    return "Shard Quorum"
-
-
 def build_recovery_key_lines(
-    plan: PreparedExtensionPublishPlan,
     *,
-    runtime: ResolvedExtendRuntime,
+    output_settings: ExtensionOutputSettings,
 ) -> list[str]:
-    if isinstance(runtime.passphrase, ReuseRootPassphraseShards):
-        key_lines = [
-            "Passphrase recovery depends on the root backup shard documents.",
-            (
-                "Recover with "
-                f"{runtime.passphrase.threshold} of {runtime.passphrase.share_count} "
-                "root shard documents."
-            ),
-        ]
-    elif isinstance(runtime.passphrase, ExtensionPassphraseShards):
-        key_lines = [
-            "Passphrase is sharded.",
-            (
-                "Recover with "
-                f"{runtime.passphrase.threshold} of {runtime.passphrase.share_count} "
-                "shard documents."
-            ),
-        ]
-    else:
-        raise ExtensionWorkflowError(
-            code="RUNTIME_ERROR",
-            message="unknown extension passphrase storage policy",
-        )
+    key_lines = [
+        "Passphrase recovery depends on the root backup recovery sheets.",
+        "This update does not create or replace passphrase recovery sheets.",
+    ]
     append_signing_key_lines(
         key_lines,
-        sign_pub=runtime.sign_pub,
+        sign_pub=output_settings.sign_pub,
         sealed=False,
         stored_in_main=False,
-        stored_as_shards=isinstance(runtime.signing_key, ExtensionSigningKeyShards),
-        not_stored_message="Signing private key not stored in this extension document.",
+        stored_as_shards=False,
+        not_stored_message=(
+            "Signing private key is inherited from the root backup and is not stored here."
+        ),
     )
     return key_lines

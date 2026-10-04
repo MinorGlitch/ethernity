@@ -1,22 +1,39 @@
-"""Typed input contract for the extension workflow."""
+"""Typed request for the Add Files workflow."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.encoding.framing import Frame
 
 
+def validate_recovery_sheet_counts(threshold: int, sheet_count: int) -> None:
+    """Validate one passphrase recovery-sheet quorum."""
+
+    if not 1 <= threshold <= MAX_SHARES:
+        raise ValueError(f"recovery threshold must be between 1 and {MAX_SHARES}")
+    if not 1 <= sheet_count <= MAX_SHARES:
+        raise ValueError(f"recovery sheet count must be between 1 and {MAX_SHARES}")
+    if threshold > sheet_count:
+        raise ValueError("recovery threshold cannot exceed recovery sheet count")
+
+
 @dataclass(frozen=True)
-class ExtensionRequest:
+class AddFilesRequest:
     """Adapter-neutral request to inspect, assess, or publish one extension."""
 
     config_path: str | None = None
     paper_size: str | None = None
     design: str | None = None
-    publish_root: str | None = None
+    recovery_text_file: str | None = None
+    payloads_file: str | None = None
     scan_paths: tuple[str, ...] = ()
+    frames: tuple[Frame, ...] = ()
+    auth_text_file: str | None = None
+    auth_payloads_file: str | None = None
+    auth_frames: tuple[Frame, ...] = ()
+    output_dir: str | None = None
     input_paths: tuple[str, ...] = ()
     input_directories: tuple[str, ...] = ()
     base_directory: str | None = None
@@ -27,19 +44,18 @@ class ExtensionRequest:
     shard_payload_files: tuple[str, ...] = ()
     shard_scan_paths: tuple[str, ...] = ()
     shard_frames: tuple[Frame, ...] = ()
-    unlock_policy: Literal["self-contained", "reuse-root"] | None = None
-    shard_threshold: int | None = None
-    shard_count: int | None = None
-    signing_key_mode: Literal["not-stored", "sharded"] | None = None
-    signing_key_shard_threshold: int | None = None
-    signing_key_shard_count: int | None = None
     expected_head_doc_hash: str | None = None
     allow_stale_head: bool = False
+    create_recovery_sheets: bool = False
+    recovery_threshold: int = 2
+    recovery_sheet_count: int = 3
     quiet: bool = False
 
     def __post_init__(self) -> None:
         for field_name in (
             "scan_paths",
+            "frames",
+            "auth_frames",
             "input_paths",
             "input_directories",
             "shard_fallback_files",
@@ -56,3 +72,8 @@ class ExtensionRequest:
                 character in "0123456789abcdef" for character in normalized
             ):
                 object.__setattr__(self, "expected_head_doc_hash", normalized)
+
+        validate_recovery_sheet_counts(self.recovery_threshold, self.recovery_sheet_count)
+
+
+__all__ = ["AddFilesRequest", "validate_recovery_sheet_counts"]

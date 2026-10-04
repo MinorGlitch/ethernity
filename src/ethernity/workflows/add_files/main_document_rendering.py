@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""QR and AUTH frame helpers for extension rendering."""
+"""Build QR and AUTH frames for extension documents."""
 
 from __future__ import annotations
 
@@ -24,23 +24,23 @@ from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.qr.capacity import choose_frame_chunk_size
 from ethernity.render.service import RenderService
 
-from .models import PreparedExtensionPublishPlan, ResolvedExtendRuntime
+from .models import ExtensionOutputSettings, ExtensionPublication
 
 
 def build_main_qr_payloads(
-    plan: PreparedExtensionPublishPlan,
+    plan: ExtensionPublication,
     *,
-    runtime: ResolvedExtendRuntime,
+    output_settings: ExtensionOutputSettings,
     render_service: RenderService,
 ) -> tuple[list[Frame], Frame, list[Frame], list[bytes | str]]:
-    auth_frame = build_extension_auth_frame(plan, runtime=runtime)
+    auth_frame = build_extension_auth_frame(plan, output_settings=output_settings)
     main_chunk_size = choose_frame_chunk_size(
         len(plan.encrypted.ciphertext),
-        preferred_chunk_size=runtime.qr_chunk_size,
+        preferred_chunk_size=output_settings.qr_chunk_size,
         doc_id=plan.encrypted.doc_id,
         frame_type=FrameType.MAIN_DOCUMENT,
-        qr_config=runtime.config.qr_config,
-        payload_codec=runtime.qr_payload_codec,
+        qr_config=output_settings.config.qr_config,
+        payload_codec=output_settings.qr_payload_codec,
     )
     frames = list(
         chunk_payload(
@@ -55,23 +55,23 @@ def build_main_qr_payloads(
         frames,
         auth_frame,
         qr_frames,
-        render_service.build_qr_payloads(qr_frames, codec=runtime.qr_payload_codec),
+        render_service.build_qr_payloads(qr_frames, codec=output_settings.qr_payload_codec),
     )
 
 
 def build_extension_auth_frame(
-    plan: PreparedExtensionPublishPlan,
+    plan: ExtensionPublication,
     *,
-    runtime: ResolvedExtendRuntime,
+    output_settings: ExtensionOutputSettings,
 ) -> Frame:
     auth_signature = sign_auth(
         plan.encrypted.doc_hash,
-        sign_pub=runtime.sign_pub,
+        sign_pub=output_settings.sign_pub,
         sign_priv=plan.prepared.signing_seed,
     )
     auth_payload = encode_auth_payload(
         plan.encrypted.doc_hash,
-        sign_pub=runtime.sign_pub,
+        sign_pub=output_settings.sign_pub,
         signature=auth_signature,
     )
     return Frame(

@@ -20,13 +20,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.extensions import LogicalFileState
-from ethernity.workflows.extension.request import ExtensionRequest
-from ethernity.workflows.extension.scope import load_selected_scope, summarize_scope_diff
+from ethernity.extensions import ReconstructedFile
+from ethernity.workflows.add_files.request import AddFilesRequest
+from ethernity.workflows.add_files.scope import load_selected_scope, summarize_scope_diff
 
 
-def _logical_file(path: str, data: bytes, *, mtime: int | None) -> LogicalFileState:
-    return LogicalFileState(
+def _reconstructed_file(path: str, data: bytes, *, mtime: int | None) -> ReconstructedFile:
+    return ReconstructedFile(
         path=path,
         size=len(data),
         sha256=hashlib.sha256(data).digest(),
@@ -35,7 +35,7 @@ def _logical_file(path: str, data: bytes, *, mtime: int | None) -> LogicalFileSt
     )
 
 
-class TestExtendScope(unittest.TestCase):
+class TestAddFilesScope(unittest.TestCase):
     def test_load_selected_scope_tracks_normalized_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir) / "workspace"
@@ -46,7 +46,7 @@ class TestExtendScope(unittest.TestCase):
             (nested / "beta.txt").write_text("beta", encoding="utf-8")
 
             scope = load_selected_scope(
-                ExtensionRequest(
+                AddFilesRequest(
                     input_paths=(str(workspace / "alpha.txt"),),
                     input_directories=(str(nested),),
                     base_directory=str(workspace),
@@ -82,7 +82,7 @@ class TestExtendScope(unittest.TestCase):
             (docs / "gamma.txt").write_text("gamma", encoding="utf-8")
 
             scope = load_selected_scope(
-                ExtensionRequest(
+                AddFilesRequest(
                     input_paths=(str(workspace / "alpha.txt"),),
                     input_directories=(str(docs),),
                     base_directory=str(workspace),
@@ -93,9 +93,9 @@ class TestExtendScope(unittest.TestCase):
         alpha_input = next(item for item in scope.input_files if item.relative_path == "alpha.txt")
         diff = summarize_scope_diff(
             (
-                _logical_file("alpha.txt", b"alpha", mtime=alpha_input.mtime),
-                _logical_file("docs/beta.txt", b"beta-old", mtime=2),
-                _logical_file("docs/missing.txt", b"missing", mtime=3),
+                _reconstructed_file("alpha.txt", b"alpha", mtime=alpha_input.mtime),
+                _reconstructed_file("docs/beta.txt", b"beta-old", mtime=2),
+                _reconstructed_file("docs/missing.txt", b"missing", mtime=3),
             ),
             scope,
         )
@@ -127,14 +127,14 @@ class TestExtendScope(unittest.TestCase):
             (docs / "a.txt").write_text("new", encoding="utf-8")
 
             scope = load_selected_scope(
-                ExtensionRequest(
+                AddFilesRequest(
                     input_paths=(str(docs / "a.txt"),),
                 )
             )
 
         assert scope is not None
         diff = summarize_scope_diff(
-            (_logical_file("docs/a.txt", b"old", mtime=1),),
+            (_reconstructed_file("docs/a.txt", b"old", mtime=1),),
             scope,
         )
 
@@ -143,17 +143,8 @@ class TestExtendScope(unittest.TestCase):
         self.assertEqual(diff.ambiguous_path_aliases, (("a.txt", "docs/a.txt"),))
 
     def test_load_selected_scope_accepts_stdin_as_documented_input(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root_dir = Path(tmpdir) / "root"
-            root_dir.mkdir()
-
-            with mock.patch("sys.stdin", io.StringIO("stdin payload")):
-                scope = load_selected_scope(
-                    ExtensionRequest(
-                        publish_root=str(root_dir),
-                        input_paths=("-",),
-                    )
-                )
+        with mock.patch("sys.stdin", io.StringIO("stdin payload")):
+            scope = load_selected_scope(AddFilesRequest(input_paths=("-",)))
 
         assert scope is not None
         self.assertEqual(scope.input_origin, "file")
@@ -164,27 +155,26 @@ class TestExtendScope(unittest.TestCase):
         self.assertEqual(scope.input_files[0].relative_path, "data.txt")
         self.assertEqual(scope.input_files[0].data, b"stdin payload")
 
-    def test_load_selected_scope_rejects_root_artifacts_before_loading_bytes(self) -> None:
+    def test_load_selected_scope_does_not_reserve_backup_output_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            root_dir = Path(tmpdir) / "root"
-            extension_dir = root_dir / "extensions" / "01"
-            extension_dir.mkdir(parents=True)
-            (root_dir / "qr_document.pdf").write_bytes(b"root qr")
+            source = Path(tmpdir)
+            nested = source / "extensions" / "01"
+            nested.mkdir(parents=True)
+            (source / "qr_document.pdf").write_bytes(b"a selected document")
+            (nested / "notes.txt").write_bytes(b"nested selected content")
 
-            with (
-                mock.patch(
-                    "ethernity.workflows.extension.scope.load_input_scope",
-                    side_effect=AssertionError("input scope should not load"),
-                ),
-                self.assertRaisesRegex(
-                    ValueError,
-                    "extend input scope must not include backup root artifacts",
-                ),
-            ):
-                load_selected_scope(
-                    ExtensionRequest(
-                        publish_root=str(root_dir),
-                        input_directories=(str(root_dir),),
-                        base_directory=str(root_dir),
-                    )
+            scope = load_selected_scope(
+                AddFilesRequest(
+                    input_directories=(str(source),),
+                    base_directory=str(source),
                 )
+            )
+
+        assert scope is not None
+        self.assertEqual(
+            {item.relative_path: item.data for item in scope.input_files},
+            {
+                "qr_document.pdf": b"a selected document",
+                "extensions/01/notes.txt": b"nested selected content",
+            },
+        )
