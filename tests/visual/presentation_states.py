@@ -57,9 +57,9 @@ RESTORE_PRESENTATION_STATES: dict[str, RestorePresentationFixture] = {
             _step("Destination", "locked", "Available after unlock"),
             _step("Review", "locked", "Nothing will be written before review"),
         ),
-        heading="Load backup material",
+        heading="Load backup documents",
         body=(
-            "Use the material you would have during an offline recovery.",
+            "Use the documents you would have during an offline recovery.",
             "No source selected",
         ),
         notice=None,
@@ -154,7 +154,7 @@ RESTORE_PRESENTATION_STATES: dict[str, RestorePresentationFixture] = {
             _step("Destination", "locked", "Available after unlock"),
             _step("Review", "locked", "Resolve the source error first"),
         ),
-        heading="Load backup material",
+        heading="Load backup documents",
         body=(
             "Selected: family-archive.pdf",
             "Choose another file or paste the recovery text printed below the QR code.",

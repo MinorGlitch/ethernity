@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
 
@@ -12,14 +11,22 @@ from ethernity.app.application import EthernityApp
 from ethernity.app.workflow_presenter import is_guided_task
 from ethernity.app.workflow_registry import workflow_definition
 from ethernity.page_sizes import paper_size_names
+from ethernity.tasks.backup import BackupTaskState
+from ethernity.tasks.backup_estimate import BackupEstimate
 from ethernity.tasks.models import TaskExecutionResult, TaskIssue, TaskResultDetail
 from ethernity.tasks.settings import SettingsTaskState
+from ethernity.tasks.source_assessment import SourceAssessableTaskState, SourceAssessment
 
 VISUAL_CONFIG_PATH = Path("/visual-fixtures/config/ethernity.toml")
 VISUAL_ARCHIVE = Path(
     "/visual-fixtures/family-records/long-archive-name-for-responsive-layout-testing"
 )
 VISUAL_KIT_OUTPUT = Path("/visual-fixtures/outputs/recovery-kit.pdf")
+VISUAL_BACKUP_DOCUMENTS = (
+    VISUAL_ARCHIVE / "backup-8d44f129" / "backup-document.pdf",
+    VISUAL_ARCHIVE / "backup-8d44f129" / "recovery-sheet-01.pdf",
+    VISUAL_ARCHIVE / "backup-8d44f129" / "recovery-sheet-02.pdf",
+)
 VISUAL_SECRET = "visual-snapshot-secret-must-never-render"
 VisualTheme = Literal["ethernity-dark", "ethernity-light"]
 VISUAL_DARK_THEME: VisualTheme = "ethernity-dark"
@@ -34,7 +41,9 @@ class ProductionSnapshotCase:
     state_updates: dict[str, object]
     active_step: str | None
     expected_ready: bool
-    advanced_focus: str | None = None
+    focus_target: str | None = None
+    files_expanded: bool = False
+    workbench_step: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,8 +52,8 @@ class ReviewSnapshotCase:
 
     key: str
     workflow_case_key: str
-    expected_fact_labels: tuple[str, ...]
-    expected_fact_values: tuple[str, ...] = ()
+    expected_detail_labels: tuple[str, ...]
+    expected_detail_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,11 +113,16 @@ PRODUCTION_SNAPSHOT_CASES: tuple[ProductionSnapshotCase, ...] = (
         "add-files-ready",
         "add_files",
         {
-            "backup_folder": VISUAL_ARCHIVE / "backup-8d44f129",
+            "source_paths": [VISUAL_ARCHIVE / "backup-8d44f129"],
+            "output_dir": VISUAL_ARCHIVE / "backup-update",
+            "allow_stale_head": True,
             "input_dirs": [VISUAL_ARCHIVE / "new-family-photos-and-records"],
             "passphrase": VISUAL_SECRET,
+            "create_recovery_sheets": True,
+            "recovery_threshold": 2,
+            "recovery_sheet_count": 3,
         },
-        "output",
+        "unlock",
         True,
     ),
     ProductionSnapshotCase("rebuild-empty", "rebuild", {}, "source", False),
@@ -185,28 +199,79 @@ PRODUCTION_SNAPSHOT_CASES: tuple[ProductionSnapshotCase, ...] = (
     ),
 )
 
+PRODUCTION_SNAPSHOT_CASES += (
+    replace(
+        next(case for case in PRODUCTION_SNAPSHOT_CASES if case.key == "backup-ready"),
+        key="backup-recovery-generated",
+        state_updates={
+            "input_paths": [VISUAL_ARCHIVE / "records" / "family-tree.ged"],
+            "output_dir": VISUAL_ARCHIVE / "backup-8d44f129",
+        },
+        workbench_step="recovery",
+    ),
+    *(
+        replace(
+            next(case for case in PRODUCTION_SNAPSHOT_CASES if case.key == "backup-ready"),
+            key=f"backup-{step}",
+            workbench_step=step,
+        )
+        for step in ("recovery", "print")
+    ),
+    replace(
+        next(case for case in PRODUCTION_SNAPSHOT_CASES if case.key == "backup-ready"),
+        key="backup-selected-files",
+        files_expanded=True,
+    ),
+    replace(
+        next(case for case in PRODUCTION_SNAPSHOT_CASES if case.key == "restore-ready"),
+        key="restore-unlock",
+        active_step="unlock",
+    ),
+    replace(
+        next(case for case in PRODUCTION_SNAPSHOT_CASES if case.key == "restore-ready"),
+        key="restore-version",
+        active_step="target",
+    ),
+)
+
 
 REVIEW_SNAPSHOT_CASES: tuple[ReviewSnapshotCase, ...] = (
     ReviewSnapshotCase(
         "backup-review",
         "backup-ready",
-        ("Files", "Recovery", "Signing key", "Layout", "Destination"),
+        ("Files", "Documents", "Backup pages", "Recovery", "Signing key", "Layout", "Destination"),
     ),
     ReviewSnapshotCase(
         "restore-review",
         "restore-ready",
-        ("Source", "Unlock", "Version", "Signature", "Destination"),
+        ("Source", "Files", "Unlock", "Version", "Signature", "Destination"),
     ),
     ReviewSnapshotCase(
         "add-files-review",
         "add-files-ready",
-        ("Backup", "Changes", "Source version", "Unlock", "Recovery sheets", "Destination"),
-        ("From settings",),
+        (
+            "Backup",
+            "Changes",
+            "Documents",
+            "Source version",
+            "Unlock",
+            "Recovery sheets",
+            "Destination",
+        ),
+        ("3 new recovery sheets, 2 needed to restore",),
     ),
     ReviewSnapshotCase(
         "rebuild-review",
         "rebuild-warning",
-        ("Source", "Unlock", "Source version", "Layout", "Destination"),
+        (
+            "Source",
+            "Documents",
+            "Recovery sheets",
+            "Unlock",
+            "Source version",
+            "Layout",
+            "Destination",
+        ),
     ),
     ReviewSnapshotCase(
         "replacement-review",
@@ -223,7 +288,7 @@ REVIEW_SNAPSHOT_CASES: tuple[ReviewSnapshotCase, ...] = (
     ReviewSnapshotCase(
         "kit-review",
         "kit-warning",
-        ("Kit type", "Layout", "QR sizing", "Destination"),
+        ("Documents", "Kit type", "Layout", "QR sizing", "Destination"),
     ),
 )
 
@@ -235,7 +300,7 @@ RESULT_SNAPSHOT_CASES: tuple[ResultSnapshotCase, ...] = (
         title="Restore files",
         terminal_size=(120, 32),
         result=TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message="Restore completed successfully.",
             output_paths=(
                 VISUAL_ARCHIVE / "restored-files" / "photos" / "family-portrait.jpg",
@@ -252,7 +317,7 @@ RESULT_SNAPSHOT_CASES: tuple[ResultSnapshotCase, ...] = (
         title="Restore files",
         terminal_size=(120, 32),
         result=TaskExecutionResult(
-            ok=False,
+            status="failed",
             message="Restore stopped before every file was written.",
             output_paths=(VISUAL_ARCHIVE / "restored-files" / "partial" / "family-portrait.jpg",),
         ),
@@ -276,19 +341,19 @@ RESULT_SNAPSHOT_CASES: tuple[ResultSnapshotCase, ...] = (
         title="Create backup",
         terminal_size=(160, 48),
         result=TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message="Backup and recovery documents were created.",
-            output_paths=(
-                VISUAL_ARCHIVE / "backup-8d44f129" / "backup-document.pdf",
-                VISUAL_ARCHIVE / "backup-8d44f129" / "recovery-sheet-01.pdf",
-                VISUAL_ARCHIVE / "backup-8d44f129" / "recovery-sheet-02.pdf",
-            ),
+            output_paths=VISUAL_BACKUP_DOCUMENTS,
+            recovery_check_paths=VISUAL_BACKUP_DOCUMENTS,
             details=(
                 TaskResultDetail(
                     key="doc_hash",
                     label="Backup fingerprint",
                     value="a03d5be1c1416b59d15df38aa8762cd8023843e848fa1969e1b5bff62b8f5d4a",
                 ),
+                TaskResultDetail(key="backup_pages", label="Backup pages", value=1),
+                TaskResultDetail(key="printed_pages", label="Total printed pages", value=3),
+                TaskResultDetail(key="documents", label="PDF documents", value=3),
             ),
         ),
         expected_first_view_ids=("result-outcome", "result-context-actions"),
@@ -296,6 +361,9 @@ RESULT_SNAPSHOT_CASES: tuple[ResultSnapshotCase, ...] = (
             "result-copy-fingerprint",
             "result-copy-paths",
             "result-open-folder",
+            "result-open-documents",
+            "result-test-recovery",
+            "result-test-printed-pages",
             "result-close",
         ),
     ),
@@ -305,7 +373,7 @@ RESULT_SNAPSHOT_CASES: tuple[ResultSnapshotCase, ...] = (
         title="Rebuild backup",
         terminal_size=(80, 24),
         result=TaskExecutionResult(
-            ok=False,
+            status="failed",
             message="Rebuild stopped after creating some documents.",
             output_paths=(VISUAL_ARCHIVE / "rebuilt-backup" / "partial" / "backup-document.pdf",),
         ),
@@ -322,6 +390,19 @@ RESULT_SNAPSHOT_CASES: tuple[ResultSnapshotCase, ...] = (
         return_section="output",
         expected_first_view_ids=("result-remediation", "result-context-actions"),
         expected_action_ids=("result-copy-paths", "result-open-folder", "result-return"),
+    ),
+)
+
+RESULT_SNAPSHOT_CASES += (
+    replace(
+        next(case for case in RESULT_SNAPSHOT_CASES if case.key == "backup-success"),
+        key="backup-success-compact",
+        terminal_size=(80, 24),
+        expected_first_view_ids=(
+            "result-outcome",
+            "result-context-actions",
+            "result-next-actions",
+        ),
     ),
 )
 
@@ -345,8 +426,6 @@ def visual_settings_state() -> SettingsTaskState:
             "signing_key_modes": ("embedded", "sharded"),
             "payload_codecs": ("auto", "raw", "gzip"),
             "qr_payload_codecs": ("raw", "base64"),
-            "extension_unlock_policies": ("self-contained", "reuse-root-recovery"),
-            "extension_signing_key_modes": ("not-stored", "sharded"),
         },
         save_status="Saved",
     )
@@ -357,7 +436,7 @@ def visual_settings_state() -> SettingsTaskState:
 class ProductionVisualApp(EthernityApp):
     """Real application shell initialized from one deterministic visual case."""
 
-    CSS_PATH = Path(inspect.getfile(EthernityApp)).with_name("theme.tcss")
+    CSS_PATH = EthernityApp.CSS_PATH
 
     def __init__(
         self,
@@ -376,6 +455,7 @@ class ProductionVisualApp(EthernityApp):
         payload.update(case.state_updates)
         state = initial_state.__class__.model_validate(payload)
         setattr(self, definition.state_attribute, state)
+        _seed_visual_observations(state)
 
     @property
     def visual_state(self) -> TaskState:
@@ -398,7 +478,7 @@ class ProductionVisualApp(EthernityApp):
 class SettingsVisualApp(EthernityApp):
     """Real settings workspace with deterministic values and theme."""
 
-    CSS_PATH = Path(inspect.getfile(EthernityApp)).with_name("theme.tcss")
+    CSS_PATH = EthernityApp.CSS_PATH
 
     def __init__(self, *, theme: VisualTheme = VISUAL_DARK_THEME) -> None:
         super().__init__(settings_state=visual_settings_state())
@@ -408,3 +488,39 @@ class SettingsVisualApp(EthernityApp):
         super().on_mount()
         self._show_task("settings")
         self.call_after_refresh(self._focus_active_task, "settings")
+
+
+def _seed_visual_observations(state: TaskState) -> None:
+    """Seed typed read-only results, while keeping the production presentation unchanged."""
+
+    if isinstance(state, BackupTaskState):
+        request = state.estimate_request()
+        if request is not None:
+            assert state.store_estimate(
+                request,
+                BackupEstimate(
+                    file_count=12,
+                    input_bytes=32768,
+                    document_bytes=24000,
+                    backup_pages=3,
+                    qr_count=24,
+                ),
+            )
+    elif isinstance(state, SourceAssessableTaskState):
+        request = state.source_assessment_request()
+        if request is not None:
+            assert state.store_source_assessment(
+                request,
+                SourceAssessment(
+                    source_kind=request.source_kind,
+                    source_label=request.source_label,
+                    source_summary=request.source_summary,
+                    backup_identity="8d44f129c6a73201",
+                    version_summary="Latest loaded version: update 2",
+                    document_summary="3 backup documents, including 2 updates",
+                    unlock_summary="Passphrase required",
+                    has_updates=True,
+                    document_count=3,
+                    root_doc_hash="8d44f129c6a73201" + "0" * 48,
+                ),
+            )

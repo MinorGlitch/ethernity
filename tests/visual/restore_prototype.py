@@ -1,4 +1,4 @@
-"""Non-functional Restore prototype used to settle the visual contract."""
+"""Non-functional Restore prototype used to settle the visual design."""
 
 from __future__ import annotations
 

@@ -6,11 +6,10 @@ screenshots at fixed terminal sizes. The normal test run compares those renders 
 files in `snapshots/`. The harness forces truecolor independently of the invoking terminal and
 normalizes Rich's generated SVG IDs so local and CI renders remain comparable.
 
-The official `pytest-textual-snapshot` plugin was evaluated first. Its current `1.1.0` release pins
+The evaluated `pytest-textual-snapshot` version `1.1.0` pins
 Syrupy 4.8, which requires pytest below 9, while this repository pins pytest 9.1.1. Keeping the
 small comparator here avoids downgrading the repository's test runner or adding an unsatisfiable
-dependency. It can be replaced with the official plugin once its released dependency range
-supports pytest 9.
+dependency.
 
 ## Review workflow
 
@@ -23,24 +22,34 @@ supports pytest 9.
    `uv run pytest tests/visual -v --update-tui-snapshots` to replace the baselines.
 5. Run `uv run pytest tests/visual -v` again without the update flag.
 
-The fixtures do not invoke format parsing, cryptography, filesystem discovery, or workflow
-execution. The production suite renders the real `EthernityApp` shell and real workflow widgets at
-`160x48`, `120x32`, and `80x24`. It covers empty and configured states for every workflow, including
-a dense expanded Replacement configuration, plus the Settings workspace at all three sizes.
+The fixtures seed typed `BackupEstimate` and `SourceAssessment` results through task cache APIs.
+They do not invoke format parsing, cryptography, filesystem discovery, or workflow execution.
+The production suite renders the real `EthernityApp` shell and workflow widgets at `160x48`,
+`120x32`, and `80x24`. It covers empty and configured tasks, expanded file lists, Unlock and Version
+sections, a dense Replacement configuration, and Settings at all three sizes.
+Backup Files, Recovery, and Print setup are captured separately. The workbench rail becomes a
+horizontal step strip below 110 columns, and the live summary is hidden at that size. Final review
+and results fill the workspace, with their actions kept at the bottom.
 
-The matrix adds a small set of high-value cross-cutting captures rather than multiplying every
-state by every presentation variant:
+Additional snapshots cover themes, reviews, and results:
 
-- Restore and Settings are captured in the light theme at `120x32`; the full workflow matrix stays
-  on the default dark theme.
-- Final review is captured at `120x32` for Backup, Restore, Add Files, Rebuild, Replacement, and Kit.
-  Geometry checks require each task's decision facts to be visible without scrolling.
-- Results include Restore success and failure at `120x32`, Backup success at `160x48`, and a narrow
-  partial Rebuild failure at `80x24`. Together they cover remediation, reviewed destinations,
-  partial outputs, copy/open destination actions, and a document fingerprint action.
+- Open dropdowns are captured in every workflow, Settings and the Manage/Tools menus. They check
+  padded choices, alignment with the selected value, bounded width and popup placement in dark
+  and light themes, including short terminals. Unit tests check that padding is highlighted and
+  clickable, as well as wrapped labels, scrolling, keyboard navigation and option-list updates.
+- Restore and Settings are captured in the light theme at `120x32`, plus Backup and Restore at
+  `80x24`. The full workflow matrix uses the default dark theme.
+- Final review is captured at `120x32` and `80x24` for Backup, Restore, Add Files, Rebuild,
+  Replacement, and Kit.
+  Geometry checks require each task's review details to be visible without scrolling.
+- Results include Restore success and failure at `120x32`, Backup success at `160x48` and `80x24`,
+  and a partial Rebuild failure at `80x24`. They cover remediation, reviewed destinations, partial
+  outputs, copy/open actions, fingerprints, PDF page counts, and generated-document and printed-page
+  recovery tests.
 
 Geometry assertions keep sticky actions inside their owning region, reject horizontal scrolling,
-and require the key review/result facts and destination actions to remain in the first viewport.
+and require the main review/result details and destination actions to remain in the first viewport.
+Path inputs may scroll their text horizontally while their controls stay within the form width.
 Deterministic absolute fixture paths are used only for presentation, and every capture checks a
 sentinel passphrase to ensure secrets never reach a screenshot.
 

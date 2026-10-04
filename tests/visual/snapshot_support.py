@@ -100,8 +100,10 @@ def assert_svg_snapshot(
 
 
 def _normalize_svg(svg: str) -> str:
+    svg = svg.replace("\r\n", "\n")
     svg = re.sub(r"\bterminal-\d+-([\w-]+)", r"terminal-\1", svg)
-    return svg.replace("\r\n", "\n").rstrip() + "\n"
+    svg = re.sub(r"[ \t]+$", "", svg, flags=re.MULTILINE)
+    return svg.rstrip() + "\n"
 
 
 def _first_mismatch(expected: str, actual: str) -> str:

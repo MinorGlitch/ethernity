@@ -12,16 +12,20 @@ from textual.geometry import Region
 from textual.pilot import Pilot
 from textual.scroll_view import ScrollView
 from textual.widget import Widget
-from textual.widgets import Button, Footer, RadioSet, Static, TabbedContent, TabPane
+from textual.widgets import Button, Collapsible, Footer, Input, Static
 
 from ethernity.app.application import ETHERNITY_DARK_THEME, ETHERNITY_LIGHT_THEME
-from ethernity.app.execution import build_review_decision_facts
+from ethernity.app.execution import build_review_details
 from ethernity.app.screens.help import HelpScreen
 from ethernity.app.screens.review_task import ReviewTaskScreen
 from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.task_view import _REVIEW_TITLES
+from ethernity.app.widgets.form import FormScroll
+from ethernity.app.widgets.settings_form import SettingsForm
+from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.workbench import WorkbenchSteps, WorkbenchSummary
 from ethernity.app.workflow_registry import workflow_definition
-from ethernity.app.workspaces.common import BaseWorkspace
+from ethernity.app.workspaces.workspace_controls import BaseWorkspace
 from tests.visual.production_states import (
     PRODUCTION_SNAPSHOT_CASES,
     RESULT_SNAPSHOT_CASES,
@@ -39,8 +43,14 @@ from tests.visual.snapshot_support import assert_svg_snapshot, capture_svg
 SNAPSHOT_DIR = Path(__file__).with_name("snapshots")
 TARGET_SIZES = ((160, 48), (120, 32), (80, 24))
 REVIEW_SIZE = (120, 32)
+REVIEW_SIZES = ((120, 32), (80, 24))
 LIGHT_THEME_SIZE = (120, 32)
 LIGHT_WORKFLOW_CASE = production_case("restore-ready")
+LIGHT_WORKFLOW_CAPTURES = (
+    (production_case("restore-ready"), (120, 32)),
+    (production_case("restore-ready"), (80, 24)),
+    (production_case("backup-ready"), (80, 24)),
+)
 READY_CASE_BY_TASK = {
     "backup": "backup-ready",
     "restore": "restore-ready",
@@ -78,7 +88,7 @@ def test_production_snapshot_catalog_covers_requested_workflows_and_states() -> 
         case for case in PRODUCTION_SNAPSHOT_CASES if case.key == "replacement-dense"
     )
     assert dense_replacement.expected_ready
-    assert dense_replacement.advanced_focus == "#workspace-replace-signing-key-select"
+    assert dense_replacement.focus_target == "#workspace-replace-signing-key-select"
 
     review_tasks = {
         production_case(review_case.workflow_case_key).task for review_case in REVIEW_SNAPSHOT_CASES
@@ -88,7 +98,7 @@ def test_production_snapshot_catalog_covers_requested_workflows_and_states() -> 
         production_case(review_case.workflow_case_key).expected_ready
         for review_case in REVIEW_SNAPSHOT_CASES
     )
-    assert all(review_case.expected_fact_labels for review_case in REVIEW_SNAPSHOT_CASES)
+    assert all(review_case.expected_detail_labels for review_case in REVIEW_SNAPSHOT_CASES)
 
     result_sizes = {result_case.terminal_size for result_case in RESULT_SNAPSHOT_CASES}
     assert (160, 48) in result_sizes
@@ -180,19 +190,30 @@ def test_settings_snapshot(
     )
 
 
-def test_light_theme_workflow_snapshot(update_tui_snapshots: bool) -> None:
-    width, height = LIGHT_THEME_SIZE
+@pytest.mark.parametrize(
+    ("case", "terminal_size"),
+    LIGHT_WORKFLOW_CAPTURES,
+    ids=lambda item: (
+        item.key if isinstance(item, ProductionSnapshotCase) else f"{item[0]}x{item[1]}"
+    ),
+)
+def test_light_theme_workflow_snapshot(
+    case: ProductionSnapshotCase,
+    terminal_size: tuple[int, int],
+    update_tui_snapshots: bool,
+) -> None:
+    width, height = terminal_size
     svg = capture_svg(
         lambda: ProductionVisualApp(
-            LIGHT_WORKFLOW_CASE,
+            case,
             theme=ETHERNITY_LIGHT_THEME.name,
         ),
-        terminal_size=LIGHT_THEME_SIZE,
-        title=f"Ethernity - light-{LIGHT_WORKFLOW_CASE.key} - {width}x{height}",
+        terminal_size=terminal_size,
+        title=f"Ethernity - light-{case.key} - {width}x{height}",
         run_before=lambda app, pilot: _prepare_workspace_capture(
             cast(ProductionVisualApp, app),
             pilot,
-            LIGHT_THEME_SIZE,
+            terminal_size,
             expected_theme=ETHERNITY_LIGHT_THEME.name,
         ),
     )
@@ -200,7 +221,7 @@ def test_light_theme_workflow_snapshot(update_tui_snapshots: bool) -> None:
     assert VISUAL_SECRET not in svg
     assert_svg_snapshot(
         svg,
-        SNAPSHOT_DIR / f"app-light-{LIGHT_WORKFLOW_CASE.key}-{width}x{height}.svg",
+        SNAPSHOT_DIR / f"app-light-{case.key}-{width}x{height}.svg",
         update=update_tui_snapshots,
     )
 
@@ -344,20 +365,27 @@ def test_command_palette_snapshot(update_tui_snapshots: bool) -> None:
     REVIEW_SNAPSHOT_CASES,
     ids=lambda case: case.key,
 )
+@pytest.mark.parametrize(
+    "terminal_size",
+    REVIEW_SIZES,
+    ids=lambda size: f"{size[0]}x{size[1]}",
+)
 def test_final_review_snapshot(
     review_case: ReviewSnapshotCase,
+    terminal_size: tuple[int, int],
     update_tui_snapshots: bool,
 ) -> None:
-    width, height = REVIEW_SIZE
+    width, height = terminal_size
     workflow_case = production_case(review_case.workflow_case_key)
     svg = capture_svg(
         lambda: ProductionVisualApp(workflow_case),
-        terminal_size=REVIEW_SIZE,
+        terminal_size=terminal_size,
         title=f"Ethernity - {review_case.key} - {width}x{height}",
         run_before=lambda app, pilot: _open_review_overlay(
             cast(ProductionVisualApp, app),
             pilot,
             review_case,
+            terminal_size,
         ),
     )
 
@@ -407,17 +435,25 @@ async def _prepare_workspace_capture(
     expected_theme: str,
 ) -> None:
     case = app.visual_case
+    if case.workbench_step is not None:
+        await app._select_workbench_step(case.workbench_step)
+        await pilot.pause()
     if case.active_step is not None:
         ui_state = app.workflow_ui_states[case.task]
         ui_state.reset_interaction()
         app.refresh_task_view()
         await pilot.pause()
-    if case.advanced_focus is not None:
+    if case.focus_target is not None:
         definition = workflow_definition(case.task)
         assert definition.workspace_id is not None
         workspace = app.query_one(f"#{definition.workspace_id}", BaseWorkspace)
-        assert workspace.reveal_advanced_focus_target(case.advanced_focus)
-        workspace.query_one(case.advanced_focus).focus()
+        app._reveal_focus_target(case.focus_target)
+        workspace.query_one(case.focus_target).focus()
+        await pilot.pause()
+        app.screen.refresh(layout=True)
+        await pilot.pause()
+    if case.files_expanded and app.query_one("#backup-files-panel", Collapsible).collapsed:
+        await pilot.click("#backup-files-panel CollapsibleTitle")
         await pilot.pause()
         app.screen.refresh(layout=True)
         await pilot.pause()
@@ -438,28 +474,29 @@ async def _open_review_overlay(
     app: ProductionVisualApp,
     pilot: Pilot[object],
     review_case: ReviewSnapshotCase,
+    terminal_size: tuple[int, int] = REVIEW_SIZE,
 ) -> None:
     state = app.visual_state
     definition = workflow_definition(app.visual_case.task)
     validation = state.validate_task()
     plan = state.execution_plan()
-    facts = build_review_decision_facts(app.visual_case.task, state, plan)
+    details = build_review_details(app.visual_case.task, state, plan)
     assert validation.ready
-    assert tuple(fact.label for fact in facts) == review_case.expected_fact_labels
+    assert tuple(detail.label for detail in details) == review_case.expected_detail_labels
     screen = ReviewTaskScreen(
         title=_REVIEW_TITLES[app.visual_case.task],
         validation=validation,
         preview=state.preview(),
         plan=plan,
         execute_label=definition.execute_label,
-        decision_facts=facts,
+        review_details=details,
     )
 
     await app.push_screen(screen)
     await pilot.pause()
     app.screen.refresh(layout=True)
     await pilot.pause()
-    _assert_review_geometry(app, review_case, REVIEW_SIZE)
+    _assert_review_geometry(app, review_case, terminal_size)
 
 
 async def _open_result_overlay(
@@ -481,12 +518,22 @@ async def _open_result_overlay(
         recoverable_errors=result_case.recoverable_errors,
         reviewed_plan=reviewed_plan,
         return_section=result_case.return_section,
+        context_actions_enabled=result_case.task != "restore",
     )
     await app.push_screen(screen)
     await pilot.pause()
     app.screen.refresh(layout=True)
     await pilot.pause()
     _assert_result_geometry(app, result_case)
+    # Textual settles an OptionList's virtual width when it is rendered. Exercise
+    # result paths below the fold before checking their horizontal scroll range.
+    for scroll_view in screen.query(ScrollView):
+        if scroll_view.region.width > 0 and scroll_view.region.height > 0:
+            scroll_view.scroll_visible(animate=False)
+            await pilot.pause()
+            assert scroll_view.max_scroll_x == 0, f"{result_case.key}: {scroll_view.id}"
+    screen.query_one("#result-body", VerticalScroll).scroll_home(animate=False)
+    await pilot.pause()
 
 
 async def _open_help_overlay(
@@ -524,31 +571,31 @@ async def _prepare_advanced_settings_capture(
     app: SettingsVisualApp,
     pilot: Pilot[object],
 ) -> None:
-    tabs = app.query_one("#settings-tabs", TabbedContent)
-    tabs.active = "settings-pane-advanced"
+    form = app.query_one(SettingsForm)
+    form.show_group("Advanced")
     await pilot.pause()
     app.screen.refresh(layout=True)
     await pilot.pause()
 
-    assert tabs.active == "settings-pane-advanced"
+    assert form.active_group == "Advanced"
     assert not list(app.query("#settings-advanced-panel"))
     assert app.query_one("#setting-row-qr_error").region.height > 0
     assert app.query_one("#setting-row-qr_chunk_size").region.height > 0
-    assert app.query_one("#settings-pane-advanced", TabPane).max_scroll_x == 0
+    assert app.query_one("#settings-pane-advanced", FormScroll).max_scroll_x == 0
 
 
 async def _prepare_scrolled_advanced_settings_capture(
     app: SettingsVisualApp,
     pilot: Pilot[object],
 ) -> None:
-    tabs = app.query_one("#settings-tabs", TabbedContent)
-    tabs.active = "settings-pane-advanced"
+    form = app.query_one(SettingsForm)
+    form.show_group("Advanced")
     await pilot.pause()
 
-    tab_bar = app.query_one("#settings-tabs Tabs")
-    pane = app.query_one("#settings-pane-advanced", TabPane)
+    heading = app.query_one("#settings-heading")
+    pane = app.query_one("#settings-pane-advanced", FormScroll)
     save_row = app.query_one("#settings-save-row")
-    fixed_regions = (tab_bar.region, save_row.region)
+    fixed_regions = (heading.region, save_row.region)
     assert pane.max_scroll_y > 0
     quiet_row = app.query_one("#setting-row-ui_quiet")
     scroll_target = quiet_row.region.y - pane.region.y
@@ -559,7 +606,7 @@ async def _prepare_scrolled_advanced_settings_capture(
     await pilot.pause()
 
     assert pane.scroll_offset.y == scroll_target
-    assert (tab_bar.region, save_row.region) == fixed_regions
+    assert (heading.region, save_row.region) == fixed_regions
     assert app.query_one("#setting-row-qr_error").region.y < pane.region.y
     assert quiet_row.region.y == pane.region.y
 
@@ -605,6 +652,13 @@ def _assert_production_geometry(
     assert action_bar.region.y + action_bar.region.height <= footer.region.y
     assert _inside(action_bar.region, primary.region)
     assert len(str(primary.label)) <= primary.region.width
+    assert app.query_one("#canvas-title").region.height == 1
+    assert not app.query("#canvas-instruction, .workflow-step-heading")
+    assert app.query_one("#canvas-progress").region.height == (1 if height < 28 else 3)
+    summary = app.query_one(WorkbenchSummary)
+    has_choices = any(row.display for row in summary.query(".workbench-summary-row"))
+    assert summary.display is (width >= 110 and has_choices)
+    assert app.query_one(WorkbenchSteps).region.width > 0
 
     definition = workflow_definition(case.task)
     assert definition.workspace_id is not None
@@ -617,7 +671,15 @@ def _assert_production_geometry(
         if not _overlaps(region, body.region):
             continue
         visible_controls += 1
-        assert _inside(body.region, region), f"{case.key}: {widget.id or type(widget).__name__}"
+        assert body.region.x <= region.x and region.right <= body.region.right
+        if not _inside(body.region, region):
+            # Scroll viewports can bisect an unfocused row at either edge. Focused
+            # controls must be fully visible; clipping outside a scroll view is a bug.
+            assert not widget.has_focus, f"{case.key}: focused control clipped: {widget.id}"
+            assert any(
+                isinstance(parent, (ScrollView, VerticalScroll)) and parent.max_scroll_y > 0
+                for parent in widget.ancestors
+            ), f"{case.key}: {widget.id}"
         if isinstance(widget, Button):
             rendered = "\n".join(
                 widget.render_line(line).text for line in range(widget.region.height)
@@ -627,29 +689,46 @@ def _assert_production_geometry(
     assert visible_controls > 0
     for scroll_view in workspace.query(ScrollView):
         if scroll_view.region.width > 0 and scroll_view.region.height > 0:
-            assert scroll_view.max_scroll_x == 0, f"{case.key}: {scroll_view.id}"
+            if isinstance(scroll_view, Input):
+                assert body.region.x <= scroll_view.region.x
+                assert scroll_view.region.right <= body.region.right
+            else:
+                assert scroll_view.max_scroll_x == 0, f"{case.key}: {scroll_view.id}"
 
     if case.key == "backup-empty":
-        workspace.query_one("#workspace-backup-recovery-method", RadioSet)
+        workspace.query_one("#workspace-backup-recovery-method")
         assert not workspace.query_one("#workspace-backup-clear-files", Button).display
-        assert not workspace.query_one("#backup-files-status").display
+        assert not workspace.query_one("#backup-files-panel").display
         assert not workspace.query_one("#backup-recovery-status").display
         assert not workspace.query_one("#backup-destination-status").display
-        assert primary.disabled
-        assert str(primary.label) == "Review backup"
+        assert not primary.disabled
+        assert str(primary.label) == "Continue >"
 
-    if case.key == "kit-warning" and terminal_size == (80, 24):
-        scroll = workspace.query_one(".task-workspace", VerticalScroll)
-        for selector in (
-            "#kit-output-value",
-            "#workspace-kit-output",
-            "#kit-qr-warning",
-            "#kit-advanced-panel CollapsibleTitle",
-        ):
+    if case.task == "backup" and terminal_size == (80, 24):
+        step = app.query_one(TaskCanvas).active_step
+        selectors = {
+            "files": ("#workspace-backup-files",),
+            "recovery": ("#workspace-backup-recovery-method",),
+            "print": (
+                "#workspace-backup-paper-size",
+                "#workspace-backup-design",
+            ),
+        }[step]
+        for selector in selectors:
             widget = workspace.query_one(selector)
-            assert _inside(scroll.content_region, widget.region), (
-                f"kit-warning first viewport: {selector}"
-            )
+            assert _inside(body.region, widget.region), f"backup first viewport: {selector}"
+
+    if case.files_expanded:
+        assert _inside(body.region, workspace.query_one("#backup-files-list").region)
+        assert _inside(body.region, workspace.query_one("#workspace-backup-clear-files").region)
+
+    if case.key == "kit-warning":
+        # QR warnings belong to their open section and follow the editable value.
+        warning = workspace.query_one("#kit-qr-warning")
+        value = workspace.query_one("#kit-chunk-size-value")
+        assert warning.display
+        assert warning.region.y >= value.region.bottom
+        assert warning.parent is value.parent.parent.parent
 
 
 def _assert_settings_geometry(
@@ -662,9 +741,9 @@ def _assert_settings_geometry(
     viewport = Region(0, 0, width, height)
     workspace = app.query_one("#canvas-settings-workspace")
     settings_form = app.query_one("#settings-form", Vertical)
-    settings_tabs = app.query_one("#settings-tabs", TabbedContent)
-    active_pane = app.query_one(f"#{settings_tabs.active}", TabPane)
-    tab_bar = settings_tabs.query_one("Tabs")
+    settings_form = app.query_one(SettingsForm)
+    active_pane = settings_form.active_pane
+    tab_bar = settings_form.query_one("#settings-heading")
     save_row = app.query_one("#settings-save-row")
     footer = app.query_one(Footer)
 
@@ -682,7 +761,7 @@ def _assert_settings_geometry(
     assert not app.query_one("#task-action-bar").display
 
     for selector in (
-        "#settings-tabs",
+        "#settings-heading",
         "#setting-row-render_style",
         "#setting-row-page_size",
     ):
@@ -701,12 +780,12 @@ def _assert_review_geometry(
 ) -> None:
     body, actions = _assert_modal_geometry(app, "review", terminal_size)
     screen = app.screen
-    labels = list(screen.query(".review-fact-label").results(Static))
-    values = list(screen.query(".review-fact-value").results(Static))
+    labels = list(screen.query(".detail-label").results(Static))
+    values = list(screen.query(".detail-value").results(Static))
 
-    assert tuple(str(label.content) for label in labels) == review_case.expected_fact_labels
+    assert tuple(str(label.content) for label in labels) == review_case.expected_detail_labels
     assert len(values) == len(labels)
-    assert set(review_case.expected_fact_values) <= {str(value.content) for value in values}
+    assert set(review_case.expected_detail_values) <= {str(value.content) for value in values}
     for widget in (*labels, *values):
         assert _inside(body.region, widget.region), (
             f"{review_case.key}: review decision outside first viewport: {widget.content}"
@@ -714,6 +793,10 @@ def _assert_review_geometry(
 
     for button_id in ("review-close", "review-execute"):
         assert _inside(actions.region, screen.query_one(f"#{button_id}", Button).region)
+    for button in screen.query(".review-detail-edit").results(Button):
+        assert _inside(body.region, button.region), f"{review_case.key}: {button.id}"
+        assert str(button.label) in button.render_line(button.content_size.height // 2).text
+    assert screen.focused is screen.query_one("#review-execute", Button)
 
 
 def _assert_result_geometry(
@@ -733,9 +816,16 @@ def _assert_result_geometry(
         button = screen.query_one(f"#{button_id}", Button)
         owner = actions if button_id in {"result-close", "result-return"} else body
         assert _inside(owner.region, button.region), f"{result_case.key}: {button_id}"
+        if button_id in {"result-test-recovery", "result-test-printed-pages"}:
+            assert not button.disabled
 
     if result_case.result.ok:
         assert screen.query_one("#result-outcome")
+        if result_case.task == "backup":
+            overview = tuple(
+                str(detail.content) for detail in screen.query_one("#result-overview").query(Static)
+            )
+            assert overview[-4:] == ("Files", "3 PDFs", "PDF pages", "3")
     else:
         assert screen.query_one("#result-remediation")
         if result_case.reviewed_workflow_case_key is not None:
@@ -747,10 +837,6 @@ def _assert_result_geometry(
             assert str(screen.query_one("#result-output-title", Static).content) == (
                 "Partial files may remain"
             )
-
-    for scroll_view in screen.query(ScrollView):
-        if scroll_view.region.width > 0 and scroll_view.region.height > 0:
-            assert scroll_view.max_scroll_x == 0, f"{result_case.key}: {scroll_view.id}"
 
 
 def _assert_modal_geometry(
@@ -770,6 +856,10 @@ def _assert_modal_geometry(
     assert _inside(modal.region, actions.region)
     assert body.region.bottom <= actions.region.y
     assert body.max_scroll_x == 0
+    footer = screen.query_one("#modal-shortcuts", Footer)
+    assert footer.display
+    assert _inside(viewport, footer.region)
+    assert modal.region.bottom <= footer.region.y
 
     action_buttons = list(actions.query(Button))
     assert action_buttons
@@ -786,11 +876,15 @@ def _expected_snapshot_names() -> tuple[str, ...]:
         for width, height in TARGET_SIZES
     )
     settings_names = tuple(f"app-settings-{width}x{height}.svg" for width, height in TARGET_SIZES)
-    light_names = (
-        f"app-light-{LIGHT_WORKFLOW_CASE.key}-120x32.svg",
-        "app-light-settings-120x32.svg",
+    light_names = tuple(
+        f"app-light-{case.key}-{width}x{height}.svg"
+        for case, (width, height) in LIGHT_WORKFLOW_CAPTURES
+    ) + ("app-light-settings-120x32.svg",)
+    review_names = tuple(
+        f"app-{case.key}-{width}x{height}.svg"
+        for case in REVIEW_SNAPSHOT_CASES
+        for width, height in REVIEW_SIZES
     )
-    review_names = tuple(f"app-{case.key}-120x32.svg" for case in REVIEW_SNAPSHOT_CASES)
     result_names = tuple(
         f"app-{case.key}-{case.terminal_size[0]}x{case.terminal_size[1]}.svg"
         for case in RESULT_SNAPSHOT_CASES

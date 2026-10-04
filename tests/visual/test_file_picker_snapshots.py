@@ -79,7 +79,7 @@ async def _open_file_picker(
 ) -> None:
     screen = FilePickerScreen(
         title="Choose files and folders",
-        prompt="Select the material to include in this backup.",
+        prompt="Select the files to include in this backup.",
         root=PICKER_FIXTURE_ROOT,
         mode=FilePickerMode.OPEN_PATHS,
         selected_paths=case.selected_paths,

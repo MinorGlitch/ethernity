@@ -1,4 +1,4 @@
-"""Reviewed visual contract for the non-functional Restore prototype."""
+"""Reviewed snapshots for the non-functional Restore prototype."""
 
 from __future__ import annotations
 
