@@ -33,3 +33,16 @@ def open_folder(folder: Path) -> None:
     elif sys.platform != "darwin":
         command = ["xdg-open", str(folder)]
     subprocess.Popen(command)  # noqa: S603
+
+
+def open_documents(paths: tuple[Path, ...]) -> None:
+    """Open generated documents in the system's associated viewer."""
+
+    if not paths:
+        return
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", *(str(path) for path in paths)])  # noqa: S603
+        return
+    executable = "explorer" if sys.platform.startswith("win") else "xdg-open"
+    for path in paths:
+        subprocess.Popen([executable, str(path)])  # noqa: S603

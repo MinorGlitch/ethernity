@@ -10,7 +10,7 @@ from textual.screen import Screen
 
 from ethernity.app.app_types import ActiveTask, PathSelectionCallback
 from ethernity.app.input_parsers import parse_setting_value
-from ethernity.app.path_utils import save_picker_parts
+from ethernity.app.path_selection import save_picker_parts
 from ethernity.app.screens.confirm_action import ConfirmActionScreen
 from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.file_picker import FilePickerMode
@@ -19,13 +19,13 @@ from ethernity.tasks.settings import SettingsTaskState
 
 
 class SettingsControllerApp(Protocol):
-    """App surface used by settings editing."""
+    """Application methods and state required by settings editing."""
 
     settings_state: SettingsTaskState
     _last_execution_result: TaskExecutionResult | None
 
     @property
-    def _running_task(self) -> ActiveTask | None: ...
+    def running_task(self) -> ActiveTask | None: ...
 
     @property
     def screen(self) -> Screen[object]: ...
@@ -123,17 +123,6 @@ class SettingsController:
             self._app.notify("Settings section not found.", severity="warning")
             return
         self.save_after_change()
-
-    def reset_selected_group(self) -> None:
-        key = self.selected_key()
-        if key is None:
-            self._app.notify("Focus a setting in the tab first.", severity="warning")
-            return
-        descriptor = self._app.settings_state.descriptor(key)
-        if descriptor is None:
-            self._app.notify("Settings section not found.", severity="warning")
-            return
-        self.reset_group(descriptor.group)
 
     def reset_all(self) -> None:
         if self._settings_write_locked():
@@ -317,7 +306,7 @@ class SettingsController:
             self.save_after_change()
 
     def _settings_write_locked(self, *, restore_saved_state: bool = False) -> bool:
-        if getattr(self._app, "_running_task", None) is None:
+        if self._app.running_task is None:
             return False
 
         if restore_saved_state:

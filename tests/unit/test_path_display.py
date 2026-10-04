@@ -18,10 +18,10 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from ethernity.cli.shared.paths import display_parent_path
+from ethernity.workflows.shared.paths import display_parent_path
 
 
-class TestCliSharedPaths(unittest.TestCase):
+class TestPathDisplay(unittest.TestCase):
     def test_display_parent_path_preserves_posix_string_style(self) -> None:
         self.assertEqual(display_parent_path("/tmp/out/qr_document.pdf"), "/tmp/out")
 

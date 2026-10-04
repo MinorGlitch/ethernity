@@ -8,11 +8,14 @@ from unittest.mock import Mock
 
 import pytest
 from textual.containers import Vertical
-from textual.widgets import Button, Input, Select, Static, TabbedContent, TabPane
+from textual.widgets import Button, Input, Select, Static
 
 from ethernity.app.app_state import apply_settings_defaults, build_initial_task_states
 from ethernity.app.application import EthernityApp
+from ethernity.app.screens.file_picker import FilePickerScreen
 from ethernity.app.settings_controller import SettingsController, SettingsControllerApp
+from ethernity.app.widgets.form import FormScroll
+from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.models import TaskExecutionResult
@@ -33,8 +36,7 @@ def _config_settings(tmp_path: Path) -> SettingsTaskState:
     settings.set_setting_value("backup_signing_key_shard_threshold", 2)
     settings.set_setting_value("backup_signing_key_shard_count", 3)
     settings.set_setting_value("recover_output", str(tmp_path / "recovered"))
-    settings.set_setting_value("extend_base_dir", str(tmp_path / "updates"))
-    settings.set_setting_value("extend_unlock_policy", "reuse-root")
+    settings.set_setting_value("add_files_base_dir", str(tmp_path / "updates"))
     settings.set_setting_value("qr_chunk_size", 1024)
     assert settings.execute().ok
     return SettingsTaskState.from_current(config_path)
@@ -67,8 +69,6 @@ def test_saved_settings_hydrate_all_workflow_effective_defaults(tmp_path: Path) 
     assert app.restore_state.output_path == tmp_path / "recovered"
     assert app.restore_state.to_recovery_request().output_path == tmp_path / "recovered"
     assert app.add_files_state.base_dir == tmp_path / "updates"
-    assert app.add_files_state.unlock_policy == "reuse-root"
-    assert app.add_files_state.to_extension_request().unlock_policy == "reuse-root"
 
     for state in (
         app.backup_state,
@@ -179,15 +179,18 @@ def test_settings_numeric_input_saves_when_focus_leaves_and_reverts_invalid_draf
         app = EthernityApp(settings_state=settings)
         async with app.run_test(size=(120, 72)) as pilot:
             await pilot.press("7")
-            tabs = app.query_one("#settings-tabs", TabbedContent)
-            tabs.active = "settings-pane-advanced"
+            form = app.query_one(SettingsForm)
+            form.show_group("Advanced")
             await pilot.pause()
 
             field = app.query_one("#setting-control-qr_chunk_size", Input)
             field.focus()
             await pilot.pause()
             field.value = "2048"
-            app.query_one("#settings-reset-all", Button).focus()
+            app.refresh_task_view()
+            await pilot.pause()
+            assert field.value == "2048"
+            app.query_one("#settings-reset-section", Button).focus()
             for _ in range(40):
                 if app.settings_state.setting_value("qr_chunk_size") == 2048:
                     break
@@ -205,7 +208,10 @@ def test_settings_numeric_input_saves_when_focus_leaves_and_reverts_invalid_draf
             field.focus()
             await pilot.pause()
             field.value = "0"
-            app.query_one("#settings-reset-all", Button).focus()
+            app.refresh_task_view()
+            await pilot.pause()
+            assert field.value == "0"
+            app.query_one("#settings-reset-section", Button).focus()
             for _ in range(40):
                 if field.value == "2048" and app.settings_state.save_status == "Not saved":
                     break
@@ -221,52 +227,74 @@ def test_settings_numeric_input_saves_when_focus_leaves_and_reverts_invalid_draf
                 == 2048
             )
 
-            chunk_min = app.query_one("#setting-control-extension_chunk_min", Input)
-            chunk_min.focus()
-            await pilot.pause()
-            chunk_min.value = "32768"
-            app.query_one("#settings-reset-all", Button).focus()
-            for _ in range(40):
-                if app.settings_state.setting_value("extension_chunk_min") == 32768:
-                    break
-                await pilot.pause(0.05)
-            else:
-                raise AssertionError("Timed out waiting for extension chunk minimum update.")
+    asyncio.run(run())
 
-            assert app.settings_state.setting_value("extension_chunk_min") == 32768
-            assert app.settings_state.save_status == "Not saved"
-            assert "minimum <= target <= maximum" in str(
-                app.query_one("#setting-help-extension_chunk_target", Static).content
+
+def test_settings_path_picker_saves_and_clears_the_selected_setting(tmp_path: Path) -> None:
+    async def run() -> None:
+        settings = _config_settings(tmp_path)
+        app = EthernityApp(settings_state=settings)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.press("7")
+            form = app.query_one(SettingsForm)
+            form.show_group("Backup defaults")
+            await pilot.pause()
+
+            control = app.query_one("#setting-control-backup_output_dir", Button)
+            control.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            picker = app.screen
+            assert isinstance(picker, FilePickerScreen)
+            new_output = str(tmp_path / "new output")
+            picker.query_one("#file-picker-name", Input).value = "new output"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.screen is app.screen_stack[0]
+            assert app.settings_state.setting_value("backup_output_dir") == new_output
+            saved = SettingsTaskState.from_current(settings.config_path)
+            assert saved.setting_value("backup_output_dir") == new_output
+
+            control.focus()
+            await pilot.pause()
+            assert app.settings_controller.selected_key() == "backup_output_dir"
+            app.settings_controller.clear_selected()
+            await pilot.pause()
+
+            assert app.settings_state.setting_value("backup_output_dir") is None
+            assert str(app.query_one("#setting-value-backup_output_dir", Static).content) == (
+                app.settings_state.display_value("backup_output_dir")
             )
             assert (
                 SettingsTaskState.from_current(settings.config_path).setting_value(
-                    "extension_chunk_min"
+                    "backup_output_dir"
                 )
-                == 4096
+                is None
             )
 
     asyncio.run(run())
 
 
-def test_settings_tabs_and_save_status_stay_fixed_while_active_pane_scrolls() -> None:
+def test_settings_header_and_save_status_stay_fixed_while_active_pane_scrolls() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.press("7")
-            tabs = app.query_one("#settings-tabs", TabbedContent)
-            tabs.active = "settings-pane-advanced"
+            form = app.query_one(SettingsForm)
+            form.show_group("Advanced")
             await pilot.pause()
 
             form = app.query_one("#settings-form", Vertical)
-            tab_bar = app.query_one("#settings-tabs Tabs")
-            pane = app.query_one("#settings-pane-advanced", TabPane)
+            heading = app.query_one("#settings-heading")
+            pane = app.query_one("#settings-pane-advanced", FormScroll)
             save_row = app.query_one("#settings-save-row")
             save_status = app.query_one("#settings-save-status", Static)
-            fixed_regions = (tab_bar.region, save_row.region)
+            fixed_regions = (heading.region, save_row.region)
 
             assert pane.max_scroll_y > 0
-            assert tab_bar.region.y == form.region.y
-            assert tab_bar.region.bottom <= pane.region.y
+            assert heading.region.y >= form.region.y
+            assert heading.region.bottom <= pane.region.y
             assert pane.region.bottom <= save_row.region.y
             assert str(save_status.content) == "Saved"
             assert save_status.region.x > form.region.x + form.region.width // 2
@@ -275,7 +303,7 @@ def test_settings_tabs_and_save_status_stay_fixed_while_active_pane_scrolls() ->
             await pilot.pause()
 
             assert pane.scroll_offset.y == pane.max_scroll_y
-            assert (tab_bar.region, save_row.region) == fixed_regions
+            assert (heading.region, save_row.region) == fixed_regions
             assert app.query_one("#setting-row-qr_error").region.y < pane.region.y
 
     asyncio.run(run())
@@ -292,6 +320,7 @@ def test_settings_reset_never_reports_success_when_persistence_fails(
     app = SimpleNamespace(
         settings_state=settings,
         _last_execution_result=None,
+        running_task=None,
         notify=lambda message, **kwargs: notices.append((message, kwargs.get("severity", ""))),
         refresh_task_view=Mock(),
         _rehydrate_workflow_defaults=Mock(),
@@ -300,7 +329,7 @@ def test_settings_reset_never_reports_success_when_persistence_fails(
         monkeypatch.setattr(
             SettingsTaskState,
             "execute",
-            lambda _self: TaskExecutionResult(ok=False, message="disk rejected write"),
+            lambda _self: TaskExecutionResult(status="failed", message="disk rejected write"),
         )
     else:
 
@@ -327,15 +356,15 @@ def test_failed_settings_save_retries_when_text_is_resubmitted_unchanged(
     app = SimpleNamespace(
         settings_state=settings,
         _last_execution_result=None,
-        _running_task=None,
+        running_task=None,
         notify=lambda message, **kwargs: notices.append((message, kwargs.get("severity", ""))),
         refresh_task_view=Mock(),
         _rehydrate_workflow_defaults=Mock(),
     )
     outcomes = iter(
         (
-            TaskExecutionResult(ok=False, message="disk rejected write"),
-            TaskExecutionResult(ok=True, message="Settings saved."),
+            TaskExecutionResult(status="failed", message="disk rejected write"),
+            TaskExecutionResult(status="succeeded", message="Settings saved."),
         )
     )
     calls: list[None] = []

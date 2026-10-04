@@ -1,35 +1,24 @@
 from __future__ import annotations
 
 from ethernity.app.app_context import EthernityAppContext
-from ethernity.tasks.add_files import AddFilesTaskState
-from ethernity.tasks.backup import BackupTaskState
-from ethernity.tasks.kit import PrintKitTaskState
-from ethernity.tasks.rebuild import RebuildTaskState
-from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
-from ethernity.tasks.restore import RestoreTaskState
-from ethernity.tasks.settings import SettingsTaskState
+from ethernity.app.app_state import fresh_task_state
+from ethernity.app.workflow_registry import workflow_definition
 
 
 class TaskStateMutationActions(EthernityAppContext):
     def action_close_navigation(self) -> None:
-        if self._nav_drawer_open:
-            self._close_nav_drawer()
+        if self._nav_menu_open:
+            self._close_nav_menu()
 
     def action_clear_task(self) -> None:
-        if self.active_task == "backup":
-            self.backup_state = BackupTaskState()
-        elif self.active_task == "restore":
-            self.restore_state = RestoreTaskState()
-        elif self.active_task == "add_files":
-            self.add_files_state = AddFilesTaskState()
-        elif self.active_task == "rebuild":
-            self.rebuild_state = RebuildTaskState()
-        elif self.active_task == "replace_recovery_docs":
-            self.replace_recovery_docs_state = ReplaceRecoveryDocsTaskState()
-        elif self.active_task == "kit":
-            self.kit_state = PrintKitTaskState()
-        elif self.active_task == "settings":
-            self.settings_state = SettingsTaskState.from_current(self.settings_state.config_path)
+        workflow = workflow_definition(self.active_task)
+        state = fresh_task_state(
+            self.active_task,
+            settings_config_path=(
+                self.settings_state.config_path if self.active_task == "settings" else None
+            ),
+        )
+        setattr(self, workflow.state_attribute, state)
         if self.active_task != "settings":
             self._rehydrate_workflow_defaults()
         self._last_execution_result = None

@@ -9,11 +9,14 @@ from ethernity.app.input_parsers import (
     parse_update_index,
 )
 from ethernity.app.mutations.paths import TaskPathMutationActions
-from ethernity.app.path_utils import split_file_dir_paths
+from ethernity.app.path_selection import split_file_dir_paths
+from ethernity.app.workflow_registry import workflow_definition
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.page_sizes import resolve_paper_size
-from ethernity.tasks.quorum import MAX_SHARDS
+from ethernity.tasks.page_layout import with_print_layout
+from ethernity.tasks.recovery_inputs import has_recovery_source
 
-QUORUM_INPUT_HELP = f"Use required/total sheets from 1 to {MAX_SHARDS}, such as 2/3."
+QUORUM_INPUT_HELP = f"Use required/total sheets from 1 to {MAX_SHARES}, such as 2/3."
 
 
 class TaskMutationActions(TaskPathMutationActions):
@@ -61,24 +64,6 @@ class TaskMutationActions(TaskPathMutationActions):
             if folder not in self.add_files_state.input_dirs:
                 self.add_files_state.input_dirs.append(folder)
             self.refresh_task_view()
-
-    def _apply_add_files_sources(self, value: str | None) -> None:
-        if value is not None:
-            self.add_files_state.source_paths = parse_paths(value)
-            if self.add_files_state.source_paths:
-                self.add_files_state.backup_folder = None
-            self.add_files_state.allow_stale_head = False
-            self.add_files_state.expected_head_doc_hash = None
-            self._source_changed("add_files")
-
-    def _apply_add_files_sources_picked(self, paths: tuple[Path, ...] | None) -> None:
-        if paths is not None:
-            self.add_files_state.source_paths = list(paths)
-            if self.add_files_state.source_paths:
-                self.add_files_state.backup_folder = None
-            self.add_files_state.allow_stale_head = False
-            self.add_files_state.expected_head_doc_hash = None
-            self._source_changed("add_files")
 
     def _apply_add_files_passphrase(self, value: str | None) -> None:
         if value is None:
@@ -157,7 +142,7 @@ class TaskMutationActions(TaskPathMutationActions):
             self.backup_state.shard_threshold = threshold
         else:
             self.notify(
-                f"Use recommended, single, or required/total sheets from 1 to {MAX_SHARDS}.",
+                f"Use recommended, single, or required/total sheets from 1 to {MAX_SHARES}.",
                 severity="error",
             )
             return
@@ -175,6 +160,31 @@ class TaskMutationActions(TaskPathMutationActions):
         self.backup_state.signing_key_shard_threshold = None
         self.backup_state.signing_key_shard_count = count
         self.backup_state.signing_key_shard_threshold = threshold
+        self.refresh_task_view()
+
+    def _apply_add_files_recovery_sheets(self, value: str | None) -> None:
+        if value is None:
+            return
+        normalized = value.strip().lower()
+        if normalized in {"", "off", "none", "no"}:
+            self.add_files_state.create_recovery_sheets = False
+        elif normalized in {"recommended", "default"}:
+            self.add_files_state.recovery_threshold = 1
+            self.add_files_state.recovery_sheet_count = 3
+            self.add_files_state.recovery_threshold = 2
+            self.add_files_state.create_recovery_sheets = True
+        elif counts := parse_threshold_count(normalized):
+            threshold, count = counts
+            self.add_files_state.recovery_threshold = 1
+            self.add_files_state.recovery_sheet_count = count
+            self.add_files_state.recovery_threshold = threshold
+            self.add_files_state.create_recovery_sheets = True
+        else:
+            self.notify(
+                f"Use off, recommended, or required/total sheets from 1 to {MAX_SHARES}.",
+                severity="error",
+            )
+            return
         self.refresh_task_view()
 
     def _apply_qr_chunk_size(self, value: str | None) -> None:
@@ -207,55 +217,6 @@ class TaskMutationActions(TaskPathMutationActions):
         elif self.active_task == "kit":
             self.kit_state.chunk_size = value
 
-    def _apply_add_files_recovery_documents(self, value: str | None) -> None:
-        if value is None:
-            return
-        normalized = value.strip().lower()
-        if not normalized or normalized in {"default", "defaults"}:
-            self.add_files_state.recovery_document_threshold = None
-            self.add_files_state.recovery_document_count = None
-        elif normalized in {"original", "reuse-root", "0"}:
-            self.add_files_state.unlock_policy = "reuse-root"
-            self.add_files_state.recovery_document_threshold = None
-            self.add_files_state.recovery_document_count = 0
-        elif counts := parse_threshold_count(normalized):
-            threshold, count = counts
-            self.add_files_state.unlock_policy = "self-contained"
-            self.add_files_state.recovery_document_threshold = None
-            self.add_files_state.recovery_document_count = count
-            self.add_files_state.recovery_document_threshold = threshold
-        else:
-            self.notify(
-                f"Use default, original, or required/total sheets from 1 to {MAX_SHARDS}.",
-                severity="error",
-            )
-            return
-        self.refresh_task_view()
-
-    def _apply_add_files_signing_key_shards(self, value: str | None) -> None:
-        if value is None:
-            return
-        normalized = value.strip().lower()
-        if not normalized or normalized in {"default", "defaults"}:
-            self.add_files_state.signing_key_mode = None
-            self.add_files_state.signing_key_recovery_threshold = None
-            self.add_files_state.signing_key_recovery_count = None
-            self.refresh_task_view()
-            return
-        counts = parse_threshold_count(normalized)
-        if counts is None:
-            self.notify(
-                f"Use default or required/total sheets from 1 to {MAX_SHARDS}.",
-                severity="error",
-            )
-            return
-        threshold, count = counts
-        self.add_files_state.signing_key_mode = "sharded"
-        self.add_files_state.signing_key_recovery_threshold = None
-        self.add_files_state.signing_key_recovery_count = count
-        self.add_files_state.signing_key_recovery_threshold = threshold
-        self.refresh_task_view()
-
     def _apply_replace_recovery_set(self, value: str | None) -> None:
         if value is None:
             self.refresh_task_view()
@@ -279,7 +240,7 @@ class TaskMutationActions(TaskPathMutationActions):
             self.notify(QUORUM_INPUT_HELP, severity="error")
             return
         threshold, count = counts
-        self.replace_recovery_docs_state.mint_signing_key_recovery = True
+        self.replace_recovery_docs_state.create_signing_key_recovery = True
         self.replace_recovery_docs_state.signing_key_recovery_threshold = None
         self.replace_recovery_docs_state.signing_key_recovery_count = None
         self.replace_recovery_docs_state.signing_key_recovery_count = count
@@ -303,7 +264,7 @@ class TaskMutationActions(TaskPathMutationActions):
         if count < 1:
             self.notify("Use a positive whole number.", severity="error")
             return
-        self.replace_recovery_docs_state.mint_passphrase_recovery = True
+        self.replace_recovery_docs_state.create_passphrase_recovery = True
         self.replace_recovery_docs_state.passphrase_replacement_count = count
         self.refresh_task_view()
 
@@ -323,7 +284,7 @@ class TaskMutationActions(TaskPathMutationActions):
         if count < 1:
             self.notify("Use a positive whole number.", severity="error")
             return
-        self.replace_recovery_docs_state.mint_signing_key_recovery = True
+        self.replace_recovery_docs_state.create_signing_key_recovery = True
         self.replace_recovery_docs_state.signing_key_recovery_threshold = None
         self.replace_recovery_docs_state.signing_key_recovery_count = None
         self.replace_recovery_docs_state.signing_key_replacement_count = count
@@ -334,18 +295,9 @@ class TaskMutationActions(TaskPathMutationActions):
             return
         paper_size, design = parse_layout(value, fallback=self._current_layout())
         paper = resolve_paper_size(paper_size).name
-        if self.active_task == "backup":
-            self.backup_state.paper_size = paper
-            self.backup_state.design = design
-        elif self.active_task == "rebuild":
-            self.rebuild_state.paper_size = paper
-            self.rebuild_state.design = design
-        elif self.active_task == "replace_recovery_docs":
-            self.replace_recovery_docs_state.paper_size = paper
-            self.replace_recovery_docs_state.design = design
-        elif self.active_task == "kit":
-            self.kit_state.paper_size = paper
-            self.kit_state.design = design
+        if self.active_task in {"backup", "rebuild", "replace_recovery_docs", "kit"}:
+            state = with_print_layout(self._current_state(), paper_size=paper, design=design)
+            setattr(self, workflow_definition(self.active_task).state_attribute, state)
         self.refresh_task_view()
 
     def _apply_restore_target(self, value: str | None) -> None:
@@ -403,12 +355,14 @@ class TaskMutationActions(TaskPathMutationActions):
         self.refresh_task_view()
 
     def _confirm_source_freshness(self) -> None:
-        if self.active_task == "add_files" and self.add_files_state.source_paths:
+        if self.active_task == "add_files" and has_recovery_source(self.add_files_state):
             self.add_files_state.allow_stale_head = True
             self.add_files_state.expected_head_doc_hash = None
             self.refresh_task_view()
-            self.notify("Current backup source accepted for this update.")
-        elif self.active_task == "rebuild" and self.rebuild_state.source_paths:
+            self.notify("Newest loaded version accepted for this update.")
+        elif self.active_task == "rebuild" and (
+            self.rebuild_state.backup_folder is not None or self.rebuild_state.source_paths
+        ):
             self.rebuild_state.allow_stale_head = True
             self.rebuild_state.expected_head_doc_hash = None
             self.refresh_task_view()
@@ -431,6 +385,11 @@ class TaskMutationActions(TaskPathMutationActions):
         self.refresh_task_view()
 
     def _current_layout(self) -> tuple[str, str]:
+        if self.active_task == "add_files":
+            return (
+                self.add_files_state.paper_size or self.settings_state.paper_size,
+                self.add_files_state.design or self.settings_state.design,
+            )
         if self.active_task == "rebuild":
             return self.rebuild_state.paper_size, self.rebuild_state.design
         if self.active_task == "replace_recovery_docs":

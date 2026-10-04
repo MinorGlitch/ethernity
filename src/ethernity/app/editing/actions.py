@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Literal, cast
 
 from ethernity.app.editing.specific import TaskSpecificEditingActions
+from ethernity.app.workflow_registry import workflow_definition
 from ethernity.page_sizes import resolve_paper_size
-from ethernity.tasks.add_files import AddFilesSigningKeyMode, AddFilesUnlockPolicy
+from ethernity.tasks.page_layout import with_print_layout
 
 
 class TaskEditingActions(TaskSpecificEditingActions):
@@ -12,7 +13,7 @@ class TaskEditingActions(TaskSpecificEditingActions):
 
     async def _edit_section(self, section_key: str) -> None:
         if self.active_task == "add_files" and section_key == "source":
-            await self._edit_add_files_current_source()
+            await self._edit_add_files_source()
         elif section_key in {"files", "source", "design"}:
             await self.action_edit_primary()
         elif section_key in {"unlock", "paper"}:
@@ -77,14 +78,20 @@ class TaskEditingActions(TaskSpecificEditingActions):
             "workspace-kit-output",
         }:
             await self.action_edit_output()
-        elif button_id == "workspace-add-files-backup":
-            await self._edit_add_files_backup_folder()
+        elif button_id == "workspace-add-files-source":
+            await self._edit_add_files_source()
+        elif button_id == "workspace-add-files-recovery-text":
+            await self._edit_add_files_recovery_text_source()
+        elif button_id == "workspace-add-files-payloads":
+            await self._edit_add_files_payloads_source()
         elif button_id == "workspace-rebuild-backup":
             await self._edit_rebuild_backup_folder()
         elif button_id == "workspace-rebuild-scans":
             await self._edit_rebuild_scans()
         elif button_id == "workspace-backup-passphrase":
             await self.action_edit_passphrase()
+        elif button_id == "workspace-backup-recovery-quorum":
+            await self._edit_recovery_section()
         elif button_id == "workspace-backup-base-dir":
             await self._edit_backup_base_dir()
         elif button_id in {
@@ -113,17 +120,17 @@ class TaskEditingActions(TaskSpecificEditingActions):
             await self._edit_restore_recovery_text_source()
         elif button_id == "workspace-restore-payloads":
             await self._edit_restore_payloads_source()
-        elif button_id == "workspace-add-files-source":
-            await self._edit_add_files_current_source()
         elif button_id == "workspace-add-files-base-dir":
             await self._edit_add_files_base_dir()
+        elif button_id == "workspace-add-files-recovery-sheets":
+            await self._edit_add_files_recovery_sheets()
         elif button_id == "workspace-replace-recovery-text":
             await self._edit_replace_recovery_text_source()
         elif button_id == "workspace-replace-payloads":
             await self._edit_replace_payloads_source()
         elif button_id in {
-            "workspace-add-files-freshness",
             "workspace-rebuild-freshness",
+            "workspace-add-files-freshness",
             "workspace-replace-freshness",
         }:
             self._confirm_source_freshness()
@@ -149,6 +156,8 @@ class TaskEditingActions(TaskSpecificEditingActions):
     async def _apply_workspace_choice(self, choice_list_id: str, choice_key: str) -> None:
         if choice_list_id == "workspace-backup-recovery-method":
             if choice_key in {"recommended_shards", "single_phrase", "custom_shards"}:
+                if self.backup_state.recovery_method == choice_key:
+                    return
                 self.backup_state.recovery_method = cast(
                     Literal["recommended_shards", "single_phrase", "custom_shards"],
                     choice_key,
@@ -188,42 +197,48 @@ class TaskEditingActions(TaskSpecificEditingActions):
                 await self._edit_recovery_section()
 
     async def _apply_workspace_select(self, select_id: str, value: str) -> None:
-        if select_id.endswith("-paper"):
+        if select_id == "workspace-backup-recovery-select":
+            await self._apply_workspace_choice("workspace-backup-recovery-method", value)
+            return
+        if select_id.endswith("-paper") or select_id == "workspace-backup-paper-size":
             paper = resolve_paper_size(value).name
-            if self.active_task == "backup":
-                self.backup_state.paper_size = paper
-            elif self.active_task == "add_files":
-                self.add_files_state.paper_size = paper
-            elif self.active_task == "rebuild":
-                self.rebuild_state.paper_size = paper
-            elif self.active_task == "replace_recovery_docs":
-                self.replace_recovery_docs_state.paper_size = paper
-            elif self.active_task == "kit":
-                self.kit_state.paper_size = paper
+            current_paper, design = self._current_layout()
+            if paper == current_paper:
+                return
+            current = self._current_state()
+            state = with_print_layout(
+                current, paper_size=paper, design=getattr(current, "design", design)
+            )
+            setattr(self, workflow_definition(self.active_task).state_attribute, state)
         elif select_id.endswith("-design"):
-            if self.active_task == "backup":
-                self.backup_state.design = value
-            elif self.active_task == "add_files":
-                self.add_files_state.design = value
-            elif self.active_task == "rebuild":
-                self.rebuild_state.design = value
-            elif self.active_task == "replace_recovery_docs":
-                self.replace_recovery_docs_state.design = value
-            elif self.active_task == "kit":
-                self.kit_state.design = value
+            paper, current_design = self._current_layout()
+            if value == current_design:
+                return
+            current = self._current_state()
+            state = with_print_layout(
+                current, paper_size=getattr(current, "paper_size", paper), design=value
+            )
+            setattr(self, workflow_definition(self.active_task).state_attribute, state)
         elif select_id == "workspace-kit-variant-select":
+            if value == self.kit_state.variant:
+                return
             self.kit_state.variant = cast(Literal["lean", "scanner"], value)
         elif select_id == "workspace-backup-signing-key-mode":
+            if value == (self.backup_state.signing_key_mode or "embedded"):
+                return
             self.backup_state.signing_key_mode = cast(Literal["embedded", "sharded"], value)
             if value == "embedded":
                 self.backup_state.signing_key_shard_threshold = None
                 self.backup_state.signing_key_shard_count = None
         elif select_id == "workspace-backup-passphrase-words":
+            words = None if value == "default" else int(value)
+            if words == self.backup_state.passphrase_words:
+                return
             if value == "default":
                 self.backup_state.passphrase_words = None
             else:
                 self.backup_state.passphrase = None
-                self.backup_state.passphrase_words = int(value)
+                self.backup_state.passphrase_words = words
         elif select_id == "workspace-restore-auth-policy":
             allow_unsigned = value == "allow-unsigned"
             if self.restore_state.allow_unsigned == allow_unsigned:
@@ -231,15 +246,15 @@ class TaskEditingActions(TaskSpecificEditingActions):
             self.restore_state.allow_unsigned = allow_unsigned
             self._source_changed("restore")
             return
-        elif select_id == "workspace-restore-auth-material":
-            current_auth_material = (
+        elif select_id == "workspace-restore-signature-source":
+            current_signature_source = (
                 "text"
                 if self.restore_state.auth_text_file is not None
                 else "payloads"
                 if self.restore_state.auth_payloads_file is not None
                 else "auto"
             )
-            if value == current_auth_material:
+            if value == current_signature_source:
                 return
             if value == "auto":
                 self.restore_state.auth_text_file = None
@@ -250,22 +265,34 @@ class TaskEditingActions(TaskSpecificEditingActions):
                 await self._edit_restore_auth_text_source()
             elif value == "payloads":
                 await self._edit_restore_auth_payloads_source()
-        elif select_id == "workspace-restore-resource-policy":
-            enabled = value == "resource-intensive-compatibility"
-            if self.restore_state.resource_intensive_compatibility_recovery == enabled:
+        elif select_id == "workspace-add-files-signature-source":
+            current_signature_source = (
+                "text"
+                if self.add_files_state.auth_text_file is not None
+                else "payloads"
+                if self.add_files_state.auth_payloads_file is not None
+                else "auto"
+            )
+            if value == current_signature_source:
                 return
-            self.restore_state.resource_intensive_compatibility_recovery = enabled
-            self._source_changed("restore")
-            return
-        elif select_id == "workspace-rebuild-auth-material":
-            current_auth_material = (
+            if value == "auto":
+                self.add_files_state.auth_text_file = None
+                self.add_files_state.auth_payloads_file = None
+                self._source_changed("add_files")
+                return
+            elif value == "text":
+                await self._edit_add_files_auth_text_source()
+            elif value == "payloads":
+                await self._edit_add_files_auth_payloads_source()
+        elif select_id == "workspace-rebuild-signature-source":
+            current_signature_source = (
                 "text"
                 if self.rebuild_state.auth_text_file is not None
                 else "payloads"
                 if self.rebuild_state.auth_payloads_file is not None
                 else "auto"
             )
-            if value == current_auth_material:
+            if value == current_signature_source:
                 return
             if value == "auto":
                 self.rebuild_state.auth_text_file = None
@@ -276,60 +303,10 @@ class TaskEditingActions(TaskSpecificEditingActions):
                 await self._edit_rebuild_auth_text_source()
             elif value == "payloads":
                 await self._edit_rebuild_auth_payloads_source()
-        elif select_id == "workspace-add-files-unlock-policy":
-            self.add_files_state.unlock_policy = (
-                None if value == "default" else cast(AddFilesUnlockPolicy, value)
-            )
-            if value == "reuse-root":
-                self.add_files_state.recovery_document_threshold = None
-                self.add_files_state.recovery_document_count = None
-        elif select_id == "workspace-add-files-recovery-docs":
-            current_recovery = (
-                "original"
-                if self.add_files_state.recovery_document_count == 0
-                else "custom"
-                if self.add_files_state.recovery_document_threshold is not None
-                else "default"
-            )
-            if value == current_recovery:
-                return
-            if value == "default":
-                self.add_files_state.recovery_document_threshold = None
-                self.add_files_state.recovery_document_count = None
-            elif value == "original":
-                self.add_files_state.unlock_policy = "reuse-root"
-                self.add_files_state.recovery_document_threshold = None
-                self.add_files_state.recovery_document_count = 0
-            elif value == "custom":
-                await self._edit_add_files_recovery_documents()
-        elif select_id == "workspace-add-files-signing-key-mode":
-            current_signing = (
-                "default"
-                if self.add_files_state.signing_key_mode is None
-                else "custom"
-                if self.add_files_state.signing_key_recovery_threshold is not None
-                else self.add_files_state.signing_key_mode
-            )
-            if value == current_signing:
-                return
-            if value == "default":
-                self.add_files_state.signing_key_mode = None
-                self.add_files_state.signing_key_recovery_threshold = None
-                self.add_files_state.signing_key_recovery_count = None
-            elif value == "not-stored":
-                self.add_files_state.signing_key_mode = "not-stored"
-                self.add_files_state.signing_key_recovery_threshold = None
-                self.add_files_state.signing_key_recovery_count = None
-            elif value == "sharded":
-                self.add_files_state.signing_key_mode = cast(AddFilesSigningKeyMode, value)
-                self.add_files_state.signing_key_recovery_threshold = None
-                self.add_files_state.signing_key_recovery_count = None
-            elif value == "custom":
-                await self._edit_add_files_signing_key_shards()
         elif select_id == "workspace-replace-signing-key-select":
             current_signing = (
                 "off"
-                if not self.replace_recovery_docs_state.mint_signing_key_recovery
+                if not self.replace_recovery_docs_state.create_signing_key_recovery
                 else "replace"
                 if self.replace_recovery_docs_state.signing_key_replacement_count is not None
                 else "custom"
@@ -339,12 +316,12 @@ class TaskEditingActions(TaskSpecificEditingActions):
             if value == current_signing:
                 return
             if value == "off":
-                self.replace_recovery_docs_state.mint_signing_key_recovery = False
+                self.replace_recovery_docs_state.create_signing_key_recovery = False
                 self.replace_recovery_docs_state.signing_key_recovery_threshold = None
                 self.replace_recovery_docs_state.signing_key_recovery_count = None
                 self.replace_recovery_docs_state.signing_key_replacement_count = None
             elif value == "same":
-                self.replace_recovery_docs_state.mint_signing_key_recovery = True
+                self.replace_recovery_docs_state.create_signing_key_recovery = True
                 self.replace_recovery_docs_state.signing_key_recovery_threshold = None
                 self.replace_recovery_docs_state.signing_key_recovery_count = None
                 self.replace_recovery_docs_state.signing_key_replacement_count = None
@@ -355,7 +332,7 @@ class TaskEditingActions(TaskSpecificEditingActions):
         elif select_id == "workspace-replace-passphrase-select":
             current_passphrase = (
                 "off"
-                if not self.replace_recovery_docs_state.mint_passphrase_recovery
+                if not self.replace_recovery_docs_state.create_passphrase_recovery
                 else "replace"
                 if self.replace_recovery_docs_state.passphrase_replacement_count is not None
                 else "create"
@@ -363,10 +340,10 @@ class TaskEditingActions(TaskSpecificEditingActions):
             if value == current_passphrase:
                 return
             if value == "off":
-                self.replace_recovery_docs_state.mint_passphrase_recovery = False
+                self.replace_recovery_docs_state.create_passphrase_recovery = False
                 self.replace_recovery_docs_state.passphrase_replacement_count = None
             elif value == "create":
-                self.replace_recovery_docs_state.mint_passphrase_recovery = True
+                self.replace_recovery_docs_state.create_passphrase_recovery = True
                 self.replace_recovery_docs_state.passphrase_replacement_count = None
             elif value == "replace":
                 await self._edit_replace_passphrase_replacement_count()

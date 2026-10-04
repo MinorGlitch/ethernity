@@ -5,7 +5,7 @@ from pathlib import Path
 from ethernity.app.app_types import ActiveTask
 from ethernity.app.input_parsers import parse_paths
 from ethernity.app.mutations.state import TaskStateMutationActions
-from ethernity.app.path_utils import split_file_dir_paths
+from ethernity.app.path_selection import split_file_dir_paths
 
 
 class TaskPathMutationActions(TaskStateMutationActions):
@@ -17,6 +17,7 @@ class TaskPathMutationActions(TaskStateMutationActions):
 
     def _apply_backup_files(self, value: str | None) -> None:
         if value is not None:
+            self.backup_estimate_controller.invalidate()
             self.backup_state.input_paths, self.backup_state.input_dirs = split_file_dir_paths(
                 parse_paths(value)
             )
@@ -24,6 +25,7 @@ class TaskPathMutationActions(TaskStateMutationActions):
 
     def _apply_backup_files_picked(self, paths: tuple[Path, ...] | None) -> None:
         if paths is not None:
+            self.backup_estimate_controller.invalidate()
             self.backup_state.input_paths, self.backup_state.input_dirs = split_file_dir_paths(
                 paths
             )
@@ -107,29 +109,55 @@ class TaskPathMutationActions(TaskStateMutationActions):
             self.restore_state.output_path = paths[0] if paths else None
             self.refresh_task_view()
 
-    def _apply_add_files_backup(self, value: str | None) -> None:
+    def _apply_add_files_sources(self, value: str | None) -> None:
         if value is not None:
-            self.add_files_state.backup_folder = Path(value) if value else None
-            if self.add_files_state.backup_folder is not None:
-                self.add_files_state.source_paths = []
-                self.add_files_state.loose_output_folder = None
-                self.add_files_state.allow_stale_head = False
-                self.add_files_state.expected_head_doc_hash = None
+            self._apply_add_files_sources_picked(tuple(parse_paths(value)))
+
+    def _apply_add_files_sources_picked(self, paths: tuple[Path, ...] | None) -> None:
+        if paths is not None:
+            self.add_files_state.source_paths = list(paths)
+            self.add_files_state.recovery_text = None
+            self.add_files_state.recovery_text_file = None
+            self.add_files_state.payloads_file = None
+            self.add_files_state.expected_head_doc_hash = None
+            self.add_files_state.allow_stale_head = False
             self._source_changed("add_files")
 
-    def _apply_add_files_backup_picked(self, paths: tuple[Path, ...] | None) -> None:
+    def _apply_add_files_recovery_text(self, value: str | None) -> None:
+        if value is not None:
+            self.add_files_state.recovery_text = _normalized_pasted_text(value)
+            self.add_files_state.recovery_text_file = None
+            self.add_files_state.payloads_file = None
+            self.add_files_state.source_paths = []
+            self.add_files_state.expected_head_doc_hash = None
+            self.add_files_state.allow_stale_head = False
+            self._source_changed("add_files")
+
+    def _apply_add_files_payloads_picked(self, paths: tuple[Path, ...] | None) -> None:
         if paths is not None:
-            self.add_files_state.backup_folder = paths[0] if paths else None
-            if self.add_files_state.backup_folder is not None:
-                self.add_files_state.source_paths = []
-                self.add_files_state.loose_output_folder = None
-                self.add_files_state.allow_stale_head = False
-                self.add_files_state.expected_head_doc_hash = None
+            self.add_files_state.payloads_file = paths[0] if paths else None
+            self.add_files_state.recovery_text = None
+            self.add_files_state.recovery_text_file = None
+            self.add_files_state.source_paths = []
+            self.add_files_state.expected_head_doc_hash = None
+            self.add_files_state.allow_stale_head = False
+            self._source_changed("add_files")
+
+    def _apply_add_files_auth_text_picked(self, paths: tuple[Path, ...] | None) -> None:
+        if paths is not None:
+            self.add_files_state.auth_text_file = paths[0] if paths else None
+            self.add_files_state.auth_payloads_file = None
+            self._source_changed("add_files")
+
+    def _apply_add_files_auth_payloads_picked(self, paths: tuple[Path, ...] | None) -> None:
+        if paths is not None:
+            self.add_files_state.auth_payloads_file = paths[0] if paths else None
+            self.add_files_state.auth_text_file = None
             self._source_changed("add_files")
 
     def _apply_add_files_output_picked(self, paths: tuple[Path, ...] | None) -> None:
         if paths is not None:
-            self.add_files_state.loose_output_folder = paths[0] if paths else None
+            self.add_files_state.output_dir = paths[0] if paths else None
             self.refresh_task_view()
 
     def _apply_rebuild_source(self, value: str | None) -> None:
