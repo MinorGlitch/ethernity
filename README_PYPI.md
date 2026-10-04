@@ -1,16 +1,16 @@
 # Ethernity
 
-Ethernity turns small files you cannot afford to lose into encrypted pages you can print, store in
-different locations, and restore without internet access.
+Ethernity turns a small file or folder into an encrypted paper backup that you can recover offline.
 
-It works well for seed phrases, key files, small configuration sets, and recovery packets. Use a
-regular backup system for large archives, continuous sync, or unattended jobs.
+Use it for seed phrases, private keys, certificates, and small sets of configuration files. Use a
+conventional backup system for large archives, continuous sync, or unattended jobs.
 
-The encrypted content must fit within **1 MiB** and contain no more than **2,048 file paths**.
+A standalone backup is limited to **1 MiB of ciphertext** and **2,048 recovered files**.
+Updated backups also have chain-wide limits.
 
-## Install
+## Installation
 
-Ethernity requires Python 3.11 or newer. Install the CLI in an isolated environment with `pipx`:
+Ethernity requires Python 3.11 or newer. Install it in an isolated environment with `pipx`:
 
 ```sh
 pipx install ethernity-paper
@@ -24,7 +24,7 @@ environment also works:
 python -m pip install ethernity-paper
 ```
 
-The [full installation guide](https://github.com/MinorGlitch/ethernity#install) covers Homebrew,
+The [full installation guide](https://github.com/MinorGlitch/ethernity#installation) covers Homebrew,
 Windows, and release archives.
 
 ## Create and restore a test backup
@@ -36,7 +36,7 @@ ethernity
 ```
 
 1. Choose **Create backup** and select a disposable test file or folder.
-2. Keep the recommended recovery method: 3 recovery sheets, any 2 can restore.
+2. Keep the recommended recovery method: three recovery sheets, any two can restore.
 3. Review the destination and create the backup.
 4. Choose **Restore files**, load the backup folder or scanned pages, and unlock them.
 5. Restore into an empty destination and compare the result with the original test data.
@@ -74,31 +74,31 @@ cmp ./test-file.txt ./restored.txt
 - Print PDFs at actual size and scan at least one printed QR code before storing the set.
 - Test a restore from the pages and recovery sheets you plan to keep.
 
-## Other workflows
+## Other operations
 
-The guided app can add or replace files, rebuild a backup as one standalone set, create replacement
-recovery sheets, and create a printable copy of the offline browser recovery tool.
+The guided app can add or replace files, rebuild a backup as one standalone backup, create
+replacement recovery sheets, and print the offline browser recovery kit.
 
-Run `ethernity run --help` to see the scriptable tasks, including `doctor` for authenticated
-inspection and repair of interrupted publication transactions.
+Run `ethernity run --help` to see the scriptable commands.
 
 ## Learn more
 
 ### Using Ethernity
 
 - [Project README](https://github.com/MinorGlitch/ethernity)
-- [Advanced workflows](https://github.com/MinorGlitch/ethernity/blob/master/docs/advanced-workflows.md)
+- [Advanced operations](https://github.com/MinorGlitch/ethernity/blob/master/docs/advanced_operations.md)
 
 ### Safety and trust
 
 - [Security policy](https://github.com/MinorGlitch/ethernity/blob/master/SECURITY.md)
-- [Release verification](https://github.com/MinorGlitch/ethernity/blob/master/docs/release_artifacts.md)
+- [Release verification](https://github.com/MinorGlitch/ethernity/blob/master/docs/release_files.md)
 
 ### Technical reference
 
 - [Format specification](https://github.com/MinorGlitch/ethernity/blob/master/docs/format.md)
-- [Format rationale and operations](https://github.com/MinorGlitch/ethernity/blob/master/docs/format_notes.md)
-- [Compatibility ledger](https://github.com/MinorGlitch/ethernity/blob/master/docs/format_changes.md)
+- [Extension publication rules](https://github.com/MinorGlitch/ethernity/blob/master/docs/extension_publication_rules.md)
+- [Format rationale and recovery guidance](https://github.com/MinorGlitch/ethernity/blob/master/docs/format_rationale.md)
+- [Format compatibility history](https://github.com/MinorGlitch/ethernity/blob/master/docs/format_history.md)
 
 ## Contributing and license
 

@@ -29,8 +29,8 @@ repos:
         entry: uv run typos .
         language: system
         pass_filenames: false
-      - id: unit-contract-slice
-        name: unit contract slice
+      - id: format-safety-slice
+        name: format safety slice
         entry: uv run pytest tests/unit/test_cbor.py tests/unit/test_framing.py tests/unit/test_qr_payloads.py tests/unit/test_fallback_parser.py tests/unit/test_tooling_hypothesis.py -q
         language: system
         pass_filenames: false

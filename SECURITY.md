@@ -1,72 +1,73 @@
-# Security Policy
+# Security policy
 
-## Project Status
+## Project status
 
 Ethernity is stable software.
 
-Treat it as a tool for controlled backup workflows, not as a fully autonomous backup platform.
-Always keep independent backups and run recovery drills.
+Ethernity creates and restores backups when you run it. Keep independent backups and test recovery
+regularly.
 
-## Security Model Summary
+## Security model
 
-Ethernity is designed to support offline-recoverable encrypted backups using:
+Ethernity's encrypted backups can be recovered offline. They use:
 
-- age-based encryption for ciphertext confidentiality
-- integrity checks on recovered payloads
-- optional shard-based secret sharing for recovery key material
-- signed auxiliary artifacts for authenticity checks
+- age encryption for confidentiality
+- checksums and hashes to detect changes to recovered backup data
+- optional Shamir secret sharing to split passphrases and signing seeds into recovery shares
+- Ed25519 signatures to authenticate recovery shares and backup authentication records
 
-## What Ethernity Helps Protect Against
+## What Ethernity helps protect against
 
-- Casual disclosure from physical possession of printed documents
-- Single-document compromise when sharding is configured correctly
-- Silent corruption in recovery payload transfer paths
-- Vendor lock-in risk for backup readability
+- Disclosure from possession of encrypted backup pages without the passphrase
+- Disclosure from one recovery sheet when more than one sheet is required
+- Undetected corruption while scanning or transcribing backup data
+- Dependence on an online service to read backups
 
-## What Ethernity Does Not Protect Against
+## What Ethernity does not protect against
 
-- Compromised endpoint during backup or recovery
-- Social engineering/coercion attacks
+- A compromised computer during backup or recovery
+- Social engineering or coercion
 - Weak passphrases selected by users
-- Poor shard custody (for example, storing all shards together)
+- Poor storage of recovery shares, such as keeping all sheets together
 
-## Operational Safety Recommendations
+## Storage and recovery recommendations
 
 - Generate backups on trusted systems.
 - Prefer generated passphrases over manually chosen weak phrases.
-- Store shard documents in separate physical locations.
-- Keep recovery kit media separate from main backup media.
-- Validate recovery periodically in a controlled environment.
+- Store recovery sheets in separate physical locations.
+- Keep the offline recovery kit separate from the backup documents.
+- Test recovery periodically on a trusted computer.
 
-## Threat Boundaries and Assumptions
+## Security assumptions
 
 This project assumes:
 
-- local host security is your responsibility
-- physical document custody practices are enforced by operators
-- users understand threshold sharding tradeoffs
+- you secure the computers used for backup and recovery
+- you control who can access backup pages and recovery sheets
+- you understand how many recovery shares are required and who holds them
 
-If these assumptions do not hold, security outcomes degrade quickly.
+Weak computer security or poor storage of recovery sheets can expose your files.
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
 Please do not report security vulnerabilities via public issues.
 
 Preferred process:
 
 1. Open a private GitHub Security Advisory draft for this repository.
-2. Include reproduction steps, affected versions/commits, and impact.
-3. If private advisory flow is unavailable, contact maintainers through repository channels and request a private path.
+2. Include reproduction steps, affected versions or commits, and impact.
+3. If private advisories are unavailable, contact maintainers through repository channels and
+   request a private reporting channel.
 
-We will acknowledge triage as quickly as possible, but no strict SLA is guaranteed.
+We aim to acknowledge reports promptly but do not guarantee a response time.
 
-## Scope of This Policy
+## Scope of this policy
 
 This policy covers:
 
-- CLI security-sensitive behavior
-- recovery artifact integrity/authentication paths
-- release artifact provenance and verification guidance
+- security-sensitive CLI behavior
+- recovery document integrity and authentication
+- release file signatures and verification guidance
 
 It does not guarantee:
 
@@ -74,8 +75,8 @@ It does not guarantee:
 - immediate patch timelines
 - formal third-party security certification
 
-## Additional References
+## References
 
-- Core format specification: `docs/format.md`
-- Non-normative format notes: `docs/format_notes.md`
-- Release artifact verification: `docs/release_artifacts.md`
+- [Format specification](docs/format.md)
+- [Format rationale and recovery guidance](docs/format_rationale.md)
+- [Release file verification](docs/release_files.md)

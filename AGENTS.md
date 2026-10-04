@@ -2,14 +2,14 @@
 
 ## Purpose
 
-This file is the stable operating contract for coding agents in this repository. Keep it short,
+This file contains stable operating rules for coding agents in this repository. Keep it short,
 durable, and source-linked. Do not turn it into a copied inventory of the codebase; copied
 inventories go stale faster than code.
 
 Ethernity is a Python CLI/Textual app with a browser-based recovery kit. Treat cryptography,
-format compatibility, recovery behavior, rendering output, and packaging as high-risk surfaces.
+format compatibility, recovery behavior, rendering output, and packaging as high-risk areas.
 
-## First Moves
+## First moves
 
 - Start from the current working tree, including uncommitted and untracked files.
 - Check `git status --short` before editing. Assume existing changes belong to the user.
@@ -18,7 +18,7 @@ format compatibility, recovery behavior, rendering output, and packaging as high
 - Do not preserve a rule here just because it is written here. Verify against the source of truth
   below when a rule, command, or path looks stale.
 
-## Source Of Truth
+## Source of truth
 
 - Python package metadata, dependency groups, Ruff, Pyrefly, pytest, and coverage settings:
   `pyproject.toml`.
@@ -27,19 +27,18 @@ format compatibility, recovery behavior, rendering output, and packaging as high
 - CI gates and release checks: `.github/workflows/ci.yml`,
   `.github/workflows/pyinstaller.yml`, and `.github/workflows/homebrew-tap.yml`.
 - Normative format specification: `docs/format.md`.
-- Normative v1.2 extension operations and publication profile:
-  `docs/extension_publication_profile.md`.
-- Format rationale and operations: `docs/format_notes.md`.
-- Format compatibility ledger: `docs/format_changes.md`.
-- Render style manifests and capabilities:
-  `src/ethernity/resources/templates/*/style.json`,
-  `src/ethernity/resources/templates/*/design.json`, and
-  `src/ethernity/render/template_style.py`.
+- Normative v1.2 extension publication rules: `docs/extension_publication_rules.md`.
+- Format rationale and recovery guidance: `docs/format_rationale.md`.
+- Format compatibility history: `docs/format_history.md`.
+- Render design definitions, style settings, and capabilities:
+  `src/ethernity/resources/designs/*/style.json`,
+  `src/ethernity/resources/designs/*/design.json`, and
+  `src/ethernity/render/design_style.py`.
 - Browser kit commands and dependencies: `kit/package.json` and `kit/package-lock.json`.
 - Packaging contents: `pyproject.toml`, `ethernity.spec`, `scripts/check_wheel_contents.py`,
   and the release workflows.
 
-## Working Tree Safety
+## Working tree safety
 
 - Never revert, reset, delete, or overwrite user changes unless the user explicitly asks.
 - If user changes touch files you must edit, read them carefully and work with them.
@@ -48,86 +47,86 @@ format compatibility, recovery behavior, rendering output, and packaging as high
   explicit user approval.
 - Keep generated or incidental metadata churn out of your patch.
 
-## Architecture Boundaries
+## Architecture boundaries
 
 - `src/ethernity/app/`: Textual UI, screens, widgets, bindings, and UI state wiring only.
   Do not hide domain rules here.
-- `src/ethernity/run/`: Click-based scriptable command surface and command output handling.
+- `src/ethernity/run/`: Click-based scriptable commands and command output handling.
   Keep command flags thin; delegate validation and execution to task/domain layers.
 - `src/ethernity/tasks/`: task state, validation, preview, execution adapters, and presentation
   models shared by the app and command runner.
 - `src/ethernity/workflows/`: adapter-neutral application use cases with typed requests, issues,
   assessments, and execution results. Do not accept CLI argument models or return UI/JSON models.
-- `src/ethernity/cli/features/` and `src/ethernity/cli/shared/`: feature orchestration and shared
-  CLI/domain helpers. Keep planning, execution, rendering, and reporting separated.
-- `src/ethernity/render/`: render contracts, layout policy, template/style parsing, and backend
+- `src/ethernity/workflows/shared/`: shared workflow input, output, inspection, and reporting
+  types. The removed `src/ethernity/cli/` tree must not be recreated.
+- `src/ethernity/render/`: render interfaces, layout policy, design/style parsing, and backend
   dispatch. Rendering behavior should be driven by typed inputs, geometry, and style capabilities,
   not by ad-hoc style-name checks.
 - `src/ethernity/render/direct_pdf/`: direct PDF implementation details. Keep backend-specific
   drawing behind the local surface/component abstractions.
 - `src/ethernity/formats/`, `src/ethernity/encoding/`, `src/ethernity/crypto/`,
   `src/ethernity/extensions/`, and `src/ethernity/qr/`: format, recovery, crypto, extension,
-  and QR semantics. Do not couple these modules to UI text or display layout.
+  and QR processing. Do not couple these modules to UI text or display layout.
 - `kit/`: browser recovery kit source and tests. Generated bundles are not source.
 
-Anti-spaghetti rule: if a change needs behavior from another layer, add a clear typed boundary or
+If a change needs behavior from another layer, add a clear typed boundary or
 reuse an existing service. Do not reach across layers with string parsing, duplicated rules, or
 "just this once" imports.
 
-## Stable Coding Conventions
+## Stable coding conventions
 
 - Keep imports at module top level. Avoid nested runtime imports.
-- Prefer explicit public exports. Do not re-export underscore helpers.
+- Prefer explicit public exports. Do not re-export underscore-prefixed implementation functions.
 - Use `ruff format` as the only Python formatter. Do not add Black.
 - Keep Python line length at 100 unless a deliberate repo-wide style change is approved.
-- Prefer small named helpers over dense orchestration blocks or manual spacing tricks.
+- Prefer small named functions over dense coordinators or manual spacing tricks.
 - Prefer module imports over long symbol lists when importing many names from one module.
 - Use blank lines for real phase boundaries such as normalize, validate, execute, and report.
 - Use `# fmt: off` / `# fmt: on` only for rare cases where structure cannot be improved.
 - Keep ASCII-only edits unless a file already uses Unicode or the change clearly requires it.
-- In tests, replace repeated `mock.patch(...)` stacks with fixtures, helper context managers, or
-  test-support helpers.
+- In tests, replace repeated `mock.patch(...)` stacks with fixtures, focused context managers, or
+  shared test setup.
 
-## Generated Artifacts
+## Generated files
 
-- Do not edit generated artifacts directly.
+- Do not edit generated files directly.
 - Do not edit or stage generated recovery kit bundles under
   `src/ethernity/resources/kit/recovery_kit*.bundle.html`; rebuild from `kit/` when packaging
   work requires them.
 - Treat `build/`, `dist/`, `kit/dist/`, `kit/node_modules/`, cache directories, and egg-info
   directories as transient unless the user explicitly asks about them.
-- Golden fixtures and visual baselines are test artifacts with compatibility value. Regenerate them
+- Golden fixtures and visual baselines have compatibility value. Regenerate them
   through the relevant scripts/tests and explain why when behavior intentionally changes.
 
-## Change Recipes
+## Change guidance
 
-### Format Or Recovery Semantics
+### Format or recovery behavior
 
 - Update `docs/format.md` for normative behavior.
-- Update `docs/extension_publication_profile.md` for canonical extension export, carrier,
-  recovery-kit, selected-recovery, minting, or compaction behavior.
-- Update `docs/format_notes.md` for rationale or operational guidance.
-- Update `docs/format_changes.md` only when the behavior is a compatibility-relevant delta. Before
+- Update `docs/extension_publication_rules.md` for published extension layout, recovery documents,
+  recovery-kit, selected-version recovery, replacement-sheet, or Rebuild behavior.
+- Update `docs/format_rationale.md` for rationale or operational guidance.
+- Update `docs/format_history.md` only when the behavior is a compatibility-relevant delta. Before
   adding a new entry, check whether the behavior was introduced earlier on the same unreleased
   branch; if so, update that entry instead.
 - Update implementation and tests in the same change. Include negative/error-path tests for parser,
   shard, recovery, or compatibility behavior.
 
-### Rendering And Layout
+### Rendering and layout
 
-- `RenderInputs` must carry explicit `doc_type`. Do not infer document type from template names and
+- `RenderInputs` must carry explicit `doc_type`. Do not infer document type from design names and
   do not smuggle behavior through `context["doc_type"]`.
-- Recovery documents must use structured `RenderInputs.recovery_meta`; do not infer recovery
-  semantics by parsing display `key_lines`.
+- Recovery documents must use typed `RenderInputs.recovery_meta`; do not infer recovery
+  behavior by parsing display `key_lines`.
 - Treat `key_lines` as display/fallback text only.
 - Put style behavior toggles in style `capabilities`, parsed by
-  `src/ethernity/render/template_style.py`.
+  `src/ethernity/render/design_style.py`.
 - Use `RenderInputs.layout_debug_json_path` for layout diagnostics. Diagnostics must not change
   render behavior.
 - Layout code should fail fast on impossible pagination or zero-capacity fallback pages rather than
   loop or silently degrade.
 
-### CLI, Textual App, And Tasks
+### CLI, Textual app, and tasks
 
 - `ethernity` is the human Textual app. Do not reintroduce prompt-loop UI libraries such as
   Questionary or prompt-toolkit.
@@ -138,21 +137,21 @@ reuse an existing service. Do not reach across layers with string parsing, dupli
 - Do not duplicate user-facing behavior in both app and command code. Share task models and
   services where possible.
 
-### Browser Kit
+### Browser kit
 
 - Edit source under `kit/app/`, `kit/lib/`, `kit/scripts/`, and `kit/tests/`.
 - Run kit lint, format check, and tests when touching kit behavior.
 - Rebuild bundles with `node build_kit.mjs` only when package/release validation requires generated
   kit resources.
 
-### Packaging And Release
+### Packaging and release
 
 - Keep package data in `pyproject.toml` aligned with actual runtime resources.
-- Keep PyInstaller and release helper scripts aligned with generated kit and template assets.
-- When release artifacts change, update `docs/release_artifacts.md` if user-facing expectations
+- Keep PyInstaller and release scripts aligned with generated kit and design assets.
+- When release files change, update `docs/release_files.md` if user-facing expectations
   change.
 
-## Verification Matrix
+## Verification matrix
 
 Choose the smallest verification set that proves the change. Prefer targeted tests during
 iteration, then broader gates before handoff when risk is high.
@@ -173,7 +172,7 @@ iteration, then broader gates before handoff when risk is high.
 - Kit bundle rebuild: ensure `libdeflate-gzip` is on `PATH`, run `npm ci` if dependencies are
   missing, then `node build_kit.mjs` from `kit/`
 
-## When To Update This File
+## When to update this file
 
 Update `AGENTS.md` when a repo-wide, stable agent rule changes. Do not update it for local machine
 preferences, temporary plans, exhaustive file inventories, stale command lists, or facts already

@@ -1,16 +1,17 @@
-# Ethernity Core Format Specification
+# Ethernity core format specification
 
-This document specifies Ethernity's interoperable on-paper and on-disk formats: envelopes,
+This document specifies Ethernity's interoperable on-paper and on-disk formats: backup documents,
 manifests, frame encoding, QR payloads, fallback text, authenticated extension chains, and replay.
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
 "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as
 described in BCP 14 ([RFC 2119](https://www.rfc-editor.org/rfc/rfc2119),
-[RFC 8174](https://www.rfc-editor.org/rfc/rfc8174)) when, and only when, they appear in all capitals.
+[RFC 8174](https://www.rfc-editor.org/rfc/rfc8174)) when, and only when, they appear in all
+capitals.
 
 Scope:
-- Standalone root envelope binary container (Version 1)
-- Extension envelope binary container (Version 2)
+- Standalone root backup document (Version 1)
+- Extension document (Version 2)
 - Manifest structure and file paths
 - Frame encoding (QR and fallback)
 - Auth and shard payloads
@@ -18,31 +19,32 @@ Scope:
 - Passphrase representation (BIP-39)
 - Shamir secret sharing
 - Path normalization
-- Extension envelope authentication, content-addressed selection, and replay
+- Extension document authentication, content-addressed selection, and replay
 
 Non-goals:
 - CLI UX and UI
-- Rendering layout or templates
-- Rationale and operational notes (see [Format notes](format_notes.md))
-- Canonical publication trees and product workflows (see the
-  [v1.2 extension operations and publication profile](extension_publication_profile.md))
+- Rendering layout or document designs
+- Design rationale and recovery guidance (see
+  [Format rationale and recovery guidance](format_rationale.md))
+- Extension output packages and product operations (see the
+  [v1.2 extension publication rules](extension_publication_rules.md))
 
-## Specification Status
+## Released versions
 
 | Component | Serialized version | Release status |
 | --- | --- | --- |
-| Standalone root envelope and manifest | envelope 1, manifest 1 | Released and supported |
+| Standalone root backup document and manifest | document 1, manifest 1 | Released and supported |
 | Frame and AUTH payload | frame 1, AUTH 1 | Released and supported |
 | Shard payload | shard 1 and 2 | Version 2 released in Ethernity v1.1; version 1 remains readable |
-| Extension envelope and header | envelope 2, header 1 | Normative for Ethernity v1.2.0 |
+| Extension document and header | document 2, header 1 | Normative for Ethernity v1.2.0 |
 
-The Ethernity product version is not serialized into an artifact. The table describes the current
-implementation and release history; the numeric format markers below remain the compatibility
-authority. The v1.2 [extension operations and publication profile](extension_publication_profile.md)
-is normative for implementations that claim that product profile, but its filenames, PDF roles, and
-workflow rules do not determine wire identity.
+The Ethernity product version is not serialized into a document. The table describes release
+support; the numeric fields below determine format compatibility. The v1.2
+[extension publication rules](extension_publication_rules.md) are normative for products that
+claim Ethernity v1.2 extension compatibility, but filenames, PDF roles, and product operations do
+not determine document identity.
 
-## 1) Primitive Encoding: Unsigned Varint
+## 1) Unsigned varint encoding
 
 Lengths and indexes in binary headers MUST be encoded as unsigned varints ("uvarint").
 
@@ -53,16 +55,16 @@ Encoding:
 - Uvarints MUST use the shortest possible encoding (no overlong forms).
 
 Decoder requirements:
-- Decoders MUST reject non-canonical (overlong) uvarints.
+- Decoders MUST reject overlong uvarints.
 - Decoders MUST reject uvarints outside unsigned 64-bit range.
 
 Used for:
-- Envelope version, manifest length, payload length
+- Document version, manifest length, payload length
 - Frame version, index, total, data length
 
-## 2) Envelope Format (Version 1 Standalone Root)
+## 2) Backup document format (Version 1 standalone root)
 
-This section defines the standalone root envelope (`VERSION = 1`). Extension envelopes use
+This section defines the standalone root backup document (`VERSION = 1`). Extension documents use
 `VERSION = 2` and are specified separately in Section 19.
 
 Constants:
@@ -83,41 +85,41 @@ Rules:
 - MAGIC MUST equal `0x41 0x59`.
 - VERSION MUST equal `1`.
 - MANIFEST_LEN and PAYLOAD_LEN MUST match the remaining byte boundaries.
-- Decoders MUST reject envelopes where VERSION, MANIFEST_LEN, or PAYLOAD_LEN use non-canonical
+- Decoders MUST reject backup documents where VERSION, MANIFEST_LEN, or PAYLOAD_LEN use overlong
   uvarint encoding.
 - MANIFEST_BYTES MUST be a CBOR-encoded manifest (Section 3).
 
-Encoders MUST encrypt the complete envelope as a single age message (Section 13) and then split the
-resulting ciphertext into frames (Section 6) for QR/fallback transport.
+Encoders MUST encrypt the complete backup document as a single age message (Section 13) and then
+split the resulting ciphertext into frames (Section 6) for QR/fallback transport.
 
-## 2.1) Magic & Domain Tags
+## 2.1) Magic bytes and signature domains
 
 These constants are used to identify formats or bind signatures:
 
-- Envelope magic: `0x41 0x59` ("AY")
+- Document magic: `0x41 0x59` ("AY")
 - Frame format constants (magic, version, types): see Section 6.
 - Signature domains:
   - AUTH_DOMAIN = ASCII bytes `"ETHERNITY-AUTH-V1"`
   - SHARD_DOMAIN = ASCII bytes `"ETHERNITY-SHARD-V1"`
 
-## 2.2) Common Canonical CBOR Rules
+## 2.2) Common deterministic CBOR rules
 
-Every object described as canonical CBOR in this specification MUST use deterministic encoding as
-defined by RFC 8949 and MUST NOT contain indefinite-length items. A decoder MUST reject a
-non-canonical encoding at the binary envelope or frame boundary before signature verification or
-semantic validation.
+Every object described as deterministic CBOR in this specification MUST use deterministic encoding
+as defined by RFC 8949 and MUST NOT contain indefinite-length items. A decoder MUST reject a
+nondeterministic encoding at the document or frame boundary before signature verification or
+field validation.
 
 The manifest, AUTH payload, and shard payload are open versioned maps. For each supported version:
 
 - decoders MUST ignore unknown map keys;
-- unknown keys are extension data only and MUST NOT affect signature verification, reconstruction
-  eligibility, or authenticated/rescue trust labeling;
+- unknown keys are additional map data only and MUST NOT affect signature verification, whether a
+  payload can be used for reconstruction, or authenticated/rescue trust labeling;
 - encoders SHOULD NOT emit keys that are not defined for that version.
 
 Schemas that explicitly require exact keys, including extension header and body maps, are closed
 and MUST reject unknown keys.
 
-## 3) Manifest Format
+## 3) Manifest format
 
 The manifest MUST be encoded as a CBOR map.
 
@@ -127,7 +129,7 @@ Constants:
 ```
 {
   "version": version,       // int, MUST equal MANIFEST_VERSION (1)
-  "created": created_at,    // canonical encoder output: int unix epoch seconds
+  "created": created_at,    // deterministic encoder output: int unix epoch seconds
   "sealed": sealed,         // bool
   "seed": signing_seed,     // bytes or null (Ed25519 seed, 32 bytes)
   "input_origin": origin,   // string: "file", "directory", or "mixed"
@@ -152,14 +154,14 @@ File entry (prefix-table mode):
 
 Manifest requirements (map keys):
 - `version`: int == MANIFEST_VERSION (1)
-- `created`: encoders SHOULD emit integer Unix epoch seconds as canonical output
+- `created`: encoders SHOULD emit integer Unix epoch seconds as deterministic output
 - `created`: decoders MAY accept integer or float values
 - `sealed`: bool
 - `seed`:
   - if `sealed` is true, `seed` MUST be null
   - if `sealed` is false, `seed` MUST be 32 bytes
 - `input_origin`: string in `{"file", "directory", "mixed"}`; `"mixed"` indicates payloads
-  sourced from more than one logical root label
+  sourced from more than one input root label
 - `input_roots`: list of non-empty UTF-8 strings, each a manifest-valid leaf label (no `/` or
   `\`, no Unicode General Category `Cc` code points, no `.` or `..` label, no drive-prefix form,
   and no absolute path form)
@@ -180,16 +182,17 @@ Manifest requirements (map keys):
   - first element MUST be `""`
   - elements MUST be unique
 - `files`: list of entries, MUST contain at least one file entry
-- The canonical CBOR byte length of the manifest MUST be ≤ `MAX_MANIFEST_CBOR_BYTES` (Section 17).
+- The deterministic CBOR byte length of the manifest MUST be ≤ `MAX_MANIFEST_CBOR_BYTES`
+  (Section 17).
 - The number of file entries MUST be ≤ `MAX_MANIFEST_FILES` (Section 17).
 - The manifest uses the open versioned-map rules in Section 2.2.
-- Stable v1 profile decoders MUST require `input_origin`, `input_roots`, and `path_encoding`.
-- Stable v1 profile decoders MUST require array-based `files` entries and MUST reject map-style
-  file-entry manifests as out-of-profile.
+- Stable v1 decoders MUST require `input_origin`, `input_roots`, and `path_encoding`.
+- Stable v1 decoders MUST require array-based `files` entries and MUST reject map-style file-entry
+  manifests as invalid.
 
 File list requirements:
 - Encoders MUST reject empty `files` lists at creation time.
-- Decoders MUST reject manifests/envelopes with empty `files` lists.
+- Decoders MUST reject manifests or backup documents with empty `files` lists.
 
 File entry requirements (direct mode):
 - `path`: non-empty string
@@ -206,7 +209,7 @@ File entry requirements (prefix-table mode):
 - reconstructed path is `suffix` when `path_prefixes[prefix_index] == ""`,
   otherwise `path_prefixes[prefix_index] + "/" + suffix`.
 
-`MANIFEST_BYTES` MUST satisfy the common canonical CBOR rules in Section 2.2.
+`MANIFEST_BYTES` MUST satisfy the common deterministic CBOR rules in Section 2.2.
 
 Ordering:
 - Encoders MUST compute each file entry ordering key as
@@ -215,7 +218,7 @@ Ordering:
   manifest creation.
 - Payload concatenation MUST follow this same ordering key order.
 
-## 4) File Paths
+## 4) File paths
 
 File paths are represented according to `path_encoding`:
 - direct mode stores full path in each file entry
@@ -230,17 +233,17 @@ ordering and payload concatenation (Sections 3 and 5).
 Define `raw_payload_bytes` as the concatenation of file contents in ascending
 `normalize_path(reconstructed_path(entry))` order as defined in Section 3.
 
-The envelope `PAYLOAD_BYTES` storage representation is selected by manifest metadata:
+Manifest metadata determines how the backup document stores `PAYLOAD_BYTES`:
 - raw mode:
   - `payload_codec == "raw"`
-  - envelope payload bytes are `raw_payload_bytes`
+  - stored payload bytes are `raw_payload_bytes`
 - gzip mode:
   - `payload_codec == "gzip"`
-  - envelope payload bytes are gzip-compressed bytes of `raw_payload_bytes`
+  - stored payload bytes are gzip-compressed bytes of `raw_payload_bytes`
   - `payload_raw_len` MUST be present and equal `sum(files[i].size)`
 
 Decoder extraction requirements:
-- Decoders MUST normalize payload bytes according to `payload_codec` before file slicing.
+- Decoders MUST decode stored payload bytes according to `payload_codec` before file slicing.
 - For raw mode, decoders MUST require
   `len(PAYLOAD_BYTES) == sum(files[i].size)` before file slicing.
 - For gzip mode, decoders MUST reject payloads where decompression emits more than
@@ -251,12 +254,12 @@ Decoder extraction requirements:
 - For gzip mode, decoders MUST reject payloads with trailing bytes after the gzip stream.
 - For gzip mode, decoders MUST reject manifests with `payload_raw_len` greater than
   `MAX_DECOMPRESSED_PAYLOAD_BYTES`.
-- For either codec, the normalized payload length MUST equal `sum(files[i].size)`; no bytes may be
+- For either codec, the decoded raw payload length MUST equal `sum(files[i].size)`; no bytes may be
   missing or remain after the final file slice.
-- Decoders MUST verify each entry's SHA-256 against the corresponding slice of normalized payload
+- Decoders MUST verify each entry's SHA-256 against the corresponding slice of decoded raw payload
   bytes.
 
-## 6) Frame Format (QR + Fallback)
+## 6) Frame format (QR and fallback text)
 
 Constants:
 - MAGIC: `0x41 0x50` ("AP")
@@ -283,14 +286,15 @@ Frame types:
 - AUTH          = 0x41 ("A")
 - Decoders MUST reject FRAME_TYPE values other than those listed above.
 
-Frame DATA semantics (Version 1):
+Frame DATA contents (Version 1):
 - For `FRAME_TYPE=MAIN_DOCUMENT`, reassembly of all frames in the group yields the complete age
   ciphertext (Section 13).
 - For `FRAME_TYPE=MAIN_DOCUMENT`, each frame DATA length MUST be ≤ `MAX_MAIN_FRAME_DATA_BYTES`
   (Section 17).
-- For `FRAME_TYPE=AUTH`, DATA MUST be the canonical CBOR encoding of the Auth payload (Section 8).
+- For `FRAME_TYPE=AUTH`, DATA MUST be the deterministic CBOR encoding of the Auth payload
+  (Section 8).
 - For `FRAME_TYPE=AUTH`, DATA length MUST be ≤ `MAX_AUTH_CBOR_BYTES` (Section 17).
-- For `FRAME_TYPE=KEY_DOCUMENT`, DATA MUST be the canonical CBOR encoding of the Shard payload
+- For `FRAME_TYPE=KEY_DOCUMENT`, DATA MUST be the deterministic CBOR encoding of the Shard payload
   (Section 9).
 - For `FRAME_TYPE=KEY_DOCUMENT`, DATA length MUST be ≤ `MAX_SHARD_CBOR_BYTES` (Section 17).
 
@@ -299,11 +303,11 @@ CRC:
 - CRC32 algorithm is CRC-32/ISO-HDLC (PKZIP / IEEE 802.3): polynomial 0x04C11DB7
   (reflected 0xEDB88320), init 0xFFFFFFFF, refin=true, refout=true, xorout=0xFFFFFFFF.
 
-INDEX/TOTAL semantics:
+INDEX/TOTAL requirements:
 - INDEX is 0-based and MUST satisfy 0 ≤ INDEX < TOTAL.
 - TOTAL MUST be ≥ 1.
 - For `FRAME_TYPE=MAIN_DOCUMENT`, TOTAL MUST be ≤ `MAX_MAIN_FRAME_TOTAL` (Section 17).
-- Decoders MUST reject frames where VERSION, INDEX, TOTAL, or DATA_LEN use non-canonical uvarint
+- Decoders MUST reject frames where VERSION, INDEX, TOTAL, or DATA_LEN use overlong uvarint
   encoding.
 
 Frame reassembly:
@@ -324,11 +328,11 @@ Frame reassembly:
 
 Single-frame payloads (Version 1):
 - AUTH and KEY_DOCUMENT payloads MUST be encoded as a single frame (frame index=0, frame total=1).
-- Repeated copies of an AUTH frame are handled by the cardinality rules in Section 8.
+- Repeated copies of an AUTH frame are handled by the frame count rules in Section 8.
 - Multiple `KEY_DOCUMENT` frames with the same DOC_ID are valid and represent distinct shard
   payloads.
 
-## 7) Document Identifiers
+## 7) Document identifiers
 
 Definitions:
 - `doc_hash` = BLAKE2b-256(ciphertext) (unkeyed BLAKE2b with 32-byte digest)
@@ -348,27 +352,27 @@ Binding requirements:
   unauthenticated recovery of MAIN ciphertext, but MUST reject mismatched KEY payloads used for
   passphrase reconstruction.
 
-### 7.1) Recovery Verification Modes
+### 7.1) Recovery verification modes
 
 Version 1 defines two decoder operation modes:
 
 - Authenticated mode (default):
   - Decoders MUST enforce signature verification requirements in Sections 8 and 9.
-  - Missing/invalid required authentication material MUST be treated as fatal.
-- Rescue mode (explicit operator override only):
+  - Missing or invalid required AUTH data MUST be treated as fatal.
+- Rescue mode (explicit user override only):
   - Decoders MAY continue recovery when AUTH is missing, malformed, or fails signature verification.
   - Decoders MAY continue recovery when shard signatures fail verification, but only if all
     non-signature shard validation and consistency checks still pass.
-  - Decoders MUST still enforce all non-signature structural checks (framing, bounds, canonical
+  - Decoders MUST still enforce all non-signature checks (framing, bounds, deterministic
     CBOR, shard consistency).
   - Decoders MUST clearly label the result as unauthenticated and MUST NOT report auth as verified.
 
-Read-only inspection and projection surfaces MAY be stricter than rescue-mode recovery. They MAY
-refuse unauthenticated, authority-mismatched, or partially decoded extension-chain previews instead
-of presenting a best-effort state, even when explicit rescue-mode recovery could still recover root
-MAIN ciphertext.
+Read-only inspection and preview tools MAY be stricter than rescue-mode recovery. They MAY
+refuse extension-chain previews with unverified signatures, mismatched signing keys, or incomplete
+decoding instead of presenting a partial result, even when explicit rescue-mode recovery could
+still recover root MAIN ciphertext.
 
-### 7.2) Trusted Signing Authority
+### 7.2) Verified root signing public key
 
 For an authenticated standalone root, the verified AUTH payload establishes `root_sign_pub`:
 
@@ -380,7 +384,7 @@ For an authenticated standalone root, the verified AUTH payload establishes `roo
 If the recovered root manifest is unsealed, decoders MUST derive the Ed25519 public key from the
 32-byte manifest `seed` as defined by RFC 8032 and MUST require it to equal `root_sign_pub`. If the
 manifest is sealed, `seed` is null and no manifest-seed comparison is possible; the verified AUTH
-`pub` remains the root signing authority.
+`pub` remains the root signing public key.
 
 In authenticated mode:
 
@@ -388,14 +392,14 @@ In authenticated mode:
   Section 7 and the signature checks in Section 9;
 - every extension AUTH payload MUST have `pub == root_sign_pub` in addition to its own ciphertext
   binding and signature verification; and
-- a reconstructed `signing-seed` secret MUST derive exactly `root_sign_pub` before it is used as
-  signing authority.
+- a reconstructed `signing-seed` secret MUST derive exactly `root_sign_pub` before it is used for
+  signing.
 
 An equality failure in this subsection is fatal in authenticated mode. Rescue mode MAY bypass a
-signature or authority check only as permitted by Section 7.1 and MUST NOT label the resulting
-authority or recovery as authenticated.
+signature or signing-key check only as permitted by Section 7.1 and MUST NOT label the resulting
+signing key or recovery as authenticated.
 
-## 8) Auth Payload (FrameType.AUTH data)
+## 8) Auth payload (FrameType.AUTH data)
 
 Auth payload MUST be a CBOR map:
 
@@ -416,21 +420,21 @@ Requirements:
 - `hash`: 32 bytes
 - `pub`: 32 bytes (Ed25519 public key)
 - `sig`: 64 bytes Ed25519 signature
-- AUTH uses the open versioned-map and canonical CBOR rules in Section 2.2.
+- AUTH uses the open versioned-map and deterministic CBOR rules in Section 2.2.
 
 Signature domain:
 - Let `signed_auth_payload` be a CBOR map containing exactly `version`, `hash`, and `pub`.
-- Message is `AUTH_DOMAIN + canonical_cbor(signed_auth_payload)`
+- Message is `AUTH_DOMAIN + deterministic_cbor(signed_auth_payload)`
 - AUTH_DOMAIN is defined in Section 2.1.
 
 Verification requirements:
 - In authenticated mode, decoders MUST verify `sig` as an Ed25519 signature over
-  `AUTH_DOMAIN + canonical_cbor(signed_auth_payload)`.
+  `AUTH_DOMAIN + deterministic_cbor(signed_auth_payload)`.
 - In authenticated mode, decoders MUST reject AUTH payloads with invalid signatures.
 - Signature verification bypass is permitted only in rescue mode (Section 7.1).
 - In rescue mode, decoders MAY ignore missing/invalid AUTH payloads and continue unauthenticated.
 
-AUTH cardinality and duplicate handling:
+AUTH frame count and duplicate handling:
 
 - Transport input MAY contain repeated copies of the same AUTH frame.
 - Decoders MUST collapse copies whose complete decoded frame values are identical.
@@ -441,7 +445,7 @@ AUTH cardinality and duplicate handling:
 - Rescue mode MAY continue with no usable AUTH frame, but it MUST NOT resolve multiple distinct
   AUTH frames by trusting one of them.
 
-## 9) Shard Payload (FrameType.KEY_DOCUMENT data)
+## 9) Shard payload (FrameType.KEY_DOCUMENT data)
 
 Shard payload MUST be a CBOR map:
 
@@ -493,7 +497,7 @@ Validation rules:
 
 Decoders MUST reject shard payloads that violate these bounds.
 
-Shard payload DATA MUST satisfy the common canonical CBOR rules in Section 2.2.
+Shard payload DATA MUST satisfy the common deterministic CBOR rules in Section 2.2.
 
 Signature domain:
 - For `version == 1`, let `signed_shard_payload` be a CBOR map containing exactly:
@@ -502,18 +506,19 @@ Signature domain:
 - For `version == 2`, let `signed_shard_payload` be a CBOR map containing exactly:
   `version`, `type`, `threshold`, `share_count`, `share_index`, `length`, `share`, `hash`, `pub`,
   and `set_id`.
-- Message is `SHARD_DOMAIN + canonical_cbor(signed_shard_payload)`
+- Message is `SHARD_DOMAIN + deterministic_cbor(signed_shard_payload)`
 - SHARD_DOMAIN is defined in Section 2.1.
 
 Verification requirements:
 - In authenticated mode, decoders MUST verify `sig` as an Ed25519 signature over
-  `SHARD_DOMAIN + canonical_cbor(signed_shard_payload)`.
+  `SHARD_DOMAIN + deterministic_cbor(signed_shard_payload)`.
 - In authenticated mode, decoders MUST reject shard payloads with invalid signatures.
 - In authenticated mode, each shard used for a root or extension document MUST have `pub` equal to
-  the verified root signing authority established in Section 7.2.
+  the verified root signing public key established in Section 7.2.
 - Signature verification bypass is permitted only in rescue mode (Section 7.1).
 - In rescue mode, decoders MAY proceed without shard signature verification, but MUST still enforce
-  shard structural/binding/consistency requirements before using shards for reconstruction.
+  shard field validation, binding, and consistency requirements before using shards for
+  reconstruction.
 - In a shard reconstruction set, all shard payloads MUST share the same
   `hash`, `pub`, `type`, `threshold`, and `share_count`.
 - In a shard reconstruction set, all shard payloads MUST also share the same `version`.
@@ -534,13 +539,13 @@ Verification requirements:
 A recovery set MAY contain multiple `KEY_DOCUMENT` frames for the same DOC_ID.
 Each shard payload MUST be encoded as a single frame (frame index=0, frame total=1).
 
-## 10) QR Payload Transport
+## 10) QR payload transport
 
 Version 1 supports exactly two QR transport codecs for frame bytes:
 - `raw`: QR payload is the raw frame bytes.
 - `base64`: QR payload text is unpadded base64.
 
-No envelope or manifest field records the QR transport codec.
+No document or manifest field records the QR transport codec.
 
 Encoding:
 - raw mode:
@@ -557,7 +562,7 @@ Decoding:
   - After whitespace removal, payload text MUST NOT contain "=" characters.
   - Restore padding to a multiple of 4.
   - Base64 decode with validation.
-  - After decode, payload text MUST be canonical unpadded base64: if `normalized` is payload text
+  - After decode, payload text MUST be exact unpadded base64: if `normalized` is payload text
     after whitespace removal and `decoded` is decoded bytes, decoders MUST require
     `normalized == base64_unpadded(decoded)` and MUST reject otherwise.
   - After whitespace removal, payload text length MUST be ≤ `MAX_QR_PAYLOAD_CHARS` (Section 17).
@@ -566,7 +571,7 @@ Decoders MUST ignore whitespace in text payloads.
 Encoders and decoders MUST NOT negotiate or auto-detect QR payload codecs beyond `raw` and
 `base64` in Version 1.
 
-## 11) Fallback Text Encoding
+## 11) Fallback text encoding
 
 Fallback text MUST encode the raw frame bytes with z-base-32.
 
@@ -594,7 +599,7 @@ Decoding:
 - Decoders MUST reject any fallback section that exceeds either bound.
 - Decoders MUST decode each filtered line list by concatenating filtered lines in order and applying
   z-base-32 decoding.
-- Decoders MUST reject non-canonical z-base-32 text (for example non-zero unused tail bits);
+- Decoders MUST reject z-base-32 text with nonzero unused tail bits;
   equivalently, after normalization/filtering, concatenated text MUST equal
   `encode_zbase32(decode_zbase32(text))`.
 
@@ -603,19 +608,19 @@ Decoding:
 z-base-32 (human-oriented base-32):
 https://philzimmermann.com/docs/human-oriented-base-32-encoding.txt
 
-## 12) Version Markers
+## 12) Version markers
 
 Version markers:
-- Standalone root envelope: MAGIC + VERSION
-- Extension envelope: MAGIC + VERSION
+- Standalone root backup document: MAGIC + VERSION
+- Extension document: MAGIC + VERSION
 - Manifest: MANIFEST_VERSION
 - Frames: MAGIC + VERSION
 - Auth: AUTH_VERSION
 - Shards: SHARD_VERSION
 
 Current version values:
-- Standalone root Envelope VERSION = `1`
-- Extension Envelope VERSION = `2`
+- Standalone root backup document VERSION = `1`
+- Extension document VERSION = `2`
 - Extension header schema VERSION = `1`
 - Frame VERSION = `1`
 - MANIFEST_VERSION = `1`
@@ -625,36 +630,35 @@ Current version values:
 Extension chain metadata constants:
 - CHAIN_ID_PERSONALIZATION = `"ETHERNITY-CHAIN-V1"` encoded as ASCII bytes
 
-### 12.1) Standalone v1 Profile Baseline Contract
+### 12.1) Released standalone v1 requirements
 
-These requirements preserve the released standalone v1 profile while extension envelope v2 remains
+These requirements preserve released standalone v1 behavior while extension document v2 remains
 a separate format marker.
 
-Stable v1 profile requirements:
-- Envelope/frame magic constants, frame types, and version constants remain unchanged from
+Stable v1 requirements:
+- Document/frame magic constants, frame types, and version constants remain unchanged from
   Version 1.
 - Stable v1 decoders MUST require manifest keys `input_origin`, `input_roots`, and `path_encoding`.
 - Stable v1 decoders MUST require array-based `files` entries and MUST reject map-style file-entry
-  manifests as out-of-profile.
+  manifests as invalid.
 - Manifest/auth/shard unknown-key handling is extension-only as defined in Sections 3, 8, and 9.
 - Frame types are closed for v1; decoders MUST reject frame types outside Section 6.
-- QR payload transport codecs in v1 are limited to `raw` and unpadded `base64`; runtime/profile
-  negotiation of any other codec is not permitted.
-- Parsing is fail-closed: malformed canonical encodings or invalid structural/binding content MUST
-  be rejected.
+- QR payload transport codecs in v1 are limited to `raw` and unpadded `base64`; runtime negotiation
+  of any other codec is not permitted.
+- Malformed encodings, invalid fields, or invalid bindings MUST be rejected.
 
 ## 13) Encryption
 
 Ciphertext MUST use the age encryption format (https://age-encryption.org/v1).
 
-### 13.1) Encryption Process
+### 13.1) Encryption process
 
-Input: Envelope binary (MAGIC + VERSION + MANIFEST + PAYLOAD)
+Input: Backup document binary (MAGIC + VERSION + MANIFEST + PAYLOAD)
 Output: age ciphertext
 
-Encoders MUST encrypt the complete envelope as a single age message.
+Encoders MUST encrypt the complete backup document as a single age message.
 
-### 13.2) Recipient Type
+### 13.2) Recipient type
 
 Encoders MUST use passphrase recipients:
 - Recipient type: `scrypt` (age-encryption.org/v1/scrypt)
@@ -662,7 +666,7 @@ Encoders MUST use passphrase recipients:
 
 Identity-based recipients (age X25519 keys) MUST NOT be used.
 
-### 13.3) Ciphertext Handling
+### 13.3) Ciphertext handling
 
 After encryption:
 - `doc_hash` and `doc_id` MUST be computed from the ciphertext as specified in Section 7.
@@ -677,10 +681,10 @@ Decryptors MUST supply the exact passphrase string used at encryption time.
 
 Full age format specification: https://age-encryption.org/v1
 
-## 14) Passphrase Representation
+## 14) Passphrase representation
 
-The age scrypt passphrase is a Unicode string provided out of band. This section defines a BIP-39
-mnemonic profile for passphrases.
+The age scrypt passphrase is a Unicode string provided separately. This section defines BIP-39
+mnemonic rules for passphrases.
 
 ### 14.1) Parameters
 
@@ -689,7 +693,7 @@ mnemonic profile for passphrases.
 - Entropy: 128 (12 words), 160 (15), 192 (18), 224 (21), or 256 bits (24)
 - Checksum: Included per BIP-39 (final word encodes checksum)
 
-### 14.2) Mnemonic as Passphrase
+### 14.2) Mnemonic as passphrase
 
 When a BIP-39 mnemonic phrase is used as the age encryption passphrase:
 - Words MUST be separated by a single ASCII space (0x20) with no leading/trailing whitespace.
@@ -705,23 +709,23 @@ passphrase string:
 
 Reassembled shares produce the original passphrase string, ready for use.
 
-### 14.4) Non-BIP-39 Passphrase Handling Guidance
+### 14.4) Non-BIP-39 passphrase handling guidance
 
 For passphrases that are not BIP-39 mnemonics:
 - Producers SHOULD use a consistent Unicode normalization form (NFC is RECOMMENDED).
-- Operators SHOULD treat passphrase entry as exact string material (no implicit trimming,
+- Users SHOULD treat a passphrase as an exact string (no implicit trimming,
   case-folding, or rewriting).
 
 ### 14.5) Reference
 
 BIP-39 specification: https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki
 
-## 15) Shamir Secret Sharing
+## 15) Shamir secret sharing
 
 Shard payloads (Section 9) use Shamir's Secret Sharing for threshold-based reconstruction of
 passphrases and signing seeds. Share generation and reconstruction MUST follow this section.
 
-### 15.1) Field Parameters
+### 15.1) Field parameters
 
 - Field: GF(2^128)
 - Irreducible polynomial: x^128 + x^7 + x^2 + x + 1 (0x100000000000000000000000000000087)
@@ -739,7 +743,7 @@ Field representation and serialization:
 - Map `share_index = i` directly to the field element whose integer value is `i`; indices are not
   hashed, offset, or encoded as a separate field representation.
 
-### 15.2) Share Generation
+### 15.2) Share generation
 
 Input:
 - Secret: non-empty byte string
@@ -765,7 +769,7 @@ Output:
   block order.
 - The output is `n` shares with indices 1 through `n`, inclusive.
 
-### 15.3) Share Format
+### 15.3) Share format
 
 Each share in the shard payload contains:
 - `share_index`: 1 ≤ share_index ≤ share_count
@@ -818,7 +822,7 @@ Validation:
 
 Encoders MUST NOT generate and decoders MUST reject shard parameters outside these bounds.
 
-### 15.6) Arithmetic Conformance Vector
+### 15.6) Arithmetic conformance vector
 
 This fixed-coefficient vector tests field mapping and serialization only; production encoders MUST
 still generate coefficients randomly as required by Section 15.2.
@@ -838,12 +842,12 @@ Both shares MUST reconstruct the all-zero secret block. The second share follows
 
 - Shamir, Adi. "How to share a secret." Communications of the ACM 22.11 (1979): 612-613.
 
-## 16) Path Normalization
+## 16) Path normalization
 
-### 16.1) Unicode Normalization
+### 16.1) Unicode normalization
 
-All file paths MUST be normalized to Unicode NFC (Canonical Decomposition, followed by Canonical
-Composition) form.
+All file paths MUST be normalized to Unicode NFC (canonical decomposition, followed by canonical
+composition) form.
 
 Requirements:
 - Paths MUST be normalized to NFC before storage in manifest
@@ -860,8 +864,11 @@ Requirements:
 Manifest-level path consistency:
 - Paths that differ only by Unicode normalization are considered identical; duplicates MUST be
   rejected
+- No normalized file path may be an ancestor of another file path. For example, `a` and `a/b`
+  cannot both identify files in one manifest. Encoders and decoders MUST reject such file sets.
+  The same rule applies after each extension replay step (Section 19.5).
 
-### 16.2) Normalization Function
+### 16.2) Normalization function
 
 Let `normalize_path(path)` return Unicode NFC normalization of `path`.
 
@@ -876,11 +883,11 @@ Let `ordering_path(entry)` be `normalize_path(reconstructed_path(entry))`.
 
 Unicode Normalization Forms: https://unicode.org/reports/tr15/
 
-## 17) Resource Bounds
+## 17) Resource limits
 
 This section defines mandatory Version 1 and root-plus-extension recovery resource bounds.
 
-Encoders MUST NOT emit artifacts that exceed these bounds.
+Encoders MUST NOT emit documents that exceed these bounds.
 Decoders MUST reject inputs that exceed these bounds.
 For `MAX_CIPHERTEXT_BYTES`, the bound applies to the final encrypted ciphertext transport size.
 Encoders MAY accept larger pre-encryption inputs when compression/encryption still produces
@@ -909,33 +916,33 @@ Constants:
 - `MAX_RECOVERY_CIPHERTEXT_BYTES = 67_108_864` (64 MiB across the complete chain)
 - `MAX_RECOVERY_DECODED_CHUNK_BYTES = 268_435_456` (256 MiB across extension inline chunks)
 
-## 18) Normative Conformance Appendix
+## 18) Normative conformance appendix
 
-This appendix is normative. Implementations that claim conformance with the current core format
-specification MUST satisfy all requirements in this section for the format versions they support.
+This appendix is normative. Readers and writers that claim conformance with the current core format
+MUST satisfy every requirement in this section for the versions they support.
 
-### 18.1) Required Decoder Validation Order
+### 18.1) Required decoder validation order
 
 Decoders MUST apply validation in this order:
-1. Parse framing/envelope boundaries and reject non-canonical uvarints at each decode boundary.
+1. Parse frame/document boundaries and reject overlong uvarints at each decode boundary.
 2. Enforce resource bounds (Section 17) before unbounded allocation or reconstruction.
-3. Decode CBOR payloads and reject non-canonical CBOR at manifest/auth/shard boundaries.
-4. Apply structural validation for manifest/auth/shard fields and cross-field constraints.
+3. Decode CBOR payloads and reject nondeterministic CBOR at manifest/auth/shard boundaries.
+4. Validate manifest/auth/shard fields and cross-field constraints.
 5. Apply binding and consistency checks (`doc_id`/`doc_hash`, shard set consistency, payload hash
    checks).
-6. Apply signature-policy checks according to authenticated or rescue mode.
-7. Apply the signing-authority equality checks in Section 7.2.
+6. Apply signature checks according to authenticated or rescue mode.
+7. Apply the signing public key equality checks in Section 7.2.
 8. Emit trust labeling that reflects the applied mode and verification outcome.
 
-### 18.2) Minimum Must-Pass Positive Scenarios
+### 18.2) Required valid-input scenarios
 
 A conforming decoder MUST accept at least these scenarios:
-1. A stable v1 envelope with required manifest keys, array-based file entries, canonical CBOR,
-   canonical uvarints, and payload ordering by `ordering_path(entry)`.
-2. A valid AUTH frame with canonical CBOR, valid `DOC_ID` binding, and a valid signature in
+1. A stable v1 backup document with required manifest keys, array-based file entries, deterministic
+   CBOR, shortest-form uvarints, and payload ordering by `ordering_path(entry)`.
+2. A valid AUTH frame with deterministic CBOR, valid `DOC_ID` binding, and a valid signature in
    authenticated mode.
-3. A valid shard reconstruction set with canonical CBOR payloads, consistent set fields, sufficient
-   threshold, and valid signatures in authenticated mode.
+3. A valid shard reconstruction set with deterministic CBOR payloads, consistent set fields,
+   sufficient threshold, and valid signatures in authenticated mode.
 4. A valid QR payload that decodes to a valid frame using either:
    - raw frame bytes transport, or
    - unpadded base64 text transport (with optional whitespace only).
@@ -945,14 +952,14 @@ A conforming decoder MUST accept at least these scenarios:
 8. A raw payload whose byte length equals the sum of manifest file sizes, including an all-empty
    file set represented in raw mode.
 
-### 18.3) Minimum Must-Reject Negative Scenarios
+### 18.3) Required invalid-input scenarios
 
 A conforming decoder MUST reject at least these scenarios:
-1. Manifests that use map-style file entries (out of stable v1 profile).
-2. Envelope or frame headers containing non-canonical uvarints.
-3. Manifest, AUTH, or shard CBOR payloads that are non-canonical or use indefinite-length items.
+1. Manifests that use map-style file entries (invalid under stable v1).
+2. Document or frame headers containing overlong uvarints.
+3. Manifest, AUTH, or shard CBOR payloads that are nondeterministic or use indefinite-length items.
 4. Inputs where unknown manifest/auth/shard keys are used to alter signature verification decisions,
-   key reconstruction eligibility, or authenticated/rescue trust labeling.
+   whether a payload can be used for key reconstruction, or authenticated/rescue trust labeling.
 5. Fallback sections whose filtering/counting outcome is nondeterministic (for example,
    locale-dependent whitespace classification or implementation-defined line splitting) or that
    exceed `MAX_FALLBACK_LINES` or `MAX_FALLBACK_NORMALIZED_CHARS` under Section 11 algorithm.
@@ -960,7 +967,7 @@ A conforming decoder MUST reject at least these scenarios:
    frame `DOC_ID` does not match derived `doc_id`.
 7. QR payload text that contains `=` after whitespace removal or otherwise violates unpadded-base64
    strictness in Section 10.
-8. Gzip-coded envelope payloads that include trailing bytes after a valid gzip stream.
+8. Gzip-coded backup document payloads that include trailing bytes after a valid gzip stream.
 9. Manifest paths that start with a drive-letter prefix (`A:` through `Z:` or `a:` through `z:`).
 10. Raw payloads whose length differs from the sum of manifest file sizes.
 11. Manifest paths containing U+005C (`\`) or a Unicode General Category `Cc` code point.
@@ -971,20 +978,20 @@ A conforming decoder MUST reject at least these scenarios:
 14. A fallback payload line with two dotted rendered line-label prefixes; only the first prefix is
     removable under Section 11.
 
-## 19) Extension Chain Format (Extension Envelope)
+## 19) Extension chain format (extension document)
 
-The extension envelope is an authenticated append-only document that lives beside a standalone root
-backup. The root backup remains a Version 1 envelope. Each extension is a separately encrypted MAIN
-document whose ciphertext has its own `doc_hash` and `doc_id` under Section 7. On the wire, the
-extension envelope uses outer envelope `VERSION = 2`.
+The extension document is an authenticated append-only document derived from a standalone root
+backup. The root backup remains a Version 1 backup document. Each extension is a separately
+encrypted MAIN document whose ciphertext has its own `doc_hash` and `doc_id` under Section 7.
+The extension document uses outer document `VERSION = 2`.
 
 Extension authentication is carried beside the ciphertext, not inside the encrypted extension
 header/body. After identical-copy deduplication under Section 8, extension recovery MUST verify
 exactly one distinct AUTH payload bound to the extension ciphertext `doc_hash` and signed by the
-root signing authority established in Section 7.2. The core format assigns no filename or physical
+root signing key established in Section 7.2. The core format assigns no filename or physical
 carrier role to that AUTH payload.
 
-### 19.1) Extension Envelope Binary Layout
+### 19.1) Extension document binary layout
 
 Constants:
 - MAGIC: `0x41 0x59` ("AY")
@@ -995,32 +1002,34 @@ Binary layout:
 MAGIC (2 bytes)
 VERSION (uvarint)
 HEADER_LEN (uvarint)
-HEADER_BYTES (canonical CBOR map; Section 19.2)
+HEADER_BYTES (deterministic CBOR map; Section 19.2)
 BODY_LEN (uvarint)
-BODY_BYTES (canonical CBOR map; Section 19.3)
+BODY_BYTES (deterministic CBOR map; Section 19.3)
 ```
 
 Rules:
 - MAGIC MUST equal `0x41 0x59`.
 - VERSION MUST equal `2`.
-- `HEADER_LEN` and `BODY_LEN` MUST use canonical uvarints and MUST match byte boundaries exactly.
-- `HEADER_BYTES` and `BODY_BYTES` MUST satisfy the canonical CBOR rules in Section 2.2.
-- Decoders MUST reject non-canonical uvarints, truncated header/body sections, or extra bytes after
+- `HEADER_LEN` and `BODY_LEN` MUST use shortest-form uvarints and MUST match byte boundaries
+  exactly.
+- `HEADER_BYTES` and `BODY_BYTES` MUST satisfy the deterministic CBOR rules in Section 2.2.
+- Decoders MUST reject overlong uvarints, truncated header/body sections, or extra bytes after
   `BODY_BYTES`.
 - `HEADER_BYTES` and `BODY_BYTES` MUST each be `<= MAX_MANIFEST_CBOR_BYTES` (Section 17).
 
-As with Version 1, encoders MUST encrypt the complete extension envelope as a single age message
+As with Version 1, encoders MUST encrypt the complete extension document as a single age message
 and then frame the resulting ciphertext according to Section 6.
 
 A conforming authenticated extension input MUST provide exactly one distinct AUTH frame for its
 ciphertext after Section 8 deduplication:
 - the AUTH payload MUST bind to the extension ciphertext `doc_hash`
 - the AUTH payload MUST be encoded as a single-frame AUTH payload
-- the AUTH `pub` and signature MUST use the root signing authority established in Section 7.2
-- AUTH transport MAY share a physical carrier with MAIN frames; physical artifact roles are defined
-  by the [extension operations and publication profile](extension_publication_profile.md)
+- the AUTH payload MUST contain the root signing public key from Section 7.2 as `pub` and a
+  signature that verifies under that public key
+- AUTH transport MAY share a physical carrier with MAIN frames; physical document roles are defined
+  by the [extension publication rules](extension_publication_rules.md)
 
-### 19.2) Extension Header
+### 19.2) Extension header
 
 The extension header MUST be a CBOR map with exactly these integer keys:
 
@@ -1047,9 +1056,9 @@ Requirements:
     `>= 4096` and
     `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
   - `min_size <= target_size <= max_size`
-  - `algorithm_id == 1` identifies the extension-envelope FastCDC-style content-defined chunking
-    profile
-  - encoders and replay logic MUST honor the full profile; they MUST NOT treat `target_size` as a
+  - `algorithm_id == 1` identifies the extension document's FastCDC-style content-defined chunking
+    algorithm
+  - encoders and replay logic MUST honor all four settings; they MUST NOT treat `target_size` as a
     fixed-size slicing width
 - `input_origin`: `"file"`, `"directory"`, or `"mixed"`
 - `input_roots`:
@@ -1072,7 +1081,7 @@ Every integer encoded in a Version 2 extension header or body MUST be within
 precedence. This includes timestamps and mtimes; non-negative sizes and chunk lengths remain subject
 to their smaller resource bounds.
 
-### 19.3) Extension Body
+### 19.3) Extension body
 
 The extension body MUST be a CBOR map with exactly these integer keys:
 
@@ -1081,15 +1090,15 @@ The extension body MUST be a CBOR map with exactly these integer keys:
 2 -> chunks
 ```
 
-`files` MUST be a non-empty array of file recipes. `chunks` MUST be an array of newly introduced
+`files` MUST be a non-empty array of file entries. `chunks` MUST be an array of newly introduced
 chunk records and MAY be empty. Each chunk record in `chunks` MUST be referenced by at least one
-file recipe in the same extension body.
+file entry in the same extension body.
 
 Unknown body keys MUST be rejected.
 
-#### 19.3.1) File Recipe
+#### 19.3.1) File entry
 
-Each file recipe MUST be:
+Each file entry MUST be:
 
 ```text
 [path, size, sha256, mtime, chunk_refs]
@@ -1105,8 +1114,8 @@ Requirements:
   - non-empty files MUST have a non-empty `chunk_refs` array
   - the sum of `chunk_ref.uncompressed_len` values MUST equal `size`
 
-Version 2 extension file recipes only describe complete file content for paths carried by the
-extension. They MUST NOT be interpreted as delete, rename, or tombstone records.
+Version 2 extension file entries only describe complete file content for paths carried by the
+extension. They MUST NOT be interpreted as deletion or rename records.
 
 Each chunk reference MUST be:
 
@@ -1119,12 +1128,11 @@ Requirements:
 - `uncompressed_len`: positive int and MUST be `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
 
 Chunking rules:
-- extension-envelope file recipes MUST be derived from content-defined chunking under the locked
-  chain profile
-- virtual root chunk replay MUST use that same locked chunking profile when reconstructing the root
-  chunk source
+- extension document file entries MUST be derived from content-defined chunking under the locked
+  chain chunking settings
+- deriving chunks from root files during replay MUST use those same locked chunking settings
 
-##### 19.3.1.1) Algorithm 1 FastCDC-Style Chunking
+##### 19.3.1.1) Algorithm 1 FastCDC-style chunking
 
 When `chunking[0] == 1`, encoders and replay logic MUST apply this FastCDC-style content-defined
 chunking algorithm independently to each non-empty file payload. Empty file payloads produce no
@@ -1146,7 +1154,7 @@ for byte_value in 0..255:
     G[byte_value] = state
 ```
 
-For a profile `[1, target_size, min_size, max_size]`, derive masks from `target_size`.
+For chunking settings `[1, target_size, min_size, max_size]`, derive masks from `target_size`.
 `round_half_to_even` means rounding to the nearest integer, with exact half-way values rounded to
 the nearest even integer.
 
@@ -1204,10 +1212,11 @@ If the scan reaches `max_end` without a mask match, the chunk MUST be cut at `ma
 boundary search starts at the previous cut offset with a fresh fingerprint and window state.
 
 `chunk_id` is `SHA-256(chunk_bytes)`, where `chunk_bytes` is the exact byte slice between adjacent
-chunk offsets. The same locked profile MUST be used for original extension construction and virtual
-root chunk replay.
+chunk offsets. The same locked chunking settings MUST be used for original extension construction
+and derivation of chunks from root files during replay.
 
-Conformance vectors for profile `[1, 16384, 4096, 65536]`:
+Conformance vectors for the default settings `[1, 16384, 4096, 65536]` follow. Other settings that
+meet the bounds in Section 19.2 are valid and use the same algorithm:
 
 ```text
 input = b""
@@ -1244,7 +1253,7 @@ chunk_sha256 = [
 ]
 ```
 
-#### 19.3.2) Chunk Record
+#### 19.3.2) Chunk record
 
 Each chunk record MUST be:
 
@@ -1273,12 +1282,12 @@ Gzip chunk rules:
 - decoders MUST reject gzip chunk data with trailing bytes, incomplete streams, or output that
   exceeds `raw_len`
 
-Write-path rules:
+Encoder rules:
 - encoders MAY emit either raw or gzip chunk records per chunk
 - encoders SHOULD emit gzip only when it is smaller than raw for that chunk and still satisfies the
-  extension-envelope validation rules
+  extension document validation rules
 
-#### 19.3.3) Ordering and Uniqueness
+#### 19.3.3) Ordering and uniqueness
 
 Requirements:
 - `files` MUST be ordered by normalized `path` in ascending Unicode code point order
@@ -1287,10 +1296,10 @@ Requirements:
 - duplicate `chunk_id` values are invalid
 - `len(files)` MUST be `<= MAX_MANIFEST_FILES` (Section 17)
 
-### 19.4) Extension Chain Rules
+### 19.4) Extension chain rules
 
 A valid extension chain is a standalone root Version 1 backup plus zero or more authenticated
-extension envelopes selected by content-import recovery and ordered by decrypted chain metadata
+extension documents selected from imported carriers and ordered by decrypted chain metadata
 (Section 20).
 
 `chain_id` is deterministic chain metadata derived from the authenticated root backup identity:
@@ -1299,15 +1308,15 @@ extension envelopes selected by content-import recovery and ordered by decrypted
 chain_id = BLAKE2b-256(CHAIN_ID_PERSONALIZATION || root_doc_hash)
 ```
 
-`chain_id` is not an extension header field, is not stored in extension artifacts, and does not
+`chain_id` is not an extension header field, is not stored in extension documents, and does not
 replace per-link `parent_doc_hash` or `root_doc_hash` validation. Tooling MAY expose `chain_id` as
-informational derived metadata, but validators MUST derive it from authenticated root state and MUST
-NOT trust a caller-supplied or serialized `chain_id` value as evidence of chain membership.
+informational derived metadata, but validators MUST derive it from the authenticated root and MUST
+NOT trust a caller-supplied or serialized `chain_id` value to establish chain membership.
 
 Requirements:
 - every extension ciphertext in one chain MUST decrypt with the same passphrase as the root backup
 - an appendable root MUST be unsealed and carry its signing seed in the encrypted Version 1
-  manifest; possession of the root carriers plus material sufficient to unlock that manifest is
+  manifest; possession of the root carriers plus a passphrase or sufficient recovery sheets is
   therefore sufficient to create an authenticated extension
 - chain validation MUST start from the authenticated root `doc_hash`
 - after Section 8 deduplication, each extension MUST carry exactly one distinct AUTH payload bound
@@ -1319,103 +1328,138 @@ Requirements:
   - `header.index` MUST equal the expected next extension index
   - `header.root_doc_hash` MUST equal the root backup `doc_hash`
   - `header.parent_doc_hash` MUST equal the exact previous validated document hash
-- the first validated extension locks the chain chunking profile
-- every later extension in the same chain MUST carry the exact same chunking profile
-- signing authority for extension-local validation is derived from the embedded signing seed of the
-  unsealed root backup; it is not embedded in the extension header
+- the first validated extension locks the chain chunking settings
+- every later extension in the same chain MUST carry the exact same chunking settings
+- the signing key for every extension is derived from the embedded signing seed of the unsealed
+  root backup; it is not embedded in the extension header
 
-Chain resource profile:
-- one recovery or append session MUST admit at most `MAX_RECOVERY_DOCUMENTS` complete MAIN
+Chain resource limits:
+- one recovery or append session MUST accept at most `MAX_RECOVERY_DOCUMENTS` complete MAIN
   documents, including the root
 - the sum of their ciphertext lengths MUST be `<= MAX_RECOVERY_CIPHERTEXT_BYTES`
-- the sum of inline chunk `raw_len` values across all admitted extensions MUST be
+- the sum of inline chunk `raw_len` values across all accepted extensions MUST be
   `<= MAX_RECOVERY_DECODED_CHUNK_BYTES`
-- implementations MUST enforce document count and aggregate ciphertext before decryption, and MUST
-  enforce the remaining decoded-chunk budget from declared canonical bodies before decompressing an
+- readers MUST enforce document count and aggregate ciphertext before decryption, and MUST
+  enforce the remaining decoded-chunk budget from declared extension bodies before decompressing an
   extension's inline chunks
 - encoders MUST NOT emit an extension that would cross a chain limit
 
-Append implementations MUST preserve the rule that a chunk record is introduced at most once over
+Append publication also MUST preserve standalone rebuildability. Before publishing an extension,
+writers MUST prepare the complete resulting file set with the same standalone encoding used by
+Rebuild: its file metadata, automatic payload compression, inherited passphrase, sealed state,
+unsealed root signing seed, and encryption overhead. The resulting standalone backup document MUST
+satisfy every applicable Version 1 bound, including `MAX_CIPHERTEXT_BYTES`. A raw-byte sum,
+compression estimate, or the extension ciphertext size alone is insufficient. The publisher MUST
+reject an update that fails this preparation without publishing a new extension.
+Capacity preparation MUST reserve the maximum supported encoded width of publication-time
+metadata, including the new manifest creation timestamp, so a later Rebuild date cannot invalidate
+the standalone size guarantee.
+
+This is a requirement for extension writers, not an additional ciphertext or replay validation
+rule. Readers MUST continue to recover already-created chains that satisfy the existing
+per-document, chain, and reconstructed-state bounds even if their resulting state cannot fit a
+standalone backup document.
+An update to such a chain MAY be published when its resulting state satisfies standalone
+rebuildability, for example after replacing a large file with smaller content.
+
+Append writers MUST preserve the rule that a chunk record is introduced at most once over
 the complete chain. They MAY bound working memory by retaining raw chunk bytes only for the latest
-logical state and tracking older introduced chunks by `chunk_id`. When selected input contains bytes
+file set and tracking older introduced chunks by `chunk_id`. When selected input contains bytes
 whose `SHA-256` matches such an older `chunk_id`, the writer MUST emit a reference to that
 historical chunk rather than reintroducing it inline.
 
 Operational rescue modes that tolerate unsigned or invalid extension AUTH are outside the
-authenticated format described in this section. Implementations MUST NOT describe replay of an
+authenticated format described in this section. Readers MUST NOT describe replay of an
 unsigned or invalidly signed extension as conforming to this format.
 
-### 19.5) Extension Replay
+### 19.5) Extension replay
 
-Replay produces the latest logical file set by starting from the root Version 1 manifest/payload
+Replay produces the latest file set by starting from the root Version 1 manifest and payload
 and then applying validated extensions in order.
 
 Replay rules:
-- paths omitted from an extension inherit their previous logical state unchanged
-- paths present in an extension replace the previous logical state for that path
-- extensions cannot represent deletes or tombstones; a path that existed in the root or an earlier
+- paths omitted from an extension keep their previous file content
+- paths present in an extension replace the previous file content for that path
+- extensions cannot represent deletion; a path that existed in the root or an earlier
   extension remains recoverable unless a later extension replaces it with new file content
 - an extension is therefore an add-or-replace operation, not filesystem synchronization; encoding a
   renamed path adds the new path without removing the old path
 - each chunk reference MUST resolve to either:
   - a newly introduced chunk in the current or earlier validated extension, or
-  - a chain-global virtual root chunk, keyed by the `SHA-256` of each re-chunked root chunk byte
-    sequence under the locked chain chunking profile
+  - a chunk derived from a root file using the locked chain chunking settings, keyed by the
+    `SHA-256` of its bytes and available throughout the chain
 - a chunk record carried by the current extension's `chunks` array MUST be newly introduced at
   that extension index; replay MUST reject it if the same `chunk_id` is already available from the
-  chain-global virtual root chunk source or an earlier validated extension
-- replacing a root path changes latest logical state for that path, but does not remove the
-  corresponding root payload bytes from the chain-global virtual root chunk source
+  chunks derived from root files or an earlier validated extension
+- replacing a root path changes the latest file content for that path, but does not remove the
+  corresponding root payload bytes from the chunks available for replay
 - replay MUST reject unresolved `chunk_id` references
-- replay MUST reject any reconstructed file whose size or SHA-256 does not match its recipe
-- total reconstructed logical files MUST remain `<= MAX_MANIFEST_FILES`
-- total reconstructed logical bytes MUST remain `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
-- when replay emits a synthetic Version 1 manifest for reconstructed extension state, it
-  MUST identify file provenance with `input_origin == "directory"` and
-  `input_roots == ["reconstructed-state"]`; it MUST NOT inherit root input provenance or the latest
-  extension header scope
-- synthetic replay manifests MUST preserve the root sealed/unsealed state and, for an unsealed
-  root, the exact root signing seed
+- replay MUST reject any reconstructed file whose size or SHA-256 does not match its file entry
+- total reconstructed files MUST remain `<= MAX_MANIFEST_FILES`
+- total reconstructed file bytes MUST remain `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
+- the normalized merged file paths MUST satisfy Section 16.1, including its prohibition on a
+  file path being an ancestor of another file path; replay MUST reject a conflicting state
+- when replay emits a Version 1 manifest for a reconstructed extension version, it
+  MUST identify the file source with `input_origin == "directory"` and
+  `input_roots == ["reconstructed-state"]`; it MUST NOT inherit the root input source or the latest
+  extension header's input source fields
+- manifests for reconstructed files MUST preserve the root sealed/unsealed state and, for an
+  unsealed root, the exact root signing seed
 
-## 20) Content-Addressed Extension Selection
+## 20) Content-addressed extension selection
 
-Extension recovery is content-addressed. Directory names, filenames, file order, and carrier labels
-are not part of extension identity and MUST NOT be required to recover an extension chain.
+Extension input is content-addressed. Directory names, filenames, file order, and carrier labels
+are not part of extension identity and MUST NOT be required to recover, update, or rebuild an
+extension chain.
 
 Selection rules:
 
-- implementations MUST accept scanned, pasted, or otherwise imported carriers without requiring a
+- readers MUST accept scanned, pasted, or otherwise imported carriers without requiring a
   particular directory layout or filename convention;
 - MAIN frames MUST be grouped by frame `doc_id`, and each group MUST independently reassemble to
   one ciphertext;
-- the authoritative `doc_id` and `doc_hash` MUST be derived from recovered ciphertext;
+- the document's `doc_id` and `doc_hash` MUST be derived from recovered ciphertext;
 - AUTH frames MUST be matched by frame `doc_id` and verified against the derived ciphertext
   `doc_hash`;
-- decrypted envelope version 1 documents are root-backup candidates;
-- decrypted envelope version 2 documents are extension candidates;
-- a recovery session MUST select exactly one root backup or reject the input as ambiguous;
+- decrypted document version 1 identifies a root-backup candidate;
+- decrypted document version 2 identifies an extension candidate;
+- a session that imports a chain MUST select exactly one root backup or reject the input as
+  ambiguous;
 - extension candidates MUST authenticate under `root_sign_pub` established in Section 7.2 before
   replay;
 - extension order MUST come from the decrypted header `index` and ancestry fields, not from
   filesystem position;
 - distinct authenticated extensions at the same `index` MUST be rejected as an ambiguous fork.
 
-Recovery MAY use any complete authenticated machine-readable MAIN carrier for a document. Multiple
-carrier copies provide redundancy and do not create additional document identities. Publication
-layout and redundancy audits are defined separately in the
-[extension operations and publication profile](extension_publication_profile.md) and MUST NOT change
-content-addressed identity.
+Recovery, Add Files, and Rebuild MAY use any complete authenticated MAIN carrier for a document.
+Multiple carrier copies provide redundancy and do not create additional document identities.
+Generated output validation is defined separately in the
+[extension publication rules](extension_publication_rules.md) and MUST NOT impose a directory
+layout or filename convention on later inputs.
 
-Content import authenticates only the carriers supplied to the session. Without a separate trusted
-freshness source, an implementation MUST NOT claim that no later extension exists. Independent
+Importing carriers authenticates only the carriers supplied to the session. Without a separate
+trusted freshness source, a reader MUST NOT claim that no later extension exists. Independent
 appends from one authenticated head can form distinct valid forks. Either fork MAY validate alone;
 supplying conflicting forks for one selection MUST fail as ambiguous.
 
-In this format, `latest` means the latest valid authenticated state among the supplied carriers.
-No global ledger or online head registry is consulted. Under the v1.2 operations profile, browser
-recovery MUST NOT silently use that target: it requires a chain-bound-kit head pin, a manually
-entered expected head, or an explicit acknowledgement that freshness beyond the supplied pages is
-unknown.
+In this format, `latest` means the latest valid authenticated version among the supplied carriers.
+No online head registry is consulted. Under the v1.2 extension publication rules, Add Files and
+browser recovery MUST NOT silently use that target: they require a manually entered expected head
+or an explicit acknowledgement that freshness beyond the supplied
+pages is unknown. The offline browser recovery kit is reusable and does not carry a backup-specific
+head pin.
 
-The authoritative extension identity consists of recovered ciphertext, its verified AUTH payload,
+A matching independently trusted full extension-head hash fixes the selected ciphertext and,
+after complete authenticated replay, the root hash committed by that extension. The unsealed root
+manifest in turn binds the root signing public key through its seed as required by Section 7.2.
+Readers MAY report this verification of the expected head, root identity, and signing public key.
+A supplied hash is a trusted record only when the user obtained
+it independently; an imported carrier does not establish its own trust or global freshness.
+
+A trusted standalone-root ciphertext hash also fixes that root identity and, for an unsealed root,
+its seed-derived signing public key after authenticated recovery. For a sealed standalone root, it
+does not independently pin the AUTH public key because the encrypted manifest has no signing seed.
+An independently trusted signing-key fingerprint is required to make that additional trust claim.
+
+Extension identity consists of recovered ciphertext, its verified AUTH payload,
 and decrypted extension-header metadata.

@@ -14,12 +14,13 @@ Restore with the terminal app, the command line, or the offline browser recovery
 does not require an account or online service.
 
 Use Ethernity for seed phrases, private keys, certificates, and small sets of configuration files.
-A backup can contain up to **1 MiB of ciphertext** and **2,048 paths**. Keep large archives, media
-libraries, and routine snapshots in a conventional backup system.
+A standalone backup is limited to **1 MiB of ciphertext** and **2,048 recovered files**.
+Updated backups also have chain-wide limits. Keep large archives, media libraries, and
+routine snapshots in a conventional backup system.
 
 <p align="center">
-  <a href="images/readme/terminal_app_preview.png">
-    <img src="images/readme/terminal_app_preview.png" alt="Create backup in the Ethernity terminal app" width="900">
+  <a href="images/readme/terminal_app_preview.svg">
+    <img src="images/readme/terminal_app_preview.svg" alt="Create backup in the Ethernity terminal app" width="900">
   </a>
 </p>
 
@@ -56,7 +57,7 @@ Open a new terminal after installation.
 
 Download archives for macOS, Linux, and Windows from
 [GitHub Releases](https://github.com/MinorGlitch/ethernity/releases). Verify an archive with its
-Sigstore bundle before you run it. The [release guide](docs/release_artifacts.md) shows the command.
+Sigstore bundle before you run it. The [release guide](docs/release_files.md) shows the command.
 
 Check the installation:
 
@@ -66,8 +67,7 @@ ethernity --help
 
 ## Quick start
 
-Start with a disposable file. Complete a restore before you use Ethernity for material you care
-about.
+Start with a disposable file. Complete a restore before you use Ethernity for important data.
 
 ```sh
 ethernity
@@ -78,6 +78,13 @@ ethernity
 3. Create the backup and print the PDFs at actual size.
 4. Choose **Restore files** and load the backup folder or scanned pages.
 5. Restore into an empty destination and compare the result with the source file.
+
+The terminal app has a step rail, an editor for the current step, and a live summary. Use
+**Continue** to move forward, **Back** to revisit a step, or select a step directly. **Review**
+shows the destination and write behavior before you run the task. **Manage** contains backup
+updates, rebuilds, and replacement recovery sheets; **Tools** contains the rescue kit and settings.
+At smaller terminal sizes, the steps move across the top and the summary hides to leave room
+for the editor. Press `Ctrl+R` to review or `Ctrl+P` to find an action.
 
 Use `ethernity run` from a shell or script. This POSIX shell example creates and restores a small
 test backup:
@@ -113,42 +120,42 @@ passphrase. Store the sheets in separate places and keep them apart from the bac
 - Scan a printed QR code before you put the documents into storage.
 - Test a restore with the documents and recovery sheets you plan to keep.
 
-Browser recovery tools contain the software needed to restore a backup without installing
-Ethernity; they do not contain your files. Add Files publishes a chain-bound replacement kit for
-its new head. The expert `ethernity run print-kit` command creates an unanchored rescue kit, which
-cannot prove that the supplied extension head is the expected latest state. Test either kind with
-disposable data.
+The offline browser recovery kit contains recovery software, not your files. It is reusable across
+backups. To check an expected version, keep its full fingerprint separately and enter it during
+recovery. This checks the version you recorded; it cannot discover newer offline updates.
+Every accepted update leaves a file set that fits Rebuild's standalone format.
+`ethernity run print-kit` prints the kit without tying it to a backup.
 
 Read the [security policy](SECURITY.md) for the threat model and private vulnerability reporting
 process.
 
 ## Command reference
 
-Run `ethernity` for the guided terminal app. The same workflows are available for scripts:
+Run `ethernity` for the guided terminal app. The same operations are available for scripts:
 
 | Command | Purpose |
 | --- | --- |
 | `ethernity run backup` | Create a backup |
 | `ethernity run restore` | Restore files from backup documents or scans |
 | `ethernity run add-files` | Add or replace files in an existing backup |
-| `ethernity run rebuild` | Turn a backup history into one standalone set |
+| `ethernity run rebuild` | Turn a backup history into one standalone backup |
 | `ethernity run replace-recovery-docs` | Create replacement recovery sheets |
-| `ethernity run print-kit` | Create an unanchored browser rescue kit |
-| `ethernity run doctor` | Inspect or repair an interrupted publication transaction |
+| `ethernity run print-kit` | Print the reusable offline browser recovery kit |
 
 Add `--preview` to inspect a task without writing files. Add `--json` when a script needs
 machine-readable output. Run `ethernity run <command> --help` for all options.
 
 ## Documentation
 
-- [Advanced workflows](docs/advanced-workflows.md) covers updates, rebuilds, trusted fingerprints,
+- [Advanced operations](docs/advanced_operations.md) covers updates, rebuilds, trusted fingerprints,
   and replacement recovery sheets.
 - [Format specification](docs/format.md) defines the backup and recovery format.
-- [Extension operations profile](docs/extension_publication_profile.md) defines the normative v1.2
-  publication, recovery-kit, and chain-maintenance rules.
-- [Format notes](docs/format_notes.md) explains the design and operating model.
-- [Compatibility history](docs/format_changes.md) records frozen release targets and shipped formats.
-- [Release guide](docs/release_artifacts.md) explains archive and Sigstore verification.
+- [Extension publication rules](docs/extension_publication_rules.md) define the required v1.2
+  update documents, validation, recovery, and publication behavior.
+- [Format rationale and recovery guidance](docs/format_rationale.md) explains serialization choices,
+  signature checks, and recovery practices.
+- [Compatibility history](docs/format_history.md) records released formats and compatibility changes.
+- [Release guide](docs/release_files.md) explains archive and Sigstore verification.
 
 ## Contributing
 
