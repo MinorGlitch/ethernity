@@ -16,7 +16,7 @@ from ethernity.tasks.presentation.models import (
     WorkspaceAction,
     WorkspaceValue,
 )
-from tests.unit.app.widgets.workflow.helpers import PrimitiveHarness
+from tests.unit.app.widgets.workflow.widget_harness import WorkflowWidgetHarness
 
 
 def test_quorum_editor_has_live_sentence_and_specific_inline_error() -> None:
@@ -25,7 +25,7 @@ def test_quorum_editor_has_live_sentence_and_specific_inline_error() -> None:
             QuorumBodyPresentation(threshold=3, count=5),
             id="quorum",
         )
-        app = PrimitiveHarness(editor)
+        app = WorkflowWidgetHarness(editor)
         async with app.run_test(size=(80, 24)) as pilot:
             summary = editor.query_one(".guided-summary", Static)
             notice = editor.query_one(InlineNotice)
@@ -74,12 +74,13 @@ def test_options_editor_uses_native_keyed_selects_and_suppresses_sync_messages()
             actions=(WorkspaceAction("hidden-action", "Hidden", visible=False),),
         )
         editor = OptionsEditor(body, id="options")
-        app = PrimitiveHarness(editor)
+        app = WorkflowWidgetHarness(editor)
         async with app.run_test(size=(80, 24)) as pilot:
             select = editor.query_one("#workspace-rebuild-paper", Select)
             values = list(editor.query(".guided-detail"))
 
             assert select.value == "A4"
+            assert app.option_selects == []
             assert not values[0].display
             assert "[bold]A4[/bold]" in str(values[1].content)
             assert not editor.query_one(".guided-actions").display
@@ -114,6 +115,10 @@ def test_options_editor_uses_native_keyed_selects_and_suppresses_sync_messages()
             assert "A4 updated" in str(select._options[0][0])
             assert "A4 updated" in str(select.query_one("SelectCurrent > #label", Static).content)
 
+            editor.on_select_changed(Select.Changed(select, "LETTER"))
+            await pilot.pause()
+            assert app.option_selects == [("workspace-rebuild-paper", "LETTER")]
+
             with pytest.raises(ValueError, match="choice keys cannot change"):
                 editor.sync_presentation(
                     replace(
@@ -138,7 +143,7 @@ def test_optional_options_part_hides_empty_chrome_but_keeps_structural_controls(
             actions=(WorkspaceAction("accept", "Use these scans", visible=False),),
         )
         editor = OptionsEditor(empty, id="trust")
-        app = PrimitiveHarness(editor)
+        app = WorkflowWidgetHarness(editor)
         async with app.run_test(size=(80, 24)) as pilot:
             assert not editor.display
             assert not editor.query_one(".guided-detail").display

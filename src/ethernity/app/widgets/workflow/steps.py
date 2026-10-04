@@ -2,23 +2,18 @@
 
 from __future__ import annotations
 
-from textual.binding import Binding
-from textual.containers import HorizontalGroup, VerticalGroup
-from textual.content import Content
-from textual.events import Click
-from textual.message import Message
+from textual.containers import VerticalGroup
 from textual.widget import Widget
-from textual.widgets import Label
 
+from ethernity.app.widgets.form import FormScroll, FormSection
 from ethernity.app.widgets.workflow.controls import InlineNotice, child_id, merge_classes
 from ethernity.app.widgets.workflow.options import OptionsEditor, QuorumEditor
 from ethernity.app.widgets.workflow.paths import DestinationEditor, PathSelectionEditor
 from ethernity.app.widgets.workflow.source import SourceChooser
-from ethernity.app.widgets.workflow.styles import GUIDED_WORKFLOW_CSS
 from ethernity.app.widgets.workflow.unlock import UnlockEditor
 from ethernity.tasks.presentation.models import (
-    AtomicStepBodyPresentation,
     CompositeBodyPresentation,
+    ControlBodyPresentation,
     DestinationBodyPresentation,
     OptionsBodyPresentation,
     PathSelectionBodyPresentation,
@@ -33,15 +28,12 @@ from ethernity.tasks.presentation.models import (
 __all__ = [
     "CompositeStepBody",
     "WorkflowStep",
-    "WorkflowStepHeader",
     "WorkflowStepStack",
 ]
 
 
 class CompositeStepBody(VerticalGroup):
-    """Compose several stable, keyed atomic editors into one semantic step body."""
-
-    DEFAULT_CSS = GUIDED_WORKFLOW_CSS
+    """Combine several groups of controls in one workflow step."""
 
     def __init__(
         self,
@@ -52,15 +44,19 @@ class CompositeStepBody(VerticalGroup):
     ) -> None:
         self._presentation = presentation
         self._parts = tuple(
-            _atomic_body_widget(
+            _control_body_widget(
                 child_id(id, part.key),
                 part.body,
                 classes="guided-composite-part",
             )
             for part in presentation.parts
         )
+        self._sections = tuple(
+            FormSection(part.title, widget)
+            for widget, part in zip(self._parts, presentation.parts, strict=True)
+        )
         super().__init__(
-            *self._parts,
+            *self._sections,
             id=id,
             classes=merge_classes("guided-step-body guided-composite-body", classes),
         )
@@ -79,127 +75,41 @@ class CompositeStepBody(VerticalGroup):
             if previous.body.kind != current.body.kind:
                 raise ValueError("composite body part kinds cannot change after composition")
         self._presentation = presentation
-        for widget, part in zip(self._parts, presentation.parts, strict=True):
-            _sync_atomic_body_widget(widget, part.body)
-
-
-class WorkflowStepHeader(HorizontalGroup, can_focus=True):
-    """Focusable, structured step summary with independent progress and severity cues."""
-
-    DEFAULT_CSS = GUIDED_WORKFLOW_CSS
-    BINDINGS = [Binding("enter,space", "activate", "Open step", show=False)]
-    _STATES = ("locked", "available", "current", "complete")
-    _SEVERITIES = ("warning", "error")
-
-    class Activated(Message):
-        def __init__(self, header: WorkflowStepHeader, step_key: str) -> None:
-            super().__init__()
-            self.header = header
-            self.step_key = step_key
-
-        @property
-        def control(self) -> WorkflowStepHeader:
-            return self.header
-
-    def __init__(
-        self,
-        step: StepPresentation,
-        number: int,
-        *,
-        id: str | None = None,
-    ) -> None:
-        self.step_key = step.key
-        self.number = number
-        self._marker = Label("", classes="workflow-step-marker")
-        self._number = Label("", classes="workflow-step-number")
-        self._title = Label("", classes="workflow-step-title")
-        self._summary = Label("", classes="workflow-step-summary")
-        self._copy = VerticalGroup(
-            self._title,
-            self._summary,
-            classes="workflow-step-copy",
-        )
-        self._status = Label("", classes="workflow-step-status")
-        super().__init__(
-            self._marker,
-            self._number,
-            self._copy,
-            self._status,
-            id=id,
-            classes="workspace-control",
-        )
-        self.sync_presentation(step, number)
-
-    def sync_presentation(self, step: StepPresentation, number: int) -> None:
-        self.step_key = step.key
-        self.number = number
-        for state in self._STATES:
-            self.remove_class(f"step-{state}")
-        for severity in self._SEVERITIES:
-            self.remove_class(f"step-{severity}")
-        self.add_class(f"step-{step.state}")
-        if step.severity != "none":
-            self.add_class(f"step-{step.severity}")
-        compact = step.state in {"locked", "available"}
-        self.set_class(compact, "step-compact")
-        self.disabled = step.state == "locked"
-        marker, state_label = {
-            "locked": ("[ ]", "Locked"),
-            "available": ("[ ]", "Ready"),
-            "current": ("[>]", "Current"),
-            "complete": ("[x]", "Complete"),
-        }[step.state]
-        if step.severity != "none":
-            state_label = f"{state_label} / {step.severity.title()}"
-        self._marker.update(Content.from_text(marker, markup=False))
-        self._number.update(Content.from_text(str(number), markup=False))
-        self._title.update(Content.from_text(step.title, markup=False))
-        self._summary.update(Content.from_text(step.summary, markup=False))
-        self._summary.display = bool(step.summary) and not compact
-        self._status.update(Content.from_text(state_label, markup=False))
-
-    def action_activate(self) -> None:
-        if not self.disabled:
-            self.post_message(self.Activated(self, self.step_key))
-
-    def on_click(self, event: Click) -> None:
-        event.stop()
-        self.focus()
-        self.action_activate()
+        for widget, section, part in zip(
+            self._parts, self._sections, presentation.parts, strict=True
+        ):
+            _sync_control_body_widget(widget, part.body)
+            section.display = widget.display
 
 
 class WorkflowStep(VerticalGroup):
-    DEFAULT_CSS = GUIDED_WORKFLOW_CSS
-
     def __init__(
         self,
         step: StepPresentation,
-        number: int,
         *,
         expanded: bool,
         widget_prefix: str,
     ) -> None:
         self.step_key = step.key
-        self.header = WorkflowStepHeader(
-            step,
-            number,
-            id=f"workflow-{widget_prefix}-{step.key}-header",
-        )
         self.body = _body_widget(f"{widget_prefix}-{step.key}", step.body)
         self.issue = InlineNotice(step.issue, classes="guided-step-issue")
-        super().__init__(self.header, self.body, self.issue)
-        self.sync_presentation(step, number, expanded=expanded)
+        content = (
+            self.body
+            if isinstance(step.body, CompositeBodyPresentation)
+            else FormSection(step.title, self.body)
+        )
+        super().__init__(content, self.issue, id=f"workflow-{widget_prefix}-{step.key}")
+        self.sync_presentation(step, expanded=expanded)
 
     def sync_presentation(
         self,
         step: StepPresentation,
-        number: int,
         *,
         expanded: bool,
     ) -> None:
         if step.key != self.step_key:
             raise ValueError("workflow step keys cannot change after composition")
-        self.header.sync_presentation(step, number)
+        self.display = step.visible and expanded
         _sync_body_widget(self.body, step.body)
         self.body.display = expanded
         self.issue.sync_presentation(step.issue)
@@ -207,19 +117,7 @@ class WorkflowStep(VerticalGroup):
 
 
 class WorkflowStepStack(VerticalGroup):
-    """Render every step header while expanding only the active step body."""
-
-    DEFAULT_CSS = GUIDED_WORKFLOW_CSS
-
-    class StepRequested(Message):
-        def __init__(self, stack: WorkflowStepStack, step_key: str) -> None:
-            super().__init__()
-            self.stack = stack
-            self.step_key = step_key
-
-        @property
-        def control(self) -> WorkflowStepStack:
-            return self.stack
+    """Keep step editors mounted while presenting the active step."""
 
     def __init__(
         self,
@@ -232,11 +130,10 @@ class WorkflowStepStack(VerticalGroup):
         self._steps = tuple(
             WorkflowStep(
                 step,
-                number,
                 expanded=step.key == presentation.active_step,
                 widget_prefix=presentation.task_key,
             )
-            for number, step in enumerate(presentation.steps, start=1)
+            for step in presentation.steps
         )
         super().__init__(*self._steps, id=id, classes=classes)
 
@@ -252,35 +149,42 @@ class WorkflowStepStack(VerticalGroup):
         ):
             raise ValueError("workflow step keys cannot change after composition")
         self._presentation = presentation
-        for number, (widget, step) in enumerate(
-            zip(self._steps, presentation.steps, strict=True),
-            start=1,
-        ):
+        for widget, step in zip(self._steps, presentation.steps, strict=True):
             widget.sync_presentation(
                 step,
-                number,
                 expanded=step.key == presentation.active_step,
             )
 
     def focus_active(self) -> None:
         step = next(step for step in self._steps if step.step_key == self.active_step)
-        step.header.focus(scroll_visible=True)
-
-    def on_workflow_step_header_activated(self, event: WorkflowStepHeader.Activated) -> None:
-        event.stop()
-        self.post_message(self.StepRequested(self, event.step_key))
+        control = next(
+            (
+                widget
+                for widget in step.body.query("*")
+                if widget.can_focus and not widget.disabled and widget.region.area > 0
+            ),
+            None,
+        )
+        if control is not None:
+            form = next(
+                (parent for parent in self.ancestors if isinstance(parent, FormScroll)), None
+            )
+            if form is not None:
+                form.focus_start(control)
+            else:
+                control.focus(scroll_visible=True)
 
 
 def _body_widget(widget_prefix: str, body: StepBodyPresentation) -> Widget:
     widget_id = f"workflow-{widget_prefix}-body"
     if isinstance(body, CompositeBodyPresentation):
         return CompositeStepBody(body, id=widget_id)
-    return _atomic_body_widget(widget_id, body)
+    return _control_body_widget(widget_id, body)
 
 
-def _atomic_body_widget(
+def _control_body_widget(
     widget_id: str | None,
-    body: AtomicStepBodyPresentation,
+    body: ControlBodyPresentation,
     *,
     classes: str | None = None,
 ) -> Widget:
@@ -301,12 +205,12 @@ def _sync_body_widget(widget: Widget, body: StepBodyPresentation) -> None:
     if isinstance(widget, CompositeStepBody) and isinstance(body, CompositeBodyPresentation):
         widget.sync_presentation(body)
     elif not isinstance(body, CompositeBodyPresentation):
-        _sync_atomic_body_widget(widget, body)
+        _sync_control_body_widget(widget, body)
     else:
         raise ValueError("workflow step body kind cannot change after composition")
 
 
-def _sync_atomic_body_widget(widget: Widget, body: AtomicStepBodyPresentation) -> None:
+def _sync_control_body_widget(widget: Widget, body: ControlBodyPresentation) -> None:
     if isinstance(widget, SourceChooser) and isinstance(body, SourceBodyPresentation):
         widget.sync_presentation(body)
     elif isinstance(widget, UnlockEditor) and isinstance(body, UnlockBodyPresentation):

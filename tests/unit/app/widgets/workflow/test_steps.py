@@ -4,16 +4,17 @@ import asyncio
 from dataclasses import replace
 
 import pytest
-from textual.widgets import Static
+from textual.widgets import Button, Input, RadioSet, Static
 
 from ethernity.app.widgets.workflow.options import OptionsEditor
 from ethernity.app.widgets.workflow.source import SourceChooser
 from ethernity.app.widgets.workflow.steps import (
     CompositeStepBody,
-    WorkflowStepHeader,
+    WorkflowStep,
     WorkflowStepStack,
 )
 from ethernity.tasks.presentation.models import (
+    ChoicePresentation,
     CompositeBodyPartPresentation,
     CompositeBodyPresentation,
     DestinationBodyPresentation,
@@ -23,16 +24,16 @@ from ethernity.tasks.presentation.models import (
     UnlockBodyPresentation,
     WorkspaceAction,
 )
-from tests.unit.app.widgets.workflow.helpers import (
-    PrimitiveHarness,
-    make_source_body,
-    make_workflow,
+from tests.unit.app.widgets.workflow.widget_harness import (
+    WorkflowWidgetHarness,
+    sample_restore_workflow,
+    sample_source_body,
 )
 
 
-def test_step_stack_expands_only_active_step_and_reports_keyboard_requests() -> None:
+def test_step_stack_shows_active_editor_and_focuses_its_first_control() -> None:
     async def run() -> None:
-        workflow = make_workflow(
+        workflow = sample_restore_workflow(
             active_step="source",
             steps=(
                 StepPresentation(
@@ -40,41 +41,41 @@ def test_step_stack_expands_only_active_step_and_reports_keyboard_requests() -> 
                     "Backup source",
                     "current",
                     "Choose a source",
-                    make_source_body(),
+                    sample_source_body(),
                 ),
                 StepPresentation(
                     "unlock",
                     "Unlock backup",
-                    "locked",
+                    "available",
                     "Waiting for source",
-                    UnlockBodyPresentation(),
+                    UnlockBodyPresentation(
+                        methods=(ChoicePresentation("passphrase", "Passphrase", selected=True),)
+                    ),
                 ),
                 StepPresentation(
                     "destination",
                     "Destination",
-                    "locked",
+                    "available",
                     "Waiting for unlock",
                     DestinationBodyPresentation(),
                 ),
             ),
         )
         stack = WorkflowStepStack(workflow, id="steps")
-        app = PrimitiveHarness(stack)
+        app = WorkflowWidgetHarness(stack)
         async with app.run_test(size=(80, 24)) as pilot:
-            headers = list(stack.query(WorkflowStepHeader))
+            steps = list(stack.query(WorkflowStep))
             bodies = list(stack.query(".guided-step-body"))
 
             assert [body.display for body in bodies] == [True, False, False]
-            assert headers[1].disabled
-            assert headers[0].region.height == 2
-            assert headers[1].region.height == 1
-            assert not headers[1].query_one(".workflow-step-summary", Static).display
+            assert steps[0].region.height > 0
+            assert steps[1].region.height == 0
+            assert all(not step.can_focus for step in steps)
 
-            headers[0].focus()
-            await pilot.press("enter")
+            stack.focus_active()
             await pilot.pause()
-
-            assert app.step_requests == ["source"]
+            assert app.focused is stack.query_one("#workflow-restore-source-body-load", Button)
+            assert not steps[2].display
 
             updated = replace(
                 workflow,
@@ -95,50 +96,21 @@ def test_step_stack_expands_only_active_step_and_reports_keyboard_requests() -> 
                 ),
             )
             stack.sync_presentation(updated)
+            await pilot.pause()
             stack.focus_active()
             await pilot.pause()
 
             assert [body.display for body in bodies] == [False, True, False]
-            assert headers[1].has_class("step-current")
-            assert headers[1].has_class("step-error")
-            assert str(headers[1].query_one(".workflow-step-status", Static).content) == (
-                "Current / Error"
+            assert not stack.query(".workflow-step-heading")
+            assert app.focused is stack.query_one(
+                "#workflow-restore-unlock-body RadioSet", RadioSet
             )
-            assert app.focused is headers[1]
+            await pilot.press("tab")
+            assert app.focused is stack.query_one("#workflow-restore-unlock-body Input", Input)
+            assert "Enter the backup passphrase" in str(
+                steps[1].query_one(".guided-step-issue", Static).content
+            )
             assert all(body.region.bottom <= 24 for body in bodies if body.display)
-
-    asyncio.run(run())
-
-
-def test_step_header_keeps_progress_and_severity_visible_without_wrapping() -> None:
-    async def run() -> None:
-        header = WorkflowStepHeader(
-            StepPresentation(
-                "source",
-                "Existing backup",
-                "current",
-                "A very long source path that must not turn into a paragraph at narrow widths",
-                make_source_body(),
-                severity="warning",
-            ),
-            1,
-        )
-        app = PrimitiveHarness(header)
-        async with app.run_test(size=(40, 8)):
-            marker = header.query_one(".workflow-step-marker", Static)
-            number = header.query_one(".workflow-step-number", Static)
-            title = header.query_one(".workflow-step-title", Static)
-            summary = header.query_one(".workflow-step-summary", Static)
-            status = header.query_one(".workflow-step-status", Static)
-
-            assert str(marker.content) == "[>]"
-            assert str(number.content) == "1"
-            assert str(title.content) == "Existing backup"
-            assert str(status.content) == "Current / Warning"
-            assert header.has_class("step-current")
-            assert header.has_class("step-warning")
-            assert summary.region.height == 1
-            assert summary.render_line(0).text.rstrip().endswith("\u2026")
 
     asyncio.run(run())
 
@@ -150,12 +122,14 @@ def test_composite_step_body_keeps_keyed_parts_mounted_and_enforces_kinds() -> N
         )
         body = CompositeBodyPresentation(
             parts=(
-                CompositeBodyPartPresentation("source", make_source_body()),
-                CompositeBodyPartPresentation("trust", trust),
+                CompositeBodyPartPresentation(
+                    "source", sample_source_body(), title="Backup documents"
+                ),
+                CompositeBodyPartPresentation("trust", trust, title="Backup version"),
             )
         )
         composite = CompositeStepBody(body, id="combined")
-        app = PrimitiveHarness(composite)
+        app = WorkflowWidgetHarness(composite)
         async with app.run_test(size=(80, 24)) as pilot:
             source = composite.query_one("#combined-source", SourceChooser)
             trust_editor = composite.query_one("#combined-trust", OptionsEditor)
@@ -199,5 +173,51 @@ def test_composite_step_body_keeps_keyed_parts_mounted_and_enforces_kinds() -> N
                         ),
                     )
                 )
+
+    asyncio.run(run())
+
+
+def test_hidden_optional_section_stays_mounted_and_can_be_disclosed() -> None:
+    async def run() -> None:
+        workflow = sample_restore_workflow(
+            active_step="source",
+            steps=(
+                StepPresentation("source", "Backup", "current", "Loaded", sample_source_body()),
+                StepPresentation(
+                    "target",
+                    "Version",
+                    "complete",
+                    "Newest supplied version",
+                    OptionsBodyPresentation(),
+                    visible=False,
+                ),
+                StepPresentation(
+                    "destination",
+                    "Save to",
+                    "available",
+                    "Choose folder",
+                    DestinationBodyPresentation(),
+                ),
+            ),
+        )
+        stack = WorkflowStepStack(workflow)
+        app = WorkflowWidgetHarness(stack)
+        async with app.run_test(size=(80, 24)) as pilot:
+            target = stack.query_one("#workflow-restore-target")
+            assert target is not None and not target.display
+            assert not stack.query_one("#workflow-restore-destination").disabled
+            stack.sync_presentation(
+                replace(
+                    workflow,
+                    active_step="target",
+                    steps=(
+                        replace(workflow.steps[0], state="complete"),
+                        replace(workflow.steps[1], visible=True, state="current"),
+                        workflow.steps[2],
+                    ),
+                )
+            )
+            await pilot.pause()
+            assert target.display
 
     asyncio.run(run())

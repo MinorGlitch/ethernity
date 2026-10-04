@@ -1,8 +1,30 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+
+from pydantic import BaseModel
 
 from ethernity.app.app_types import ActiveTask
+from ethernity.tasks.add_files import AddFilesTaskState
+from ethernity.tasks.backup import BackupTaskState
+from ethernity.tasks.kit import PrintKitTaskState
+from ethernity.tasks.rebuild import RebuildTaskState
+from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
+from ethernity.tasks.restore import RestoreTaskState
+from ethernity.tasks.settings import SettingsTaskState
+from ethernity.workflows.shared import api_codes
+
+TaskStateFactory = Callable[[Path | None], BaseModel]
+
+
+def _default_state(model: type[BaseModel]) -> TaskStateFactory:
+    return lambda _settings_config_path: model()
+
+
+def _settings_state(settings_config_path: Path | None) -> BaseModel:
+    return SettingsTaskState.from_current(settings_config_path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +38,7 @@ class WorkflowDefinition:
     initial_focus: str
     review_label: str
     execute_label: str
+    state_factory: TaskStateFactory
     section_focus: tuple[tuple[str, str], ...] = ()
     issue_focus: tuple[tuple[str, str], ...] = ()
 
@@ -27,29 +50,35 @@ class WorkflowDefinition:
     def focus_for_issue(self, code: str, section: str | None) -> str:
         return dict(self.issue_focus).get(code, self.focus_for_section(section))
 
+    def fresh_state(self, *, settings_config_path: Path | None = None) -> BaseModel:
+        return self.state_factory(settings_config_path)
+
 
 WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         key="backup",
         title="Create backup",
-        nav_group="Backup",
+        nav_group="Start",
         shortcut="1",
         state_attribute="backup_state",
         workspace_id="backup-workspace",
         initial_focus="#workspace-backup-files",
         review_label="Review backup",
         execute_label="Create backup",
+        state_factory=_default_state(BackupTaskState),
         section_focus=(
             ("files", "#workspace-backup-files"),
             ("output", "#workspace-backup-output"),
             ("recovery", "#workspace-backup-recovery-method"),
+            ("signature", "#workspace-backup-signing-key-mode"),
+            ("layout", "#workspace-backup-paper-size"),
             ("advanced", "#workspace-backup-passphrase"),
         ),
         issue_focus=(
             ("BACKUP_CUSTOM_QR_DENSITY", "#workspace-backup-qr-chunk-size"),
             (
                 "BACKUP_SIGNING_KEY_QUORUM_INCOMPLETE",
-                "#workspace-backup-signing-key-shards",
+                "#workspace-backup-signing-key-mode",
             ),
             (
                 "BACKUP_SIGNING_KEY_QUORUM_MODE_REQUIRED",
@@ -64,116 +93,94 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         key="restore",
         title="Restore files",
-        nav_group="Recovery",
+        nav_group="Start",
         shortcut="2",
         state_attribute="restore_state",
         workspace_id="restore-workspace",
-        initial_focus="#workflow-restore-source-body-methods",
+        initial_focus="#workflow-restore-source-body-load",
         review_label="Review restore",
         execute_label="Restore files",
+        state_factory=_default_state(RestoreTaskState),
         section_focus=(
-            ("source", "#workflow-restore-source-body-methods"),
+            ("source", "#workflow-restore-source-body-load"),
             ("unlock", "#workflow-restore-unlock-body-methods"),
             ("target", "#workflow-restore-target-body-choices"),
-            ("authentication", "#restore-advanced-panel"),
+            ("authentication", "#workspace-restore-auth-policy"),
             ("output", "#workflow-restore-destination-body-action"),
         ),
         issue_focus=(
             (
                 "RESTORE_RECOVERY_TEXT_INVALID",
-                "#workflow-restore-source-body-change",
+                "#workflow-restore-source-body-load",
             ),
             ("RESTORE_UPDATE_REQUIRED", "#workflow-restore-target-body-choices"),
-            ("RESTORE_AUTH_MATERIAL_CONFLICT", "#workspace-restore-auth-material"),
+            ("RESTORE_SIGNATURE_SOURCE_CONFLICT", "#workspace-restore-signature-source"),
         ),
     ),
     WorkflowDefinition(
         key="add_files",
         title="Add files to backup",
-        nav_group="Maintenance",
+        nav_group="Loaded backup",
         shortcut="3",
         state_attribute="add_files_state",
         workspace_id="add_files-workspace",
-        initial_focus="#workflow-add_files-source-body-source-methods",
+        initial_focus="#workflow-add_files-source-body-load",
         review_label="Review update",
         execute_label="Create update",
+        state_factory=_default_state(AddFilesTaskState),
         section_focus=(
-            ("backup", "#workflow-add_files-source-body-source-methods"),
-            ("source", "#workspace-add-files-fingerprint"),
+            ("source", "#workflow-add_files-source-body-load"),
             ("files", "#workspace-add-files-add-files"),
-            ("unlock", "#workflow-add_files-unlock-body-methods"),
-            ("output", "#workflow-add_files-output-body-action"),
+            ("unlock", "#workflow-add_files-unlock-body-unlock-methods"),
+            ("freshness", "#workspace-add-files-fingerprint"),
+            ("output", "#workspace-add-files-output"),
             ("advanced", "#workspace-add-files-base-dir"),
         ),
         issue_focus=(
-            ("ADD_FILES_HEAD_TRUST_REQUIRED", "#workspace-add-files-fingerprint"),
             ("ADD_FILES_CUSTOM_QR_DENSITY", "#workspace-add-files-qr-chunk-size"),
-            ("ADD_FILES_RECOVERY_SHEETS_SKIPPED", "#workspace-add-files-recovery-docs"),
-            ("ADD_FILES_CUSTOM_RECOVERY_QUORUM", "#workspace-add-files-recovery-docs"),
-            ("ADD_FILES_SIGNING_KEY_NOT_STORED", "#workspace-add-files-signing-key-mode"),
-            ("ADD_FILES_CUSTOM_SIGNING_KEY_QUORUM", "#workspace-add-files-signing-key-mode"),
             (
-                "ADD_FILES_REUSE_ROOT_RECOVERY_OVERRIDE",
-                "#workspace-add-files-unlock-policy",
-            ),
-            (
-                "ADD_FILES_RECOVERY_THRESHOLD_WITHOUT_DOCUMENTS",
-                "#workspace-add-files-recovery-docs",
-            ),
-            (
-                "ADD_FILES_ZERO_RECOVERY_REQUIRES_REUSE_ROOT",
-                "#workspace-add-files-unlock-policy",
-            ),
-            ("ADD_FILES_RECOVERY_QUORUM_INVALID", "#workspace-add-files-recovery-docs"),
-            (
-                "ADD_FILES_SIGNING_KEY_SHARDS_NOT_STORED",
-                "#workspace-add-files-signing-key-mode",
-            ),
-            (
-                "ADD_FILES_SIGNING_KEY_QUORUM_INVALID",
-                "#workspace-add-files-signing-key-mode",
-            ),
-            (
-                "ADD_FILES_SIGNING_KEY_REQUIRES_RECOVERY_DOCS",
-                "#workspace-add-files-recovery-docs",
+                api_codes.ADD_FILES_RECOVERY_OUTPUT_EXISTS,
+                "#workspace-add-files-recovery-sheets",
             ),
         ),
     ),
     WorkflowDefinition(
         key="rebuild",
         title="Rebuild backup",
-        nav_group="Maintenance",
+        nav_group="Loaded backup",
         shortcut="4",
         state_attribute="rebuild_state",
         workspace_id="rebuild-workspace",
-        initial_focus="#workflow-rebuild-source-body-methods",
+        initial_focus="#workflow-rebuild-source-body-load",
         review_label="Review rebuild",
         execute_label="Rebuild backup",
+        state_factory=_default_state(RebuildTaskState),
         section_focus=(
-            ("source", "#workflow-rebuild-source-body-methods"),
+            ("source", "#workflow-rebuild-source-body-load"),
             ("unlock", "#workflow-rebuild-unlock-body-unlock-methods"),
             ("freshness", "#workspace-rebuild-fingerprint"),
             ("output", "#workflow-rebuild-output-body-destination-action"),
-            ("advanced", "#rebuild-advanced-panel"),
+            ("advanced", "#workspace-rebuild-qr-chunk-size"),
         ),
         issue_focus=(
             ("REBUILD_HEAD_TRUST_REQUIRED", "#workspace-rebuild-fingerprint"),
             ("REBUILD_CUSTOM_QR_DENSITY", "#workspace-rebuild-qr-chunk-size"),
-            ("REBUILD_AUTH_MATERIAL_CONFLICT", "#workspace-rebuild-auth-material"),
+            ("REBUILD_SIGNATURE_SOURCE_CONFLICT", "#workspace-rebuild-signature-source"),
         ),
     ),
     WorkflowDefinition(
         key="replace_recovery_docs",
         title="Create replacement recovery sheets",
-        nav_group="Maintenance",
+        nav_group="Loaded backup",
         shortcut="5",
         state_attribute="replace_recovery_docs_state",
         workspace_id="replace_recovery_docs-workspace",
-        initial_focus="#workflow-replace_recovery_docs-source-body-source-methods",
+        initial_focus="#workflow-replace_recovery_docs-source-body-source-load",
         review_label="Review replacement sheets",
         execute_label="Create replacement sheets",
+        state_factory=_default_state(ReplaceRecoveryDocsTaskState),
         section_focus=(
-            ("source", "#workflow-replace_recovery_docs-source-body-source-methods"),
+            ("source", "#workflow-replace_recovery_docs-source-body-source-load"),
             ("unlock", "#workflow-replace_recovery_docs-unlock-body-methods"),
             ("freshness", "#workspace-replace-fingerprint"),
             ("output", "#workflow-replace_recovery_docs-output-body-destination-action"),
@@ -183,7 +190,7 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         issue_focus=(
             (
                 "REPLACE_RECOVERY_TEXT_INVALID",
-                "#workflow-replace_recovery_docs-source-body-source-change",
+                "#workflow-replace_recovery_docs-source-body-source-load",
             ),
             ("REPLACE_RECOVERY_HEAD_TRUST_REQUIRED", "#workspace-replace-fingerprint"),
             (
@@ -210,7 +217,7 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     ),
     WorkflowDefinition(
         key="kit",
-        title="Create unanchored rescue kit PDF",
+        title="Create offline recovery kit",
         nav_group="Tools",
         shortcut="6",
         state_attribute="kit_state",
@@ -218,6 +225,7 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         initial_focus="#workspace-kit-output",
         review_label="Review PDF",
         execute_label="Create PDF",
+        state_factory=_default_state(PrintKitTaskState),
         section_focus=(
             ("output", "#workspace-kit-output"),
             ("layout", "#workspace-kit-paper"),
@@ -236,6 +244,7 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         initial_focus="#setting-control-render_style",
         review_label="Save",
         execute_label="Save settings",
+        state_factory=_settings_state,
     ),
 )
 

@@ -2,24 +2,28 @@ from __future__ import annotations
 
 import asyncio
 
-from textual.widgets import Collapsible
-
 from ethernity.app.application import EthernityApp
 from ethernity.app.bindings import APP_BINDINGS
 from ethernity.tasks.backup import BackupTaskState
 
 
-def test_footer_only_advertises_universal_commands() -> None:
+def test_footer_advertises_global_navigation_and_help_commands() -> None:
     visible_bindings = {
         (binding.key, binding.description)
         for binding in APP_BINDINGS
         if getattr(binding, "show", False)
     }
 
-    assert visible_bindings == {("q", "Quit"), ("?", "Help")}
+    assert visible_bindings == {
+        ("q", "Quit"),
+        ("?", "Help"),
+        ("escape", "Close menu"),
+        ("ctrl+b", "Navigation"),
+        ("ctrl+p", "Actions"),
+    }
 
 
-def test_backup_primary_action_reveals_and_focuses_invalid_advanced_control(tmp_path) -> None:
+def test_backup_review_opens_recovery_for_invalid_signing_mode(tmp_path) -> None:
     async def run() -> None:
         app = EthernityApp(
             backup_state=BackupTaskState(
@@ -33,14 +37,13 @@ def test_backup_primary_action_reveals_and_focuses_invalid_advanced_control(tmp_
             app.refresh_task_view()
             await pilot.pause()
 
-            panel = app.query_one("#backup-advanced-panel", Collapsible)
-            assert panel.collapsed
+            assert not app.query_one("#backup-signing-section").display
 
-            await app.action_primary()
+            await app.action_review()
             await pilot.pause()
 
-            assert not panel.collapsed
+            assert app.query_one("#backup-signing-section").display
             assert app.screen.focused is not None
-            assert app.screen.focused.id == "workspace-backup-signing-key-shards"
+            assert app.screen.focused.id == "workspace-backup-signing-key-mode"
 
     asyncio.run(run())

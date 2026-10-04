@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from ethernity.app.app_types import ActiveTask, UnlockTaskState
@@ -35,11 +35,11 @@ from ethernity.tasks.presentation.models import (
     WorkspaceAction,
     WorkspaceValue,
 )
-from ethernity.tasks.presentation.recovery import pasted_text_summary
 from ethernity.tasks.rebuild import RebuildTaskState
+from ethernity.tasks.recovery_inputs import RecoverySourceInputs, detected_unlock_summary
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
-from ethernity.tasks.source_assessment import SourceAssessableTaskState
+from ethernity.tasks.source_assessment import SourceAssessableTaskState, recovery_source_request
 
 GUIDED_WORKFLOW_SECTIONS: dict[ActiveTask, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "restore": (
@@ -49,9 +49,9 @@ GUIDED_WORKFLOW_SECTIONS: dict[ActiveTask, tuple[tuple[str, tuple[str, ...]], ..
         ("destination", ("output",)),
     ),
     "add_files": (
-        ("source", ("backup", "source")),
+        ("source", ("source",)),
         ("files", ("files",)),
-        ("unlock", ("unlock",)),
+        ("unlock", ("unlock", "freshness")),
         ("output", ("output",)),
     ),
     "rebuild": (
@@ -90,27 +90,6 @@ def step_for_section(task: ActiveTask, section: str | None) -> str | None:
         ),
         None,
     )
-
-
-def active_step_is_complete(
-    task: ActiveTask,
-    validation: TaskValidation,
-    ui_state: WorkflowUiState,
-) -> bool:
-    if ui_state.has_invalid_draft(ui_state.active_step):
-        return False
-    if ui_state.active_step == "source" and ui_state.source_assessment_loading:
-        return False
-    section_keys = _sections_for_step(task, ui_state.active_step)
-    return bool(section_keys) and _step_complete(validation, section_keys)
-
-
-def next_step(task: ActiveTask, active_step: str) -> str | None:
-    step_keys = tuple(step for step, _ in GUIDED_WORKFLOW_SECTIONS.get(task, ()))
-    if active_step not in step_keys:
-        return None
-    index = step_keys.index(active_step)
-    return step_keys[index + 1] if index + 1 < len(step_keys) else None
 
 
 def build_guided_workflow(
@@ -227,7 +206,7 @@ def _restore_workflow(
             "unlock",
             "Unlock",
             _unlock_summary(state, sections["unlock"]),
-            _unlock_body(state, action_key="workspace-restore-unlock"),
+            _unlock_body(state, action_key="workspace-restore-unlock", ui_state=ui_state),
         ),
         (
             "target",
@@ -266,8 +245,8 @@ def _add_files_workflow(
         (
             "source",
             "Backup source",
-            _add_files_source_summary(state, sections),
-            _add_files_source_body(state, sections, ui_state),
+            _add_files_source_summary(state),
+            _add_files_source_body(state, ui_state),
         ),
         (
             "files",
@@ -277,15 +256,20 @@ def _add_files_workflow(
         ),
         (
             "unlock",
-            "Unlock",
-            _unlock_summary(state, sections["unlock"]),
-            _unlock_body(state, action_key="workspace-add-files-unlock"),
+            "Unlock and verify",
+            f"{_unlock_summary(state, sections['unlock'])}; {sections['freshness'].summary}",
+            _add_files_unlock_body(state, sections, ui_state),
         ),
         (
             "output",
             "Save update",
             sections["output"].summary,
-            _add_files_destination_body(state),
+            DestinationBodyPresentation(
+                label="Save to",
+                display_path=str(state.output_dir) if state.output_dir is not None else "",
+                empty_label="No output folder selected",
+                action=WorkspaceAction("workspace-add-files-output", "Choose output folder..."),
+            ),
         ),
     )
     return _workflow_presentation(
@@ -319,7 +303,7 @@ def _rebuild_workflow(
             "unlock",
             "Unlock and verify",
             _rebuild_unlock_summary(state, sections),
-            _rebuild_unlock_body(state, sections),
+            _rebuild_unlock_body(state, sections, ui_state),
         ),
         (
             "output",
@@ -359,7 +343,7 @@ def _replace_recovery_workflow(
             "unlock",
             "Unlock",
             _unlock_summary(state, sections["unlock"]),
-            _unlock_body(state, action_key="workspace-replace-unlock"),
+            _unlock_body(state, action_key="workspace-replace-unlock", ui_state=ui_state),
         ),
         (
             "recovery",
@@ -395,10 +379,11 @@ def _workflow_presentation(
     review_summary: SummaryPresentation,
     review_label: str,
 ) -> WorkflowPresentation:
-    _reconcile_active_step(task_key, validation, ui_state)
+    visible_steps = _visible_steps(task_key, step_specs)
+    if ui_state.active_step not in visible_steps:
+        ui_state.activate("source")
     sections = {section.key: section for section in validation.sections}
     steps: list[StepPresentation] = []
-    prerequisites_complete = True
     for step_key, step_title, summary, body in step_specs:
         section_keys = _sections_for_step(task_key, step_key)
         if not section_keys:
@@ -428,7 +413,6 @@ def _workflow_presentation(
                 title=step_title,
                 state=_step_state(
                     active=step_key == ui_state.active_step,
-                    prerequisites_complete=prerequisites_complete,
                     complete=complete,
                 ),
                 summary=summary,
@@ -438,9 +422,9 @@ def _workflow_presentation(
                     warning=any(sections[key].status == "warning" for key in section_keys),
                     issue=state_issue,
                 ),
+                visible=step_key in visible_steps,
             )
         )
-        prerequisites_complete = prerequisites_complete and complete
 
     return WorkflowPresentation(
         task_key=task_key,
@@ -449,71 +433,62 @@ def _workflow_presentation(
         steps=tuple(steps),
         primary_action=WorkspaceAction(
             "primary",
-            review_label if next_step(task_key, ui_state.active_step) is None else "Continue",
-            enabled=not ui_state.has_invalid_draft(ui_state.active_step),
+            review_label,
+            enabled=not ui_state.has_invalid_draft(),
         ),
         review_summary=review_summary,
     )
 
 
-def _reconcile_active_step(
+def _visible_steps(
     task: ActiveTask,
-    validation: TaskValidation,
-    ui_state: WorkflowUiState,
-) -> None:
-    """Move back to the first prerequisite that became incomplete."""
+    step_specs: tuple[tuple[str, str, str, StepBodyPresentation], ...],
+) -> set[str]:
+    """Disclose backup-dependent controls once documents have been selected."""
 
-    active_index = ui_state.step_keys.index(ui_state.active_step)
-    for step_key in ui_state.step_keys[:active_index]:
-        complete = _step_complete(validation, _sections_for_step(task, step_key))
-        if ui_state.has_invalid_draft(step_key):
-            complete = False
-        if step_key == "source" and ui_state.source_assessment_loading:
-            complete = False
-        if not complete:
-            ui_state.activate(step_key)
-            return
+    source_body = next(body for key, _title, _summary, body in step_specs if key == "source")
+    if isinstance(source_body, CompositeBodyPresentation):
+        source = next(
+            part.body for part in source_body.parts if isinstance(part.body, SourceBodyPresentation)
+        )
+    elif isinstance(source_body, SourceBodyPresentation):
+        source = source_body
+    else:
+        raise ValueError("a document workflow requires a source body")
+    visible = {"source", "destination", "output", "files"}
+    if source.assessment is not None:
+        visible.update(key for key, _title, _summary, _body in step_specs)
+    if task == "restore":
+        target = next(body for key, _title, _summary, body in step_specs if key == "target")
+        explicit_target = isinstance(target, OptionsBodyPresentation) and any(
+            choice.selected and choice.key != "latest" for choice in target.choices
+        )
+        if source.assessment is None or not (source.assessment.has_updates or explicit_target):
+            visible.discard("target")
+    return visible
 
 
 def _restore_source_body(
     state: RestoreTaskState,
     ui_state: WorkflowUiState,
 ) -> SourceBodyPresentation:
-    selected = _restore_source_method(state)
-    assessment = _resolved_source_assessment(state, _restore_source_assessment(state))
+    assessment = _resolved_source_assessment(state, _recovery_source_assessment(state))
     return SourceBodyPresentation(
-        methods=(
-            ChoicePresentation(
-                "scanned_pages",
-                "Scanned pages",
-                selected=selected == "scanned_pages",
-                description="PDFs, images, or a folder.",
-            ),
-            ChoicePresentation(
-                "recovery_text",
-                "Recovery text",
-                selected=selected == "recovery_text",
-                description="Paste text or load it from a file.",
-            ),
-            ChoicePresentation(
-                "payload_files",
-                "Backup payload file",
-                selected=selected == "payload_files",
-                description="An exported backup payload.",
-            ),
+        primary_action=WorkspaceAction(
+            "workspace-restore-source",
+            "Change documents..." if assessment is not None else "Load backup documents...",
+        ),
+        secondary_actions=(
+            WorkspaceAction("workspace-restore-recovery-text", "Paste printed text..."),
+            WorkspaceAction("workspace-restore-payloads", "Load exported data..."),
         ),
         assessment=assessment,
-        change_action=(
-            WorkspaceAction("restore-change-source", "Change source...")
-            if assessment is not None
-            else None
-        ),
         loading=ui_state.source_assessment_loading,
         notice=_source_assessment_notice(state),
     )
 
 
-def _restore_source_method(state: RestoreTaskState) -> str | None:
+def _recovery_source_method(state: RecoverySourceInputs) -> str | None:
     if state.source_paths:
         return "scanned_pages"
     if state.recovery_text or state.recovery_text_file is not None:
@@ -523,42 +498,34 @@ def _restore_source_method(state: RestoreTaskState) -> str | None:
     return None
 
 
-def _restore_source_assessment(
-    state: RestoreTaskState,
+def _recovery_source_assessment(
+    state: RecoverySourceInputs,
 ) -> SourceAssessmentPresentation | None:
-    method = _restore_source_method(state)
-    if method == "scanned_pages":
-        return SourceAssessmentPresentation(
-            source_kind="scanned_pages",
-            source_label="Scanned pages",
-            material_summary=_paths_material_summary(state.source_paths),
-        )
-    if method == "recovery_text":
-        if state.recovery_text:
-            lines = len([line for line in state.recovery_text.splitlines() if line.strip()])
-            material = f"Pasted text, {format_count(lines, 'non-empty line')}"
-        else:
-            material = display_path(state.recovery_text_file or "")
-        return SourceAssessmentPresentation(
-            source_kind="recovery_text",
-            source_label="Recovery text",
-            material_summary=material,
-        )
-    if method == "payload_files":
-        return SourceAssessmentPresentation(
-            source_kind="payload_files",
-            source_label="Backup payload file",
-            material_summary=display_path(state.payloads_file or ""),
-        )
-    return None
+    request = recovery_source_request(
+        issue_section="source",
+        scan_paths=tuple(state.source_paths),
+        recovery_text=state.recovery_text,
+        recovery_text_file=state.recovery_text_file,
+        payloads_file=state.payloads_file,
+    )
+    if request is None:
+        return None
+    return SourceAssessmentPresentation(
+        source_kind=request.source_kind,
+        source_label=request.source_label,
+        source_summary=request.source_summary,
+    )
 
 
 def _unlock_body(
     state: UnlockTaskState,
     *,
     action_key: str,
+    ui_state: WorkflowUiState,
 ) -> UnlockBodyPresentation:
     selected = _unlock_method(state)
+    if selected is None and ui_state.is_touched("unlock.passphrase"):
+        selected = "passphrase"
     action_by_method = {
         "passphrase": WorkspaceAction(action_key, "Change passphrase..."),
         "recovery_documents": WorkspaceAction(
@@ -584,8 +551,11 @@ def _unlock_body(
                 selected=selected == "recovery_payloads",
             ),
         ),
-        contextual_action=action_by_method[selected] if selected is not None else None,
-        material_summary=_unlock_material_summary(state),
+        method_action=(
+            action_by_method[selected] if selected not in {None, "passphrase"} else None
+        ),
+        input_summary=_unlock_input_summary(state),
+        passphrase_set=bool(state.passphrase),
     )
 
 
@@ -599,7 +569,7 @@ def _unlock_method(state: UnlockTaskState) -> str | None:
     return None
 
 
-def _unlock_material_summary(state: UnlockTaskState) -> str:
+def _unlock_input_summary(state: UnlockTaskState) -> str:
     method = _unlock_method(state)
     if method == "passphrase":
         return "Passphrase set"
@@ -619,7 +589,7 @@ def _unlock_material_summary(state: UnlockTaskState) -> str:
             if count == 1
             else f"{format_count(count, 'recovery payload file')}; first: {first_path}"
         )
-    return ""
+    return detected_unlock_summary(state) or ""
 
 
 def _restore_target_body(
@@ -658,7 +628,7 @@ def _restore_target_body(
 def _restore_destination_body(state: RestoreTaskState) -> DestinationBodyPresentation:
     return DestinationBodyPresentation(
         label="Restore to",
-        display_path=display_path(state.output_path) if state.output_path is not None else "",
+        display_path=str(state.output_path) if state.output_path is not None else "",
         empty_label="No restore folder selected",
         action=WorkspaceAction("workspace-restore-output", "Choose restore folder..."),
     )
@@ -666,12 +636,14 @@ def _restore_destination_body(state: RestoreTaskState) -> DestinationBodyPresent
 
 def _source_summary(state: RestoreTaskState, section: TaskSection) -> str:
     return (
-        section.summary if _restore_source_method(state) is not None else "Choose backup material"
+        section.summary if _recovery_source_method(state) is not None else "Choose backup documents"
     )
 
 
 def _unlock_summary(state: UnlockTaskState, section: TaskSection) -> str:
-    return section.summary if _unlock_method(state) is not None else "Choose an unlock method"
+    if _unlock_method(state) is not None or detected_unlock_summary(state) is not None:
+        return section.summary
+    return "Choose an unlock method"
 
 
 def _destination_summary(state: RestoreTaskState) -> str:
@@ -682,72 +654,64 @@ def _destination_summary(state: RestoreTaskState) -> str:
 
 def _add_files_source_body(
     state: AddFilesTaskState,
+    ui_state: WorkflowUiState,
+) -> SourceBodyPresentation:
+    assessment = _resolved_source_assessment(state, _recovery_source_assessment(state))
+    return SourceBodyPresentation(
+        primary_action=WorkspaceAction(
+            "workspace-add-files-source",
+            "Change documents..." if assessment is not None else "Load backup documents...",
+        ),
+        secondary_actions=(
+            WorkspaceAction("workspace-add-files-recovery-text", "Paste printed text..."),
+            WorkspaceAction("workspace-add-files-payloads", "Load exported data..."),
+        ),
+        assessment=assessment,
+        loading=ui_state.source_assessment_loading,
+        notice=_source_assessment_notice(state),
+    )
+
+
+def _add_files_source_summary(
+    state: AddFilesTaskState,
+) -> str:
+    request = state.source_assessment_request()
+    return request.source_summary if request is not None else "Choose backup documents"
+
+
+def _add_files_unlock_body(
+    state: AddFilesTaskState,
     sections: Mapping[str, TaskSection],
     ui_state: WorkflowUiState,
 ) -> CompositeBodyPresentation:
-    selected = _folder_or_scans_method(state.backup_folder, state.source_paths)
-    assessment = _resolved_source_assessment(
-        state,
-        _folder_or_scans_assessment(
-            backup_folder=state.backup_folder,
-            source_paths=state.source_paths,
-        ),
-    )
-    scanned = selected == "scanned_pages"
     return CompositeBodyPresentation(
         parts=(
             CompositeBodyPartPresentation(
-                "source",
-                SourceBodyPresentation(
-                    methods=_folder_or_scans_choices(selected),
-                    assessment=assessment,
-                    change_action=(
-                        WorkspaceAction("add-files-change-source", "Change source...")
-                        if assessment is not None
-                        else None
-                    ),
-                    loading=ui_state.source_assessment_loading,
-                    notice=_source_assessment_notice(state),
-                ),
+                "unlock",
+                _unlock_body(state, action_key="workspace-add-files-unlock", ui_state=ui_state),
+                title="Unlock backup",
             ),
             CompositeBodyPartPresentation(
                 "trust",
                 OptionsBodyPresentation(
                     values=(
                         WorkspaceValue(
-                            "freshness",
-                            "Scan version",
-                            sections["source"].summary if scanned else "",
+                            "freshness", "Backup version", sections["freshness"].summary
                         ),
                     ),
                     actions=(
                         WorkspaceAction(
-                            "workspace-add-files-freshness",
-                            "Treat scans as latest",
-                            visible=scanned,
+                            "workspace-add-files-freshness", "Use newest loaded version"
                         ),
                         WorkspaceAction(
-                            "workspace-add-files-fingerprint",
-                            "Enter expected fingerprint...",
-                            visible=scanned,
+                            "workspace-add-files-fingerprint", "Enter expected fingerprint..."
                         ),
                     ),
                 ),
+                title="Backup version",
             ),
         )
     )
-
-
-def _add_files_source_summary(
-    state: AddFilesTaskState,
-    sections: Mapping[str, TaskSection],
-) -> str:
-    method = _folder_or_scans_method(state.backup_folder, state.source_paths)
-    if method is None:
-        return "Choose a backup folder or scanned pages"
-    if method == "backup_folder":
-        return f"Folder: {display_path(state.backup_folder or '')}"
-    return f"Scans: {sections['source'].summary}"
 
 
 def _add_files_paths_body(state: AddFilesTaskState) -> PathSelectionBodyPresentation:
@@ -790,28 +754,10 @@ def _add_files_paths_body(state: AddFilesTaskState) -> PathSelectionBodyPresenta
     )
 
 
-def _add_files_destination_body(state: AddFilesTaskState) -> DestinationBodyPresentation:
-    scanned = bool(state.source_paths)
-    output = state.loose_output_folder if scanned else state.backup_folder
-    return DestinationBodyPresentation(
-        label="Save to",
-        display_path=display_path(output) if output is not None else "",
-        empty_label=(
-            "Choose an output folder" if scanned else "Choose the existing backup folder first"
-        ),
-        action=WorkspaceAction(
-            "workspace-add-files-output",
-            "Choose output folder...",
-            visible=scanned,
-        ),
-    )
-
-
 def _rebuild_source_body(
     state: RebuildTaskState,
     ui_state: WorkflowUiState,
 ) -> SourceBodyPresentation:
-    selected = _folder_or_scans_method(state.backup_folder, state.source_paths)
     assessment = _resolved_source_assessment(
         state,
         _folder_or_scans_assessment(
@@ -820,13 +766,12 @@ def _rebuild_source_body(
         ),
     )
     return SourceBodyPresentation(
-        methods=_folder_or_scans_choices(selected),
-        assessment=assessment,
-        change_action=(
-            WorkspaceAction("rebuild-change-source", "Change source...")
-            if assessment is not None
-            else None
+        primary_action=WorkspaceAction(
+            "workspace-rebuild-scans",
+            "Change documents..." if assessment is not None else "Load backup documents...",
         ),
+        secondary_actions=(WorkspaceAction("workspace-rebuild-backup", "Load backup folder..."),),
+        assessment=assessment,
         loading=ui_state.source_assessment_loading,
         notice=_source_assessment_notice(state),
     )
@@ -835,13 +780,15 @@ def _rebuild_source_body(
 def _rebuild_unlock_body(
     state: RebuildTaskState,
     sections: Mapping[str, TaskSection],
+    ui_state: WorkflowUiState,
 ) -> CompositeBodyPresentation:
-    scanned = bool(state.source_paths) and state.backup_folder is None
+    has_source = state.backup_folder is not None or bool(state.source_paths)
     return CompositeBodyPresentation(
         parts=(
             CompositeBodyPartPresentation(
                 "unlock",
-                _unlock_body(state, action_key="workspace-rebuild-unlock"),
+                _unlock_body(state, action_key="workspace-rebuild-unlock", ui_state=ui_state),
+                title="Unlock backup",
             ),
             CompositeBodyPartPresentation(
                 "trust",
@@ -849,23 +796,24 @@ def _rebuild_unlock_body(
                     values=(
                         WorkspaceValue(
                             "freshness",
-                            "Scan version",
-                            sections["freshness"].summary if scanned else "",
+                            "Backup version",
+                            sections["freshness"].summary if has_source else "",
                         ),
                     ),
                     actions=(
                         WorkspaceAction(
                             "workspace-rebuild-freshness",
-                            "Treat scans as latest",
-                            visible=scanned,
+                            "Use newest loaded version",
+                            visible=has_source,
                         ),
                         WorkspaceAction(
                             "workspace-rebuild-fingerprint",
                             "Enter expected fingerprint...",
-                            visible=scanned,
+                            visible=has_source,
                         ),
                     ),
                 ),
+                title="Backup version",
             ),
         )
     )
@@ -876,7 +824,7 @@ def _rebuild_unlock_summary(
     sections: Mapping[str, TaskSection],
 ) -> str:
     unlock = _unlock_summary(state, sections["unlock"])
-    if not state.source_paths:
+    if state.backup_folder is None and not state.source_paths:
         return unlock
     return f"{unlock}; {sections['freshness'].summary}"
 
@@ -888,15 +836,14 @@ def _rebuild_output_body(state: RebuildTaskState) -> CompositeBodyPresentation:
                 "destination",
                 DestinationBodyPresentation(
                     label="Save to",
-                    display_path=(
-                        display_path(state.output_dir) if state.output_dir is not None else ""
-                    ),
+                    display_path=(str(state.output_dir) if state.output_dir is not None else ""),
                     empty_label="No output folder selected",
                     action=WorkspaceAction(
                         "workspace-rebuild-output",
                         "Choose output folder...",
                     ),
                 ),
+                title="Destination",
             ),
             CompositeBodyPartPresentation(
                 "layout",
@@ -921,6 +868,7 @@ def _rebuild_output_body(state: RebuildTaskState) -> CompositeBodyPresentation:
                         ),
                     ),
                 ),
+                title="Page layout",
             ),
         )
     )
@@ -931,40 +879,31 @@ def _replace_source_body(
     sections: Mapping[str, TaskSection],
     ui_state: WorkflowUiState,
 ) -> CompositeBodyPresentation:
-    selected = _replace_source_method(state)
-    assessment = _resolved_source_assessment(state, _replace_source_assessment(state))
+    selected = _recovery_source_method(state)
+    assessment = _resolved_source_assessment(state, _recovery_source_assessment(state))
     scanned = selected == "scanned_pages"
     return CompositeBodyPresentation(
         parts=(
             CompositeBodyPartPresentation(
                 "source",
                 SourceBodyPresentation(
-                    methods=(
-                        ChoicePresentation(
-                            "scanned_pages",
-                            "Scanned pages",
-                            selected=selected == "scanned_pages",
+                    primary_action=WorkspaceAction(
+                        "workspace-replace-source",
+                        (
+                            "Change documents..."
+                            if assessment is not None
+                            else "Load backup documents..."
                         ),
-                        ChoicePresentation(
-                            "recovery_text",
-                            "Recovery text",
-                            selected=selected == "recovery_text",
-                        ),
-                        ChoicePresentation(
-                            "payload_files",
-                            "Backup payload file",
-                            selected=selected == "payload_files",
-                        ),
+                    ),
+                    secondary_actions=(
+                        WorkspaceAction("workspace-replace-recovery-text", "Paste printed text..."),
+                        WorkspaceAction("workspace-replace-payloads", "Load exported data..."),
                     ),
                     assessment=assessment,
-                    change_action=(
-                        WorkspaceAction("replace-change-source", "Change source...")
-                        if assessment is not None
-                        else None
-                    ),
                     loading=ui_state.source_assessment_loading,
                     notice=_source_assessment_notice(state),
                 ),
+                title="Backup documents",
             ),
             CompositeBodyPartPresentation(
                 "trust",
@@ -989,58 +928,19 @@ def _replace_source_body(
                         ),
                     ),
                 ),
+                title="Backup version",
             ),
         )
     )
-
-
-def _replace_source_method(state: ReplaceRecoveryDocsTaskState) -> str | None:
-    if state.source_paths:
-        return "scanned_pages"
-    if state.recovery_text or state.recovery_text_file is not None:
-        return "recovery_text"
-    if state.payloads_file is not None:
-        return "payload_files"
-    return None
-
-
-def _replace_source_assessment(
-    state: ReplaceRecoveryDocsTaskState,
-) -> SourceAssessmentPresentation | None:
-    method = _replace_source_method(state)
-    if method == "scanned_pages":
-        return SourceAssessmentPresentation(
-            source_kind="scanned_pages",
-            source_label="Scanned pages",
-            material_summary=_paths_material_summary(state.source_paths),
-        )
-    if method == "recovery_text":
-        material = (
-            pasted_text_summary(state.recovery_text)
-            if state.recovery_text
-            else display_path(state.recovery_text_file or "")
-        )
-        return SourceAssessmentPresentation(
-            source_kind="recovery_text",
-            source_label="Recovery text",
-            material_summary=material,
-        )
-    if method == "payload_files":
-        return SourceAssessmentPresentation(
-            source_kind="payload_files",
-            source_label="Backup payload file",
-            material_summary=display_path(state.payloads_file or ""),
-        )
-    return None
 
 
 def _replace_source_summary(
     state: ReplaceRecoveryDocsTaskState,
     sections: Mapping[str, TaskSection],
 ) -> str:
-    method = _replace_source_method(state)
+    method = _recovery_source_method(state)
     if method is None:
-        return "Choose existing backup material"
+        return "Choose existing backup documents"
     if method == "scanned_pages":
         return f"{sections['source'].summary}; {sections['freshness'].summary}"
     return sections["source"].summary
@@ -1078,6 +978,7 @@ def _replacement_recovery_body(
                         ),
                     ),
                 ),
+                title="Recovery method",
             ),
             CompositeBodyPartPresentation(
                 "quorum",
@@ -1086,6 +987,7 @@ def _replacement_recovery_body(
                     count=state.recovery_document_count,
                     visible=custom,
                 ),
+                title="Custom quorum",
             ),
             CompositeBodyPartPresentation(
                 "passphrase",
@@ -1100,7 +1002,7 @@ def _replacement_recovery_body(
                     selects=(
                         SelectFieldPresentation(
                             key="workspace-replace-passphrase-select",
-                            label="Passphrase recovery",
+                            label="Action",
                             options=(
                                 SelectOptionPresentation("create", "Create new"),
                                 SelectOptionPresentation("replace", "Replace existing"),
@@ -1111,6 +1013,7 @@ def _replacement_recovery_body(
                         ),
                     ),
                 ),
+                title="Passphrase sheets",
             ),
         )
     )
@@ -1125,15 +1028,14 @@ def _replacement_output_body(
                 "destination",
                 DestinationBodyPresentation(
                     label="Save to",
-                    display_path=(
-                        display_path(state.output_dir) if state.output_dir is not None else ""
-                    ),
+                    display_path=(str(state.output_dir) if state.output_dir is not None else ""),
                     empty_label="No output folder selected",
                     action=WorkspaceAction(
                         "workspace-replace-output",
                         "Choose output folder...",
                     ),
                 ),
+                title="Destination",
             ),
             CompositeBodyPartPresentation(
                 "layout",
@@ -1158,13 +1060,14 @@ def _replacement_output_body(
                         ),
                     ),
                 ),
+                title="Page layout",
             ),
         )
     )
 
 
 def _passphrase_recovery_policy(state: ReplaceRecoveryDocsTaskState) -> str:
-    if not state.mint_passphrase_recovery:
+    if not state.create_passphrase_recovery:
         return "off"
     if state.passphrase_replacement_count is not None:
         return "replace"
@@ -1188,12 +1091,22 @@ def _resolved_source_assessment(
     assessment = state.current_source_assessment()
     if assessment is None:
         return fallback
+    explicit_unlock = (
+        isinstance(
+            state,
+            (RestoreTaskState, AddFilesTaskState, RebuildTaskState, ReplaceRecoveryDocsTaskState),
+        )
+        and _unlock_method(state) is not None
+    )
     return SourceAssessmentPresentation(
         source_kind=assessment.source_kind,
         source_label=assessment.source_label,
-        material_summary=assessment.material_summary,
+        source_summary=assessment.source_summary,
         backup_identity=assessment.backup_identity,
         version_summary=assessment.version_summary,
+        document_summary=assessment.document_summary,
+        unlock_summary="" if explicit_unlock else assessment.unlock_summary,
+        has_updates=assessment.has_updates,
     )
 
 
@@ -1203,7 +1116,10 @@ def _source_assessment_notice(
     assessment = state.current_source_assessment()
     if assessment is None or assessment.issue is None:
         return None
-    return InlineNoticePresentation(assessment.issue.message, tone="error")
+    return InlineNoticePresentation(
+        assessment.issue.message,
+        tone="warning" if assessment.issue.severity == "warning" else "error",
+    )
 
 
 def _body_owns_notice(
@@ -1234,21 +1150,6 @@ def _folder_or_scans_method(
     return None
 
 
-def _folder_or_scans_choices(selected: str | None) -> tuple[ChoicePresentation, ...]:
-    return (
-        ChoicePresentation(
-            "backup_folder",
-            "Backup folder",
-            selected=selected == "backup_folder",
-        ),
-        ChoicePresentation(
-            "scanned_pages",
-            "Scanned pages",
-            selected=selected == "scanned_pages",
-        ),
-    )
-
-
 def _folder_or_scans_assessment(
     *,
     backup_folder: Path | None,
@@ -1259,18 +1160,18 @@ def _folder_or_scans_assessment(
         return SourceAssessmentPresentation(
             source_kind="backup_folder",
             source_label="Backup folder",
-            material_summary=display_path(backup_folder or ""),
+            source_summary=display_path(backup_folder or ""),
         )
     if selected == "scanned_pages":
         return SourceAssessmentPresentation(
             source_kind="scanned_pages",
             source_label="Scanned pages",
-            material_summary=_paths_material_summary(source_paths),
+            source_summary=_paths_source_summary(source_paths),
         )
     return None
 
 
-def _paths_material_summary(paths: list[Path]) -> str:
+def _paths_source_summary(paths: Sequence[Path]) -> str:
     first_path = display_path(paths[0])
     if len(paths) == 1:
         return first_path
@@ -1295,11 +1196,8 @@ def _empty_summary() -> SummaryPresentation:
 def _step_state(
     *,
     active: bool,
-    prerequisites_complete: bool,
     complete: bool,
 ) -> StepState:
-    if not prerequisites_complete:
-        return "locked"
     if active:
         return "current"
     if complete:

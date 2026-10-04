@@ -7,22 +7,22 @@ from textual.content import Content
 from textual.message import Message
 from textual.widgets import Button, Input, Label, RadioSet, Select, Static
 
+from ethernity.app.widgets.form import FormRow, FormSelect
 from ethernity.app.widgets.workflow.controls import (
     InlineNotice,
     KeyedRadioSet,
     WorkflowIntegerInput,
     child_id,
     merge_classes,
+    post_workspace_action,
     sync_action,
     sync_static,
 )
-from ethernity.app.widgets.workflow.styles import GUIDED_WORKFLOW_CSS
 from ethernity.tasks.presentation.models import (
     InlineNoticePresentation,
     OptionsBodyPresentation,
     QuorumBodyPresentation,
     SelectFieldPresentation,
-    WorkspaceAction,
 )
 
 __all__ = ["OptionsEditor", "QuorumEditor"]
@@ -30,8 +30,6 @@ __all__ = ["OptionsEditor", "QuorumEditor"]
 
 class QuorumEditor(VerticalGroup):
     """Threshold and total inputs with a live, plain-language recovery sentence."""
-
-    DEFAULT_CSS = GUIDED_WORKFLOW_CSS
 
     class Changed(Message):
         def __init__(
@@ -69,24 +67,22 @@ class QuorumEditor(VerticalGroup):
         self._draft_dirty = False
         self._threshold_label = Label(
             Content.from_text(presentation.threshold_label, markup=False),
-            classes="guided-quorum-label",
+            classes="field-text guided-quorum-label",
         )
         self._threshold = WorkflowIntegerInput(
             "",
             type="integer",
             id=child_id(id, "threshold"),
-            compact=True,
             classes="workspace-control",
         )
         self._count_label = Label(
             Content.from_text(presentation.count_label, markup=False),
-            classes="guided-quorum-label",
+            classes="field-text guided-quorum-label",
         )
         self._count = WorkflowIntegerInput(
             "",
             type="integer",
             id=child_id(id, "count"),
-            compact=True,
             classes="workspace-control",
         )
         self._summary = Static("", classes="guided-summary", markup=False)
@@ -195,23 +191,11 @@ class QuorumEditor(VerticalGroup):
 class OptionsEditor(VerticalGroup):
     """Compact renderer for values, choices, native Select fields, and local actions."""
 
-    DEFAULT_CSS = GUIDED_WORKFLOW_CSS
-
     class ChoiceChanged(Message):
         def __init__(self, editor: OptionsEditor, choice_key: str) -> None:
             super().__init__()
             self.editor = editor
             self.choice_key = choice_key
-
-        @property
-        def control(self) -> OptionsEditor:
-            return self.editor
-
-    class ActionRequested(Message):
-        def __init__(self, editor: OptionsEditor, action: WorkspaceAction) -> None:
-            super().__init__()
-            self.editor = editor
-            self.action = action
 
         @property
         def control(self) -> OptionsEditor:
@@ -251,12 +235,12 @@ class OptionsEditor(VerticalGroup):
         self._select_labels = tuple(
             Label(
                 Content.from_text(select.label, markup=False),
-                classes="guided-select-label",
+                classes="field-text form-label",
             )
             for select in presentation.selects
         )
         self._select_widgets = tuple(
-            Select[str](
+            FormSelect[str](
                 _select_options(select),
                 prompt=select.prompt,
                 allow_blank=select.allow_blank,
@@ -270,13 +254,12 @@ class OptionsEditor(VerticalGroup):
                     if select.description
                     else None
                 ),
-                compact=True,
                 classes="workspace-control",
             )
             for select in presentation.selects
         )
         self._select_rows = tuple(
-            HorizontalGroup(label, widget, classes="guided-select-row")
+            FormRow(label, widget)
             for label, widget in zip(
                 self._select_labels,
                 self._select_widgets,
@@ -288,7 +271,6 @@ class OptionsEditor(VerticalGroup):
             Button(
                 Content.from_text(action.label, markup=False),
                 id=action.key,
-                compact=True,
                 classes="workspace-control",
             )
             for action in presentation.actions
@@ -374,12 +356,12 @@ class OptionsEditor(VerticalGroup):
             self.post_message(self.ChoiceChanged(self, choice_key))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        try:
-            index = self._action_buttons.index(event.button)
-        except ValueError:
-            return
-        event.stop()
-        self.post_message(self.ActionRequested(self, self._presentation.actions[index]))
+        post_workspace_action(
+            self,
+            event,
+            self._action_buttons,
+            self._presentation.actions,
+        )
 
     def on_select_changed(self, event: Select.Changed) -> None:
         try:
@@ -387,6 +369,8 @@ class OptionsEditor(VerticalGroup):
         except ValueError:
             return
         event.stop()
+        if event.value != event.select.value:
+            return
         field = self._presentation.selects[index]
         value = None if event.value == Select.NULL else str(event.value)
         if value == field.value:

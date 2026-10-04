@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 
 @dataclass(slots=True)
 class WorkflowUiState:
-    """Session-only interaction state for one guided workflow.
+    """Session-only editing and disclosure state for one task page.
 
     Task models continue to own domain values and validation. This object owns only what the
-    presentation needs to know about the user's progress through the current app session.
+    presentation needs to know about the currently expanded section and unfinished edits.
     """
 
     step_keys: tuple[str, ...]

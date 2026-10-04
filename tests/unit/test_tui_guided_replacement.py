@@ -6,6 +6,7 @@ from pathlib import Path
 from textual.widgets import Button, Input, RadioSet
 
 from ethernity.app.application import EthernityApp
+from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.app.widgets.workflow.options import QuorumEditor
 from ethernity.app.workflow_presenter import build_guided_workflow
@@ -55,9 +56,7 @@ def test_replacement_custom_quorum_updates_live_and_can_return_to_recommended() 
         )
         async with app.run_test(size=(120, 36)) as pilot:
             await pilot.press("5")
-            await pilot.click("#canvas-primary")
-            await pilot.pause()
-            await pilot.click("#canvas-primary")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
             await pilot.pause()
 
             modes = app.query_one(
@@ -98,7 +97,7 @@ def test_replacement_custom_quorum_updates_live_and_can_return_to_recommended() 
     asyncio.run(run())
 
 
-def test_replacement_invalid_quorum_draft_blocks_progress_and_stays_visible_at_80x24() -> None:
+def test_replacement_invalid_quorum_blocks_review_and_stays_visible_at_80x24() -> None:
     async def run() -> None:
         app = EthernityApp(
             replace_recovery_docs_state=ReplaceRecoveryDocsTaskState(
@@ -110,9 +109,7 @@ def test_replacement_invalid_quorum_draft_blocks_progress_and_stays_visible_at_8
         )
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.press("5")
-            await pilot.click("#canvas-primary")
-            await pilot.pause()
-            await pilot.click("#canvas-primary")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
             await pilot.pause()
 
             modes = app.query_one(
@@ -175,10 +172,11 @@ def test_replacement_invalid_quorum_draft_blocks_progress_and_stays_visible_at_8
             assert app.replace_recovery_docs_state.recovery_threshold == 6
             assert app.replace_recovery_docs_state.recovery_document_count == 7
 
-            await pilot.click("#canvas-primary")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
             await pilot.pause()
 
-            assert ui_state.active_step == "output"
+            assert app.screen.query_one("#review-modal")
+            assert ui_state.active_step == "recovery"
 
     asyncio.run(run())
 
@@ -195,8 +193,7 @@ def test_replacement_guided_inputs_use_workspace_traversal_and_keep_radio_arrows
         )
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.press("5")
-            await pilot.click("#canvas-primary")
-            await pilot.click("#canvas-primary")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
             await pilot.pause()
 
             modes = app.query_one(

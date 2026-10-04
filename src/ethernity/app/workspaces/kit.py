@@ -1,30 +1,27 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
-from textual.widgets import Collapsible, Select, Static
+from textual.widgets import Button, Select, Static
 
-from ethernity.app.widgets.collapsible import panel_title
-from ethernity.app.widgets.static_text import update_static_text
+from ethernity.app.widgets.form import FormRow, FormScroll, FormSection
+from ethernity.app.widgets.static_text import PathLabel, update_static_text
 from ethernity.app.widgets.workflow.controls import InlineNotice
-from ethernity.app.workspaces.common import (
+from ethernity.app.workspaces.workspace_controls import (
     DESIGN_OPTIONS,
     KIT_VARIANTS,
     PAPER_OPTIONS,
     BaseWorkspace,
-    advanced_panel,
+    control_value,
     field_row,
     first_value,
     group,
-    group_label,
-    section,
     select_row,
     set_select,
     value,
 )
 from ethernity.page_sizes import paper_size_display_name
 from ethernity.render.designs import (
-    load_design_manifest_by_name,
+    load_design_definition_by_name,
     supported_paper_size_names,
 )
 from ethernity.tasks.page_layout import KIT_RENDER_DOC_TYPES
@@ -34,36 +31,30 @@ from ethernity.tasks.presentation.models import (
     WorkspaceAction,
 )
 
-KIT_ADVANCED_PANEL_ID = "kit-advanced-panel"
-
 
 class KitWorkspace(BaseWorkspace):
     task_key = "kit"
-    advanced_panel_id = KIT_ADVANCED_PANEL_ID
 
     def compose(self) -> ComposeResult:
-        with VerticalScroll(classes="task-workspace compact-form-workspace"):
-            with section():
-                yield group_label("PDF file")
-                yield field_row(
+        with FormScroll(classes="task-workspace"):
+            with FormSection("PDF file"):
+                yield FormRow(
                     "Save as",
-                    "kit-output-value",
-                    WorkspaceAction("workspace-kit-output", "Choose PDF file..."),
+                    PathLabel("", id="kit-output-value", classes="field-text form-path-value"),
+                    Button("Change...", id="workspace-kit-output", tooltip="Choose PDF..."),
                 )
                 yield InlineNotice(id="kit-output-notice")
-            with section():
-                yield InlineNotice(id="kit-qr-warning")
-                with advanced_panel(KIT_ADVANCED_PANEL_ID, "QR sizing - Automatic"):
-                    yield field_row(
-                        "Bytes per code",
-                        "kit-chunk-size-value",
-                        WorkspaceAction("workspace-kit-chunk-size", "Set QR sizing..."),
-                    )
-            with section():
-                yield group_label("Print setup")
+            with FormSection("Print setup"):
                 yield select_row("Kit type", "workspace-kit-variant-select", KIT_VARIANTS)
                 yield select_row("Paper size", "workspace-kit-paper", PAPER_OPTIONS)
                 yield select_row("Print design", "workspace-kit-design", DESIGN_OPTIONS)
+            with FormSection("QR codes"):
+                yield field_row(
+                    "Bytes per code",
+                    "kit-chunk-size-value",
+                    WorkspaceAction("workspace-kit-chunk-size", "Set QR sizing..."),
+                )
+                yield InlineNotice(id="kit-qr-warning")
 
     def update_presentation(self, presentation: TaskPresentation) -> None:
         super().update_presentation(presentation)
@@ -75,10 +66,10 @@ class KitWorkspace(BaseWorkspace):
         layout = group(presentation, "layout")
         paper_select = self.query_one("#workspace-kit-paper", Select)
         design_name = value(layout, "design")
-        manifest = load_design_manifest_by_name(design_name)
+        definition = load_design_definition_by_name(design_name)
         supported_names = supported_paper_size_names(
             design_name,
-            doc_types=manifest.documents & KIT_RENDER_DOC_TYPES,
+            doc_types=definition.documents & KIT_RENDER_DOC_TYPES,
         )
         with paper_select.prevent(Select.Changed):
             paper_select.set_options(
@@ -88,14 +79,13 @@ class KitWorkspace(BaseWorkspace):
         set_select(self.query_one("#workspace-kit-design", Select), value(layout, "design"))
 
         output = group(presentation, "output")
-        update_static_text(
-            self.query_one("#kit-output-value", Static),
-            first_value(output),
+        self.query_one("#kit-output-value", PathLabel).set_path(
+            control_value(output, "output"), first_value(output)
         )
         notice = None
         if output.status == "warning":
             notice = InlineNoticePresentation(
-                "This PDF already exists and will be replaced after final review.",
+                "This PDF exists. Creating the kit will replace it.",
                 tone="warning",
             )
         elif output.status == "blocked":
@@ -110,10 +100,7 @@ class KitWorkspace(BaseWorkspace):
         qr_warning = None
         if qr.status == "warning":
             qr_warning = InlineNoticePresentation(
-                (
-                    f"Custom sizing ({qr_summary}) can change page count and make codes "
-                    "harder to scan."
-                ),
+                "Custom QR sizing may make codes harder to scan.",
                 tone="warning",
             )
         self.query_one("#kit-qr-warning", InlineNotice).sync_presentation(qr_warning)
@@ -121,8 +108,3 @@ class KitWorkspace(BaseWorkspace):
             self.query_one("#kit-chunk-size-value", Static),
             qr_summary,
         )
-        self.query_one(f"#{KIT_ADVANCED_PANEL_ID}", Collapsible).set_class(
-            qr.status == "warning",
-            "workspace-panel-warning",
-        )
-        self.sync_advanced_panel(panel_title("QR sizing", qr_summary))

@@ -5,16 +5,13 @@ from typing import cast
 
 from ethernity.app.app_types import ActiveTask, TaskState
 from ethernity.app.bindings import APP_BINDINGS
-from ethernity.app.execution import build_review_decision_facts
+from ethernity.app.execution import build_review_details
 from ethernity.app.help_content import HELP_MODES
 from ethernity.app.navigation import issue_focus_selector
 from ethernity.app.task_catalog import NAV_OPTION_INDEX, TASK_ORDER, TASK_TITLES
-from ethernity.app.workflow_presenter import build_guided_workflow
 from ethernity.app.workflow_registry import WORKFLOWS
-from ethernity.app.workflow_state import WorkflowUiState
-from ethernity.app.workspaces.backup import _backup_advanced_summary, _backup_recovery_help
-from ethernity.app.workspaces.rebuild import _rebuild_advanced_summary
-from ethernity.app.workspaces.replace_recovery import _signing_key_panel_summary
+from ethernity.app.workspaces.backup import _backup_recovery_help
+from ethernity.app.workspaces.workspace_controls import control_value
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
@@ -27,8 +24,6 @@ from ethernity.tasks.models import (
 )
 from ethernity.tasks.presentation.builder import build_task_presentation
 from ethernity.tasks.presentation.models import (
-    CompositeBodyPresentation,
-    OptionsBodyPresentation,
     WorkspaceGroup,
     WorkspaceValue,
 )
@@ -44,7 +39,9 @@ def _section(key: str) -> TaskSection:
 
 def test_blocking_issue_can_never_present_ready_readiness() -> None:
     validation = TaskValidation(
-        sections=tuple(_section(key) for key in ("files", "recovery", "output", "advanced")),
+        sections=tuple(
+            _section(key) for key in ("files", "recovery", "print", "output", "advanced")
+        ),
         issues=(
             TaskIssue(
                 code="BLOCKED_RECOVERY",
@@ -71,12 +68,7 @@ def test_blocking_issue_can_never_present_ready_readiness() -> None:
 
 def test_add_files_control_values_are_typed_not_inferred_from_copy() -> None:
     state = AddFilesTaskState(
-        unlock_policy="reuse-root",
-        recovery_document_threshold=2,
-        recovery_document_count=4,
-        signing_key_mode="sharded",
-        signing_key_recovery_threshold=2,
-        signing_key_recovery_count=3,
+        auth_text_file=Path("signature.txt"),
     )
     sections = {section.key: section for section in state.sections()}
 
@@ -86,46 +78,12 @@ def test_add_files_control_values_are_typed_not_inferred_from_copy() -> None:
     assert controls == {
         "base-dir": "automatic",
         "qr-chunk-size": "default",
-        "unlock-policy": "reuse-root",
-        "recovery-docs": "custom",
-        "signing-key": "custom",
+        "signature-source": "text",
+        "recovery-sheets": "off",
     }
 
 
-def test_add_files_expected_fingerprint_action_is_labeled_as_input() -> None:
-    state = AddFilesTaskState(source_paths=[Path("scan.pdf")])
-    validation = state.validate_task()
-    presentation = build_task_presentation(
-        task_key="add_files",
-        title="Add files to a backup",
-        state=state,
-        validation=validation,
-        preview=state.preview(),
-        primary_label="Review update",
-        diagnostics_available=False,
-    )
-    workflow = build_guided_workflow(
-        task="add_files",
-        state=state,
-        validation=validation,
-        ui_state=WorkflowUiState.start("source", "files", "unlock", "output"),
-        review_summary=presentation.summary,
-        review_label="Review update",
-    )
-
-    assert workflow is not None
-    source = next(step for step in workflow.steps if step.key == "source")
-    assert isinstance(source.body, CompositeBodyPresentation)
-    trust = next(part.body for part in source.body.parts if part.key == "trust")
-    assert isinstance(trust, OptionsBodyPresentation)
-    fingerprint_action = next(
-        action for action in trust.actions if action.key == "workspace-add-files-fingerprint"
-    )
-
-    assert fingerprint_action.label == "Enter expected fingerprint..."
-
-
-def test_empty_rebuild_advanced_summary_does_not_claim_a_backup_is_loaded() -> None:
+def test_empty_rebuild_controls_do_not_claim_a_backup_is_loaded() -> None:
     state = RebuildTaskState()
     presentation = build_task_presentation(
         task_key="rebuild",
@@ -138,28 +96,10 @@ def test_empty_rebuild_advanced_summary_does_not_claim_a_backup_is_loaded() -> N
     )
 
     assert [group.key for group in presentation.workspace_groups] == ["advanced"]
-    assert _rebuild_advanced_summary(presentation.workspace_groups[0]) == "QR from settings"
+    assert control_value(presentation.workspace_groups[0], "source-status") == "empty"
 
 
-def test_replacement_auxiliary_panel_title_surfaces_its_own_severity() -> None:
-    warning = WorkspaceGroup(
-        key="signing-key-recovery",
-        title="Signing-key recovery",
-        kind="radio",
-        status="warning",
-    )
-    blocked = WorkspaceGroup(
-        key="signing-key-recovery",
-        title="Signing-key recovery",
-        kind="radio",
-        status="blocked",
-    )
-
-    assert _signing_key_panel_summary(warning, "off") == "Warning: No separate key sheets"
-    assert _signing_key_panel_summary(blocked, "custom") == "Needs attention: Custom quorum"
-
-
-def test_help_states_the_settled_extension_product_contract() -> None:
+def test_help_states_the_settled_extension_requirements() -> None:
     help_by_key = {mode.key: mode for mode in HELP_MODES}
     add_files_text = "\n".join(
         line
@@ -179,13 +119,21 @@ def test_help_states_the_settled_extension_product_contract() -> None:
 
     assert "selected path replaces the current content" in add_files_text
     assert "cannot delete or rename paths" in add_files_text
-    assert "original backup material plus a passphrase or enough recovery sheets" in add_files_text
+    assert "PDFs, scans, images, recovery text, or exported payloads" in add_files_text
+    assert "Rebuild scanned or printed documents" not in add_files_text
+    assert "created by Replace Recovery Docs" in add_files_text
+    assert "original backup documents plus a passphrase or enough recovery sheets" in add_files_text
     assert "not another approval" in add_files_text
     assert "same version create conflicting histories" in add_files_text
     assert "cannot merge" in add_files_text
-    assert "keeps the source passphrase and signing key" in rebuild_text
+    assert "keeps the passphrase and any embedded signing key" in rebuild_text
+    assert "Sealed backups receive a new signing key" in rebuild_text
+    assert "new recovery sheets" in rebuild_text
+    assert "Verify the rebuilt backup and sheets before retiring the original documents" in (
+        rebuild_text
+    )
     assert "Create a new backup" in rebuild_text
-    assert "newest valid update in the material you loaded" in restore_text
+    assert "newest valid update in the documents you loaded" in restore_text
 
 
 def test_workspace_copy_can_change_without_changing_control_behavior() -> None:
@@ -209,9 +157,10 @@ def test_workspace_copy_can_change_without_changing_control_behavior() -> None:
         ),
     )
 
-    assert _backup_advanced_summary(advanced) == "QR from settings; key embedded"
-    assert "no spare copy" in _backup_recovery_help("single_phrase")
-    assert "custom quorum" in _backup_recovery_help("custom_shards")
+    assert control_value(advanced, "qr-chunk-size") == "default"
+    assert control_value(advanced, "signing-key") == "embedded"
+    assert "Keep the recovery phrase separate" in _backup_recovery_help("single_phrase")
+    assert "Store recovery sheets separately" in _backup_recovery_help("custom_shards")
 
 
 def test_workflow_registry_is_the_single_metadata_source() -> None:
@@ -245,25 +194,31 @@ def test_blocking_issue_focus_targets_the_actual_advanced_control() -> None:
             "backup",
             "BACKUP_SIGNING_KEY_QUORUM_INCOMPLETE",
             "advanced",
-            "#workspace-backup-signing-key-shards",
+            "#workspace-backup-signing-key-mode",
         ),
         (
             "restore",
-            "RESTORE_AUTH_MATERIAL_CONFLICT",
+            "RESTORE_SIGNATURE_SOURCE_CONFLICT",
             "source",
-            "#workspace-restore-auth-material",
+            "#workspace-restore-signature-source",
         ),
         (
             "add_files",
-            "ADD_FILES_RECOVERY_QUORUM_INVALID",
+            "ADD_FILES_CUSTOM_QR_DENSITY",
             "advanced",
-            "#workspace-add-files-recovery-docs",
+            "#workspace-add-files-qr-chunk-size",
+        ),
+        (
+            "add_files",
+            "ADD_FILES_RECOVERY_OUTPUT_EXISTS",
+            "advanced",
+            "#workspace-add-files-recovery-sheets",
         ),
         (
             "rebuild",
-            "REBUILD_AUTH_MATERIAL_CONFLICT",
+            "REBUILD_SIGNATURE_SOURCE_CONFLICT",
             "advanced",
-            "#workspace-rebuild-auth-material",
+            "#workspace-rebuild-signature-source",
         ),
         (
             "replace_recovery_docs",
@@ -278,7 +233,7 @@ def test_blocking_issue_focus_targets_the_actual_advanced_control() -> None:
         assert issue_focus_selector(task, issue) == expected
 
 
-def test_review_decision_facts_expose_each_workflow_semantics() -> None:
+def test_review_details_describe_each_task() -> None:
     cases = (
         (
             "backup",
@@ -293,7 +248,7 @@ def test_review_decision_facts_expose_each_workflow_semantics() -> None:
             {
                 "Files": "1 file",
                 "Recovery": "5 sheets, 3 needed to restore",
-                "Destination": "backup-out",
+                "Destination": str(Path("backup-out").absolute()),
             },
         ),
         (
@@ -316,18 +271,17 @@ def test_review_decision_facts_expose_each_workflow_semantics() -> None:
         (
             "add_files",
             AddFilesTaskState(
-                backup_folder=Path("backup"),
+                source_paths=[Path("backup")],
+                output_dir=Path("update-out"),
+                allow_stale_head=True,
                 input_paths=[Path("changed.txt")],
                 passphrase="secret",
-                unlock_policy="self-contained",
-                recovery_document_threshold=2,
-                recovery_document_count=3,
             ),
             TaskExecutionPlan(summary="Update", output_paths=(Path("backup"),)),
             {
                 "Changes": "1 file, replacing matching paths",
-                "Source version": "Read from backup folder",
-                "Recovery sheets": "3 sheets, 2 required; new recovery set",
+                "Source version": "Newest loaded version accepted",
+                "Recovery sheets": "No new recovery sheets",
             },
         ),
         (
@@ -340,7 +294,7 @@ def test_review_decision_facts_expose_each_workflow_semantics() -> None:
             ),
             TaskExecutionPlan(summary="Rebuild", output_paths=(Path("rebuilt"),)),
             {
-                "Source": "1 scanned page",
+                "Source": "1 document input",
                 "Source version": "Latest loaded version accepted",
                 "Layout": "A4, Sentinel",
             },
@@ -381,12 +335,12 @@ def test_review_decision_facts_expose_each_workflow_semantics() -> None:
     )
 
     for task, state, plan, expected in cases:
-        facts = {
-            fact.label: fact.value
-            for fact in build_review_decision_facts(
+        details = {
+            detail.label: detail.value
+            for detail in build_review_details(
                 cast(ActiveTask, task),
                 cast(TaskState, state),
                 plan,
             )
         }
-        assert facts.items() >= expected.items()
+        assert details.items() >= expected.items()

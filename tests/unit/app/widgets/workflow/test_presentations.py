@@ -16,20 +16,29 @@ from ethernity.tasks.presentation.models import (
     SourceBodyPresentation,
     StepPresentation,
     UnlockBodyPresentation,
+    WorkspaceAction,
 )
-from tests.unit.app.widgets.workflow.helpers import make_source_body, make_workflow
+from tests.unit.app.widgets.workflow.widget_harness import (
+    sample_restore_workflow,
+    sample_source_body,
+)
 
 
 def test_workflow_presentation_enforces_typed_step_invariants() -> None:
-    with pytest.raises(ValueError, match="at most one"):
+    with pytest.raises(ValueError, match="source action keys must be unique"):
         SourceBodyPresentation(
+            primary_action=WorkspaceAction("load", "Load backup documents..."),
+            secondary_actions=(WorkspaceAction("load", "Load exported data..."),),
+        )
+    with pytest.raises(ValueError, match="at most one"):
+        UnlockBodyPresentation(
             methods=(
-                ChoicePresentation("scans", "Scanned pages", selected=True),
-                ChoicePresentation("text", "Recovery text", selected=True),
+                ChoicePresentation("passphrase", "Passphrase", selected=True),
+                ChoicePresentation("sheets", "Recovery sheets", selected=True),
             )
         )
 
-    workflow = make_workflow(
+    workflow = sample_restore_workflow(
         active_step="unlock",
         steps=(
             StepPresentation(
@@ -37,7 +46,7 @@ def test_workflow_presentation_enforces_typed_step_invariants() -> None:
                 "Backup source",
                 "complete",
                 "4 scanned pages",
-                make_source_body(selected="scans"),
+                sample_source_body(selected="scans"),
             ),
             StepPresentation(
                 "unlock",
@@ -56,7 +65,7 @@ def test_workflow_presentation_enforces_typed_step_invariants() -> None:
     with pytest.raises(ValueError, match="exactly active_step"):
         replace(
             workflow,
-            steps=(workflow.steps[0], replace(workflow.steps[1], state="locked")),
+            steps=(workflow.steps[0], replace(workflow.steps[1], state="available")),
         )
     with pytest.raises(ValueError, match="exactly active_step"):
         replace(
@@ -92,7 +101,7 @@ def test_select_and_composite_presentations_enforce_keyed_structure() -> None:
     with pytest.raises(ValueError, match="requires a selected value"):
         replace(paper, value=None)
 
-    source = CompositeBodyPartPresentation("source", make_source_body())
+    source = CompositeBodyPartPresentation("source", sample_source_body(), title="Backup documents")
     with pytest.raises(ValueError, match="part keys must be unique"):
         CompositeBodyPresentation(parts=(source, source))
     with pytest.raises(ValueError, match="at least one part"):

@@ -1,12 +1,13 @@
-"""Shared controls and presentation-sync helpers for guided workflows."""
+"""Guided-workflow controls and presentation synchronization."""
 
 from __future__ import annotations
 
 from textual.binding import Binding
 from textual.content import Content
+from textual.message import Message
+from textual.widget import Widget
 from textual.widgets import Button, Input, RadioButton, RadioSet, Static
 
-from ethernity.app.widgets.workflow.styles import GUIDED_WORKFLOW_CSS
 from ethernity.tasks.presentation.models import (
     ChoicePresentation,
     InlineNoticePresentation,
@@ -16,18 +17,48 @@ from ethernity.tasks.presentation.models import (
 __all__ = [
     "InlineNotice",
     "KeyedRadioSet",
+    "WorkspaceActionRequested",
     "WorkflowIntegerInput",
     "child_id",
     "merge_classes",
+    "post_workspace_action",
     "sync_action",
     "sync_static",
 ]
 
 
+class WorkspaceActionRequested(Message):
+    """One action event shared by every guided-workflow editor."""
+
+    def __init__(self, control: Widget, action: WorkspaceAction) -> None:
+        super().__init__()
+        self._control = control
+        self.action = action
+
+    @property
+    def control(self) -> Widget:
+        return self._control
+
+
+def post_workspace_action(
+    control: Widget,
+    event: Button.Pressed,
+    buttons: tuple[Button, ...],
+    actions: tuple[WorkspaceAction, ...],
+) -> None:
+    """Post the action paired with a button from a stable presentation tuple."""
+
+    try:
+        index = buttons.index(event.button)
+    except ValueError:
+        return
+    event.stop()
+    control.post_message(WorkspaceActionRequested(control, actions[index]))
+
+
 class InlineNotice(Static):
     """A literal, non-color-only status message with one presentation owner."""
 
-    DEFAULT_CSS = GUIDED_WORKFLOW_CSS
     _TONES = ("info", "warning", "error", "success")
 
     def __init__(
@@ -68,23 +99,29 @@ class WorkflowIntegerInput(Input):
 
 
 class KeyedRadioSet(RadioSet):
-    """Native RadioSet adapter that retains semantic keys and supports no selection."""
+    """Native RadioSet adapter that retains option keys and supports no selection."""
 
     def __init__(
         self,
         choices: tuple[ChoicePresentation, ...],
         *,
         id: str | None,
+        classes: str = "guided-choice-set workspace-control",
+        button_id_prefix: str | None = None,
+        empty_classes: str = "guided-choice-empty",
+        routes_to_app: bool = False,
     ) -> None:
+        self.routes_to_app = routes_to_app
         self._empty_button = RadioButton(
             "",
             value=not any(choice.selected for choice in choices),
             disabled=True,
-            classes="guided-choice-empty",
+            classes=empty_classes,
         )
         self._buttons = {
             choice.key: RadioButton(
                 Content.from_text(choice.label, markup=False),
+                id=(f"{button_id_prefix}-{choice.key}" if button_id_prefix is not None else None),
                 value=choice.selected,
                 disabled=not choice.enabled,
                 tooltip=choice.description or None,
@@ -95,7 +132,7 @@ class KeyedRadioSet(RadioSet):
             self._empty_button,
             *self._buttons.values(),
             id=id,
-            classes="guided-choice-set workspace-control",
+            classes=classes,
             compact=True,
         )
 

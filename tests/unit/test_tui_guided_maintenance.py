@@ -7,6 +7,7 @@ from textual.widgets import Select, SelectionList
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
+from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.workflow_presenter import build_guided_workflow
 from ethernity.app.workflow_state import WorkflowUiState
@@ -19,9 +20,10 @@ from ethernity.tasks.presentation.models import (
 from ethernity.tasks.rebuild import RebuildTaskState
 
 
-def test_add_files_folder_source_makes_output_implicit() -> None:
+def test_add_files_documents_require_an_explicit_output_step() -> None:
     state = AddFilesTaskState(
-        backup_folder=Path("backup"),
+        source_paths=[Path("backup")],
+        allow_stale_head=True,
         input_paths=[Path("notes.txt")],
         passphrase="secret",
     )
@@ -39,17 +41,14 @@ def test_add_files_folder_source_makes_output_implicit() -> None:
         "current",
         "complete",
         "complete",
-        "complete",
+        "available",
     ]
-    output = workflow.steps[-1].body
-    assert output.display_path == "backup"
-    assert output.action is not None
-    assert not output.action.visible
 
 
 def test_rebuild_output_uses_typed_native_layout_selects() -> None:
     state = RebuildTaskState(
         backup_folder=Path("backup"),
+        allow_stale_head=True,
         passphrase="secret",
         output_dir=Path("rebuilt"),
         paper_size="LETTER",
@@ -79,14 +78,16 @@ def test_add_files_path_selection_can_remove_one_item_without_reopening_picker()
     async def run() -> None:
         app = EthernityApp(
             add_files_state=AddFilesTaskState(
-                backup_folder=Path("backup"),
+                source_paths=[Path("backup")],
+                output_dir=Path("update-out"),
+                allow_stale_head=True,
                 input_paths=[Path("one.txt"), Path("two.txt")],
                 passphrase="secret",
             )
         )
         async with app.run_test(size=(120, 36)) as pilot:
             await pilot.press("3")
-            await pilot.click("#canvas-primary")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("files"))
             await pilot.pause()
 
             paths = app.query_one("#workflow-add_files-files-body-paths", SelectionList)
@@ -107,15 +108,14 @@ def test_rebuild_output_selects_update_task_state_through_typed_events() -> None
         app = EthernityApp(
             rebuild_state=RebuildTaskState(
                 backup_folder=Path("backup"),
+                allow_stale_head=True,
                 passphrase="secret",
                 output_dir=Path("rebuilt"),
             )
         )
         async with app.run_test(size=(120, 36)) as pilot:
             await pilot.press("4")
-            await pilot.click("#canvas-primary")
-            await pilot.pause()
-            await pilot.click("#canvas-primary")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("output"))
             await pilot.pause()
 
             paper = app.query_one("#workspace-rebuild-paper", Select)
@@ -127,18 +127,18 @@ def test_rebuild_output_selects_update_task_state_through_typed_events() -> None
             assert app.rebuild_state.paper_size == "LETTER"
             assert app.rebuild_state.design == "forge"
             assert app.query_one("#rebuild-step-stack", WorkflowStepStack).active_step == "output"
+            assert app.workflow_ui_states["rebuild"].is_touched("output")
+            assert not app.workflow_ui_states["rebuild"].is_touched("source")
 
     asyncio.run(run())
 
 
-def test_rebuild_source_methods_open_constrained_editors() -> None:
+def test_rebuild_folder_action_opens_directory_picker() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(100, 32)) as pilot:
             await pilot.press("4")
-            methods = app.query_one("#workflow-rebuild-source-body-methods")
-            methods.focus()
-            await pilot.press("space")
+            await pilot.click("#workflow-rebuild-source-body-secondary-0")
             await pilot.pause()
 
             assert isinstance(app.screen, FilePickerScreen)

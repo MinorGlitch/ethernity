@@ -7,11 +7,11 @@ from textual.widgets import ContentSwitcher
 from ethernity.app.workflow_registry import workflow_definition
 from ethernity.app.workspaces.add_files import AddFilesWorkspace
 from ethernity.app.workspaces.backup import BackupWorkspace
-from ethernity.app.workspaces.common import BaseWorkspace
 from ethernity.app.workspaces.kit import KitWorkspace
 from ethernity.app.workspaces.rebuild import RebuildWorkspace
 from ethernity.app.workspaces.replace_recovery import ReplaceRecoveryWorkspace
 from ethernity.app.workspaces.restore import RestoreWorkspace
+from ethernity.app.workspaces.workspace_controls import BaseWorkspace
 from ethernity.tasks.presentation.models import TaskPresentation
 
 

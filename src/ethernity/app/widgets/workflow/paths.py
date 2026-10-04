@@ -2,25 +2,23 @@
 
 from __future__ import annotations
 
-from textual.app import RenderResult
 from textual.containers import HorizontalGroup, VerticalGroup
 from textual.content import Content
-from textual.events import Resize
 from textual.message import Message
-from textual.widgets import Button, Label, SelectionList, Static
+from textual.widgets import Button, Input, Label, SelectionList, Static
 
+from ethernity.app.widgets.form import FormRow
 from ethernity.app.widgets.workflow.controls import (
     InlineNotice,
     child_id,
     merge_classes,
+    post_workspace_action,
     sync_action,
     sync_static,
 )
-from ethernity.app.widgets.workflow.styles import GUIDED_WORKFLOW_CSS
 from ethernity.tasks.presentation.models import (
     DestinationBodyPresentation,
     PathSelectionBodyPresentation,
-    WorkspaceAction,
 )
 
 __all__ = ["DestinationEditor", "PathSelectionEditor"]
@@ -29,23 +27,11 @@ __all__ = ["DestinationEditor", "PathSelectionEditor"]
 class PathSelectionEditor(VerticalGroup):
     """Compact selectable path summary with explicit local actions."""
 
-    DEFAULT_CSS = GUIDED_WORKFLOW_CSS
-
     class SelectionChanged(Message):
         def __init__(self, editor: PathSelectionEditor, selected_keys: tuple[str, ...]) -> None:
             super().__init__()
             self.editor = editor
             self.selected_keys = selected_keys
-
-        @property
-        def control(self) -> PathSelectionEditor:
-            return self.editor
-
-    class ActionRequested(Message):
-        def __init__(self, editor: PathSelectionEditor, action: WorkspaceAction) -> None:
-            super().__init__()
-            self.editor = editor
-            self.action = action
 
         @property
         def control(self) -> PathSelectionEditor:
@@ -70,7 +56,6 @@ class PathSelectionEditor(VerticalGroup):
             Button(
                 Content.from_text(action.label, markup=False),
                 id=action.key,
-                compact=True,
                 classes="workspace-control",
             )
             for action in presentation.actions
@@ -130,12 +115,12 @@ class PathSelectionEditor(VerticalGroup):
         self.post_message(self.SelectionChanged(self, self.selected_keys))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        try:
-            index = self._action_buttons.index(event.button)
-        except ValueError:
-            return
-        event.stop()
-        self.post_message(self.ActionRequested(self, self._presentation.actions[index]))
+        post_workspace_action(
+            self,
+            event,
+            self._action_buttons,
+            self._presentation.actions,
+        )
 
     def _sync_selection_actions(self) -> None:
         has_selection = bool(self.selected_keys)
@@ -149,60 +134,14 @@ class PathSelectionEditor(VerticalGroup):
             )
 
 
-class _OneLinePathValue(Static):
-    """Render a path on one line while retaining its unabridged presentation value."""
-
-    def __init__(self, *, classes: str) -> None:
-        self._path_text = ""
-        super().__init__("", classes=classes, markup=False)
-
-    def update_path(self, text: str) -> None:
-        self._path_text = text
-        self.update(text)
-
-    def render(self) -> RenderResult:
-        return Content.from_text(
-            _middle_ellipsize(self._path_text, self.content_size.width),
-            markup=False,
-        )
-
-    def on_resize(self, event: Resize) -> None:
-        self.refresh()
-
-
-def _middle_ellipsize(text: str, max_width: int) -> str:
-    if max_width <= 0:
-        return ""
-    if len(text) <= max_width:
-        return text
-    if max_width <= 3:
-        return "." * max_width
-
-    separator_index = max(text.rfind("/"), text.rfind("\\"))
-    if separator_index >= 0:
-        separator = text[separator_index]
-        name = text[separator_index + 1 :]
-        marker = f"...{separator}"
-        prefix_width = max_width - len(marker) - len(name)
-        if name and prefix_width > 0:
-            return f"{text[:prefix_width]}{marker}{name}"
-
-    retained = max_width - 3
-    left = retained // 2
-    right = retained - left
-    return f"{text[:left]}...{text[-right:]}"
-
-
 class DestinationEditor(VerticalGroup):
-    """Destination value, local edit action, and its single owned warning surface."""
+    """Editable destination path with optional browsing and one warning region."""
 
-    DEFAULT_CSS = GUIDED_WORKFLOW_CSS
-
-    class ActionRequested(Message):
-        def __init__(self, editor: DestinationEditor, action: WorkspaceAction) -> None:
+    class ValueChanged(Message):
+        def __init__(self, editor: DestinationEditor, value: str) -> None:
             super().__init__()
             self.editor = editor
-            self.action = action
+            self.value = value
 
         @property
         def control(self) -> DestinationEditor:
@@ -216,24 +155,23 @@ class DestinationEditor(VerticalGroup):
         classes: str | None = None,
     ) -> None:
         self._presentation = presentation
+        self._dirty = False
         self._label = Label(
             Content.from_text(presentation.label, markup=False),
-            classes="guided-field-label",
+            classes="field-text form-label",
         )
-        self._value = _OneLinePathValue(classes="guided-field-value")
+        self._value = Input(
+            placeholder=presentation.empty_label,
+            id=child_id(id, "value"),
+            classes="workspace-control",
+        )
         self._action = Button(
             "",
             id=child_id(id, "action"),
-            compact=True,
             classes="workspace-control",
         )
         self._notice = InlineNotice(presentation.notice)
-        row = HorizontalGroup(
-            self._label,
-            self._value,
-            self._action,
-            classes="guided-field-row",
-        )
+        row = FormRow(self._label, self._value, self._action)
         super().__init__(
             row,
             self._notice,
@@ -246,16 +184,57 @@ class DestinationEditor(VerticalGroup):
     def display_path(self) -> str:
         return self._presentation.display_path
 
+    def on_mount(self) -> None:
+        self.sync_presentation(self._presentation)
+
     def sync_presentation(self, presentation: DestinationBodyPresentation) -> None:
         self._presentation = presentation
         self._label.update(Content.from_text(presentation.label, markup=False))
-        self._value.update_path(presentation.display_path or presentation.empty_label)
+        if (
+            not self._dirty
+            and self._value.is_attached
+            and self._value.value != presentation.display_path
+        ):
+            with self._value.prevent(Input.Changed):
+                self._value.value = presentation.display_path
+                self._value.cursor_position = len(presentation.display_path)
+        self._value.placeholder = presentation.empty_label
         self._value.tooltip = presentation.display_path or None
         sync_action(self._action, presentation.action)
         self._notice.sync_presentation(presentation.notice)
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input is self._value:
+            event.stop()
+            self._dirty = event.value != self._presentation.display_path
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._commit_value(event)
+
+    def on_input_blurred(self, event: Input.Blurred) -> None:
+        self._commit_value(event)
+
+    def _commit_value(self, event: Input.Submitted | Input.Blurred) -> None:
+        if event.input is not self._value:
+            return
+        event.stop()
+        change = self.take_pending_change()
+        if change is not None:
+            self.post_message(change)
+
+    def take_pending_change(self) -> ValueChanged | None:
+        """Commit the current draft before review, including keyboard submission."""
+        if not self._dirty and self._value.value == self._presentation.display_path:
+            return None
+        self._dirty = False
+        return self.ValueChanged(self, self._value.value)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button is not self._action or self._presentation.action is None:
             return
-        event.stop()
-        self.post_message(self.ActionRequested(self, self._presentation.action))
+        post_workspace_action(
+            self,
+            event,
+            (self._action,),
+            (self._presentation.action,),
+        )

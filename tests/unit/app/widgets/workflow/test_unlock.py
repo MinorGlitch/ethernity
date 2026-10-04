@@ -2,7 +2,7 @@
 
 import asyncio
 
-from textual.widgets import RadioSet
+from textual.widgets import Input, RadioSet
 
 from ethernity.app.widgets.workflow.unlock import UnlockEditor
 from ethernity.tasks.presentation.models import (
@@ -10,7 +10,7 @@ from ethernity.tasks.presentation.models import (
     UnlockBodyPresentation,
     WorkspaceAction,
 )
-from tests.unit.app.widgets.workflow.helpers import PrimitiveHarness
+from tests.unit.app.widgets.workflow.widget_harness import WorkflowWidgetHarness
 
 
 def test_unlock_editor_uses_native_radio_behavior_and_typed_local_action() -> None:
@@ -22,12 +22,12 @@ def test_unlock_editor_uses_native_radio_behavior_and_typed_local_action() -> No
                     ChoicePresentation("sheets", "Recovery sheets"),
                     ChoicePresentation("payloads", "Recovery payload files"),
                 ),
-                contextual_action=WorkspaceAction("enter-unlock", "Enter passphrase..."),
-                material_summary="Passphrase set",
+                method_action=WorkspaceAction("enter-unlock", "Enter passphrase..."),
+                input_summary="Passphrase set",
             ),
             id="unlock",
         )
-        app = PrimitiveHarness(editor)
+        app = WorkflowWidgetHarness(editor)
         async with app.run_test(size=(80, 24)) as pilot:
             radio = editor.query_one(RadioSet)
             radio.focus()
@@ -42,5 +42,39 @@ def test_unlock_editor_uses_native_radio_behavior_and_typed_local_action() -> No
             await pilot.pause()
 
             assert app.unlock_actions == ["enter-unlock"]
+
+    asyncio.run(run())
+
+
+def test_inline_passphrase_masks_input_and_commits_only_user_edits() -> None:
+    async def run() -> None:
+        editor = UnlockEditor(
+            UnlockBodyPresentation(
+                methods=(ChoicePresentation("passphrase", "Passphrase", selected=True),),
+                passphrase_set=True,
+                input_summary="Passphrase set",
+            ),
+            id="unlock",
+        )
+        app = WorkflowWidgetHarness(editor)
+        async with app.run_test(size=(80, 24)) as pilot:
+            value = editor.query_one(Input)
+            assert value.password
+            assert value.value == ""
+            value.focus()
+            await pilot.press("tab")
+            await pilot.pause()
+            assert app.unlock_values == []
+            value.focus()
+            await pilot.press(*"test-secret")
+            await pilot.pause()
+            assert "test-secret" not in value.render_line(0).text
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.unlock_values == ["test-secret"]
+            assert value.value == ""
+            await pilot.press("tab")
+            await pilot.pause()
+            assert app.unlock_values == ["test-secret"]
 
     asyncio.run(run())
