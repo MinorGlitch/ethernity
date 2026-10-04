@@ -6,11 +6,9 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-import ethernity.cli as legacy_cli
 import ethernity.main as root_entrypoint
 from ethernity.main import main
 from ethernity.run.cli import cli
-from ethernity.tasks.doctor import DoctorTaskState
 from ethernity.tasks.models import TaskExecutionResult
 
 
@@ -33,28 +31,8 @@ def test_runtime_dependencies_exclude_old_prompt_stack() -> None:
     assert "prompt-toolkit" not in dev_dependencies
 
 
-def test_cli_package_no_longer_exports_legacy_entrypoints_or_command_runners() -> None:
-    old_exports = (
-        "main",
-        "app",
-        "run_wizard",
-        "run_recover_wizard",
-        "run_mint_wizard",
-        "run_backup",
-        "run_backup_command",
-        "run_compact",
-        "run_extend",
-        "run_mint_command",
-        "run_recover_command",
-        "AUTH_FALLBACK_LABEL",
-        "MAIN_FALLBACK_LABEL",
-        "BackupResult",
-        "InputFile",
-        "decrypt_bytes",
-        "encrypt_bytes_with_passphrase",
-    )
-    for name in old_exports:
-        assert not hasattr(legacy_cli, name)
+def test_legacy_cli_source_package_is_removed() -> None:
+    assert not any(Path("src/ethernity/cli").rglob("*.py"))
 
 
 def test_root_help_points_to_new_terminal_app_and_runner(capsys) -> None:
@@ -201,7 +179,7 @@ def test_run_backup_yes_executes_task_model(monkeypatch) -> None:
 
     def fake_execute(self):
         calls.append(self)
-        return TaskExecutionResult(ok=True, message="Backup documents created.")
+        return TaskExecutionResult(status="succeeded", message="Backup documents created.")
 
     monkeypatch.setattr("ethernity.tasks.backup.BackupTaskState.execute", fake_execute)
     runner = CliRunner()
@@ -237,7 +215,7 @@ def test_run_backup_yes_uses_automatic_output_folder_when_unset(monkeypatch) -> 
 
     def fake_execute(self):
         calls.append(self)
-        return TaskExecutionResult(ok=True, message="Backup documents created.")
+        return TaskExecutionResult(status="succeeded", message="Backup documents created.")
 
     monkeypatch.setattr("ethernity.tasks.backup.BackupTaskState.execute", fake_execute)
     runner = CliRunner()
@@ -264,7 +242,7 @@ def test_run_backup_zero_recovery_count_disables_passphrase_shards(monkeypatch) 
 
     def fake_execute(self):
         calls.append(self)
-        return TaskExecutionResult(ok=True, message="Backup documents created.")
+        return TaskExecutionResult(status="succeeded", message="Backup documents created.")
 
     monkeypatch.setattr("ethernity.tasks.backup.BackupTaskState.execute", fake_execute)
     runner = CliRunner()
@@ -295,7 +273,7 @@ def test_run_backup_json_yes_executes_task_model(monkeypatch) -> None:
     def fake_execute(self):
         calls.append(self)
         return TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message="Backup documents created.",
             output_paths=(Path("backup-out/main.pdf"),),
         )
@@ -353,7 +331,7 @@ def test_run_restore_yes_executes_task_model(monkeypatch) -> None:
 
     def fake_execute(self):
         calls.append(self)
-        return TaskExecutionResult(ok=True, message="Recovered files written.")
+        return TaskExecutionResult(status="succeeded", message="Recovered files written.")
 
     monkeypatch.setattr("ethernity.tasks.restore.RestoreTaskState.execute", fake_execute)
     runner = CliRunner()
@@ -386,15 +364,22 @@ def test_run_restore_yes_executes_task_model(monkeypatch) -> None:
     assert "Recovered files written." in result.output
 
 
-def test_run_add_files_preview_uses_task_model() -> None:
+def test_run_add_files_preview_uses_task_model(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ethernity.tasks.add_files.AddFilesTaskState.prepare_review",
+        lambda _self, *, force=False: None,
+    )
     runner = CliRunner()
 
     result = runner.invoke(
         cli,
         [
             "add-files",
-            "--backup-folder",
+            "--scan",
             "backup-out",
+            "--output-dir",
+            "update-out",
+            "--allow-stale-head",
             "--input",
             "new-file.txt",
             "--passphrase",
@@ -413,7 +398,7 @@ def test_run_add_files_yes_executes_task_model(monkeypatch) -> None:
 
     def fake_execute(self):
         calls.append(self)
-        return TaskExecutionResult(ok=True, message="Added files as backup update 01.")
+        return TaskExecutionResult(status="succeeded", message="Added files as backup update 01.")
 
     monkeypatch.setattr("ethernity.tasks.add_files.AddFilesTaskState.execute", fake_execute)
     monkeypatch.setattr(
@@ -426,33 +411,94 @@ def test_run_add_files_yes_executes_task_model(monkeypatch) -> None:
         cli,
         [
             "add-files",
-            "--backup-folder",
+            "--scan",
             "backup-out",
+            "--output-dir",
+            "update-out",
+            "--allow-stale-head",
             "--input",
             "new-file.txt",
             "--passphrase",
             "secret",
             "--qr-chunk-size",
             "384",
+            "--new-recovery-sheets",
+            "--auth-text",
+            "signature.txt",
+            "--recovery-threshold",
+            "3",
+            "--recovery-count",
+            "5",
             "--yes",
         ],
     )
 
     assert result.exit_code == 0
     assert len(calls) == 1
-    assert str(calls[0].backup_folder) == "backup-out"
+    assert calls[0].source_paths == [Path("backup-out")]
+    assert calls[0].output_dir == Path("update-out")
+    assert calls[0].allow_stale_head
+    assert calls[0].auth_text_file == Path("signature.txt")
     assert calls[0].qr_chunk_size == 384
-    assert calls[0].to_extension_request().qr_chunk_size == 384
+    assert calls[0].to_add_files_request().qr_chunk_size == 384
+    assert calls[0].create_recovery_sheets
+    assert calls[0].recovery_threshold == 3
+    assert calls[0].recovery_sheet_count == 5
     assert "Added files as backup update 01." in result.output
 
 
-def test_run_add_files_rejects_unsupported_auth_material_options() -> None:
+def test_run_add_files_rejects_removed_backup_folder_option() -> None:
     runner = CliRunner()
 
-    result = runner.invoke(cli, ["add-files", "--auth-text", "auth.txt"])
+    result = runner.invoke(cli, ["add-files", "--backup-folder", "backup-out"])
 
     assert result.exit_code == 2
-    assert "No such option '--auth-text'" in result.output
+    assert "No such option '--backup-folder'" in result.output
+
+
+def test_run_add_files_preserves_mixed_document_sources(monkeypatch) -> None:
+    calls = []
+
+    def fake_execute(self):
+        calls.append(self)
+        return TaskExecutionResult(status="succeeded", message="Update written.")
+
+    monkeypatch.setattr("ethernity.tasks.add_files.AddFilesTaskState.execute", fake_execute)
+    monkeypatch.setattr(
+        "ethernity.tasks.add_files.AddFilesTaskState.prepare_review",
+        lambda _self, *, force=False: None,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "add-files",
+            "--scan",
+            "renamed-root.pdf",
+            "--scan",
+            "scanned-update.png",
+            "--recovery-text",
+            "transcribed.txt",
+            "--payloads-file",
+            "payloads.txt",
+            "--input",
+            "new-file.txt",
+            "--passphrase",
+            "secret",
+            "--output-dir",
+            "update-out",
+            "--expected-head",
+            "ab" * 32,
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    request = calls[0].to_add_files_request()
+    assert request.scan_paths == ("renamed-root.pdf", "scanned-update.png")
+    assert request.recovery_text_file == "transcribed.txt"
+    assert request.payloads_file == "payloads.txt"
 
 
 def test_run_rebuild_preview_uses_task_model() -> None:
@@ -464,6 +510,7 @@ def test_run_rebuild_preview_uses_task_model() -> None:
             "rebuild",
             "--backup-folder",
             "backup-out",
+            "--allow-stale-head",
             "--passphrase",
             "secret",
             "--auth-payloads-file",
@@ -484,7 +531,7 @@ def test_run_rebuild_yes_executes_task_model(monkeypatch) -> None:
 
     def fake_execute(self):
         calls.append(self)
-        return TaskExecutionResult(ok=True, message="Rebuilt backup documents created.")
+        return TaskExecutionResult(status="succeeded", message="Rebuilt backup documents created.")
 
     monkeypatch.setattr("ethernity.tasks.rebuild.RebuildTaskState.execute", fake_execute)
     runner = CliRunner()
@@ -495,6 +542,7 @@ def test_run_rebuild_yes_executes_task_model(monkeypatch) -> None:
             "rebuild",
             "--backup-folder",
             "backup-out",
+            "--allow-stale-head",
             "--passphrase",
             "secret",
             "--auth-payloads-file",
@@ -553,7 +601,9 @@ def test_run_replace_recovery_docs_yes_executes_task_model(monkeypatch) -> None:
 
     def fake_execute(self):
         calls.append(self)
-        return TaskExecutionResult(ok=True, message="Replacement recovery documents created.")
+        return TaskExecutionResult(
+            status="succeeded", message="Replacement recovery documents created."
+        )
 
     monkeypatch.setattr(
         "ethernity.tasks.replace_recovery_docs.ReplaceRecoveryDocsTaskState.execute",
@@ -597,63 +647,9 @@ def test_run_print_kit_preview_uses_task_model() -> None:
     )
 
     assert result.exit_code == 0
-    assert "Unanchored rescue kit" in result.output
-    assert "Unanchored rescue kit to create" in result.output
+    assert "Offline recovery kit" in result.output
+    assert "Offline recovery kit to create" in result.output
     assert "kit.pdf" in result.output
-
-
-def test_run_doctor_inspection_executes_without_destructive_confirmation(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    calls: list[DoctorTaskState] = []
-
-    def fake_execute(self: DoctorTaskState) -> TaskExecutionResult:
-        calls.append(self)
-        return TaskExecutionResult(ok=True, message="Inspection complete.")
-
-    monkeypatch.setattr(DoctorTaskState, "execute", fake_execute)
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "doctor",
-            "--backup-folder",
-            str(tmp_path),
-            "--passphrase",
-            "secret",
-        ],
-    )
-
-    assert result.exit_code == 0
-    assert len(calls) == 1
-    assert not calls[0].repair
-
-
-def test_run_doctor_repair_requires_yes(tmp_path: Path, monkeypatch) -> None:
-    calls: list[DoctorTaskState] = []
-
-    def fake_execute(self: DoctorTaskState) -> TaskExecutionResult:
-        calls.append(self)
-        return TaskExecutionResult(ok=True, message="Repair complete.")
-
-    monkeypatch.setattr(DoctorTaskState, "execute", fake_execute)
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "doctor",
-            "--backup-folder",
-            str(tmp_path),
-            "--passphrase",
-            "secret",
-            "--repair",
-        ],
-    )
-
-    assert result.exit_code == 1
-    assert "--yes" in result.output
-    assert calls == []
 
 
 def test_run_print_kit_yes_executes_task_model(monkeypatch) -> None:
@@ -661,7 +657,7 @@ def test_run_print_kit_yes_executes_task_model(monkeypatch) -> None:
 
     def fake_execute(self):
         calls.append(self)
-        return TaskExecutionResult(ok=True, message="Recovery kit created.")
+        return TaskExecutionResult(status="succeeded", message="Recovery kit created.")
 
     monkeypatch.setattr("ethernity.tasks.kit.PrintKitTaskState.execute", fake_execute)
     runner = CliRunner()

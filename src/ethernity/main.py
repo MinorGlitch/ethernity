@@ -35,8 +35,10 @@ Examples:
   ethernity
   ethernity run backup --input secrets.txt --output-dir backup-out --preview
   ethernity run restore --scan scans --output recovered --preview
-  ethernity run add-files --backup-folder backup-out --input new-file.txt --preview
-  ethernity run rebuild --backup-folder backup-out --output-dir rebuilt --preview
+  ethernity run add-files --scan backup-out --input new-file.txt \\
+    --output-dir update-out --allow-stale-head --preview
+  ethernity run rebuild --scan backup-out --output-dir rebuilt \\
+    --allow-stale-head --preview
   ethernity run replace-recovery-docs --scan scans --passphrase '...' \\
     --allow-stale-head --output-dir replacement-docs --preview
   ethernity run print-kit --output recovery_kit_qr.pdf --preview

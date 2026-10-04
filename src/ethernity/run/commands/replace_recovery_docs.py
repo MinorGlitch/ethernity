@@ -4,10 +4,10 @@ from pathlib import Path
 
 import click
 
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, paper_size_names, resolve_paper_size
 from ethernity.run.context import current_config_path
 from ethernity.run.execution import run_task
-from ethernity.tasks.quorum import MAX_SHARDS
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 
 
@@ -65,7 +65,7 @@ from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 @click.option("--allow-stale-head", is_flag=True, help="Accept scan source freshness risk.")
 @click.option(
     "--recovery-threshold",
-    type=click.IntRange(min=1, max=MAX_SHARDS),
+    type=click.IntRange(min=1, max=MAX_SHARES),
     default=2,
     show_default=True,
     help="How many replacement recovery documents will be needed.",
@@ -73,33 +73,33 @@ from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 @click.option(
     "--recovery-count",
     "recovery_document_count",
-    type=click.IntRange(min=1, max=MAX_SHARDS),
+    type=click.IntRange(min=1, max=MAX_SHARES),
     default=3,
     show_default=True,
     help="How many replacement recovery documents to create.",
 )
 @click.option(
     "--passphrase-recovery/--no-passphrase-recovery",
-    "mint_passphrase_recovery",
+    "create_passphrase_recovery",
     default=True,
     help="Create replacement passphrase recovery documents.",
 )
 @click.option(
     "--signing-key-recovery",
-    "mint_signing_key_recovery",
+    "create_signing_key_recovery",
     is_flag=True,
     help="Create replacement signing-key recovery documents.",
 )
 @click.option(
     "--signing-key-threshold",
     "signing_key_recovery_threshold",
-    type=click.IntRange(min=1, max=MAX_SHARDS),
+    type=click.IntRange(min=1, max=MAX_SHARES),
     help="How many signing-key recovery documents will be needed.",
 )
 @click.option(
     "--signing-key-count",
     "signing_key_recovery_count",
-    type=click.IntRange(min=1, max=MAX_SHARDS),
+    type=click.IntRange(min=1, max=MAX_SHARES),
     help="How many signing-key recovery documents to create.",
 )
 @click.option(
@@ -137,8 +137,8 @@ def replace_recovery_docs(
     allow_stale_head: bool,
     recovery_threshold: int,
     recovery_document_count: int,
-    mint_passphrase_recovery: bool,
-    mint_signing_key_recovery: bool,
+    create_passphrase_recovery: bool,
+    create_signing_key_recovery: bool,
     signing_key_recovery_threshold: int | None,
     signing_key_recovery_count: int | None,
     passphrase_replacement_count: int | None,
@@ -165,8 +165,8 @@ def replace_recovery_docs(
         allow_stale_head=allow_stale_head,
         recovery_threshold=recovery_threshold,
         recovery_document_count=recovery_document_count,
-        mint_passphrase_recovery=mint_passphrase_recovery,
-        mint_signing_key_recovery=mint_signing_key_recovery,
+        create_passphrase_recovery=create_passphrase_recovery,
+        create_signing_key_recovery=create_signing_key_recovery,
         signing_key_recovery_threshold=signing_key_recovery_threshold,
         signing_key_recovery_count=signing_key_recovery_count,
         passphrase_replacement_count=passphrase_replacement_count,

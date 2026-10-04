@@ -6,11 +6,11 @@ from typing import cast
 import click
 
 from ethernity.crypto import MNEMONIC_WORD_COUNTS
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, paper_size_names, resolve_paper_size
 from ethernity.run.context import current_config_path
 from ethernity.run.execution import run_task
 from ethernity.tasks.backup import BackupTaskState, SigningKeyMode
-from ethernity.tasks.quorum import MAX_SHARDS
 
 PASSPHRASE_WORD_CHOICES = tuple(str(count) for count in MNEMONIC_WORD_COUNTS)
 
@@ -42,14 +42,14 @@ PASSPHRASE_WORD_CHOICES = tuple(str(count) for count in MNEMONIC_WORD_COUNTS)
 )
 @click.option(
     "--recovery-threshold",
-    type=click.IntRange(min=1, max=MAX_SHARDS),
+    type=click.IntRange(min=1, max=MAX_SHARES),
     default=2,
     show_default=True,
     help="How many recovery documents will be needed.",
 )
 @click.option(
     "--recovery-count",
-    type=click.IntRange(min=0, max=MAX_SHARDS),
+    type=click.IntRange(min=0, max=MAX_SHARES),
     default=3,
     show_default=True,
     help="How many recovery documents to create. Use 0 for passphrase-only recovery.",
@@ -64,13 +64,13 @@ PASSPHRASE_WORD_CHOICES = tuple(str(count) for count in MNEMONIC_WORD_COUNTS)
 @click.option(
     "--signing-key-threshold",
     "signing_key_shard_threshold",
-    type=click.IntRange(min=1, max=MAX_SHARDS),
+    type=click.IntRange(min=1, max=MAX_SHARES),
     help="How many signing-key recovery documents will be needed.",
 )
 @click.option(
     "--signing-key-count",
     "signing_key_shard_count",
-    type=click.IntRange(min=1, max=MAX_SHARDS),
+    type=click.IntRange(min=1, max=MAX_SHARES),
     help="How many signing-key recovery documents to create.",
 )
 @click.option("--qr-chunk-size", type=click.IntRange(min=1), help="Payload bytes per QR chunk.")

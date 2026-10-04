@@ -61,7 +61,11 @@ from ethernity.tasks.rebuild import RebuildTaskState
     "expected_head_doc_hash",
     help="Expected latest backup fingerprint.",
 )
-@click.option("--allow-stale-head", is_flag=True, help="Accept scan source freshness risk.")
+@click.option(
+    "--allow-stale-head",
+    is_flag=True,
+    help="Accept that the loaded documents may omit a newer version.",
+)
 @click.option(
     "--paper",
     "paper_size",

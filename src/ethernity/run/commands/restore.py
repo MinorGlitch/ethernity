@@ -66,7 +66,7 @@ from ethernity.tasks.restore import RestoreTarget, RestoreTaskState
     "--resource-intensive-compatibility-recovery",
     is_flag=True,
     help=(
-        "Allow legacy age files with unusually expensive scrypt parameters. "
+        "Raise the scrypt work limits for this restore attempt. "
         "This can consume substantial CPU and memory."
     ),
 )

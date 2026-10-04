@@ -44,7 +44,11 @@ def print_task_preview(preview: TaskPreview) -> None:
 
 
 def print_task_execution_result(result: TaskExecutionResult) -> None:
-    style = "green" if result.ok else "red"
+    style = {
+        "succeeded": "green",
+        "partially_succeeded": "yellow",
+        "failed": "red",
+    }[result.status]
     console.print(f"[{style}]{result.message}[/{style}]")
     if result.details:
         details = Table("Result", "Value", show_lines=False)

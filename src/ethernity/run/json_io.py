@@ -45,7 +45,11 @@ def print_task_json(
         "validation": validation.model_dump(mode="json"),
         "preview": preview.model_dump(mode="json"),
         "plan": plan.model_dump(mode="json"),
-        "result": result.model_dump(mode="json") if result is not None else None,
+        "result": (
+            result.model_dump(mode="json", exclude={"recovery_check_paths"})
+            if result is not None
+            else None
+        ),
         "error": error,
     }
     click.echo(json.dumps(payload, sort_keys=True, separators=(",", ":")))

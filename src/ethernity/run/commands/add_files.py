@@ -1,39 +1,50 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
 
 import click
 
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.page_sizes import paper_size_names, resolve_paper_size
 from ethernity.run.context import current_config_path
 from ethernity.run.execution import run_task
-from ethernity.tasks.add_files import (
-    AddFilesSigningKeyMode,
-    AddFilesTaskState,
-    AddFilesUnlockPolicy,
-)
-from ethernity.tasks.quorum import MAX_SHARDS
+from ethernity.tasks.add_files import AddFilesTaskState
 
 
 @click.command("add-files")
-@click.option(
-    "--backup-folder",
-    type=click.Path(file_okay=False, path_type=Path),
-    help="Generated backup folder to update.",
-)
-@click.option(
-    "--output-folder",
-    "loose_output_folder",
-    type=click.Path(file_okay=False, path_type=Path),
-    help="New or empty destination for an update created from scans.",
-)
 @click.option(
     "--scan",
     "source_paths",
     multiple=True,
     type=click.Path(exists=False, path_type=Path),
-    help="Printed/scanned current backup source. Repeat for multiple paths.",
+    help="Backup PDF, image, or folder of documents. Repeat for multiple inputs.",
+)
+@click.option(
+    "--recovery-text",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Recovery text file containing the backup documents.",
+)
+@click.option(
+    "--payloads-file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="File containing backup QR payloads.",
+)
+@click.option(
+    "--auth-text",
+    "--auth-fallback-file",
+    "auth_text_file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Authentication recovery text file.",
+)
+@click.option(
+    "--auth-payloads-file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="File containing authentication payloads.",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="New folder for the update documents.",
 )
 @click.option(
     "--input",
@@ -74,40 +85,31 @@ from ethernity.tasks.quorum import MAX_SHARDS
     "expected_head_doc_hash",
     help="Expected latest backup fingerprint.",
 )
-@click.option("--allow-stale-head", is_flag=True, help="Accept scan source freshness risk.")
 @click.option(
-    "--recovery-count",
-    "recovery_document_count",
-    type=click.IntRange(min=0, max=MAX_SHARDS),
-    help="New recovery documents; 0 is valid only with --unlock-policy reuse-root.",
+    "--allow-stale-head",
+    is_flag=True,
+    help="Accept that the loaded documents may omit a newer version.",
+)
+@click.option(
+    "--new-recovery-sheets/--no-new-recovery-sheets",
+    "create_recovery_sheets",
+    default=False,
+    help="After publishing, create passphrase recovery sheets bound to the root backup.",
 )
 @click.option(
     "--recovery-threshold",
-    "recovery_document_threshold",
-    type=click.IntRange(min=1, max=MAX_SHARDS),
-    help="How many new recovery documents will be needed.",
+    type=click.IntRange(min=1, max=MAX_SHARES),
+    default=2,
+    show_default=True,
+    help="How many of the new recovery sheets will be needed.",
 )
 @click.option(
-    "--unlock-policy",
-    type=click.Choice(["self-contained", "reuse-root"]),
-    help="How the update should store unlock material; otherwise use the saved default.",
-)
-@click.option(
-    "--signing-key-mode",
-    type=click.Choice(["not-stored", "sharded"]),
-    help="How redundant signing-key recovery is stored.",
-)
-@click.option(
-    "--signing-key-threshold",
-    "signing_key_recovery_threshold",
-    type=click.IntRange(min=1, max=MAX_SHARDS),
-    help="How many signing-key recovery documents will be needed.",
-)
-@click.option(
-    "--signing-key-count",
-    "signing_key_recovery_count",
-    type=click.IntRange(min=1, max=MAX_SHARDS),
-    help="How many signing-key recovery documents to create.",
+    "--recovery-count",
+    "recovery_sheet_count",
+    type=click.IntRange(min=1, max=MAX_SHARES),
+    default=3,
+    show_default=True,
+    help="How many new recovery sheets to create.",
 )
 @click.option("--qr-chunk-size", type=click.IntRange(min=1), help="Payload bytes per QR chunk.")
 @click.option("--paper", "paper_size", type=click.Choice(paper_size_names()))
@@ -118,9 +120,12 @@ from ethernity.tasks.quorum import MAX_SHARDS
 @click.pass_context
 def add_files(
     ctx: click.Context,
-    backup_folder: Path | None,
-    loose_output_folder: Path | None,
     source_paths: tuple[Path, ...],
+    recovery_text: Path | None,
+    payloads_file: Path | None,
+    auth_text_file: Path | None,
+    auth_payloads_file: Path | None,
+    output_dir: Path | None,
     input_paths: tuple[Path, ...],
     input_dirs: tuple[Path, ...],
     base_dir: Path | None,
@@ -129,12 +134,9 @@ def add_files(
     recovery_payload_files: tuple[Path, ...],
     expected_head_doc_hash: str | None,
     allow_stale_head: bool,
-    recovery_document_count: int | None,
-    recovery_document_threshold: int | None,
-    unlock_policy: str | None,
-    signing_key_mode: str | None,
-    signing_key_recovery_threshold: int | None,
-    signing_key_recovery_count: int | None,
+    create_recovery_sheets: bool,
+    recovery_threshold: int,
+    recovery_sheet_count: int,
     qr_chunk_size: int | None,
     paper_size: str | None,
     design: str | None,
@@ -145,10 +147,13 @@ def add_files(
     """Add or replace files in an existing backup."""
 
     state = AddFilesTaskState(
-        backup_folder=backup_folder,
-        loose_output_folder=loose_output_folder,
-        config_path=current_config_path(ctx),
         source_paths=list(source_paths),
+        recovery_text_file=recovery_text,
+        payloads_file=payloads_file,
+        auth_text_file=auth_text_file,
+        auth_payloads_file=auth_payloads_file,
+        output_dir=output_dir,
+        config_path=current_config_path(ctx),
         input_paths=list(input_paths),
         input_dirs=list(input_dirs),
         base_dir=base_dir,
@@ -157,12 +162,9 @@ def add_files(
         recovery_payload_files=list(recovery_payload_files),
         expected_head_doc_hash=expected_head_doc_hash,
         allow_stale_head=allow_stale_head,
-        unlock_policy=cast(AddFilesUnlockPolicy | None, unlock_policy),
-        recovery_document_threshold=recovery_document_threshold,
-        recovery_document_count=recovery_document_count,
-        signing_key_mode=cast(AddFilesSigningKeyMode | None, signing_key_mode),
-        signing_key_recovery_threshold=signing_key_recovery_threshold,
-        signing_key_recovery_count=signing_key_recovery_count,
+        create_recovery_sheets=create_recovery_sheets,
+        recovery_threshold=recovery_threshold,
+        recovery_sheet_count=recovery_sheet_count,
         qr_chunk_size=qr_chunk_size,
         paper_size=(resolve_paper_size(paper_size).name if paper_size is not None else None),
         design=design,
@@ -173,7 +175,7 @@ def add_files(
         preview=preview,
         yes=yes,
         json_output=json_output,
-        not_ready_message="Add-files is not ready.",
+        not_ready_message="Add Files is not ready.",
     )
 
 
