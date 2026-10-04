@@ -8,13 +8,13 @@ from typing import Any, cast
 
 import pytest
 from textual.containers import VerticalScroll
-from textual.widgets import Button, Collapsible, LoadingIndicator, RichLog, Static
+from textual.widgets import Button, Collapsible, LoadingIndicator, OptionList, RichLog, Static
 from textual.worker import WorkerState
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.execution import (
-    ExecutionContext,
-    build_review_decision_facts,
+    ReviewedTask,
+    build_review_details,
     infer_execution_failure_section,
     normalize_execution_outcome,
 )
@@ -31,54 +31,54 @@ from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.settings import SettingsTaskState
 
 
-def test_review_facts_use_plain_security_and_policy_language() -> None:
+def test_review_details_use_plain_security_and_policy_language() -> None:
     plan = TaskExecutionPlan(summary="Review")
 
-    backup_facts = {
-        fact.label: fact.value
-        for fact in build_review_decision_facts(
+    backup_details = {
+        detail.label: detail.value
+        for detail in build_review_details(
             "backup",
             BackupTaskState(input_paths=[Path("secret.txt")]),
             plan,
         )
     }
-    assert backup_facts["Signing key"] == "Encrypted in the backup documents"
+    assert backup_details["Signing key"] == "Encrypted in the backup documents"
 
-    default_facts = {
-        fact.label: fact.value
-        for fact in build_review_decision_facts(
+    default_details = {
+        detail.label: detail.value
+        for detail in build_review_details(
             "add_files",
-            AddFilesTaskState(backup_folder=Path("backup"), input_paths=[Path("new.txt")]),
+            AddFilesTaskState(source_paths=[Path("backup")], input_paths=[Path("new.txt")]),
             plan,
         )
     }
-    assert default_facts["Recovery sheets"] == "From settings"
+    assert default_details["Recovery sheets"] == "No new recovery sheets"
 
-    reuse_facts = {
-        fact.label: fact.value
-        for fact in build_review_decision_facts(
+    recovery_details = {
+        detail.label: detail.value
+        for detail in build_review_details(
             "add_files",
             AddFilesTaskState(
-                backup_folder=Path("backup"),
+                source_paths=[Path("backup")],
                 input_paths=[Path("new.txt")],
-                unlock_policy="reuse-root",
-                recovery_document_threshold=2,
-                recovery_document_count=3,
+                create_recovery_sheets=True,
+                recovery_threshold=3,
+                recovery_sheet_count=5,
             ),
             plan,
         )
     }
-    assert reuse_facts["Recovery sheets"] == "3 sheets, 2 required; original recovery set"
+    assert recovery_details["Recovery sheets"] == ("5 new recovery sheets, 3 needed to restore")
 
-    rebuild_facts = {
-        fact.label: fact.value
-        for fact in build_review_decision_facts(
+    rebuild_details = {
+        detail.label: detail.value
+        for detail in build_review_details(
             "rebuild",
-            RebuildTaskState(backup_folder=Path("backup")),
+            RebuildTaskState(backup_folder=Path("backup"), allow_stale_head=True),
             plan,
         )
     }
-    assert rebuild_facts["Source version"] == "Read from backup folder"
+    assert rebuild_details["Source version"] == "Latest loaded version accepted"
 
 
 async def _wait_for_selector(
@@ -132,7 +132,7 @@ def _screen_text(app: EthernityApp) -> str:
     return "\n".join(lines)
 
 
-def test_execution_context_keeps_an_isolated_reviewed_snapshot(tmp_path: Path) -> None:
+def test_reviewed_task_keeps_an_isolated_snapshot(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
     state = BackupTaskState(
@@ -141,21 +141,23 @@ def test_execution_context_keeps_an_isolated_reviewed_snapshot(tmp_path: Path) -
         config_path=config_path,
     )
 
-    context = ExecutionContext.capture("backup", state)
+    reviewed_task = ReviewedTask.capture("backup", state)
     state.output_dir = Path("edited-output")
-    execution_state = cast(BackupTaskState, context.execution_state())
+    execution_state = cast(BackupTaskState, reviewed_task.execution_state())
     execution_state.output_dir = Path("attempt-only-output")
 
-    assert cast(BackupTaskState, context.state_snapshot).output_dir == Path("reviewed-output")
-    assert context.plan.output_paths == (Path("reviewed-output"),)
-    facts = {fact.label: fact.value for fact in context.decision_facts}
-    assert facts["Files"] == "1 file"
-    assert facts["Destination"] == "reviewed-output"
-    assert cast(BackupTaskState, context.execution_state()).output_dir == Path("reviewed-output")
-    assert context.reviewed_config.contents == DEFAULT_CONFIG_PATH.read_bytes()
+    assert cast(BackupTaskState, reviewed_task.state_snapshot).output_dir == Path("reviewed-output")
+    assert reviewed_task.plan.output_paths == (Path("reviewed-output"),)
+    details = {detail.label: detail.value for detail in reviewed_task.review_details}
+    assert details["Files"] == "1 file"
+    assert details["Destination"] == str(Path("reviewed-output").absolute())
+    assert cast(BackupTaskState, reviewed_task.execution_state()).output_dir == Path(
+        "reviewed-output"
+    )
+    assert reviewed_task.reviewed_config.contents == DEFAULT_CONFIG_PATH.read_bytes()
 
 
-def test_execution_context_rejects_a_missing_explicit_config(tmp_path: Path) -> None:
+def test_reviewed_task_rejects_a_missing_explicit_config(tmp_path: Path) -> None:
     missing_config = tmp_path / "missing.toml"
     state = BackupTaskState(
         input_paths=[Path("secrets.txt")],
@@ -164,12 +166,12 @@ def test_execution_context_rejects_a_missing_explicit_config(tmp_path: Path) -> 
     )
 
     with pytest.raises(FileNotFoundError, match="config file not found"):
-        ExecutionContext.capture("backup", state)
+        ReviewedTask.capture("backup", state)
 
 
 def test_execution_outcomes_normalize_every_terminal_worker_state() -> None:
-    success = TaskExecutionResult(ok=True, message="Done.")
-    reported_failure = TaskExecutionResult(ok=False, message="Could not write.")
+    success = TaskExecutionResult(status="succeeded", message="Done.")
+    reported_failure = TaskExecutionResult(status="failed", message="Could not write.")
 
     assert normalize_execution_outcome(WorkerState.SUCCESS, value=success).result is success
     assert (
@@ -214,7 +216,9 @@ def test_review_preparation_is_visible_and_locks_the_workspace_at_80_columns(
     async def run() -> None:
         app = EthernityApp(
             add_files_state=AddFilesTaskState(
-                backup_folder=Path("backup"),
+                source_paths=[Path("backup")],
+                output_dir=Path("update-out"),
+                allow_stale_head=True,
                 input_paths=[Path("new.txt")],
                 passphrase="secret",
             )
@@ -248,9 +252,12 @@ def test_background_write_identity_remains_visible_on_a_narrow_workflow() -> Non
             await pilot.press("2")
             await pilot.pause()
 
-            assert not app.query_one("#app-header-status", Static).display
             assert str(app.query_one("#canvas-title", Static).content) == "Restore files"
-            assert str(app.query_one("#canvas-primary", Button).label) == "Backup in progress"
+            action = app.query_one("#canvas-primary", Button)
+            assert str(action.label) == "Backup in progress"
+            assert action.disabled
+            assert action.region.width > 0
+            assert not app.query("#canvas-instruction")
 
     asyncio.run(run())
 
@@ -277,7 +284,7 @@ def test_failure_result_prioritizes_remediation_and_reviewed_destination(tmp_pat
             task="restore",
             title="Restore files",
             result=TaskExecutionResult(
-                ok=False,
+                status="failed",
                 message="Could not write restored files.",
                 output_paths=(partial,),
             ),
@@ -314,7 +321,7 @@ def test_failure_returns_to_live_workflow_after_switching_workflows(monkeypatch)
         calls.append(self.model_copy(deep=True))
         started.set()
         release.wait(timeout=5)
-        return TaskExecutionResult(ok=False, message="First attempt was rejected.")
+        return TaskExecutionResult(status="failed", message="First attempt was rejected.")
 
     def fake_exit(self: EthernityApp, *args: object, **kwargs: object) -> None:
         exit_calls.append(None)
@@ -352,11 +359,11 @@ def test_failure_returns_to_live_workflow_after_switching_workflows(monkeypatch)
             await pilot.press("q")
             await pilot.pause()
             assert exit_calls == []
-            assert app._running_task == "backup"
+            assert app.running_task == "backup"
 
             release.set()
             await _wait_for_selector(app, pilot, "#result-modal")
-            assert app._running_task is None
+            assert app.running_task is None
             failure_text = _screen_text(app)
             assert "First attempt was rejected." in failure_text
             assert "Choose at least one file or folder" not in failure_text
@@ -391,7 +398,7 @@ def test_wrong_worker_result_is_presented_and_clears_running_state(monkeypatch) 
             await pilot.click("#review-execute")
             await _wait_for_selector(app, pilot, "#result-modal")
 
-            assert app._running_task is None
+            assert app.running_task is None
             assert not list(app.query("#canvas-loading"))
             assert "Ethernity received an invalid task result." in _screen_text(app)
             app.screen.query_one("#result-details-panel", Collapsible).collapsed = False
@@ -420,8 +427,8 @@ def test_return_and_new_review_capture_current_config_contents(
             allow_config_read.wait(timeout=5)
         observed_chunk_sizes.append(load_app_config(self.config_path).qr_chunk_size)
         if len(observed_chunk_sizes) == 1:
-            return TaskExecutionResult(ok=False, message="Retry with the reviewed settings.")
-        return TaskExecutionResult(ok=True, message="Reviewed settings preserved.")
+            return TaskExecutionResult(status="failed", message="Retry with the reviewed settings.")
+        return TaskExecutionResult(status="succeeded", message="Reviewed settings preserved.")
 
     monkeypatch.setattr(BackupTaskState, "execute", fake_execute)
 
@@ -458,7 +465,7 @@ def test_return_and_new_review_capture_current_config_contents(
                 if len(observed_chunk_sizes) == 2:
                     break
             assert len(observed_chunk_sizes) == 2, (
-                app._running_task,
+                app.running_task,
                 type(app.screen).__name__,
             )
             await _wait_for_selector(app, pilot, "#result-modal")
@@ -484,7 +491,7 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
     def fake_execute(self: BackupTaskState) -> TaskExecutionResult:
         started.set()
         release.wait(timeout=5)
-        return TaskExecutionResult(ok=True, message="Write complete.")
+        return TaskExecutionResult(status="succeeded", message="Write complete.")
 
     monkeypatch.setattr(BackupTaskState, "execute", fake_execute)
 
@@ -541,7 +548,7 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
         started.set()
         release.wait(timeout=5)
         physically_finished.set()
-        return TaskExecutionResult(ok=True, message="Ignored after cancellation.")
+        return TaskExecutionResult(status="succeeded", message="Ignored after cancellation.")
 
     def fake_exit(self: EthernityApp, *args: object, **kwargs: object) -> None:
         exit_calls.append(None)
@@ -575,7 +582,7 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
                     break
 
             assert worker.state == WorkerState.CANCELLED
-            assert app._running_task == "backup"
+            assert app.running_task == "backup"
             assert app.execution_controller.running_worker is worker
             assert not physically_finished.is_set()
             assert not list(app.screen.query("#result-modal"))
@@ -584,8 +591,8 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
             await pilot.pause()
             assert exit_calls == []
 
-            retry_context = ExecutionContext.capture("backup", app.backup_state)
-            app.execution_controller.start(retry_context)
+            retry_task = ReviewedTask.capture("backup", app.backup_state)
+            app.execution_controller.start(retry_task)
             await pilot.pause()
             assert execution_calls == [None]
             assert app.execution_controller.running_worker is worker
@@ -594,7 +601,7 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
             await _wait_for_selector(app, pilot, "#result-modal")
 
             assert physically_finished.is_set()
-            assert app._running_task is None
+            assert app.running_task is None
             assert app.execution_controller.running_worker is None
             assert "The write was cancelled before completion." in _screen_text(app)
             assert not list(app.screen.query("#result-return"))
@@ -613,7 +620,7 @@ def test_large_result_paths_scroll_while_actions_stay_visible() -> None:
                     task="backup",
                     title="Create backup",
                     result=TaskExecutionResult(
-                        ok=True,
+                        status="succeeded",
                         message="Backup complete.",
                         output_paths=output_paths,
                     ),
@@ -624,8 +631,15 @@ def test_large_result_paths_scroll_while_actions_stay_visible() -> None:
             modal = app.screen.query_one("#result-modal")
             body = app.screen.query_one("#result-body", VerticalScroll)
             actions = app.screen.query_one("#result-actions")
+            paths = app.screen.query_one("#result-output-paths", OptionList)
 
-            assert body.max_scroll_y > 0
+            assert paths.option_count == len(output_paths)
+            assert paths.max_scroll_y > 0
+            paths.focus()
+            await pilot.press("end")
+            await pilot.pause()
+            assert paths.highlighted == len(output_paths) - 1
+            assert paths.scroll_offset.y > 0
             assert body.region.bottom <= actions.region.y
             assert actions.region.bottom <= modal.region.bottom
             assert app.screen.query_one("#result-close", Button).region.bottom <= app.size.height
@@ -653,7 +667,7 @@ def test_replacement_result_reports_only_files_in_the_output_folder(monkeypatch)
         passphrase="secret",
         allow_stale_head=True,
         output_dir=Path("replacement-docs"),
-        mint_signing_key_recovery=True,
+        create_signing_key_recovery=True,
     )
 
     result = state.execute()

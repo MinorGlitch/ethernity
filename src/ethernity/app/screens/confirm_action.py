@@ -20,9 +20,16 @@ class ConfirmActionScreen(EthernityModalScreen[bool]):
         self._confirm_label = confirm_label
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="confirm-action-modal"):
-            yield Static(self._confirmation_title, id="confirm-action-title", markup=False)
-            yield Static(self._message, id="confirm-action-message", markup=False)
+        with Vertical(id="confirm-action-modal", classes="dialog dialog-small"):
+            yield Static(
+                self._confirmation_title,
+                id="confirm-action-title",
+                markup=False,
+                classes="screen-title",
+            )
+            yield Static(
+                self._message, id="confirm-action-message", markup=False, classes="dialog-prompt"
+            )
             yield modal_action_row(
                 "confirm-action-actions",
                 ActionButton("Cancel", "confirm-action-cancel", variant="primary"),

@@ -4,14 +4,14 @@ import asyncio
 from pathlib import Path
 from typing import Any, cast
 
-from textual.widgets import Button, Collapsible, Static
+from textual.widgets import Button, Static
 
 from ethernity.app.app_types import ActiveTask, TaskState
 from ethernity.app.application import EthernityApp
 from ethernity.app.execution import (
-    ExecutionContext,
     ExecutionOutcome,
     ReviewedConfig,
+    ReviewedTask,
 )
 from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.tasks.models import TaskExecutionResult
@@ -19,21 +19,21 @@ from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
 
 
-def _execution_context(
+def _reviewed_task(
     task: ActiveTask,
     state: TaskState,
     tmp_path: Path,
-) -> ExecutionContext:
+) -> ReviewedTask:
     validation = state.validate_task()
     assert validation.ready
     assert state.recoverable_errors() == ()
-    return ExecutionContext(
+    return ReviewedTask(
         task=task,
         state_snapshot=state,
         validation=validation,
         preview=state.preview(),
         plan=state.execution_plan(),
-        decision_facts=(),
+        review_details=(),
         reviewed_config=ReviewedConfig(
             source_path=tmp_path / "unused-config.toml",
             contents=b"",
@@ -61,10 +61,10 @@ def test_restore_runtime_output_failure_returns_to_reviewed_destination(tmp_path
         passphrase="correct horse battery staple",
         output_path=destination,
     )
-    context = _execution_context("restore", state, tmp_path)
+    reviewed_task = _reviewed_task("restore", state, tmp_path)
     outcome = ExecutionOutcome(
         result=TaskExecutionResult(
-            ok=False,
+            status="failed",
             message="Restored files could not be written.",
         ),
         error_message=f"Permission denied writing destination {destination}.",
@@ -74,7 +74,7 @@ def test_restore_runtime_output_failure_returns_to_reviewed_destination(tmp_path
     async def run() -> None:
         app = EthernityApp(restore_state=state)
         async with app.run_test(size=(120, 32)) as pilot:
-            app._present_execution_outcome(context, outcome)
+            app._present_execution_outcome(reviewed_task, outcome)
             await pilot.pause()
 
             result_screen = cast(TaskResultScreen, app.screen)
@@ -100,23 +100,23 @@ def test_replacement_signing_failure_returns_to_signing_key_recovery(tmp_path: P
         payloads_file=tmp_path / "reviewed-backup.payloads",
         passphrase="correct horse battery staple",
         output_dir=tmp_path / "replacement-sheets",
-        mint_signing_key_recovery=True,
+        create_signing_key_recovery=True,
     )
-    context = _execution_context("replace_recovery_docs", state, tmp_path)
+    reviewed_task = _reviewed_task("replace_recovery_docs", state, tmp_path)
     outcome = ExecutionOutcome(
         result=TaskExecutionResult(
-            ok=False,
+            status="failed",
             message="Replacement sheets could not be created.",
         ),
         error_message="Signing key authentication failed while creating replacement sheets.",
-        error_detail="AuthenticationError: signing key material was rejected.",
+        error_detail="AuthenticationError: signing key was rejected.",
     )
 
     async def run() -> None:
         app = EthernityApp(replace_recovery_docs_state=state)
         async with app.run_test(size=(120, 32)) as pilot:
             app.workflow_ui_states["replace_recovery_docs"].activate("output")
-            app._present_execution_outcome(context, outcome)
+            app._present_execution_outcome(reviewed_task, outcome)
             await pilot.pause()
 
             result_screen = cast(TaskResultScreen, app.screen)
@@ -128,7 +128,7 @@ def test_replacement_signing_failure_returns_to_signing_key_recovery(tmp_path: P
 
             assert app.active_task == "replace_recovery_docs"
             assert app.workflow_ui_states["replace_recovery_docs"].active_step == "recovery"
-            assert not app.query_one("#replace-signature-panel", Collapsible).collapsed
+            assert app.query_one("#replace-signing-section").display
             assert app.screen.focused is not None
             assert app.screen.focused.id == "workspace-replace-signing-key-select"
 

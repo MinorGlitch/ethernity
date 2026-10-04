@@ -17,16 +17,17 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 
 from textual.app import ComposeResult
-from textual.containers import Grid, Vertical, VerticalGroup, VerticalScroll
-from textual.widgets import Button, Rule, Static
+from textual.containers import Grid, HorizontalGroup, Vertical, VerticalGroup, VerticalScroll
+from textual.widget import Widget
+from textual.widgets import Button, Static
 
-from ethernity.app.execution import ReviewDecisionFact
+from ethernity.app.execution import ReviewDetail
 from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 from ethernity.app.widgets.collapsible import collapsible_panel
-from ethernity.tasks.file_summary import display_path
 from ethernity.tasks.models import (
     PreviewItem,
     TaskExecutionPlan,
@@ -36,7 +37,14 @@ from ethernity.tasks.models import (
 )
 
 
-class ReviewTaskScreen(EthernityModalScreen[bool]):
+@dataclass(frozen=True, slots=True)
+class ReviewEditRequest:
+    """Return to one editable decision before preparing a fresh review."""
+
+    section: str
+
+
+class ReviewTaskScreen(EthernityModalScreen[bool | ReviewEditRequest]):
     """Focused final decision before a task writes files."""
 
     BINDINGS = [("escape", "cancel", "Cancel")]
@@ -49,7 +57,7 @@ class ReviewTaskScreen(EthernityModalScreen[bool]):
         preview: TaskPreview,
         plan: TaskExecutionPlan,
         execute_label: str,
-        decision_facts: tuple[ReviewDecisionFact, ...] = (),
+        review_details: tuple[ReviewDetail, ...] = (),
     ) -> None:
         super().__init__()
         self._review_title = title
@@ -57,30 +65,37 @@ class ReviewTaskScreen(EthernityModalScreen[bool]):
         self._preview = preview
         self._plan = plan
         self._execute_label = execute_label
-        self._decision_facts = decision_facts
+        self._review_details = review_details
+        self._edit_sections: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         ready = self._validation.ready
         visible_issues = self._visible_issues()
-        with Vertical(id="review-modal", classes="ready" if ready else "missing"):
-            with Vertical(id="review-header"):
-                yield Static(self._review_title, id="review-title", markup=False)
+        with Vertical(id="review-modal", classes="document " + ("ready" if ready else "missing")):
+            with Vertical(id="review-header", classes="document-header"):
+                yield Static(
+                    self._review_title, id="review-title", markup=False, classes="screen-title"
+                )
 
-            with VerticalScroll(id="review-body"):
-                with VerticalGroup(id="review-overview"):
-                    with Grid(id="review-key-facts"):
-                        for fact in self._overview_facts():
-                            yield from _fact_widgets(fact.label, fact.value)
+            with VerticalScroll(id="review-body", classes="document-body"):
+                with Grid(id="review-overview", classes="detail-grid"):
+                    for index, detail in enumerate(self._overview_details()):
+                        yield from self._detail_widgets(detail, index)
+
+                if self._plan.writes_files:
+                    with VerticalGroup(id="review-output-list"):
+                        yield Static("Output locations", classes="section-title", markup=False)
+                        for line in self._output_lines():
+                            yield Static(line, classes="detail-line", markup=False)
 
                 if visible_issues:
-                    yield Rule(classes="review-section-rule")
                     with VerticalGroup(
                         id="review-attention",
                         classes=_attention_class(visible_issues),
                     ):
                         yield Static(
                             _attention_title(visible_issues),
-                            classes="review-section-title",
+                            classes="section-title",
                             markup=False,
                         )
                         for issue in visible_issues:
@@ -90,7 +105,17 @@ class ReviewTaskScreen(EthernityModalScreen[bool]):
                                 markup=False,
                             )
 
-                yield Rule(classes="review-section-rule")
+                safety_lines = self._write_safety_lines()
+                if safety_lines:
+                    with VerticalGroup(id="review-write-safety"):
+                        yield Static("Write safety", classes="section-title", markup=False)
+                        for line in safety_lines:
+                            yield Static(
+                                _without_bullet(line),
+                                classes="review-safety-line detail-line",
+                                markup=False,
+                            )
+
                 with collapsible_panel(
                     "review-technical-details",
                     "Technical details",
@@ -115,6 +140,10 @@ class ReviewTaskScreen(EthernityModalScreen[bool]):
         self.query_one(selector, Button).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        section = self._edit_sections.get(event.button.id or "")
+        if section is not None:
+            self.dismiss(ReviewEditRequest(section))
+            return
         if event.button.id == "review-execute" and self._validation.ready:
             self.dismiss(True)
             return
@@ -130,18 +159,30 @@ class ReviewTaskScreen(EthernityModalScreen[bool]):
             if issue.code != "FINAL_REVIEW_REQUIRED"
         )
 
+    def _detail_widgets(self, detail: ReviewDetail, index: int) -> Iterable[Widget]:
+        yield Static(detail.label, classes="detail-label", markup=False)
+        value = Static(detail.value, classes="detail-value", markup=False)
+        if detail.section is None:
+            yield value
+            return
+        button_id = f"review-edit-{detail.section}-{index}"
+        self._edit_sections[button_id] = detail.section
+        button = Button("Edit", id=button_id, classes="review-detail-edit text-action")
+        button.tooltip = f"Edit {detail.label.lower()}"
+        yield HorizontalGroup(value, button, classes="review-detail-field")
+
     def _read_overview(self) -> str:
         if not self._plan.read_paths:
             return "No user files"
         return _path_overview(self._plan.read_paths)
 
-    def _overview_facts(self) -> tuple[ReviewDecisionFact, ...]:
-        if self._decision_facts:
-            return self._decision_facts
+    def _overview_details(self) -> tuple[ReviewDetail, ...]:
+        if self._review_details:
+            return self._review_details
         return (
-            ReviewDecisionFact("Action", self._execute_label),
-            ReviewDecisionFact("Source", self._read_overview()),
-            ReviewDecisionFact("Destination", self._output_overview()),
+            ReviewDetail("Action", self._execute_label),
+            ReviewDetail("Source", self._read_overview()),
+            ReviewDetail("Destination", self._output_overview()),
         )
 
     def _output_overview(self) -> str:
@@ -160,9 +201,6 @@ class ReviewTaskScreen(EthernityModalScreen[bool]):
             )
         if self._plan.read_paths:
             yield from _detail_section("Reads", self._read_lines())
-        if self._plan.writes_files:
-            yield from _detail_section("Writes", self._output_lines())
-            yield from _detail_section("Write safety", self._write_safety_lines())
         if self._plan.trust_notes:
             yield from _detail_section("Verification", self._plan.trust_notes)
         if self._plan.recovery_notes:
@@ -185,22 +223,18 @@ class ReviewTaskScreen(EthernityModalScreen[bool]):
             return ("Choose a destination before writing files.",)
 
         existing_paths = [path for path in self._plan.output_paths if path.exists()]
-        existing_summary = (
-            f"Existing path: {_path_summary(existing_paths)}"
+        overwrite_notes = (
+            (
+                f"Existing destination: {_path_summary(existing_paths)}",
+                "Existing files at the destination may be replaced.",
+            )
             if existing_paths
-            else "The destination does not exist yet."
+            else ()
         )
         return (
-            existing_summary,
             *self._plan.safety_notes,
-            "Existing files at the destination may be replaced.",
-            "A failed write may leave partial files.",
+            *overwrite_notes,
         )
-
-
-def _fact_widgets(label: str, value: str) -> Iterable[Static]:
-    yield Static(label, classes="review-fact-label", markup=False)
-    yield Static(value, classes="review-fact-value", markup=False)
 
 
 def _preview_detail(item: PreviewItem) -> str:
@@ -208,9 +242,9 @@ def _preview_detail(item: PreviewItem) -> str:
 
 
 def _detail_section(title: str, lines: Sequence[str]) -> Iterable[Static]:
-    yield Static(title, classes="review-detail-title", markup=False)
+    yield Static(title, classes="detail-heading", markup=False)
     for line in lines:
-        yield Static(_without_bullet(line), classes="review-detail-line", markup=False)
+        yield Static(_without_bullet(line), classes="detail-line", markup=False)
 
 
 def _without_bullet(line: str) -> str:
@@ -219,10 +253,7 @@ def _without_bullet(line: str) -> str:
 
 
 def _path_overview(paths: Sequence[object]) -> str:
-    first = display_path(str(paths[0]), max_chars=72)
-    if len(paths) == 1:
-        return first
-    return f"{first} and {len(paths) - 1} more"
+    return "\n".join(str(path) for path in paths)
 
 
 def _path_summary(paths: Sequence[object]) -> str:

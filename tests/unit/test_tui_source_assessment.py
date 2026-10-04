@@ -5,12 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from ethernity.app.application import EthernityApp
-from ethernity.app.workflow_presenter import (
-    active_step_is_complete,
-    build_guided_workflow,
-)
+from ethernity.app.workflow_presenter import build_guided_workflow
 from ethernity.app.workflow_state import WorkflowUiState
-from ethernity.encoding.framing import FrameType
+from ethernity.encoding.framing import Frame, FrameType, encode_frame
+from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.models import TaskIssue
 from ethernity.tasks.presentation.models import SourceBodyPresentation, SummaryPresentation
@@ -21,6 +19,17 @@ from ethernity.tasks.source_assessment import (
     recovery_source_request,
     source_freshness_status,
 )
+from ethernity.workflows.recovery.models import RecoveryUnlockStatus
+
+
+def _missing_unlock() -> RecoveryUnlockStatus:
+    return RecoveryUnlockStatus(
+        mode="missing",
+        passphrase_provided=False,
+        validated_shard_count=0,
+        required_shard_threshold=None,
+        satisfied=False,
+    )
 
 
 def test_source_freshness_status_preserves_scan_policy() -> None:
@@ -54,6 +63,9 @@ def test_recovery_source_assessment_exposes_identity_and_document_count(monkeypa
         main_frames=(),
         auth_frames=(),
         doc_id=b"\x12" * 8,
+        doc_hash=b"\x12" * 32,
+        decoded_import_session=None,
+        unlock=_missing_unlock(),
         blocking_issues=(
             {
                 "code": "PASSPHRASE_REQUIRED",
@@ -73,25 +85,76 @@ def test_recovery_source_assessment_exposes_identity_and_document_count(monkeypa
     assert assessment.issue is None
 
 
-def test_folder_assessment_error_blocks_the_source_section(monkeypatch) -> None:
+def test_mixed_source_assessment_preserves_every_document_carrier(monkeypatch) -> None:
+    frame = Frame(
+        version=1,
+        frame_type=FrameType.MAIN_DOCUMENT,
+        doc_id=b"\x12" * 8,
+        index=0,
+        total=1,
+        data=b"payload",
+    )
+    request = recovery_source_request(
+        issue_section="source",
+        scan_paths=[Path("renamed.pdf")],
+        recovery_text=encode_zbase32(encode_frame(frame)),
+        recovery_text_file=Path("transcribed.txt"),
+        payloads_file=Path("payloads.txt"),
+    )
+    calls = []
+
+    def inspect_recovery(recovery_request):
+        calls.append(recovery_request)
+        return SimpleNamespace(
+            source_frames=(frame,),
+            main_frames=(),
+            auth_frames=(),
+            doc_id=frame.doc_id,
+            doc_hash=b"\x12" * 32,
+            decoded_import_session=None,
+            unlock=_missing_unlock(),
+            blocking_issues=(),
+        )
+
+    monkeypatch.setattr("ethernity.tasks.source_assessment.inspect_recovery", inspect_recovery)
+    assert request is not None
+
+    assessment = assess_source_request(request)
+
+    assert request.source_kind == "recovery_inputs"
+    assert assessment.source_label == "Backup documents"
+    assert assessment.issue is None
+    assert len(calls) == 1
+    assert calls[0].scan_paths == (Path("renamed.pdf"),)
+    assert calls[0].frames == (frame,)
+    assert calls[0].recovery_text_file == Path("transcribed.txt")
+    assert calls[0].payloads_file == Path("payloads.txt")
+
+
+def test_add_files_assessment_error_blocks_the_source_section(monkeypatch) -> None:
     inspection = SimpleNamespace(
-        root_doc_id="ab" * 8,
-        doc_id="ab" * 8,
-        validated_head_index=None,
-        discovered_extension_dirs=(1, 2),
+        source_frames=(SimpleNamespace(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\xab" * 8),),
+        main_frames=(),
+        auth_frames=(),
+        doc_id=b"\xab" * 8,
+        doc_hash=b"\xab" * 32,
+        decoded_import_session=None,
+        unlock=_missing_unlock(),
         blocking_issues=(
             {
-                "code": "EXTENSION_LAYOUT_INVALID",
-                "message": "Update folders are not contiguous.",
+                "code": "MAIN_DOCUMENTS_INVALID",
+                "message": "The supplied documents are incomplete.",
             },
         ),
     )
     monkeypatch.setattr(
-        "ethernity.tasks.source_assessment.inspect_extend_from_args",
+        "ethernity.tasks.source_assessment.inspect_recovery",
         lambda _args: inspection,
     )
     state = AddFilesTaskState(
-        backup_folder=Path("backup"),
+        source_paths=[Path("renamed-root.pdf")],
+        output_dir=Path("update-out"),
+        allow_stale_head=True,
         input_paths=[Path("new.txt")],
         passphrase="secret",
     )
@@ -101,23 +164,23 @@ def test_folder_assessment_error_blocks_the_source_section(monkeypatch) -> None:
 
     assert assessment is not None
     assert assessment.backup_identity == "ab" * 8
-    assert assessment.version_summary == "2 updates found; unlock to validate the newest version"
+    assert assessment.version_summary == "1 backup document found"
     assert assessment.issue is not None
-    assert any(issue.code == "EXTENSION_LAYOUT_INVALID" for issue in validation.issues)
+    assert any(issue.code == "MAIN_DOCUMENTS_INVALID" for issue in validation.issues)
 
-    state.backup_folder = Path("different-backup")
+    state.source_paths = [Path("different-scan.png")]
     assert state.current_source_assessment() is None
-    assert all(issue.code != "EXTENSION_LAYOUT_INVALID" for issue in state.validate_task().issues)
+    assert all(issue.code != "MAIN_DOCUMENTS_INVALID" for issue in state.validate_task().issues)
 
 
-def test_source_presentation_renders_typed_facts_error_and_loading(monkeypatch) -> None:
+def test_source_presentation_shows_document_details_errors_and_loading(monkeypatch) -> None:
     state = RestoreTaskState(source_paths=[Path("scan.pdf")])
     monkeypatch.setattr(
         "ethernity.tasks.source_assessment.assess_source_request",
         lambda request: SourceAssessment(
             source_kind=request.source_kind,
             source_label=request.source_label,
-            material_summary=request.material_summary,
+            source_summary=request.source_summary,
             backup_identity="cafe1234",
             version_summary="2 backup documents found",
             issue=TaskIssue(
@@ -159,7 +222,17 @@ def test_source_presentation_renders_typed_facts_error_and_loading(monkeypatch) 
     assert presented_messages.count(assessment_message) == 1
 
     ui_state.source_assessment_loading = True
-    assert not active_step_is_complete("restore", validation, ui_state)
+    loading_workflow = build_guided_workflow(
+        task="restore",
+        state=state,
+        validation=validation,
+        ui_state=ui_state,
+        review_summary=SummaryPresentation(title="", items=(), blockers=(), warnings=()),
+        review_label="Review restore",
+    )
+    assert loading_workflow is not None
+    assert isinstance(loading_workflow.steps[0].body, SourceBodyPresentation)
+    assert loading_workflow.steps[0].body.loading
 
 
 def test_source_mutation_runs_assessment_in_background(monkeypatch) -> None:
@@ -167,7 +240,7 @@ def test_source_mutation_runs_assessment_in_background(monkeypatch) -> None:
         return SourceAssessment(
             source_kind=request.source_kind,
             source_label=request.source_label,
-            material_summary=request.material_summary,
+            source_summary=request.source_summary,
             backup_identity="deadcafe",
             version_summary="1 backup document found",
         )
@@ -216,7 +289,7 @@ def test_programmatic_auth_select_sync_does_not_start_source_assessment() -> Non
     asyncio.run(run())
 
 
-def test_active_step_falls_back_when_source_becomes_loading() -> None:
+def test_destination_remains_editable_while_source_is_loading() -> None:
     state = RestoreTaskState(
         source_paths=[Path("scan.pdf")],
         passphrase="secret",
@@ -236,6 +309,8 @@ def test_active_step_falls_back_when_source_becomes_loading() -> None:
     )
 
     assert workflow is not None
-    assert workflow.active_step == "source"
-    assert ui_state.active_step == "source"
-    assert workflow.steps[-1].state == "locked"
+    assert workflow.active_step == "destination"
+    assert ui_state.active_step == "destination"
+    assert all(step.state != "locked" for step in workflow.steps)
+    assert isinstance(workflow.steps[0].body, SourceBodyPresentation)
+    assert workflow.steps[0].body.loading

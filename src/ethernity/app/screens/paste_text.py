@@ -44,9 +44,9 @@ class PasteTextScreen(EthernityModalScreen[str | None]):
         self._placeholder = placeholder
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="paste-text-modal"):
-            yield Static(self._field_title, id="paste-text-title")
-            yield Label(self._prompt, id="paste-text-prompt")
+        with Vertical(id="paste-text-modal", classes="dialog"):
+            yield Static(self._field_title, id="paste-text-title", classes="screen-title")
+            yield Label(self._prompt, id="paste-text-prompt", classes="dialog-prompt")
             yield TextArea(
                 self._value,
                 placeholder=self._placeholder,
@@ -66,11 +66,12 @@ class PasteTextScreen(EthernityModalScreen[str | None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
+        event.stop()
         if button_id == "paste-text-save":
             self.dismiss(self.query_one("#paste-text-input", TextArea).text)
         elif button_id == "paste-text-clear":
             self.dismiss("")
-        else:
+        elif button_id == "paste-text-cancel":
             self.dismiss(None)
 
     def action_cancel(self) -> None:

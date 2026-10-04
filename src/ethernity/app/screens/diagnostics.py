@@ -47,11 +47,15 @@ class DiagnosticsScreen(EthernityModalScreen[None]):
         self._reveal_sensitive = False
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="diagnostics-modal"):
-            yield Static(self._diagnostics.title, id="diagnostics-title")
+        with Vertical(id="diagnostics-modal", classes="dialog"):
+            yield Static(self._diagnostics.title, id="diagnostics-title", classes="screen-title")
             if self._diagnostics.has_sensitive_values:
                 with Horizontal(id="diagnostics-toolbar"):
-                    yield Label("Show sensitive values", id="diagnostics-reveal-label")
+                    yield Label(
+                        "Show sensitive values",
+                        id="diagnostics-reveal-label",
+                        classes="field-text",
+                    )
                     yield Switch(False, animate=False, id="diagnostics-reveal")
             with TabbedContent(
                 initial=_diagnostics_tab_id(0),
@@ -64,7 +68,8 @@ class DiagnosticsScreen(EthernityModalScreen[None]):
                             classes="diagnostics-internals",
                             highlight=True,
                             markup=False,
-                            wrap=False,
+                            wrap=True,
+                            auto_scroll=False,
                         )
                 if not self._diagnostics.blocks:
                     with TabPane("Diagnostics", id=_diagnostics_tab_id(0)):
@@ -73,7 +78,8 @@ class DiagnosticsScreen(EthernityModalScreen[None]):
                             classes="diagnostics-internals",
                             highlight=True,
                             markup=False,
-                            wrap=False,
+                            wrap=True,
+                            auto_scroll=False,
                         )
             yield modal_action_row(
                 "diagnostics-actions",
@@ -116,7 +122,8 @@ class DiagnosticsScreen(EthernityModalScreen[None]):
             log.clear()
             content = block.display_content(reveal_sensitive=self._reveal_sensitive)
             if _looks_like_json(content):
-                log.write(Syntax(content, "json", word_wrap=False, background_color="default"))
+                formatted = json.dumps(json.loads(content), indent=2, ensure_ascii=True)
+                log.write(Syntax(formatted, "json", word_wrap=True, background_color="default"))
             else:
                 log.write(content)
 

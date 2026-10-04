@@ -8,8 +8,8 @@ from textual.worker import Worker, WorkerState, WorkType
 
 from ethernity.app.app_types import ActiveTask
 from ethernity.app.execution import (
-    ExecutionContext,
     ExecutionOutcome,
+    ReviewedTask,
     normalize_execution_outcome,
 )
 from ethernity.app.task_catalog import TASK_TITLES
@@ -57,19 +57,19 @@ class ExecutionControllerApp(Protocol):
 
     def _present_execution_outcome(
         self,
-        context: ExecutionContext,
+        reviewed_task: ReviewedTask,
         outcome: ExecutionOutcome,
     ) -> None: ...
 
 
 class ExecutionController:
-    """Own the worker state machine for one physical write at a time."""
+    """Run one task at a time and track its worker."""
 
     def __init__(self, app: ExecutionControllerApp) -> None:
         self._app = app
         self._running_task: ActiveTask | None = None
         self._running_worker: Worker[Any] | None = None
-        self._contexts: dict[Worker[Any], ExecutionContext] = {}
+        self._reviewed_tasks: dict[Worker[Any], ReviewedTask] = {}
         self._active_token: object | None = None
         self._thread_finished = False
         self._cancelled_worker: Worker[Any] | None = None
@@ -82,21 +82,21 @@ class ExecutionController:
     def running_worker(self) -> Worker[Any] | None:
         return self._running_worker
 
-    def start(self, context: ExecutionContext) -> None:
+    def start(self, reviewed_task: ReviewedTask) -> None:
         if self._running_task is not None:
             self._app.notify(f"{TASK_TITLES[self._running_task]} is already running.")
             return
 
-        self._running_task = context.task
+        self._running_task = reviewed_task.task
         execution_token = object()
         self._active_token = execution_token
         self._thread_finished = False
         self._cancelled_worker = None
-        self._app._present_execution_start(context.task)
+        self._app._present_execution_start(reviewed_task.task)
         try:
             worker = self._app.run_worker(
-                partial(self._execute_in_thread, context, execution_token),
-                name=context.task,
+                partial(self._execute_in_thread, reviewed_task, execution_token),
+                name=reviewed_task.task,
                 group="task-execution",
                 exit_on_error=False,
                 exclusive=True,
@@ -105,13 +105,13 @@ class ExecutionController:
         except Exception as error:
             self._clear_execution()
             self._app._present_execution_outcome(
-                context,
+                reviewed_task,
                 normalize_execution_outcome(WorkerState.ERROR, error=error),
             )
             return
 
         self._running_worker = worker
-        self._contexts[worker] = context
+        self._reviewed_tasks[worker] = reviewed_task
 
     def handle_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker.group != "task-execution":
@@ -123,8 +123,8 @@ class ExecutionController:
         }:
             return
 
-        context = self._contexts.get(event.worker)
-        if context is None:
+        reviewed_task = self._reviewed_tasks.get(event.worker)
+        if reviewed_task is None:
             return
         if event.state == WorkerState.CANCELLED:
             terminate_active_workers()
@@ -140,10 +140,10 @@ class ExecutionController:
                 self._app.refresh_task_view()
             return
 
-        self._contexts.pop(event.worker, None)
+        self._reviewed_tasks.pop(event.worker, None)
         self._release_lock(event.worker)
         self._app._present_execution_outcome(
-            context,
+            reviewed_task,
             normalize_execution_outcome(
                 event.state,
                 value=event.worker.result if event.state == WorkerState.SUCCESS else None,
@@ -153,11 +153,11 @@ class ExecutionController:
 
     def _execute_in_thread(
         self,
-        context: ExecutionContext,
+        reviewed_task: ReviewedTask,
         execution_token: object,
     ) -> TaskExecutionResult:
         try:
-            return context.execute()
+            return reviewed_task.execute()
         finally:
             self._app.call_from_thread(self._on_thread_finished, execution_token)
 
@@ -170,12 +170,12 @@ class ExecutionController:
             self._finish_cancelled(worker)
 
     def _finish_cancelled(self, worker: Worker[Any]) -> None:
-        context = self._contexts.pop(worker, None)
-        if context is None:
+        reviewed_task = self._reviewed_tasks.pop(worker, None)
+        if reviewed_task is None:
             return
         self._release_lock(worker)
         self._app._present_execution_outcome(
-            context,
+            reviewed_task,
             normalize_execution_outcome(WorkerState.CANCELLED),
         )
 

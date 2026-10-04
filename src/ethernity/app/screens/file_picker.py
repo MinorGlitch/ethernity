@@ -29,12 +29,13 @@ from textual.geometry import Size
 from textual.widgets import Button, DirectoryTree, Input, Label, SelectionList, Static
 from textual.widgets.selection_list import Selection
 
+from ethernity.app.path_selection import complete_picker_path, resolve_picker_path
 from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 
 
 class FilePickerMode(StrEnum):
-    """Supported picker contracts.
+    """Supported picker modes.
 
     A mode describes what the caller expects back. Keeping this explicit prevents
     incompatible boolean combinations such as a save-file picker that also claims
@@ -72,6 +73,8 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
         ("escape", "cancel", "Cancel"),
         ("backspace", "remove_selected", "Remove"),
         ("alt+up", "go_up", "Up"),
+        ("ctrl+l", "focus_path", "Path"),
+        ("ctrl+space", "complete_path", "Complete path"),
     ]
 
     def __init__(
@@ -99,27 +102,30 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
         self._save_placeholder = save_placeholder
         self._choose_label = choose_label
         self._allow_clear = allow_clear
+        self._location_value = str(self._root)
+        self._path_error: str | None = None
 
     def compose(self) -> ComposeResult:
         modal_classes = "save-mode" if self._mode.is_save else "open-mode"
-        with Vertical(id="file-picker-modal", classes=modal_classes):
-            yield Static(self._picker_title, id="file-picker-title")
-            yield Label(self._prompt, id="file-picker-prompt")
+        with Vertical(id="file-picker-modal", classes=f"dialog {modal_classes}"):
+            yield Static(self._picker_title, id="file-picker-title", classes="screen-title")
+            yield Label(self._prompt, id="file-picker-prompt", classes="dialog-prompt")
             with Horizontal(id="file-picker-body"):
                 with Vertical(id="file-picker-browser"):
                     with Horizontal(id="file-picker-location-row"):
                         yield Button("Up", id="file-picker-up")
-                        yield Static("", classes="action-button-gap")
-                        yield Static(
-                            _display_path(self._root),
+                        yield Static("", classes="action-gap")
+                        yield Input(
+                            self._location_value,
+                            placeholder="Paste a path, then press Enter",
                             id="file-picker-location",
-                            markup=False,
+                            classes="field-text",
                         )
                     yield DirectoryTree(self._root, id="file-picker-tree")
                 with Vertical(id="file-picker-side"):
                     with Horizontal(id="file-picker-selected-header"):
                         yield Label(self._selection_title(), id="file-picker-selected-title")
-                        yield Button("Remove", id="file-picker-remove", compact=True)
+                        yield Button("Remove", id="file-picker-remove", classes="text-action")
                     yield SelectionList[int](id="file-picker-selected", compact=True)
                     if self._mode.is_save:
                         yield Label(self._name_title(), id="file-picker-name-title")
@@ -131,6 +137,7 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
                         yield Static("", id="file-picker-error", markup=False)
             if not self._mode.is_save:
                 yield Static("", id="file-picker-error", markup=False)
+            yield Static("", id="file-picker-hint", markup=False)
             actions = [ActionButton(self._choose_label, "file-picker-choose", variant="primary")]
             if self._mode.allows_directories:
                 actions.append(
@@ -154,8 +161,9 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
         self._refresh_selected()
         self._refresh_location()
         self._refresh_choose_state()
+        self.query_one("#file-picker-location", Input).tooltip = self._path_entry_hint()
         if not self._mode.is_save:
-            self.query_one("#file-picker-tree", DirectoryTree).focus()
+            self.action_focus_path()
         else:
             self.query_one("#file-picker-name", Input).focus()
             self._refresh_save_validation(show_message=True)
@@ -166,14 +174,23 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "file-picker-name":
             self._refresh_save_validation(show_message=True)
+        elif event.input.id == "file-picker-location":
+            self._path_error = None
+            self._refresh_choose_state()
+            if self._mode.is_save:
+                self._refresh_save_validation(show_message=True)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "file-picker-name":
             self._choose()
+        elif event.input.id == "file-picker-location":
+            event.stop()
+            self._submit_location()
 
     def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
         event.stop()
         path = Path(event.path)
+        self._refresh_location()
         if self._mode == FilePickerMode.SAVE_FILE:
             self._selected_paths = (path.parent,)
             self.query_one("#file-picker-name", Input).value = path.name
@@ -187,6 +204,7 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
     ) -> None:
         event.stop()
         path = Path(event.path)
+        self._refresh_location()
         if self._mode.is_save:
             self._selected_paths = (path,)
             self._refresh_selection_state()
@@ -204,6 +222,7 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
+        event.stop()
         if button_id == "file-picker-choose":
             self._choose()
         elif button_id == "file-picker-up":
@@ -230,6 +249,86 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
     def action_go_up(self) -> None:
         self._go_up()
 
+    def action_focus_path(self) -> None:
+        field = self.query_one("#file-picker-location", Input)
+        field.focus()
+        field.select_all()
+
+    def action_complete_path(self) -> None:
+        field = self.query_one("#file-picker-location", Input)
+        if not field.has_focus:
+            self.action_focus_path()
+            return
+        try:
+            completion = complete_picker_path(
+                field.value,
+                self._root,
+                include_files=self._mode.allows_files,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._show_path_error(str(exc))
+            return
+        if completion.value != field.value:
+            field.value = completion.value
+            field.cursor_position = len(field.value)
+        elif len(completion.matches) > 1:
+            self._show_error("Matches: " + ", ".join(completion.matches[:4]))
+            feedback = self.query_one("#file-picker-error", Static)
+            feedback.remove_class("visible")
+            feedback.add_class("selection-hint")
+        elif not completion.matches:
+            self._show_error("No matching file or folder.")
+
+    def _submit_location(self, *, select_directory: bool = False) -> bool:
+        field = self.query_one("#file-picker-location", Input)
+        try:
+            path = resolve_picker_path(field.value, self._root)
+            if path.is_dir():
+                self._set_root(path, focus_tree=False)
+                if self._mode.is_save:
+                    self._selected_paths = (path,)
+                    self._refresh_selection_state()
+                elif select_directory and self._mode.allows_directories:
+                    self._add_path(path)
+                return True
+            if path.is_file():
+                if self._mode == FilePickerMode.SAVE_FILE:
+                    self._set_save_target(path)
+                elif self._mode.allows_files:
+                    self._add_path(path)
+                    self._refresh_location()
+                else:
+                    self._show_path_error("Choose a folder. That path is a file.")
+                    return False
+                return True
+            if path.exists():
+                self._show_path_error("Choose a regular file or folder.")
+                return False
+            if self._mode.is_save and path.parent.is_dir():
+                self._set_save_target(path)
+                return True
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._show_path_error(str(exc))
+            return False
+        self._show_path_error(
+            "The containing folder does not exist. Choose an existing folder."
+            if self._mode.is_save
+            else "That path does not exist. Check the path and try again."
+        )
+        return False
+
+    def _set_save_target(self, path: Path) -> None:
+        self._set_root(path.parent, focus_tree=False)
+        self._selected_paths = (path.parent,)
+        field = self.query_one("#file-picker-name", Input)
+        field.value = path.name
+        self._refresh_selection_state()
+
+    def _show_path_error(self, message: str) -> None:
+        self._path_error = message
+        self._show_error(message)
+        self.query_one("#file-picker-choose", Button).disabled = True
+
     def set_selected_paths(self, paths: Sequence[Path]) -> None:
         """Set selected paths from tests or parent screens."""
         self._selected_paths = tuple(Path(path) for path in paths if str(path))
@@ -255,6 +354,10 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
         self._refresh_selection_state()
 
     def _choose(self) -> None:
+        location = self.query_one("#file-picker-location", Input)
+        if location.value != self._location_value or self._path_error:
+            if not self._submit_location(select_directory=True):
+                return
         if self._mode.is_save:
             name = self.query_one("#file-picker-name", Input).value.strip()
             base = self._selected_paths[0] if self._selected_paths else self._root
@@ -274,6 +377,7 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
         node = tree.cursor_node
         path = Path(getattr(node.data, "path", self._root)) if node is not None else self._root
         folder = path if path.is_dir() else path.parent
+        self._refresh_location()
         if self._mode == FilePickerMode.OPEN_DIRECTORY:
             self.dismiss((folder,))
             return
@@ -290,16 +394,19 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
             return
         self._set_root(parent)
 
-    def _set_root(self, root: Path) -> None:
+    def _set_root(self, root: Path, *, focus_tree: bool = True) -> None:
         self._root = _existing_directory(root)
         tree = self.query_one("#file-picker-tree", DirectoryTree)
         tree.path = self._root
-        tree.focus()
+        if focus_tree:
+            tree.focus()
         self._refresh_location()
         self._refresh_selection_state()
 
     def _refresh_location(self) -> None:
-        self.query_one("#file-picker-location", Static).update(_display_path(self._root))
+        self._path_error = None
+        self._location_value = str(self._root)
+        self.query_one("#file-picker-location", Input).value = self._location_value
         self.query_one("#file-picker-up", Button).disabled = self._root.parent == self._root
 
     def _refresh_selected(self) -> None:
@@ -324,11 +431,23 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
         modal.set_class(compact, "compact")
         side = self.query_one("#file-picker-side", Vertical)
         side.display = self._mode.is_save or not compact or bool(self._selected_paths)
+        self.query_one("#file-picker-hint", Static).update(
+            "Ctrl+L path | Ctrl+Space complete | Esc cancel"
+            if compact
+            else f"{self._path_entry_hint()} Ctrl+L path  Ctrl+Space complete  Esc cancel"
+        )
         if self._mode.allows_directories:
             self.query_one("#file-picker-current", Button).label = Content.from_text(
                 self._current_folder_action_label(compact=compact),
                 markup=False,
             )
+
+    def _path_entry_hint(self) -> str:
+        if self._mode.is_save:
+            return "Enter sets a folder or full destination path."
+        if self._mode == FilePickerMode.OPEN_DIRECTORY:
+            return "Enter opens a folder. Use folder selects it."
+        return "Enter opens a folder or adds a file."
 
     def _current_folder_action_label(self, *, compact: bool) -> str:
         if self._mode == FilePickerMode.OPEN_DIRECTORY:
@@ -361,17 +480,27 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
         field = self.query_one("#file-picker-name", Input)
         base = self._selected_paths[0] if self._selected_paths else self._root
         error = _save_target_error(mode=self._mode, base=base, name=field.value.strip())
-        self.query_one("#file-picker-choose", Button).disabled = error is not None
+        error = self._path_error or error
+        location = self.query_one("#file-picker-location", Input)
+        pending_path = bool(location.value.strip()) and location.value != self._location_value
+        self.query_one("#file-picker-choose", Button).disabled = bool(self._path_error) or (
+            error is not None and not pending_path
+        )
         self._show_error(error if show_message else None)
 
     def _refresh_choose_state(self) -> None:
         if self._mode.is_save:
             return
         has_selection = bool(self._selected_paths)
-        self.query_one("#file-picker-choose", Button).disabled = not has_selection
+        location = self.query_one("#file-picker-location", Input)
+        has_entered_path = bool(location.value.strip()) and location.value != self._location_value
+        self.query_one("#file-picker-choose", Button).disabled = bool(self._path_error) or not (
+            has_selection or has_entered_path
+        )
         feedback = self.query_one("#file-picker-error", Static)
-        feedback.update("" if has_selection else self._empty_selection_hint())
-        feedback.set_class(not has_selection, "selection-hint")
+        feedback.update(self._path_error or ("" if has_selection else self._empty_selection_hint()))
+        feedback.set_class(not has_selection and not self._path_error, "selection-hint")
+        feedback.set_class(bool(self._path_error), "visible")
 
     def _empty_selection_hint(self) -> str:
         if self._mode == FilePickerMode.OPEN_FILES:
@@ -384,6 +513,7 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
         error = self.query_one("#file-picker-error", Static)
         error.update(message or "")
         error.set_class(message is not None, "visible")
+        error.remove_class("selection-hint")
 
 
 def _existing_directory(path: Path) -> Path:

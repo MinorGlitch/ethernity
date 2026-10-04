@@ -18,28 +18,47 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Literal
 
 from textual.app import ComposeResult
-from textual.containers import Grid, Vertical, VerticalScroll
+from textual.containers import Grid, Vertical, VerticalGroup, VerticalScroll
 from textual.content import Content
+from textual.message import Message
 from textual.widgets import Button, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
 from ethernity.app.app_types import ActiveTask
-from ethernity.app.output_paths import common_output_folder, open_folder, single_output_folder
+from ethernity.app.output_paths import (
+    common_output_folder,
+    open_documents,
+    open_folder,
+    single_output_folder,
+)
 from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, inline_action_group, modal_action_row
 from ethernity.app.widgets.collapsible import collapsible_panel
-from ethernity.tasks.file_summary import display_path
 from ethernity.tasks.models import TaskExecutionPlan, TaskExecutionResult, TaskIssue
+from ethernity.tasks.recovery_resources import RecoveryResourceRetry
 
 _DOCUMENT_FINGERPRINT_RE = re.compile(r"[0-9a-fA-F]{64}")
+ResultContextAction = Literal["test_recovery", "test_printed_pages"]
 
 
 class TaskResultScreen(EthernityModalScreen[str | None]):
     """Post-run success or failure summary."""
 
     BINDINGS = [("escape", "close", "Close")]
+
+    class ContextActionRequested(Message):
+        """Ask the app to test recovery or begin a test with physical scans."""
+
+        def __init__(self, screen: TaskResultScreen, action: ResultContextAction) -> None:
+            super().__init__()
+            self.screen = screen
+            self.action = action
+            self.task = screen._task_key
+            assert screen._result is not None
+            self.result = screen._result
 
     def __init__(
         self,
@@ -54,6 +73,9 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         return_section: str | None = None,
         allow_return: bool = True,
         return_callback: Callable[[], Awaitable[None]] | None = None,
+        context_actions_enabled: bool = False,
+        resource_retry: RecoveryResourceRetry | None = None,
+        retry_callback: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
         self._task_key = task
@@ -66,20 +88,43 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         self._return_section = return_section
         self._allow_return = allow_return
         self._return_callback = return_callback
+        self._context_actions_enabled = context_actions_enabled
+        self._resource_retry = resource_retry
+        self._retry_callback = retry_callback
 
     def compose(self) -> ComposeResult:
         success = self._result is not None and self._result.ok
-        with Vertical(id="result-modal", classes="success" if success else "failure"):
-            with Vertical(id="result-header"):
-                yield Static(self._result_title(success), id="result-title", markup=False)
+        failure_tone = "warning" if self._resource_retry is not None else "failure"
+        result_class = (
+            "partial"
+            if self._result is not None and self._result.status == "partially_succeeded"
+            else "success"
+            if success
+            else failure_tone
+        )
+        with Vertical(id="result-modal", classes=f"document {result_class}"):
+            with Vertical(id="result-header", classes="document-header"):
+                yield Static(
+                    self._result_title(success),
+                    id="result-title",
+                    markup=False,
+                    classes="screen-title",
+                )
+                if self._result is not None and self._result.status == "partially_succeeded":
+                    yield Static(
+                        "The main write completed, but a follow-up step failed.",
+                        id="result-status",
+                        classes="warning",
+                        markup=False,
+                    )
                 if not success:
                     yield Static(
                         self._failure_message(),
                         id="result-status",
-                        classes="failure",
+                        classes=failure_tone,
                         markup=False,
                     )
-            with VerticalScroll(id="result-body"):
+            with VerticalScroll(id="result-body", classes="document-body"):
                 if success:
                     yield from self._compose_success_body()
                 else:
@@ -101,16 +146,45 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
                 )
             else:
                 action_buttons[0] = ActionButton("Close", "result-close", variant="primary")
+            if (
+                not success
+                and self._resource_retry is not None
+                and self._retry_callback is not None
+            ):
+                action_buttons.append(
+                    ActionButton(
+                        "Retry with higher limits", "result-retry-resources", variant="warning"
+                    )
+                )
             yield modal_action_row("result-actions", *action_buttons)
 
     def on_mount(self) -> None:
         self.call_after_refresh(self._refresh_result_log)
+        for checks in self.query("#result-document-checks"):
+            checks.display = False
         selector = (
             "#result-return" if not self._is_success() and self._allow_return else "#result-close"
         )
         self.query_one(selector, Button).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "result-retry-resources" and self._retry_callback is not None:
+            callback = self._retry_callback
+            self._retry_callback = None
+            self.app.pop_screen()
+            self.app.call_later(callback)
+            return
+        if event.button.id == "result-open-documents":
+            self._open_documents()
+            return
+        context_actions: dict[str, ResultContextAction] = {
+            "result-test-recovery": "test_recovery",
+            "result-test-printed-pages": "test_printed_pages",
+        }
+        context_action = context_actions.get(event.button.id or "")
+        if context_action is not None and self._context_actions_enabled:
+            self.post_message(self.ContextActionRequested(self, context_action))
+            return
         if event.button.id == "result-copy-fingerprint":
             self._copy_fingerprint()
             return
@@ -145,62 +219,98 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         assert result is not None
         next_steps = self._success_next_steps()
 
-        with Vertical(id="result-outcome"):
-            with Grid(id="result-key-facts"):
-                yield Static("Destination", classes="result-fact-label", markup=False)
+        with VerticalGroup(id="result-outcome"):
+            with Grid(id="result-overview", classes="detail-grid"):
+                yield Static("Destination", classes="detail-label", markup=False)
                 yield Static(
                     self._destination_summary(),
-                    classes="result-fact-value",
+                    classes="detail-value",
                     markup=False,
                 )
-                yield Static("Files", classes="result-fact-label", markup=False)
+                yield Static("Files", classes="detail-label", markup=False)
                 yield Static(
                     _output_amount(self._task_key, result.output_paths),
-                    classes="result-fact-value",
+                    classes="detail-value",
                     markup=False,
                 )
+                page_count = self._page_count()
+                if page_count is not None:
+                    yield Static("PDF pages", classes="detail-label", markup=False)
+                    yield Static(
+                        str(page_count),
+                        classes="detail-value",
+                        markup=False,
+                    )
 
         yield from self._compose_context_actions()
+        if self._context_actions_enabled and self._document_paths():
+            yield inline_action_group(
+                ActionButton(
+                    "Test recovery",
+                    "result-test-recovery",
+                    disabled=not result.recovery_check_paths,
+                ),
+                ActionButton("Test printed pages", "result-test-printed-pages"),
+                group_id="result-next-actions",
+                classes="result-context-actions",
+            )
+            yield Static(
+                "Test recovery checks the generated PDFs. Test printed pages uses scans of "
+                "your actual printouts.",
+                id="result-test-guidance",
+                classes="detail-text",
+                markup=False,
+            )
+            yield Static("", id="result-document-checks", markup=False)
 
         if next_steps:
-            with Vertical(id="result-next-steps"):
-                yield Static("Next steps", classes="result-section-title", markup=False)
+            with VerticalGroup(id="result-next-steps"):
+                yield Static("Next steps", classes="section-title", markup=False)
                 for index, step in enumerate(next_steps, start=1):
                     yield Static(
                         f"{index}. {step}",
-                        classes="result-next-step result-summary-line",
+                        classes="result-next-step detail-text",
                         markup=False,
                     )
 
         if result.output_paths:
-            with Vertical(id="result-output", classes="success-output"):
+            with VerticalGroup(id="result-output", classes="success-output"):
                 yield Static(
                     _output_section_title(self._task_key),
                     id="result-output-title",
                     markup=False,
+                    classes="section-title",
                 )
                 yield _result_path_list(result.output_paths)
 
     def _compose_failure_body(self) -> ComposeResult:
         result = self._result
 
-        with Vertical(id="result-remediation"):
+        tone = "warning" if self._resource_retry is not None else "failure"
+        with VerticalGroup(id="result-remediation", classes=tone):
             yield Static(
                 self._remediation_title(),
-                classes="result-section-title",
+                classes="section-title",
                 markup=False,
             )
-            if self._recoverable_errors:
+            if self._resource_retry is not None:
+                yield Static(
+                    self._resource_retry.message,
+                    id="result-resource-estimate",
+                    classes="result-remediation-line detail-text",
+                    markup=False,
+                )
+            elif self._recoverable_errors:
                 for issue in self._recoverable_errors:
                     yield Static(
                         issue.message,
-                        classes="result-remediation-line result-summary-line",
+                        classes="result-remediation-line detail-text",
                         markup=False,
                     )
             else:
                 yield Static(
                     self._fallback_remediation(),
-                    classes="result-remediation-line result-summary-line",
+                    classes="result-remediation-line detail-text",
                     markup=False,
                 )
             destination = self._reviewed_destination_summary()
@@ -208,18 +318,19 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
                 yield Static(
                     f"Reviewed destination: {destination}",
                     id="result-reviewed-destination",
-                    classes="result-remediation-line result-summary-line",
+                    classes="result-remediation-line detail-text",
                     markup=False,
                 )
 
         yield from self._compose_context_actions()
 
         if result is not None and result.output_paths:
-            with Vertical(id="result-output", classes="partial-output"):
+            with VerticalGroup(id="result-output", classes="partial-output"):
                 yield Static(
                     "Partial files may remain",
                     id="result-output-title",
                     markup=False,
+                    classes="section-title",
                 )
                 yield Static(
                     f"Inspect {common_output_folder(result.output_paths)} before retrying.",
@@ -230,6 +341,7 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
                     _partial_output_amount(result.output_paths),
                     id="result-output-count",
                     markup=False,
+                    classes="detail-label",
                 )
                 yield _result_path_list(result.output_paths)
 
@@ -245,17 +357,17 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
     def _compose_technical_details(self) -> ComposeResult:
         result = self._result
         if result is not None and result.details:
-            with Vertical(id="result-metadata"):
-                yield Static("Run details", classes="result-detail-title", markup=False)
+            with VerticalGroup(id="result-metadata"):
+                yield Static("Run details", classes="detail-heading", markup=False)
                 for detail in result.details:
                     yield Static(
                         f"{detail.label}: {_result_detail_value(detail.value)}",
-                        classes="result-detail-line result-summary-line",
+                        classes="detail-line detail-text",
                         markup=False,
                     )
 
         if self._technical_detail_lines():
-            yield Static("Error log", classes="result-detail-title", markup=False)
+            yield Static("Error log", classes="detail-heading", markup=False)
             yield RichLog(
                 id="result-log",
                 classes="failure",
@@ -265,6 +377,8 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
             )
 
     def _result_title(self, success: bool) -> str:
+        if self._resource_retry is not None:
+            return "Restore paused"
         if success and self._result is not None and self._result.message.strip():
             return self._result.message.strip().removesuffix(".")
         if success:
@@ -278,7 +392,21 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         result = self._result
         if result is None or not result.output_paths:
             return "No output path"
-        return display_path(common_output_folder(result.output_paths), max_chars=60)
+        return common_output_folder(result.output_paths)
+
+    def _page_count(self) -> int | None:
+        result = self._result
+        if result is None:
+            return None
+        for detail in result.details:
+            if (
+                detail.key in {"page_count", "pdf_page_count", "printed_pages"}
+                and isinstance(detail.value, int)
+                and not isinstance(detail.value, bool)
+                and detail.value > 0
+            ):
+                return detail.value
+        return None
 
     def _success_next_steps(self) -> tuple[str, ...]:
         if (
@@ -311,6 +439,8 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         return "Back to workflow" if step == "workflow" else f"Edit {step}"
 
     def _remediation_title(self) -> str:
+        if self._resource_retry is not None:
+            return "Recovery limits"
         if self._recoverable_errors:
             return "Fix before retrying"
         if self._allow_return and self._return_step_label() != "workflow":
@@ -326,6 +456,8 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
 
     def _context_actions(self) -> tuple[ActionButton, ...]:
         actions: list[ActionButton] = []
+        if self._is_success() and self._document_paths():
+            actions.append(ActionButton("Open documents", "result-open-documents"))
         if self._document_fingerprint() is not None:
             actions.append(ActionButton("Copy fingerprint", "result-copy-fingerprint"))
         if self._copy_paths_text() is not None:
@@ -334,6 +466,49 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         if self._open_folder_path() is not None:
             actions.append(ActionButton("Open folder", "result-open-folder"))
         return tuple(actions)
+
+    def _document_paths(self) -> tuple[Path, ...]:
+        return tuple(
+            path for path in self._reported_output_paths() if path.suffix.lower() == ".pdf"
+        )
+
+    def show_context_action_result(
+        self, action: ResultContextAction, message: str, *, success: bool
+    ) -> None:
+        """Display the app's test outcome without implying that paper was verified."""
+
+        checks = self.query_one("#result-document-checks", Static)
+        checks.update(message)
+        checks.set_class(success, "success")
+        checks.set_class(not success, "failure")
+        checks.display = True
+        self._set_context_actions_disabled(False)
+
+    def set_context_action_running(self, action: ResultContextAction) -> None:
+        self._set_context_actions_disabled(True)
+        checks = self.query_one("#result-document-checks", Static)
+        checks.remove_class("success", "failure")
+        checks.update(
+            "Testing recovery from generated PDFs..."
+            if action == "test_recovery"
+            else "Testing recovery from printed-page scans..."
+        )
+        checks.display = True
+
+    def _set_context_actions_disabled(self, disabled: bool) -> None:
+        for button in self.query("#result-next-actions Button").results(Button):
+            button.disabled = disabled or (
+                button.id == "result-test-recovery"
+                and (self._result is None or not self._result.recovery_check_paths)
+            )
+
+    def _open_documents(self) -> None:
+        try:
+            open_documents(self._document_paths())
+        except OSError as exc:
+            self.app.notify(f"Ethernity could not open the documents: {exc}", severity="error")
+            return
+        self.app.notify("Opening generated documents.")
 
     def _has_technical_details(self) -> bool:
         result = self._result
@@ -374,10 +549,7 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         paths = self._planned_output_paths()
         if not paths:
             return None
-        first = display_path(paths[0], max_chars=68)
-        if len(paths) == 1:
-            return first
-        return f"{first} and {len(paths) - 1} more"
+        return "\n".join(str(path) for path in paths)
 
     def _document_fingerprint(self) -> str | None:
         result = self._result
@@ -468,7 +640,7 @@ def _success_outcome_title(task: ActiveTask) -> str:
         "add_files": "Backup update created",
         "rebuild": "Backup rebuilt",
         "replace_recovery_docs": "Replacement recovery sheets created",
-        "kit": "Unanchored rescue kit created",
+        "kit": "Offline recovery kit created",
         "settings": "Settings saved",
     }[task]
 
@@ -480,20 +652,27 @@ def _failure_title(task: ActiveTask) -> str:
         "add_files": "Backup update failed",
         "rebuild": "Rebuild failed",
         "replace_recovery_docs": "Recovery sheet replacement failed",
-        "kit": "Unanchored rescue kit failed",
+        "kit": "Offline recovery kit failed",
         "settings": "Settings save failed",
     }[task]
 
 
 def _output_amount(task: ActiveTask, paths: tuple[Path, ...]) -> str:
+    pdf_count = sum(path.suffix.lower() == ".pdf" for path in paths)
+    if pdf_count:
+        documents = f"{pdf_count} {'PDF' if pdf_count == 1 else 'PDFs'}"
+        other_count = len(paths) - pdf_count
+        if other_count:
+            documents += f", {other_count} other {'file' if other_count == 1 else 'files'}"
+        return documents
     count = len(paths)
     singular, plural = {
         "backup": ("backup file", "backup files"),
         "restore": ("restored path", "restored paths"),
-        "add_files": ("update file", "update files"),
+        "add_files": ("PDF", "PDFs"),
         "rebuild": ("rebuilt backup file", "rebuilt backup files"),
         "replace_recovery_docs": ("replacement file", "replacement files"),
-        "kit": ("unanchored rescue kit PDF", "unanchored rescue kit PDFs"),
+        "kit": ("offline recovery kit PDF", "offline recovery kit PDFs"),
         "settings": ("output", "outputs"),
     }[task]
     return f"{count} {singular if count == 1 else plural}"
@@ -537,13 +716,13 @@ def _success_guidance(task: ActiveTask) -> tuple[str, ...]:
     if task == "backup":
         return (
             "Print every PDF at actual size.",
-            "Scan one printed QR code before storing the set.",
+            "Test recovery from scans of the printed set before storing it.",
             "Store recovery sheets apart from encrypted backup documents.",
         )
     if task == "kit":
         return (
             "Print the PDF at actual size.",
-            "Treat this as an unanchored rescue tool; it cannot authenticate the latest state.",
+            "The kit restores supplied documents. It cannot check for newer copies elsewhere.",
         )
     if task == "restore":
         return (
@@ -553,13 +732,19 @@ def _success_guidance(task: ActiveTask) -> tuple[str, ...]:
     if task == "replace_recovery_docs":
         return (
             "Print every replacement sheet at actual size.",
-            "Test one replacement sheet.",
+            "Test recovery using the required number of matching replacement sheets.",
             "Store the new sheets before retiring the old set.",
         )
-    if task in {"add_files", "rebuild"}:
+    if task == "add_files":
         return (
             "Print every new PDF at actual size.",
-            "Replace and test the previous recovery kit.",
+            "Test the new backup with the reusable recovery kit.",
+            "Keep the original backup and every update needed for recovery.",
+        )
+    if task == "rebuild":
+        return (
+            "Print every new PDF at actual size.",
+            "Test recovery from the rebuilt documents and new recovery sheets.",
             "Store the sheets with the matching backup version.",
         )
     return ()

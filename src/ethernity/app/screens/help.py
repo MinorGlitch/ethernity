@@ -65,13 +65,14 @@ class HelpScreen(EthernityModalScreen[None]):
         self._content = content
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="help-modal"):
-            yield Static(self._content.title, id="help-title")
-            yield Static(self._content.intro, id="help-intro")
+        with Vertical(id="help-modal", classes="dialog"):
+            yield Static(self._content.title, id="help-title", classes="screen-title")
+            yield Static(self._content.intro, id="help-intro", classes="dialog-prompt")
             yield Static(
                 _shortcut_text(self._content.mode.shortcuts),
                 id="help-shortcuts",
                 markup=False,
+                classes="dialog-prompt",
             )
             yield MarkdownViewer(
                 _help_markdown(self._content),
@@ -103,7 +104,7 @@ def _help_markdown(content: HelpContent) -> str:
 
 def _markdown_section(section: HelpSection) -> str:
     notes = f"\n\n{_markdown_items(section.notes)}" if section.notes else ""
-    return f"### {section.title}\n{section.body}{notes}"
+    return f"### {section.title}\n\n{section.body}{notes}"
 
 
 def _markdown_items(items: tuple[str, ...]) -> str:

@@ -1,0 +1,558 @@
+/* Shared dialog and document frames, followed by screen-specific layout. */
+
+.dialog {
+    padding: 0 1;
+    border: solid $border;
+    background: $surface;
+}
+
+.dialog-small {
+    width: 68;
+    max-width: 92%;
+    height: auto;
+    max-height: 92%;
+}
+
+.dialog-prompt {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+.document {
+    width: 100%;
+    height: 1fr;
+    max-width: 100%;
+    max-height: 100%;
+    padding: 0 2;
+    border: none;
+    background: $background;
+}
+
+.document-header {
+    height: auto;
+    min-height: 3;
+    padding: 1 1;
+    border-bottom: solid $border-blurred;
+    background: $background;
+}
+
+.document-body {
+    padding: 1;
+    overflow-x: hidden;
+    background: $background;
+    color: $text;
+}
+
+.document > .modal-action-row {
+    padding: 1 1;
+    border-top: solid $border-blurred;
+    background: $background;
+}
+
+.detail-grid {
+    height: auto;
+    grid-size-columns: 2;
+    grid-rows: auto;
+    grid-gutter: 0 2;
+}
+
+.dialog > .modal-action-row,
+#edit-field-input,
+#file-picker-name,
+#review-body .detail-heading,
+#result-next-steps,
+.result-remediation-line,
+#file-picker-body,
+#review-write-safety {
+    margin-top: 1;
+}
+
+EditFieldScreen,
+FilePickerScreen,
+PasteTextScreen,
+HelpScreen,
+DiagnosticsScreen,
+ConfirmActionScreen {
+    align: center middle;
+    background: $background 80%;
+}
+
+#edit-field-error,
+#review-attention.review-attention-error .section-title,
+.review-notice-error,
+#result-status.failure,
+#result-remediation.failure .section-title,
+#result-document-checks.failure {
+    color: $text-error;
+}
+
+#paste-text-modal {
+    width: 84%;
+    height: 88%;
+}
+
+#paste-text-input {
+    margin-top: 1;
+    height: 1fr;
+}
+
+#file-picker-modal {
+    width: 92%;
+    height: 96%;
+    max-height: 96%;
+}
+
+#file-picker-browser,
+#file-picker-modal.save-mode #file-picker-side {
+    width: 2fr;
+}
+
+#file-picker-location-row {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#file-picker-up,
+#diagnostics-reveal {
+    width: 10;
+}
+
+#file-picker-location {
+    width: 1fr;
+    background: $background;
+}
+
+#file-picker-location:focus {
+    background: $primary 15%;
+}
+
+#file-picker-tree {
+    width: 1fr;
+    height: 1fr;
+    border: solid $border-blurred;
+    background: $background;
+}
+
+#file-picker-tree:focus,
+.diagnostics-internals:focus {
+    border: solid $border;
+}
+
+#file-picker-side {
+    margin-left: 1;
+}
+
+#file-picker-selected-title {
+    color: $text;
+    text-style: bold;
+    width: 1fr;
+}
+
+#file-picker-name-title {
+    color: $text;
+    text-style: bold;
+    margin-top: 1;
+}
+
+#file-picker-selected-header {
+    height: 1;
+}
+
+#file-picker-remove {
+    width: 12;
+    min-width: 12;
+}
+
+#file-picker-selected {
+    height: 1fr;
+    margin-top: 1;
+    border: solid $border-blurred;
+    background: $surface;
+}
+
+#file-picker-selected > .selection-list--button {
+    background: $surface;
+    color: $text-muted;
+}
+
+#file-picker-selected > .selection-list--button-highlighted {
+    background: $surface-active;
+    color: $text-muted;
+}
+
+#file-picker-selected > .selection-list--button-selected {
+    background: $surface;
+    color: $text;
+}
+
+#file-picker-selected > .selection-list--button-selected-highlighted {
+    background: $surface-active;
+    color: $text;
+}
+
+#file-picker-error {
+    display: none;
+    max-height: 2;
+    color: $text-error;
+    text-style: bold;
+}
+
+#file-picker-error.visible {
+    display: block;
+}
+
+#file-picker-hint {
+    height: 1;
+    width: 1fr;
+    color: $text-muted;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
+#file-picker-actions,
+#review-body .detail-heading:first-of-type {
+    margin-top: 0;
+}
+
+#file-picker-modal.save-mode #file-picker-browser {
+    width: 3fr;
+}
+
+#help-modal {
+    width: 88;
+    max-width: 92%;
+    height: 92%;
+}
+
+#help-shortcuts {
+    min-height: 1;
+}
+
+#help-body,
+#diagnostics-tabs {
+    height: 1fr;
+    margin-top: 1;
+    background: $surface;
+}
+
+#help-body Markdown {
+    padding: 0 1;
+    color: $text;
+}
+
+#help-body MarkdownTableOfContents {
+    width: 24;
+    background: $background;
+    border-right: solid $border-blurred;
+}
+
+#diagnostics-modal {
+    width: 92%;
+    height: 86%;
+}
+
+#diagnostics-toolbar {
+    height: auto;
+    margin-top: 1;
+}
+
+#diagnostics-reveal-label {
+    width: 16;
+    color: $text;
+}
+
+#diagnostics-tabs ContentSwitcher {
+    height: 1fr;
+    background: $surface;
+}
+
+#diagnostics-tabs TabPane {
+    height: 1fr;
+    padding: 0;
+    background: $surface;
+}
+
+ReviewTaskScreen,
+TaskResultScreen {
+    align: center top;
+    background: $background;
+}
+
+#review-overview {
+    grid-columns: 15 1fr;
+}
+
+.review-safety-line,
+#result-document-checks {
+    width: 1fr;
+    color: $text-muted;
+}
+
+.review-detail-edit {
+    width: 6;
+    min-width: 6;
+    margin-left: 1;
+}
+
+.review-notice,
+#result-context-actions,
+#result-next-actions {
+    width: 1fr;
+    height: auto;
+    margin-top: 1;
+}
+
+#review-attention {
+    padding: 0 1;
+    border-left: solid $border;
+}
+
+#review-attention.review-attention-warning,
+#result-remediation.warning {
+    border-left: solid $warning;
+}
+
+#review-attention.review-attention-error,
+#result-remediation.failure {
+    border-left: solid $error;
+}
+
+#review-attention.review-attention-warning .section-title,
+.review-notice-warning,
+#result-status.warning,
+#result-remediation.warning .section-title,
+#result-output.partial-output #result-output-title {
+    color: $text-warning;
+}
+
+#review-output-list {
+    margin-bottom: 1;
+}
+
+#result-status {
+    width: 1fr;
+    max-height: 2;
+    content-align: left middle;
+    text-style: bold;
+}
+
+#result-status.success,
+#result-document-checks.success {
+    color: $text-success;
+}
+
+#result-remediation {
+    margin-top: 1;
+    padding: 0 1;
+}
+
+#result-overview {
+    margin-top: 1;
+    grid-columns: 14 1fr;
+}
+
+#result-output {
+    margin-top: 1;
+    padding: 0 1;
+    border-left: solid $primary;
+}
+
+#result-output.partial-output {
+    border-left: solid $warning;
+    background: $panel;
+}
+
+#result-partial-warning {
+    color: $text-warning;
+    width: 1fr;
+    margin-top: 1;
+    text-style: bold;
+}
+
+#result-output-paths {
+    height: auto;
+    min-height: 1;
+    max-height: 6;
+    width: 1fr;
+    border: none;
+    background: $background;
+}
+
+#result-output.partial-output #result-output-paths {
+    background: $panel;
+}
+
+#result-output-paths > .option-list--option,
+#result-output-paths > .option-list--option-highlighted,
+#result-output-paths > .option-list--option-hover {
+    padding: 0 1;
+}
+
+#result-context-actions Button,
+#result-next-actions Button {
+    width: auto;
+    max-width: 24;
+}
+
+#result-test-guidance {
+    width: 1fr;
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#result-log {
+    height: 6;
+    margin: 1 0 0 0;
+    padding: 1;
+    border: solid $border-blurred;
+    background: $surface;
+    color: $text;
+}
+
+#result-log.failure {
+    margin: 0;
+}
+
+Collapsible.result-details-panel {
+    margin: 1 0 0 0;
+}
+
+.diagnostics-internals {
+    height: 1fr;
+    border: solid $border-blurred;
+    background: $background;
+}
+
+#confirm-action-modal {
+    padding: 1 2;
+}
+
+#file-picker-modal.compact.save-mode #file-picker-name {
+    height: 1;
+}
+
+#file-picker-modal.compact #file-picker-prompt,
+#file-picker-modal.compact #file-picker-name-title,
+#file-picker-modal.compact #file-picker-name {
+    margin-top: 0;
+}
+
+#file-picker-modal.compact,
+Screen.-ethernity-narrow .document-body,
+Screen.-ethernity-narrow #review-attention,
+Screen.-ethernity-short .document,
+Screen.-ethernity-narrow #result-output,
+Screen.-ethernity-narrow #result-remediation {
+    padding: 0 1;
+}
+
+#file-picker-modal.compact #file-picker-body {
+    margin-top: 0;
+    layout: vertical;
+}
+
+#file-picker-modal.compact #file-picker-location-row {
+    height: 1;
+    margin-bottom: 0;
+}
+
+#file-picker-modal.compact #file-picker-location {
+    height: 1;
+    border: none;
+}
+
+#file-picker-modal.compact #file-picker-location:focus {
+    background: $primary 32%;
+}
+
+#file-picker-modal.compact #file-picker-selected {
+    min-height: 3;
+    margin-top: 0;
+}
+
+#file-picker-modal.compact #file-picker-error {
+    height: auto;
+    min-height: 1;
+}
+
+#file-picker-modal.compact #file-picker-actions {
+    height: 1;
+    margin-top: 0;
+}
+
+#file-picker-modal.compact #file-picker-browser {
+    width: 1fr;
+    height: 2fr;
+}
+
+#file-picker-modal.compact #file-picker-side {
+    width: 1fr;
+    height: 1fr;
+    margin-left: 0;
+    margin-top: 1;
+}
+
+#file-picker-modal.compact.save-mode #file-picker-browser {
+    height: 1fr;
+}
+
+#file-picker-modal.compact.save-mode #file-picker-side {
+    height: 2fr;
+    margin-top: 0;
+}
+
+#file-picker-modal.compact.save-mode #file-picker-selected {
+    height: 2;
+    min-height: 2;
+    max-height: 2;
+}
+
+#file-picker-modal.compact.save-mode #file-picker-error {
+    min-height: 1;
+    max-height: 2;
+}
+
+#file-picker-modal.compact Button,
+#file-picker-modal.compact Input {
+    height: 1;
+    min-height: 1;
+    padding: 0 1;
+}
+
+Screen.-ethernity-narrow .document-header {
+    min-height: 1;
+    padding: 0 1;
+}
+
+Screen.-ethernity-narrow #review-overview,
+Screen.-ethernity-narrow #result-overview {
+    grid-columns: 12 1fr;
+    grid-gutter: 0 1;
+}
+
+Screen.-ethernity-narrow #review-actions Button {
+    width: 48%;
+    max-width: 48%;
+}
+
+Screen.-ethernity-short .document-header {
+    min-height: 2;
+    padding: 0 1;
+}
+
+Screen.-ethernity-short .document-body {
+    padding-top: 0;
+}
+
+Screen.-ethernity-short #review-attention {
+    padding: 0 1;
+}
+
+Screen.-ethernity-narrow #review-actions > .modal-action-spacer {
+    display: none;
+}
+
+Screen.-ethernity-short .document > .modal-action-row {
+    height: 2;
+    padding: 0 1;
+}

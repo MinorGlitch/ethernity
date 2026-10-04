@@ -94,9 +94,11 @@ class SourceAssessmentController:
                 source_assessment_module.assess_source_request,
                 request,
             )
-            if self._generation.get(task) == generation:
-                state.store_source_assessment(request, assessment)
-            return assessment
+            if self._generation.get(task) == generation and state.store_source_assessment(
+                request, assessment
+            ):
+                return assessment
+            return None
         finally:
             self._finish(task, generation)
 

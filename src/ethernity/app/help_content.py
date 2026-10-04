@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ethernity.app.app_types import ActiveTask
 from ethernity.app.screens.help import HelpContent, HelpMode, HelpSection, HelpShortcut
 from ethernity.app.workflow_registry import workflow_definition
@@ -72,7 +74,7 @@ HELP_MODES: tuple[HelpMode, ...] = (
             _section(
                 "Before you start",
                 (
-                    "Load the backup material, choose a passphrase, recovery sheets, or recovery "
+                    "Load the backup documents, choose a passphrase, recovery sheets, or recovery "
                     "payload files to unlock it, then choose a destination."
                 ),
             ),
@@ -86,7 +88,7 @@ HELP_MODES: tuple[HelpMode, ...] = (
             _section(
                 "Trust and version",
                 (
-                    "Latest means the newest valid update in the material you loaded. Ethernity "
+                    "Latest means the newest valid update in the documents you loaded. Ethernity "
                     "cannot check for newer copies elsewhere."
                 ),
                 (
@@ -95,7 +97,9 @@ HELP_MODES: tuple[HelpMode, ...] = (
                 ),
                 (
                     "Keep signature verification on unless you are restoring legacy unsigned "
-                    "material. Treat recovery sheets and recovery payload files as secrets."
+                    "backups. Treat recovery sheets and recovery payload files as secrets. "
+                    "If unlocking exceeds the normal work limit, the result shows estimated memory "
+                    "and offers Retry with higher limits for that attempt."
                 ),
             ),
         ),
@@ -108,39 +112,37 @@ HELP_MODES: tuple[HelpMode, ...] = (
             _section(
                 "Before you start",
                 (
-                    "Load an existing backup folder or scanned pages, unlock the backup, and "
-                    "choose the files or folders to add. For scans, confirm you loaded the latest "
-                    "version or enter the fingerprint printed on the version you trust as latest."
+                    "Load backup documents from PDFs, scans, images, recovery text, or exported "
+                    "payloads. Unlock the backup and choose the files or folders to add."
                 ),
             ),
             _section(
                 "Result",
-                (
-                    "From a backup folder, Ethernity appends update documents without replacing "
-                    "existing documents. From scans, it writes separate update documents to an "
-                    "empty folder."
-                ),
+                ("Ethernity writes two update documents to a separate output folder."),
                 (
                     "A selected path replaces the current content at that path. Omitted paths "
                     "remain unchanged."
                 ),
                 (
-                    "Scan-based update documents cannot restore on their own. Keep them with the "
-                    "original backup document and every prior update."
+                    "Optional new recovery sheets are created by Replace Recovery Docs after the "
+                    "update is created and saved separately. They unlock the original backup "
+                    "and any available update."
                 ),
             ),
             _section(
                 "Limits and trust",
                 (
                     "Add Files cannot delete or rename paths. To do either, restore the files you "
-                    "want, create a new backup, and retire the old backup set."
+                    "want, create a new backup, and retire the old backup set. An update must "
+                    "leave the complete current contents small enough to Rebuild."
                 ),
                 (
-                    "Latest means the newest version you loaded. Updates started separately from "
-                    "the same version create conflicting histories that Ethernity cannot merge."
+                    "Check a trusted latest fingerprint, or explicitly accept the newest loaded "
+                    "version. Updates started separately from the same version create conflicting "
+                    "histories that Ethernity cannot merge."
                 ),
                 (
-                    "The original backup material plus a passphrase or enough recovery sheets "
+                    "The original backup documents plus a passphrase or enough recovery sheets "
                     "authorizes an update. Signing-key sheets recover the signing key; they are "
                     "not another approval."
                 ),
@@ -156,8 +158,8 @@ HELP_MODES: tuple[HelpMode, ...] = (
                 "Before you start",
                 (
                     "Load a backup folder or scanned pages, choose an unlock method, and select an "
-                    "output folder. For scans, confirm you loaded the latest version or enter the "
-                    "fingerprint printed on the version you trust as latest."
+                    "output folder. Confirm you loaded the latest version or enter the fingerprint "
+                    "printed on the version you trust as latest."
                 ),
             ),
             _section(
@@ -167,14 +169,16 @@ HELP_MODES: tuple[HelpMode, ...] = (
                     "source untouched. Rebuild does not add or remove backed-up files."
                 ),
                 (
-                    "The rebuilt set gets new recovery sheets but keeps the source passphrase and "
+                    "The rebuilt set gets new recovery sheets. It keeps "
+                    "the passphrase and any embedded signing key. Sealed backups receive a new "
                     "signing key."
                 ),
+                "Verify the rebuilt backup and sheets before retiring the original documents.",
             ),
             _section(
                 "Credentials and source",
                 ("Create a new backup when you need a new passphrase or signing key."),
-                "Latest means the newest valid update in the material you loaded.",
+                "Latest means the newest valid update in the documents you loaded.",
                 (
                     "Higher QR density may reduce page count, but it can make scanning less "
                     "reliable."
@@ -190,7 +194,7 @@ HELP_MODES: tuple[HelpMode, ...] = (
             _section(
                 "Before you start",
                 (
-                    "Load backup material, unlock it with a passphrase, current recovery sheets, "
+                    "Load backup documents, unlock it with a passphrase, current recovery sheets, "
                     "or recovery payload files, then choose an output folder. For scans, confirm "
                     "you loaded the latest version or enter the fingerprint printed on the version "
                     "you trust as latest."
@@ -204,7 +208,8 @@ HELP_MODES: tuple[HelpMode, ...] = (
                 "Result",
                 (
                     "Ethernity writes new recovery-sheet PDFs to the output folder. It leaves the "
-                    "backup documents and backed-up files unchanged."
+                    "backup documents and backed-up files unchanged. New sheets unlock the "
+                    "original backup and any available update, even if a later update is lost."
                 ),
             ),
             _section(
@@ -262,8 +267,8 @@ HELP_MODES: tuple[HelpMode, ...] = (
                     "settings file."
                 ),
                 (
-                    "Reset tab restores defaults in the current tab. Reset all settings restores "
-                    "every saved default."
+                    "Reset section restores defaults in the current category. "
+                    "Reset all settings restores every saved default."
                 ),
             ),
             _section(
@@ -297,5 +302,20 @@ def build_help_content(*, task: ActiveTask) -> HelpContent:
     return HelpContent(
         title=workflow_definition(task).title,
         intro=mode.summary,
-        mode=mode,
+        mode=replace(
+            mode,
+            sections=(
+                *mode.sections,
+                _section(
+                    "Keyboard navigation",
+                    "Tab and Shift+Tab move between controls. Up/Down or j/k move through "
+                    "the form; inside lists and radio groups they move between choices.",
+                    "Enter or Space opens a dropdown. Up/Down highlights an option; Enter "
+                    "applies it. Escape cancels. Tab or Shift+Tab closes it and moves to the "
+                    "next or previous control without changing its value.",
+                    "While typing in a text field or searching an open dropdown, letters "
+                    "stay in that control. Ctrl+B returns to the top navigation.",
+                ),
+            ),
+        ),
     )
