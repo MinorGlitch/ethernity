@@ -97,30 +97,32 @@ def run_disposable_worker(
                 raise DisposableWorkerError(
                     f"{operation} exceeded its {limits.wall_seconds:g} second wall-time limit"
                 )
-            if parent_connection.poll(min(remaining, 0.05)):
-                try:
-                    payload = parent_connection.recv_bytes(limits.output_bytes + 4096)
-                except (EOFError, OSError) as exc:
-                    _terminate_process(process)
-                    raise DisposableWorkerError(
-                        f"{operation} worker returned excessive or invalid output"
-                    ) from exc
-                try:
-                    status, value = pickle.loads(payload)
-                except (pickle.PickleError, EOFError, ValueError, TypeError) as exc:
-                    raise DisposableWorkerError(
-                        f"{operation} worker returned invalid output"
-                    ) from exc
+            if not parent_connection.poll(min(remaining, 0.05)):
+                _enforce_parent_observed_limits(operation, process, monitored_process, limits)
+                if process.is_alive():
+                    continue
                 process.join(timeout=1)
-                if status == "ok":
-                    return cast(ResultT, value)
-                raise DisposableWorkerError(f"{operation} worker failed: {value}")
-            _enforce_parent_observed_limits(operation, process, monitored_process, limits)
-            if not process.is_alive():
-                process.join(timeout=1)
+                # A successful worker can send and exit between the timed poll
+                # and the liveness check. Consume its queued result before failing.
+                if not parent_connection.poll():
+                    raise DisposableWorkerError(
+                        f"{operation} worker terminated before returning output"
+                    )
+            try:
+                payload = parent_connection.recv_bytes(limits.output_bytes + 4096)
+            except (EOFError, OSError) as exc:
+                _terminate_process(process)
                 raise DisposableWorkerError(
-                    f"{operation} worker was terminated by a CPU or memory limit"
-                )
+                    f"{operation} worker returned excessive or invalid output"
+                ) from exc
+            try:
+                status, value = pickle.loads(payload)
+            except (pickle.PickleError, EOFError, ValueError, TypeError) as exc:
+                raise DisposableWorkerError(f"{operation} worker returned invalid output") from exc
+            process.join(timeout=1)
+            if status == "ok":
+                return cast(ResultT, value)
+            raise DisposableWorkerError(f"{operation} worker failed: {value}")
     finally:
         parent_connection.close()
         if process.is_alive():
