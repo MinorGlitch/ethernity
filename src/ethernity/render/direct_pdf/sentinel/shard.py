@@ -1,23 +1,23 @@
-"""Sentinel shard-document rendering through direct PDF primitives."""
+"""Sentinel shard-document rendering through measured PDF components."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
-from ethernity.qr.codec import QrConfig
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import ImageBox, Line, Panel, Rule, TextAlign, TextBox
-from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import build_single_qr_fallback_plan
 from ethernity.render.direct_pdf.fallback_layout import (
     FallbackSectionLines as _FallbackSectionLines,
     FallbackTitleEntry as _FallbackTitleEntry,
-    build_fallback_proof_from_entry_groups,
 )
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
 from ethernity.render.direct_pdf.page import DirectPdfPagePlan, PaintPlan
-from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
-from ethernity.render.direct_pdf.sentinel.common import (
+from ethernity.render.direct_pdf.sentinel.shard_fallback import (
+    SentinelShardFallbackPage as _FallbackPage,
+    resolve_sentinel_shard_fallback_layout,
+)
+from ethernity.render.direct_pdf.sentinel.shell import (
     SENTINEL_BACKGROUND,
     SENTINEL_BLACK,
     SENTINEL_GRID_LINE,
@@ -32,31 +32,16 @@ from ethernity.render.direct_pdf.sentinel.common import (
     build_sentinel_header_plans,
     build_sentinel_page_plan,
     build_sentinel_shell_context,
-    build_sentinel_surface,
     sentinel_corner_mark_component_ids,
 )
-from ethernity.render.direct_pdf.sentinel.shard_fallback import (
-    SentinelShardFallbackPage as _FallbackPage,
-    resolve_sentinel_shard_fallback_layout,
-)
 from ethernity.render.direct_pdf.sentinel.theme import SENTINEL_THEME
-from ethernity.render.direct_pdf.shard_contract import validate_single_shard_fallback_contract
-from ethernity.render.direct_pdf.structured_common import (
-    component_prefix,
-    qr_image,
-    resolved_single_qr_payload,
-)
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect
 from ethernity.render.doc_types import DOC_TYPE_SHARD
-from ethernity.render.proofs import build_render_artifact_proof
 from ethernity.render.types import (
     FallbackSection,
-    RenderArtifactProof,
-    RenderFallbackProof,
     RenderInputs,
-    RenderResult,
 )
 
 _COMPONENT_BASE = "sentinel-shard"
@@ -71,103 +56,32 @@ _ICON_WARNING = chr(0xE002)
 _ICON_KEYBOARD = chr(0xE312)
 
 
-@dataclass(frozen=True)
-class SentinelShardDirectPlan:
-    """Measured pages and app-wide proofs for one direct Sentinel shard render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    fallback_proof: RenderFallbackProof
-    artifact_proof: RenderArtifactProof
-
-
-def render_sentinel_shard_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Sentinel shard document directly to PDF and return validation proofs."""
-
-    surface = build_sentinel_surface(inputs)
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = build_sentinel_shard_direct_plan(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name="sentinel",
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(
-        fallback_proof=plan.fallback_proof,
-        artifact_proof=plan.artifact_proof,
-        layout_proof=layout_proof,
-    )
-
-
 def build_sentinel_shard_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> SentinelShardDirectPlan:
-    """Build measured direct-PDF plans and render proofs for Sentinel shard inputs."""
+) -> DirectPdfDocumentPlan:
+    """Build measured direct-PDF plans and render layouts for Sentinel shard inputs."""
 
-    _validate_inputs(inputs)
-    payload = resolved_single_qr_payload(inputs)
-    qr_image_bytes = qr_image(payload, config=inputs.qr_config or QrConfig())
+    document_inputs.validate_single_qr_fallback_inputs(inputs, expected_doc_type=DOC_TYPE_SHARD)
     context = build_sentinel_shell_context(inputs, doc_type=DOC_TYPE_SHARD)
     sections, fallback_pages = _resolve_fallback_layout(
         surface,
         inputs.fallback_sections or (),
         page_layout=context.page_layout,
     )
-    page_plans = tuple(
-        _build_page(
+    return build_single_qr_fallback_plan(
+        inputs,
+        sections=sections,
+        fallback_pages=fallback_pages,
+        page_entries=lambda page: tuple(item.entry for item in page.entries),
+        page_builder=lambda fallback_page, qr_image, total_pages: _build_page(
             surface,
             context,
             fallback_page,
-            qr_image=qr_image_bytes,
-            total_pages=len(fallback_pages),
-        )
-        for fallback_page in fallback_pages
+            qr_image=qr_image,
+            total_pages=total_pages,
+        ),
     )
-    fallback_proof = build_fallback_proof_from_entry_groups(
-        inputs,
-        sections,
-        tuple(tuple(page_entry.entry for page_entry in page.entries) for page in fallback_pages),
-    )
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=(payload,),
-        encoded_payload_count=1,
-        physical_qr_count=len(page_plans),
-        physical_qr_payload_indexes=tuple(0 for _ in page_plans),
-        page_count=len(page_plans),
-        fallback_proof=fallback_proof,
-    )
-    return SentinelShardDirectPlan(
-        page_plans=page_plans,
-        fallback_proof=fallback_proof,
-        artifact_proof=artifact_proof,
-    )
-
-
-def _validate_inputs(inputs: RenderInputs) -> None:
-    normalized_doc_type = inputs.doc_type.strip().lower()
-    if normalized_doc_type != DOC_TYPE_SHARD:
-        raise ValueError("direct Sentinel shard renderer only supports shard documents")
-    if not inputs.render_qr:
-        raise ValueError("direct Sentinel shard renderer requires QR rendering")
-    if not inputs.render_fallback:
-        raise ValueError("direct Sentinel shard renderer requires fallback rendering")
-    validate_single_shard_fallback_contract(
-        inputs,
-        renderer_label="direct Sentinel shard renderer",
-    )
-
-    resolve_page_geometry(inputs)
-
-    qr_config = inputs.qr_config or QrConfig()
-    qr_kind = str(qr_config.kind or "png").strip().lower()
-    if qr_kind != "png":
-        raise ValueError("direct Sentinel shard renderer currently supports PNG QR images only")
 
 
 def _resolve_fallback_layout(
@@ -200,7 +114,7 @@ def _build_page(
     total_pages: int,
 ) -> DirectPdfPagePlan:
     page_label = f"Page {fallback_page.page_number} / {total_pages}"
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     marker_ids = sentinel_corner_mark_component_ids(prefix, "qr")
     frame_id = f"{prefix}-qr-frame"
     image_id = f"{prefix}-qr-image"
@@ -212,7 +126,7 @@ def _build_page(
             page_label=page_label,
             page_number=fallback_page.page_number,
             component_base=_COMPONENT_BASE,
-            top_strip_text="Passphrase Shard // Store Separately // Threshold Protected",
+            top_strip_text=str(context.content.copy["handling_guidance"]),
             title_default="Shard Document",
             subtitle_default=_shard_subtitle(context),
         )
@@ -227,19 +141,18 @@ def _build_page(
         prefix=prefix,
     )
     plans.extend(fallback_plans)
-    plans.extend(
-        build_sentinel_footer_plans(
-            surface,
-            context,
-            page_label=page_label,
-            page_number=fallback_page.page_number,
-            component_base=_COMPONENT_BASE,
-        )
+    footer_plans = build_sentinel_footer_plans(
+        surface,
+        context,
+        page_label=page_label,
+        page_number=fallback_page.page_number,
+        component_base=_COMPONENT_BASE,
     )
     return build_sentinel_page_plan(
         page_number=fallback_page.page_number,
         page_layout=context.page_layout,
         plans=plans,
+        footer_plans=footer_plans,
         qr_compounds=(
             SentinelQrCompound(
                 anchor_component_id=frame_id,
@@ -254,8 +167,12 @@ def _build_page(
 
 
 def _shard_subtitle(context: SentinelShellContext) -> str:
-    shard_index = _positive_int(context.values.get("shard_index"), default=1)
-    shard_total = _positive_int(context.values.get("shard_total"), default=1)
+    shard_index = document_inputs.non_negative_int(
+        context.content.values.get("shard_index"), default=1
+    )
+    shard_total = document_inputs.non_negative_int(
+        context.content.values.get("shard_total"), default=1
+    )
     return f"Shard {shard_index} of {shard_total}"
 
 
@@ -285,12 +202,14 @@ def _warning_plans(
         ).plan(surface, PdfRect(20.0, 39.5, 8.0, 8.0)),
         TextBox(
             component_id=f"{prefix}-warning-title",
-            text=str(context.copy.get("warning_title") or "Critical Security Notice").upper(),
+            text=str(
+                context.content.copy.get("warning_title") or "Critical Security Notice"
+            ).upper(),
             style=SENTINEL_THEME.sans_style(
                 size_pt=10.5,
                 bold=True,
                 color=SENTINEL_TEXT,
-                char_spacing_mm=0.32,
+                char_spacing_pt=0.32,
             ),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=8.0,
@@ -298,7 +217,7 @@ def _warning_plans(
         ).plan(surface, PdfRect(30.0, 37.0, 118.0, 4.5)),
         TextBox(
             component_id=f"{prefix}-warning-body",
-            text=str(context.copy.get("warning_body") or ""),
+            text=str(context.content.copy.get("warning_body") or ""),
             style=SENTINEL_THEME.sans_style(size_pt=9.4, color=SENTINEL_TEXT),
             policy=TextFitPolicy.WRAP,
             line_height_multiplier=1.12,
@@ -312,7 +231,9 @@ def _shard_label_plans(
     *,
     prefix: str,
 ) -> list[PaintPlan]:
-    shard_index = _positive_int(context.values.get("shard_index"), default=1)
+    shard_index = document_inputs.non_negative_int(
+        context.content.values.get("shard_index"), default=1
+    )
     return [
         TextBox(
             component_id=f"{prefix}-shard-label",
@@ -395,13 +316,13 @@ def _fallback_plans(
         TextBox(
             component_id=f"{prefix}-fallback-label",
             text=str(
-                context.copy.get("manual_transcription_label") or "Manual Transcription"
+                context.content.copy.get("manual_transcription_label") or "Manual Transcription"
             ).upper(),
             style=SENTINEL_THEME.sans_style(
                 size_pt=9.0,
                 bold=True,
                 color=SENTINEL_TEXT,
-                char_spacing_mm=0.30,
+                char_spacing_pt=0.30,
             ),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=7.2,
@@ -417,7 +338,7 @@ def _fallback_plans(
                         size_pt=fallback_page.layout_profile.title_size_pt,
                         bold=True,
                         color=SENTINEL_TEXT,
-                        char_spacing_mm=0.18,
+                        char_spacing_pt=0.18,
                     ),
                     policy=TextFitPolicy.SHRINK,
                     min_size_pt=6.0,
@@ -501,14 +422,6 @@ def _clipped_diagonal_segment(
     return (start_x, start_y, end_x, end_y)
 
 
-def _positive_int(value: object, *, default: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return default
-    return max(0, value)
-
-
 __all__ = [
-    "SentinelShardDirectPlan",
     "build_sentinel_shard_direct_plan",
-    "render_sentinel_shard_direct_pdf",
 ]

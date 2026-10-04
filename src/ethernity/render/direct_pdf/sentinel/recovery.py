@@ -1,13 +1,14 @@
-"""Sentinel recovery document rendering through direct PDF primitives."""
+"""Sentinel recovery document rendering through measured PDF components."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import Panel, Rule, TextAlign, TextBox
-from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import build_recovery_document_plan
 from ethernity.render.direct_pdf.fallback_layout import (
     FallbackLineEntry as _FallbackLineEntry,
     FallbackPage,
@@ -17,18 +18,16 @@ from ethernity.render.direct_pdf.fallback_layout import (
     ResponsiveFallbackPageProfile,
     ResponsiveFallbackPagination,
     ResponsiveFallbackSpec,
-    build_fallback_proof,
+    build_fallback_summary,
     resolve_responsive_fallback_pagination,
 )
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
 from ethernity.render.direct_pdf.page import DirectPdfPagePlan, PaintPlan
-from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
 from ethernity.render.direct_pdf.recovery_metadata import (
     RecoveryPassphraseContinuationPage,
     RecoveryPassphrasePagination,
     paginate_recovery_passphrase,
 )
-from ethernity.render.direct_pdf.sentinel.common import (
+from ethernity.render.direct_pdf.sentinel.shell import (
     SENTINEL_BACKGROUND,
     SENTINEL_BLACK,
     SENTINEL_BORDER,
@@ -45,15 +44,12 @@ from ethernity.render.direct_pdf.sentinel.common import (
     build_sentinel_header_plans,
     build_sentinel_page_plan,
     build_sentinel_shell_context,
-    build_sentinel_surface,
 )
 from ethernity.render.direct_pdf.sentinel.theme import SENTINEL_THEME
-from ethernity.render.direct_pdf.structured_common import component_prefix
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy, fit_text_to_width
 from ethernity.render.direct_pdf.types import PdfRect, TextStyle
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
-from ethernity.render.proofs import build_render_artifact_proof
 from ethernity.render.recovery_meta import (
     PASSPHRASE_PRINT_MODE_JSON_PARTS,
     RecoveryMeta,
@@ -61,10 +57,8 @@ from ethernity.render.recovery_meta import (
 )
 from ethernity.render.types import (
     FallbackSection,
-    RenderArtifactProof,
-    RenderFallbackProof,
     RenderInputs,
-    RenderResult,
+    RenderTextMetadata,
 )
 
 _COMPONENT_BASE = "sentinel-recovery"
@@ -89,15 +83,6 @@ _ICON_CHECK_CIRCLE = chr(0xE86C)
 
 
 @dataclass(frozen=True)
-class SentinelRecoveryDirectPlan:
-    """Measured pages and app-wide proofs for one direct Sentinel recovery render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    fallback_proof: RenderFallbackProof
-    artifact_proof: RenderArtifactProof
-
-
-@dataclass(frozen=True)
 class _FallbackPageLayout:
     page_number: int
     entries: tuple[_FallbackPageEntry, ...]
@@ -110,38 +95,16 @@ class _SentinelMetadataRow:
     label: str
     value_lines: tuple[str, ...]
     guidance: str = ""
-
-
-def render_sentinel_recovery_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Sentinel recovery document directly to PDF and return validation proofs."""
-
-    surface = build_sentinel_surface(inputs)
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = build_sentinel_recovery_direct_plan(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name="sentinel",
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(
-        fallback_proof=plan.fallback_proof,
-        artifact_proof=plan.artifact_proof,
-        layout_proof=layout_proof,
-    )
+    text_metadata: RenderTextMetadata | None = None
 
 
 def build_sentinel_recovery_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> SentinelRecoveryDirectPlan:
-    """Build measured direct-PDF plans and render proofs for Sentinel recovery inputs."""
+) -> DirectPdfDocumentPlan:
+    """Build measured direct-PDF plans and render layouts for Sentinel recovery inputs."""
 
-    _validate_inputs(inputs)
+    document_inputs.validate_recovery_inputs(inputs)
     context = build_sentinel_shell_context(inputs, doc_type=DOC_TYPE_RECOVERY)
     recovery_meta = inputs.recovery_meta or RecoveryMeta()
     passphrase_pagination = _paginate_sentinel_passphrase(
@@ -154,48 +117,34 @@ def build_sentinel_recovery_direct_plan(
         inputs.fallback_sections or (),
         page_layout=context.page_layout,
     )
-    total_pages = len(fallback_pages) + len(passphrase_pagination.continuation_pages)
-    fallback_page_plans = tuple(
-        _build_page(
+    return build_recovery_document_plan(
+        inputs,
+        fallback_pages=fallback_pages,
+        passphrase_pages=passphrase_pagination.continuation_pages,
+        fallback_summary=build_fallback_summary(
+            inputs,
+            sections,
+            tuple(
+                FallbackPage(page_number=page.page_number, entries=page.entries)
+                for page in fallback_pages
+            ),
+        ),
+        fallback_page_builder=lambda fallback_page, total_pages: _build_page(
             surface,
             context,
             recovery_meta=passphrase_pagination.inline_meta,
             fallback_page=fallback_page,
             total_pages=total_pages,
-        )
-        for fallback_page in fallback_pages
-    )
-    passphrase_page_plans = tuple(
-        _build_passphrase_continuation_page(
-            surface,
-            context,
-            continuation_page=continuation_page,
-            page_number=len(fallback_pages) + continuation_page.page_index,
-            total_pages=total_pages,
-        )
-        for continuation_page in passphrase_pagination.continuation_pages
-    )
-    page_plans = fallback_page_plans + passphrase_page_plans
-    fallback_proof = build_fallback_proof(
-        inputs,
-        sections,
-        tuple(
-            FallbackPage(page_number=page.page_number, entries=page.entries)
-            for page in fallback_pages
         ),
-    )
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        encoded_payload_count=len(inputs.qr_payloads or inputs.frames),
-        physical_qr_count=0,
-        physical_qr_payload_indexes=(),
-        page_count=len(page_plans),
-        fallback_proof=fallback_proof,
-    )
-    return SentinelRecoveryDirectPlan(
-        page_plans=page_plans,
-        fallback_proof=fallback_proof,
-        artifact_proof=artifact_proof,
+        passphrase_page_builder=lambda continuation_page, page_number, total_pages: (
+            _build_passphrase_continuation_page(
+                surface,
+                context,
+                continuation_page=continuation_page,
+                page_number=page_number,
+                total_pages=total_pages,
+            )
+        ),
     )
 
 
@@ -250,24 +199,6 @@ def _passphrase_inline_text_height(surface: PdfSurface, recovery_meta: RecoveryM
 def _passphrase_continuation_value_rect(page_layout: SentinelPageLayout) -> PdfRect:
     _ = page_layout
     return PdfRect(49.9, 70.0, 110.2, 198.0)
-
-
-def _validate_inputs(inputs: RenderInputs) -> None:
-    normalized_doc_type = inputs.doc_type.strip().lower()
-    if normalized_doc_type != DOC_TYPE_RECOVERY:
-        raise ValueError("direct Sentinel recovery renderer only supports recovery documents")
-    if inputs.render_qr:
-        raise ValueError("direct Sentinel recovery renderer does not place physical QR codes")
-    if not inputs.render_fallback:
-        raise ValueError("direct Sentinel recovery renderer requires fallback rendering")
-    if not inputs.frames:
-        raise ValueError("frames cannot be empty for direct Sentinel recovery rendering")
-    if not inputs.fallback_sections:
-        raise ValueError("fallback_sections are required for direct Sentinel recovery rendering")
-    if inputs.recovery_meta is None:
-        raise ValueError("recovery metadata is required for direct Sentinel recovery rendering")
-
-    resolve_page_geometry(inputs)
 
 
 def _resolve_fallback_layout(
@@ -334,7 +265,7 @@ def _responsive_page_layout(
     pagination: ResponsiveFallbackPagination,
 ) -> _FallbackPageLayout:
     # Profiled pagination owns physical capacity; Sentinel stores
-    # canonical row height because its shell performs the final page reflow.
+    # reference row height because its shell performs the final page reflow.
     if page.page_number == 1:
         reference_area = _FIRST_FALLBACK_AREA
         row_capacity = pagination.first_capacity
@@ -384,19 +315,18 @@ def _build_page(
         )
     else:
         plans.extend(_continuation_body_plans(surface, context, fallback_page))
-    plans.extend(
-        build_sentinel_footer_plans(
-            surface,
-            context,
-            page_label=page_label,
-            page_number=page_number,
-            component_base=_COMPONENT_BASE,
-        )
+    footer_plans = build_sentinel_footer_plans(
+        surface,
+        context,
+        page_label=page_label,
+        page_number=page_number,
+        component_base=_COMPONENT_BASE,
     )
     return build_sentinel_page_plan(
         page_number=page_number,
         page_layout=context.page_layout,
         plans=plans,
+        footer_plans=footer_plans,
         physical_component_ids=_physical_fallback_text_component_ids(fallback_page),
     )
 
@@ -409,7 +339,7 @@ def _build_passphrase_continuation_page(
     page_number: int,
     total_pages: int,
 ) -> DirectPdfPagePlan:
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
     page_label = f"Page {page_number} / {total_pages}"
     value_rect = _passphrase_continuation_value_rect(context.page_layout)
     panel_rect = PdfRect(
@@ -460,25 +390,29 @@ def _build_passphrase_continuation_page(
             TextBox(
                 component_id=f"{prefix}-passphrase-continuation-value",
                 text=continuation_page.text,
+                text_metadata=RenderTextMetadata(
+                    "recovery_passphrase",
+                    print_mode=continuation_page.print_mode,
+                    continuation_index=continuation_page.page_index,
+                ),
                 style=_metadata_value_style(),
                 policy=TextFitPolicy.FAIL,
                 line_height_multiplier=1.15,
             ).plan(surface, value_rect),
         ]
     )
-    plans.extend(
-        build_sentinel_footer_plans(
-            surface,
-            context,
-            page_label=page_label,
-            page_number=page_number,
-            component_base=_COMPONENT_BASE,
-        )
+    footer_plans = build_sentinel_footer_plans(
+        surface,
+        context,
+        page_label=page_label,
+        page_number=page_number,
+        component_base=_COMPONENT_BASE,
     )
     return build_sentinel_page_plan(
         page_number=page_number,
         page_layout=context.page_layout,
         plans=plans,
+        footer_plans=footer_plans,
     )
 
 
@@ -488,7 +422,7 @@ def _warning_plans(
     *,
     page_number: int,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
     return [
         Panel(
             component_id=f"{prefix}-warning-panel",
@@ -505,13 +439,15 @@ def _warning_plans(
         ).plan(surface, PdfRect(14.0, 38.0, 8.0, 8.0)),
         TextBox(
             component_id=f"{prefix}-warning-title",
-            text=str(context.copy.get("warning_title") or "Critical Security Warning").upper(),
+            text=str(
+                context.content.copy.get("warning_title") or "Critical Security Warning"
+            ).upper(),
             style=SENTINEL_THEME.sans_style(size_pt=11.5, bold=True, color=SENTINEL_TEXT),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(23.0, 36.2, 80.0, 5.0)),
         TextBox(
             component_id=f"{prefix}-warning-body",
-            text=str(context.copy.get("warning_body") or ""),
+            text=str(context.content.copy.get("warning_body") or ""),
             style=SENTINEL_THEME.sans_style(size_pt=10.5, color=SENTINEL_BLACK),
             policy=TextFitPolicy.WRAP,
             line_height_multiplier=1.2,
@@ -541,7 +477,7 @@ def _session_log_plans(
     *,
     page_label: str,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     left_rect = PdfRect(10.5, 57.8, 59.4, 216.0)
     plans: list[PaintPlan] = [
         Panel(
@@ -558,13 +494,15 @@ def _session_log_plans(
         ).plan(surface, PdfRect(left_rect.x_mm, left_rect.y_mm, left_rect.width_mm, 19.0)),
         TextBox(
             component_id=f"{prefix}-session-heading",
-            text=str(context.copy.get("session_log_label") or "Recovery Session Log").upper(),
+            text=str(
+                context.content.copy.get("session_log_label") or "Recovery Session Log"
+            ).upper(),
             style=SENTINEL_THEME.sans_style(size_pt=10.5, bold=True, color=SENTINEL_TEXT),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=7.5,
         ).plan(surface, PdfRect(14.0, 62.0, 50.0, 4.8)),
         TextBox(
-            component_id=f"{prefix}-session-helper",
+            component_id=f"{prefix}-session-note",
             text="Complete this checklist before manual transcription.",
             style=SENTINEL_THEME.sans_style(size_pt=8.0, color=SENTINEL_TEXT),
             policy=TextFitPolicy.WRAP,
@@ -589,13 +527,13 @@ def _session_table_plans(
     *,
     page_label: str,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     rows = (
-        ("Doc ID", context.doc_id),
-        ("Generated (UTC)", context.created_timestamp_utc),
-        ("Page", page_label),
-        ("Created Date", context.created_date),
-        ("Quorum", recovery_meta.quorum_value or ""),
+        ("Doc ID", context.content.doc_id, None),
+        ("Generated (UTC)", context.content.created_timestamp_utc, None),
+        ("Page", page_label, None),
+        ("Created Date", context.content.created_date, None),
+        ("Quorum", recovery_meta.quorum_value or "", RenderTextMetadata("recovery_quorum")),
     )
     plans: list[PaintPlan] = [
         Panel(
@@ -606,7 +544,7 @@ def _session_table_plans(
         ).plan(surface, PdfRect(14.0, 85.0, 55.5, 34.0)),
     ]
     y_mm = 89.0
-    for index, (label, value) in enumerate(rows):
+    for index, (label, value, text_metadata) in enumerate(rows):
         plans.extend(
             [
                 TextBox(
@@ -623,6 +561,7 @@ def _session_table_plans(
                 TextBox(
                     component_id=f"{prefix}-session-row-value-{index}",
                     text=value,
+                    text_metadata=text_metadata,
                     style=SENTINEL_THEME.mono_style(size_pt=7.4, color=SENTINEL_TEXT),
                     policy=TextFitPolicy.SHRINK,
                     align=TextAlign.RIGHT,
@@ -635,7 +574,7 @@ def _session_table_plans(
 
 
 def _workspace_check_plans(surface: PdfSurface, context: SentinelShellContext) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     plans: list[PaintPlan] = [
         Rule(
             component_id=f"{prefix}-workspace-dash",
@@ -644,7 +583,7 @@ def _workspace_check_plans(surface: PdfSurface, context: SentinelShellContext) -
         TextBox(
             component_id=f"{prefix}-workspace-title",
             text=str(
-                context.copy.get("workspace_check_label") or "Recovery Workspace Check"
+                context.content.copy.get("workspace_check_label") or "Recovery Workspace Check"
             ).upper(),
             style=SENTINEL_THEME.sans_style(size_pt=8.0, bold=True, color=SENTINEL_TEXT),
             policy=TextFitPolicy.SHRINK,
@@ -652,7 +591,7 @@ def _workspace_check_plans(surface: PdfSurface, context: SentinelShellContext) -
         ).plan(surface, PdfRect(14.0, 126.5, 51.0, 4.3)),
     ]
     y_mm = 132.0
-    for index, line in enumerate(_copy_lines(context.copy.get("workspace_checklist"))):
+    for index, line in enumerate(_copy_lines(context.content.copy.get("workspace_checklist"))):
         text_plan = TextBox(
             component_id=f"{prefix}-workspace-line-{index}",
             text=line,
@@ -661,12 +600,12 @@ def _workspace_check_plans(surface: PdfSurface, context: SentinelShellContext) -
             line_height_multiplier=1.25,
         ).plan(surface, PdfRect(14.0, y_mm, 51.0, 10.5))
         plans.append(text_plan)
-        y_mm += max(8.4, text_plan.proof.used_rect.height_mm + 1.8)
+        y_mm += max(8.4, text_plan.layout.used_rect.height_mm + 1.8)
     return plans
 
 
 def _completion_check_plans(surface: PdfSurface, context: SentinelShellContext) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     plans: list[PaintPlan] = [
         Panel(
             component_id=f"{prefix}-completion-heading-panel",
@@ -677,7 +616,7 @@ def _completion_check_plans(surface: PdfSurface, context: SentinelShellContext) 
         TextBox(
             component_id=f"{prefix}-completion-title",
             text=str(
-                context.copy.get("completion_check_label") or "Recovery Completion Check"
+                context.content.copy.get("completion_check_label") or "Recovery Completion Check"
             ).upper(),
             style=SENTINEL_THEME.sans_style(size_pt=8.8, bold=True, color=SENTINEL_TEXT),
             policy=TextFitPolicy.SHRINK,
@@ -685,7 +624,7 @@ def _completion_check_plans(surface: PdfSurface, context: SentinelShellContext) 
         ).plan(surface, PdfRect(14.0, 221.0, 51.0, 4.5)),
     ]
     y_mm = 228.0
-    for index, line in enumerate(_copy_lines(context.copy.get("completion_checklist"))):
+    for index, line in enumerate(_copy_lines(context.content.copy.get("completion_checklist"))):
         text_plan = TextBox(
             component_id=f"{prefix}-completion-line-{index}",
             text=line,
@@ -694,12 +633,14 @@ def _completion_check_plans(surface: PdfSurface, context: SentinelShellContext) 
             line_height_multiplier=1.24,
         ).plan(surface, PdfRect(14.0, y_mm, 51.0, 8.8))
         plans.append(text_plan)
-        y_mm += max(7.3, text_plan.proof.used_rect.height_mm + 1.4)
+        y_mm += max(7.3, text_plan.layout.used_rect.height_mm + 1.4)
     plans.extend(
         [
             TextBox(
                 component_id=f"{prefix}-sha-label",
-                text=str(context.copy.get("verified_sha_label") or "Verified output SHA-256:"),
+                text=str(
+                    context.content.copy.get("verified_sha_label") or "Verified output SHA-256:"
+                ),
                 style=SENTINEL_THEME.sans_style(size_pt=7.8, color=SENTINEL_TEXT),
                 policy=TextFitPolicy.SHRINK,
                 min_size_pt=6.0,
@@ -724,7 +665,7 @@ def _transcription_panel_plans(
     context: SentinelShellContext,
     fallback_page: _FallbackPageLayout,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     panel_rect = PdfRect(75.2, 57.8, 124.3, 216.0)
     table_rect = _FIRST_FALLBACK_AREA
     plans: list[PaintPlan] = [
@@ -743,15 +684,16 @@ def _transcription_panel_plans(
         TextBox(
             component_id=f"{prefix}-transcription-title",
             text=str(
-                context.copy.get("transcription_sequence_label") or "Manual Transcription Sequence"
+                context.content.copy.get("transcription_sequence_label")
+                or "Manual Transcription Sequence"
             ).upper(),
             style=SENTINEL_THEME.sans_style(size_pt=13.0, bold=True, color=SENTINEL_BLACK),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=9.0,
         ).plan(surface, PdfRect(79.7, 62.2, 96.0, 5.8)),
         TextBox(
-            component_id=f"{prefix}-transcription-helper",
-            text=str(context.copy.get("transcription_helper") or ""),
+            component_id=f"{prefix}-transcription-guidance",
+            text=str(context.content.copy.get("transcription_guidance") or ""),
             style=SENTINEL_THEME.sans_style(size_pt=10.0, color=SENTINEL_TEXT),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=7.2,
@@ -781,7 +723,7 @@ def _first_page_fallback_rows(
     *,
     page_layout: SentinelPageLayout,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     plans: list[PaintPlan] = []
     for index, page_entry in enumerate(fallback_page.entries):
         row_rect = _row_rect(table_rect, page_entry.row_index, fallback_page.row_height_mm)
@@ -924,7 +866,13 @@ def _metadata_plans(surface: PdfSurface, recovery_meta: RecoveryMeta) -> list[Pa
 def _metadata_rows(meta: RecoveryMeta) -> tuple[_SentinelMetadataRow, ...]:
     rows: list[_SentinelMetadataRow] = []
     if meta.quorum_value:
-        rows.append(_SentinelMetadataRow(meta.quorum_label, (meta.quorum_value,)))
+        rows.append(
+            _SentinelMetadataRow(
+                meta.quorum_label,
+                (meta.quorum_value,),
+                text_metadata=RenderTextMetadata("recovery_quorum"),
+            )
+        )
     if meta.passphrase_lines:
         passphrase = recovery_passphrase_display(meta)
         passphrase_lines = (
@@ -937,15 +885,23 @@ def _metadata_rows(meta: RecoveryMeta) -> tuple[_SentinelMetadataRow, ...]:
                 passphrase.label,
                 passphrase_lines,
                 passphrase.guidance,
+                RenderTextMetadata("recovery_passphrase", meta.passphrase_print_mode),
             )
         )
     elif meta.passphrase:
-        rows.append(_SentinelMetadataRow(meta.passphrase_label, (meta.passphrase,)))
+        rows.append(
+            _SentinelMetadataRow(
+                meta.passphrase_label,
+                (meta.passphrase,),
+                text_metadata=RenderTextMetadata("recovery_passphrase", meta.passphrase_print_mode),
+            )
+        )
     if meta.signing_pub_lines:
         rows.append(
             _SentinelMetadataRow(
                 "Master Signing Public Key",
                 tuple(meta.signing_pub_lines),
+                text_metadata=RenderTextMetadata("recovery_signing_public_key"),
             )
         )
     return tuple(rows)
@@ -1056,6 +1012,7 @@ def _metadata_row_plans(
         TextBox(
             component_id=f"sentinel-recovery-p1-metadata-value-{index}",
             text=text,
+            text_metadata=row.text_metadata,
             style=value_style,
             policy=TextFitPolicy.WRAP,
             line_height_multiplier=1.15,
@@ -1072,7 +1029,7 @@ def _continuation_body_plans(
     context: SentinelShellContext,
     fallback_page: _FallbackPageLayout,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     table_rect = PdfRect(15.0, 73.0, 180.0, 180.0)
     plans: list[PaintPlan] = [
         Panel(
@@ -1090,7 +1047,7 @@ def _continuation_body_plans(
         ).plan(surface, PdfRect(18.0, 37.0, 6.0, 6.0)),
         TextBox(
             component_id=f"{prefix}-continuation-text",
-            text=str(context.copy.get("continuation_hint") or ""),
+            text=str(context.content.copy.get("continuation_hint") or ""),
             style=SENTINEL_THEME.sans_style(size_pt=8.5, bold=True, color=SENTINEL_BLACK),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.4,
@@ -1107,19 +1064,19 @@ def _continuation_body_plans(
         ).plan(surface, PdfRect(table_rect.x_mm, table_rect.y_mm + 7.2, table_rect.width_mm, 0.35)),
         TextBox(
             component_id=f"{prefix}-continuation-index-label",
-            text=str(context.copy.get("index_label") or "Idx").upper(),
+            text=str(context.content.copy.get("index_label") or "Idx").upper(),
             style=SENTINEL_THEME.sans_style(size_pt=6.8, bold=True, color=SENTINEL_TEXT),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(table_rect.x_mm + 4.0, table_rect.y_mm + 2.6, 16.0, 3.4)),
         TextBox(
             component_id=f"{prefix}-continuation-data-label",
-            text=str(context.copy.get("data_entry_label") or "Data Entry Block").upper(),
+            text=str(context.content.copy.get("data_entry_label") or "Data Entry Block").upper(),
             style=SENTINEL_THEME.sans_style(size_pt=6.8, bold=True, color=SENTINEL_TEXT),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(table_rect.x_mm + 26.0, table_rect.y_mm + 2.6, 80.0, 3.4)),
         TextBox(
             component_id=f"{prefix}-continuation-verify-label",
-            text=str(context.copy.get("verify_label") or "Verify").upper(),
+            text=str(context.content.copy.get("verify_label") or "Verify").upper(),
             style=SENTINEL_THEME.sans_style(size_pt=6.8, bold=True, color=SENTINEL_TEXT),
             policy=TextFitPolicy.FAIL,
             align=TextAlign.CENTER,
@@ -1143,7 +1100,7 @@ def _continuation_fallback_rows(
     *,
     page_layout: SentinelPageLayout,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     _ = table_rect
     body_rect = _CONTINUATION_FALLBACK_AREA
     plans: list[PaintPlan] = []
@@ -1302,7 +1259,7 @@ def _centered_physical_row_content_rect(
 def _physical_fallback_text_component_ids(
     fallback_page: _FallbackPageLayout,
 ) -> tuple[str, ...]:
-    prefix = component_prefix(_COMPONENT_BASE, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, fallback_page.page_number)
     component_ids: list[str] = []
     for index, page_entry in enumerate(fallback_page.entries):
         if isinstance(page_entry.entry, _FallbackTitleEntry):
@@ -1337,7 +1294,5 @@ def _copy_lines(value: object) -> tuple[str, ...]:
 
 
 __all__ = [
-    "SentinelRecoveryDirectPlan",
     "build_sentinel_recovery_direct_plan",
-    "render_sentinel_recovery_direct_pdf",
 ]

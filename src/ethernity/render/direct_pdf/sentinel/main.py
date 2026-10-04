@@ -1,12 +1,8 @@
-"""Sentinel main-document rendering through direct PDF primitives."""
+"""Sentinel main-document rendering through measured PDF components."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
-
-from ethernity.qr.codec import QrConfig
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import (
     Ellipse,
     ImageBox,
@@ -15,12 +11,11 @@ from ethernity.render.direct_pdf.components import (
     TextAlign,
     TextBox,
 )
-from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import build_qr_document_plan
 from ethernity.render.direct_pdf.page import DirectPdfPagePlan, PaintPlan
-from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
 from ethernity.render.direct_pdf.responsive_layout import GridPolicy, ResolvedGrid, resolve_grid
-from ethernity.render.direct_pdf.sentinel.common import (
+from ethernity.render.direct_pdf.sentinel.shell import (
     SENTINEL_BACKGROUND,
     SENTINEL_BLACK,
     SENTINEL_BORDER,
@@ -36,23 +31,14 @@ from ethernity.render.direct_pdf.sentinel.common import (
     build_sentinel_header_plans,
     build_sentinel_page_plan,
     build_sentinel_shell_context,
-    build_sentinel_surface,
     sentinel_corner_mark_component_ids,
 )
 from ethernity.render.direct_pdf.sentinel.theme import SENTINEL_THEME
-from ethernity.render.direct_pdf.structured_common import (
-    QrPage,
-    QrPayloadItem,
-    component_prefix,
-    qr_payload_items,
-    resolved_qr_payloads,
-)
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
 from ethernity.render.direct_pdf.types import PdfRect
 from ethernity.render.doc_types import DOC_TYPE_MAIN
-from ethernity.render.proofs import build_render_artifact_proof
-from ethernity.render.types import RenderArtifactProof, RenderInputs, RenderResult
+from ethernity.render.types import RenderInputs
 
 _COMPONENT_BASE = "sentinel-main"
 _FIRST_PAGE_CAPACITY = 4
@@ -66,97 +52,24 @@ _ICON_VISIBILITY_OFF = chr(0xE8F5)
 _ICON_INFO = chr(0xE88E)
 
 
-@dataclass(frozen=True)
-class SentinelMainDirectPlan:
-    """Measured pages and app-wide proof for one direct Sentinel main render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    artifact_proof: RenderArtifactProof
-
-
-def render_sentinel_main_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Sentinel main document directly to PDF and return validation proofs."""
-
-    surface = build_sentinel_surface(inputs)
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = build_sentinel_main_direct_plan(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name="sentinel",
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(artifact_proof=plan.artifact_proof, layout_proof=layout_proof)
-
-
 def build_sentinel_main_direct_plan(
-    surface: PdfSurface,
-    inputs: RenderInputs,
-) -> SentinelMainDirectPlan:
-    """Build measured direct-PDF plans and render proof for Sentinel main inputs."""
+    surface: PdfSurface, inputs: RenderInputs
+) -> DirectPdfDocumentPlan:
+    """Build measured Sentinel main pages through the shared QR planner."""
 
-    _validate_inputs(inputs)
-    payloads = resolved_qr_payloads(inputs)
-    items = qr_payload_items(payloads, config=inputs.qr_config or QrConfig())
-    context = build_sentinel_shell_context(inputs, doc_type=DOC_TYPE_MAIN)
-    qr_pages = _paginate_qr_items(items, page_layout=context.page_layout)
-    page_plans = tuple(
-        _build_page(surface, context, qr_page, total_pages=len(qr_pages)) for qr_page in qr_pages
-    )
-    artifact_proof = build_render_artifact_proof(
+    document_inputs.validate_qr_inputs(inputs, expected_doc_type=DOC_TYPE_MAIN)
+    context = build_sentinel_shell_context(inputs, doc_type=inputs.doc_type)
+    return build_qr_document_plan(
         inputs,
-        qr_payloads=payloads,
-        encoded_payload_count=len(payloads),
-        physical_qr_count=len(items),
-        physical_qr_payload_indexes=tuple(item.payload_index for item in items),
-        page_count=len(page_plans),
-        fallback_proof=None,
+        capacity=_continuation_grid(context.page_layout).capacity,
+        first_page_capacity=_FIRST_PAGE_CAPACITY,
+        page_builder=lambda qr_page, total_pages, item_count: _build_page(
+            surface,
+            context,
+            qr_page,
+            total_pages=total_pages,
+        ),
     )
-    return SentinelMainDirectPlan(page_plans=page_plans, artifact_proof=artifact_proof)
-
-
-def _validate_inputs(inputs: RenderInputs) -> None:
-    normalized_doc_type = inputs.doc_type.strip().lower()
-    if normalized_doc_type != DOC_TYPE_MAIN:
-        raise ValueError("direct Sentinel main renderer only supports main documents")
-    if not inputs.render_qr:
-        raise ValueError("direct Sentinel main renderer requires QR rendering")
-    if inputs.render_fallback:
-        raise ValueError("direct Sentinel main renderer does not render fallback text")
-    if not inputs.frames:
-        raise ValueError("frames cannot be empty for direct Sentinel main rendering")
-
-    resolve_page_geometry(inputs)
-
-    qr_config = inputs.qr_config or QrConfig()
-    qr_kind = str(qr_config.kind or "png").strip().lower()
-    if qr_kind != "png":
-        raise ValueError("direct Sentinel main renderer currently supports PNG QR images only")
-
-
-def _paginate_qr_items(
-    items: Sequence[QrPayloadItem],
-    *,
-    page_layout: SentinelPageLayout,
-) -> tuple[QrPage, ...]:
-    if not items:
-        raise ValueError("direct Sentinel main renderer has no QR payloads to render")
-    pages: list[QrPage] = []
-    cursor = 0
-    page_number = 1
-    while cursor < len(items):
-        capacity = (
-            _FIRST_PAGE_CAPACITY if page_number == 1 else _continuation_grid(page_layout).capacity
-        )
-        page_items = tuple(items[cursor : cursor + capacity])
-        pages.append(QrPage(page_number=page_number, items=page_items))
-        cursor += len(page_items)
-        page_number += 1
-    return tuple(pages)
 
 
 def _continuation_grid(page_layout: SentinelPageLayout) -> ResolvedGrid:
@@ -188,12 +101,12 @@ def _continuation_grid(page_layout: SentinelPageLayout) -> ResolvedGrid:
 def _build_page(
     surface: PdfSurface,
     context: SentinelShellContext,
-    qr_page: QrPage,
+    qr_page: document_inputs.QrPage,
     *,
     total_pages: int,
 ) -> DirectPdfPagePlan:
     page_label = f"Page {qr_page.page_number} / {total_pages}"
-    prefix = component_prefix(_COMPONENT_BASE, qr_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, qr_page.page_number)
     plans: list[PaintPlan] = []
     plans.extend(
         build_sentinel_header_plans(
@@ -202,7 +115,10 @@ def _build_page(
             page_label=page_label,
             page_number=qr_page.page_number,
             component_base=_COMPONENT_BASE,
-            top_strip_text="Restricted // Offline Handling Only // Do Not Upload",
+            top_strip_text=str(
+                context.content.copy.get("handling_guidance")
+                or "Restricted // Offline Handling Only // Do Not Upload"
+            ),
             title_default="Main Document",
             subtitle_default="Passphrase-Protected Payload",
         )
@@ -211,25 +127,24 @@ def _build_page(
         plans.extend(_first_page_plans(surface, context, qr_page))
     else:
         plans.extend(_continuation_page_plans(surface, context, qr_page))
-    plans.extend(
-        build_sentinel_footer_plans(
-            surface,
-            context,
-            page_label=page_label,
-            page_number=qr_page.page_number,
-            component_base=_COMPONENT_BASE,
-        )
+    footer_plans = build_sentinel_footer_plans(
+        surface,
+        context,
+        page_label=page_label,
+        page_number=qr_page.page_number,
+        component_base=_COMPONENT_BASE,
     )
     return build_sentinel_page_plan(
         page_number=qr_page.page_number,
         page_layout=context.page_layout,
         plans=plans,
+        footer_plans=footer_plans,
         qr_compounds=_qr_compounds(qr_page, prefix=prefix),
     )
 
 
 def _qr_compounds(
-    qr_page: QrPage,
+    qr_page: document_inputs.QrPage,
     *,
     prefix: str,
 ) -> tuple[SentinelQrCompound, ...]:
@@ -273,7 +188,7 @@ def _qr_compounds(
 def _first_page_plans(
     surface: PdfSurface,
     context: SentinelShellContext,
-    qr_page: QrPage,
+    qr_page: document_inputs.QrPage,
 ) -> list[PaintPlan]:
     plans: list[PaintPlan] = []
     plans.extend(_directive_plans(surface, context))
@@ -287,8 +202,8 @@ def _first_page_plans(
 
 
 def _directive_plans(surface: PdfSurface, context: SentinelShellContext) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
-    instruction_lines = tuple(context.instruction_lines)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
+    instruction_lines = tuple(context.content.instruction_lines)
     plans: list[PaintPlan] = [
         Rule(
             component_id=f"{prefix}-directive-divider",
@@ -296,7 +211,7 @@ def _directive_plans(surface: PdfSurface, context: SentinelShellContext) -> list
         ).plan(surface, PdfRect(70.5, 32.2, 0.25, 169.5)),
         TextBox(
             component_id=f"{prefix}-directives-title",
-            text=str(context.copy.get("directives_label") or "Directives").upper(),
+            text=str(context.content.copy.get("directives_label") or "Directives").upper(),
             style=SENTINEL_THEME.sans_style(size_pt=11.0, bold=True, color=SENTINEL_TEXT),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(15.0, 32.6, 48.0, 5.0)),
@@ -351,7 +266,7 @@ def _directive_row_plans(
 
 
 def _security_notice_plans(surface: PdfSurface, context: SentinelShellContext) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     panel_rect = PdfRect(15.0, 174.0, 51.0, 27.5)
     body_y_mm = panel_rect.y_mm + 12.5
     body_rect = PdfRect(
@@ -376,14 +291,16 @@ def _security_notice_plans(surface: PdfSurface, context: SentinelShellContext) -
         ).plan(surface, PdfRect(18.0, 178.4, 6.0, 6.0)),
         TextBox(
             component_id=f"{prefix}-security-notice-title",
-            text=str(context.copy.get("security_notice_label") or "Security Notice").upper(),
+            text=str(
+                context.content.copy.get("security_notice_label") or "Security Notice"
+            ).upper(),
             style=SENTINEL_THEME.sans_style(size_pt=9.3, bold=True, color=SENTINEL_ORANGE),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.8,
         ).plan(surface, PdfRect(26.0, 179.0, 35.0, 4.2)),
         TextBox(
             component_id=f"{prefix}-security-notice-body",
-            text=str(context.copy.get("security_notice_body") or ""),
+            text=str(context.content.copy.get("security_notice_body") or ""),
             style=SENTINEL_THEME.sans_style(size_pt=7.0, color=SENTINEL_TEXT),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
@@ -395,12 +312,12 @@ def _security_notice_plans(surface: PdfSurface, context: SentinelShellContext) -
 def _primary_qr_plans(
     surface: PdfSurface,
     context: SentinelShellContext,
-    item: QrPayloadItem,
+    item: document_inputs.QrPayloadItem,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, 1)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, 1)
     frame_rect = PdfRect(92.5, 69.5, 87.0, 87.0)
     image_rect = PdfRect(98.0, 75.0, 76.0, 76.0)
-    segment_prefix = str(context.copy.get("segment_prefix") or "Segment")
+    segment_prefix = str(context.content.copy.get("segment_prefix") or "Segment")
     plans: list[PaintPlan] = [
         Panel(
             component_id=f"{prefix}-primary-qr-frame",
@@ -438,13 +355,14 @@ def _primary_qr_plans(
 def _small_qr_card_plans(
     surface: PdfSurface,
     context: SentinelShellContext,
-    item: QrPayloadItem,
+    item: document_inputs.QrPayloadItem,
     rect: PdfRect,
     *,
     page_number: int,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, page_number)
-    label = f"{str(context.copy.get('segment_prefix') or 'Segment').upper()} {item.label_index:02d}"
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page_number)
+    segment_prefix = str(context.content.copy.get("segment_prefix") or "Segment").upper()
+    label = f"{segment_prefix} {item.label_index:02d}"
     image_rect = PdfRect(
         rect.x_mm + (rect.width_mm - _SMALL_CARD_IMAGE_MM) / 2.0,
         rect.y_mm + 15.0,
@@ -498,9 +416,9 @@ def _small_qr_card_plans(
 def _continuation_page_plans(
     surface: PdfSurface,
     context: SentinelShellContext,
-    qr_page: QrPage,
+    qr_page: document_inputs.QrPage,
 ) -> list[PaintPlan]:
-    prefix = component_prefix(_COMPONENT_BASE, qr_page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, qr_page.page_number)
     plans: list[PaintPlan] = [
         Panel(
             component_id=f"{prefix}-continuation-panel",
@@ -517,7 +435,7 @@ def _continuation_page_plans(
         ).plan(surface, PdfRect(18.0, 37.0, 6.0, 6.0)),
         TextBox(
             component_id=f"{prefix}-continuation-hint",
-            text=str(context.copy.get("continuation_hint") or ""),
+            text=str(context.content.copy.get("continuation_hint") or ""),
             style=SENTINEL_THEME.sans_style(size_pt=8.2, color=SENTINEL_BLACK),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
@@ -534,7 +452,5 @@ def _continuation_page_plans(
 
 
 __all__ = [
-    "SentinelMainDirectPlan",
     "build_sentinel_main_direct_plan",
-    "render_sentinel_main_direct_pdf",
 ]

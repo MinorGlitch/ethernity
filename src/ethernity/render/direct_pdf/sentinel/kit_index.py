@@ -1,18 +1,17 @@
-"""Sentinel recovery-kit index rendering through direct PDF primitives."""
+"""Sentinel recovery-kit index rendering through measured PDF components."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import Line, Panel, Rule, TextAlign, TextBox
-from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import assemble_document_plan
 from ethernity.render.direct_pdf.page import DirectPdfPagePlan, PaintPlan
-from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
 from ethernity.render.direct_pdf.responsive_layout import GridPolicy, resolve_grid
-from ethernity.render.direct_pdf.sentinel.common import (
+from ethernity.render.direct_pdf.sentinel.shell import (
     SENTINEL_BACKGROUND,
     SENTINEL_BLACK,
     SENTINEL_BORDER,
@@ -26,32 +25,21 @@ from ethernity.render.direct_pdf.sentinel.common import (
     build_sentinel_header_plans,
     build_sentinel_page_plan,
     build_sentinel_shell_context,
-    build_sentinel_surface,
 )
 from ethernity.render.direct_pdf.sentinel.theme import SENTINEL_THEME
-from ethernity.render.direct_pdf.structured_common import component_prefix
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect
 from ethernity.render.doc_types import DOC_TYPE_KIT_INDEX
-from ethernity.render.proofs import build_render_artifact_proof
-from ethernity.render.types import RenderArtifactProof, RenderInputs, RenderResult
+from ethernity.render.types import RenderInputs
 
 _COMPONENT_BASE = "sentinel-kit-index"
 _MAX_INVENTORY_ROWS = 14
 _MIN_INVENTORY_ROW_HEIGHT_MM = 16.4
 _INVENTORY_TABLE_RECT = PdfRect(15.5, 90.5, 179.0, 60.5)
-_CUSTODY_TABLE_RECT = PdfRect(15.5, 168.0, 179.0, 100.8)
+_HANDLING_LOG_TABLE_RECT = PdfRect(15.5, 168.0, 179.0, 100.8)
 _DASH_COLOR = PdfColor(214, 201, 176)
 _ICON_WARNING = chr(0xE002)
-
-
-@dataclass(frozen=True)
-class SentinelKitIndexDirectPlan:
-    """Measured pages and proof for one direct Sentinel kit-index render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    artifact_proof: RenderArtifactProof
 
 
 @dataclass(frozen=True)
@@ -66,32 +54,13 @@ class _InventoryPage:
     rows: tuple[_InventoryRow, ...]
 
 
-def render_sentinel_kit_index_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Sentinel kit-index document directly to PDF."""
-
-    surface = build_sentinel_surface(inputs)
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = build_sentinel_kit_index_direct_plan(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name="sentinel",
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(artifact_proof=plan.artifact_proof, layout_proof=layout_proof)
-
-
 def build_sentinel_kit_index_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> SentinelKitIndexDirectPlan:
-    """Build measured direct-PDF plans and render proof for Sentinel kit-index inputs."""
+) -> DirectPdfDocumentPlan:
+    """Build measured direct-PDF plans and render layout for Sentinel kit-index inputs."""
 
-    _validate_inputs(inputs)
+    document_inputs.validate_kit_index_inputs(inputs)
     context = build_sentinel_shell_context(inputs, doc_type=DOC_TYPE_KIT_INDEX)
     pages = _paginate_inventory_rows(
         _inventory_rows(inputs.context),
@@ -100,28 +69,7 @@ def build_sentinel_kit_index_direct_plan(
     page_plans = tuple(
         _build_page(surface, context, page, total_pages=len(pages)) for page in pages
     )
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=(),
-        encoded_payload_count=0,
-        physical_qr_count=0,
-        physical_qr_payload_indexes=(),
-        page_count=len(page_plans),
-        fallback_proof=None,
-    )
-    return SentinelKitIndexDirectPlan(page_plans=page_plans, artifact_proof=artifact_proof)
-
-
-def _validate_inputs(inputs: RenderInputs) -> None:
-    normalized_doc_type = inputs.doc_type.strip().lower()
-    if normalized_doc_type != DOC_TYPE_KIT_INDEX:
-        raise ValueError("direct Sentinel kit-index renderer only supports kit-index documents")
-    if inputs.render_qr:
-        raise ValueError("direct Sentinel kit-index renderer does not render QR codes")
-    if inputs.render_fallback:
-        raise ValueError("direct Sentinel kit-index renderer does not render fallback text")
-
-    resolve_page_geometry(inputs)
+    return assemble_document_plan(inputs, page_plans, qr_payloads=(), encoded_payload_count=0)
 
 
 def _inventory_rows(context: Mapping[str, object]) -> tuple[_InventoryRow, ...]:
@@ -138,7 +86,7 @@ def _inventory_rows(context: Mapping[str, object]) -> tuple[_InventoryRow, ...]:
     if resolved:
         return tuple(resolved)
 
-    qr_page_count = _positive_int(context.get("kit_qr_page_count"), default=0)
+    qr_page_count = document_inputs.non_negative_int(context.get("kit_qr_page_count"), default=0)
     if qr_page_count <= 0:
         return (_InventoryRow(component_id="KIT-PAGE-01", detail="No QR chunks"),)
     return tuple(
@@ -197,7 +145,7 @@ def _build_page(
     total_pages: int,
 ) -> DirectPdfPagePlan:
     page_label = f"Page {page.page_number} / {total_pages}"
-    prefix = component_prefix(_COMPONENT_BASE, page.page_number)
+    prefix = document_inputs.component_prefix(_COMPONENT_BASE, page.page_number)
     plans: list[PaintPlan] = []
     plans.extend(
         build_sentinel_header_plans(
@@ -206,28 +154,27 @@ def _build_page(
             page_label=page_label,
             page_number=page.page_number,
             component_base=_COMPONENT_BASE,
-            top_strip_text="Custody Log // Offline Record // Authorized Personnel Only",
+            top_strip_text="Handling Log // Offline Record // Keep Secure",
             title_default="Recovery Kit Index",
-            subtitle_default="Inventory + Custody Log",
+            subtitle_default="Inventory + Handling Log",
         )
     )
     plans.extend(_stats_plans(surface, context, prefix=prefix))
     plans.extend(_warning_plans(surface, context, prefix=prefix))
     plans.extend(_inventory_plans(surface, context, page.rows, prefix=prefix))
-    plans.extend(_custody_plans(surface, context, prefix=prefix))
-    plans.extend(
-        build_sentinel_footer_plans(
-            surface,
-            context,
-            page_label=page_label,
-            page_number=page.page_number,
-            component_base=_COMPONENT_BASE,
-        )
+    plans.extend(_handling_log_plans(surface, context, prefix=prefix))
+    footer_plans = build_sentinel_footer_plans(
+        surface,
+        context,
+        page_label=page_label,
+        page_number=page.page_number,
+        component_base=_COMPONENT_BASE,
     )
     return build_sentinel_page_plan(
         page_number=page.page_number,
         page_layout=context.page_layout,
         plans=plans,
+        footer_plans=footer_plans,
     )
 
 
@@ -239,9 +186,23 @@ def _stats_plans(
 ) -> list[PaintPlan]:
     layout = SENTINEL_THEME.layout
     values = (
-        ("QR PAGES", str(_positive_int(context.values.get("kit_qr_page_count"), default=0))),
-        ("QR CHUNKS", str(_positive_int(context.values.get("kit_qr_chunk_count"), default=0))),
-        ("GENERATED (UTC)", context.created_timestamp_utc),
+        (
+            "QR PAGES",
+            str(
+                document_inputs.non_negative_int(
+                    context.content.values.get("kit_qr_page_count"), default=0
+                )
+            ),
+        ),
+        (
+            "QR CHUNKS",
+            str(
+                document_inputs.non_negative_int(
+                    context.content.values.get("kit_qr_chunk_count"), default=0
+                )
+            ),
+        ),
+        ("GENERATED (UTC)", context.content.created_timestamp_utc),
     )
     plans: list[PaintPlan] = [
         Panel(
@@ -320,7 +281,9 @@ def _warning_plans(
         ).plan(surface, PdfRect(rect.x_mm + 4.5, rect.y_mm + 5.0, 7.5, 7.5)),
         TextBox(
             component_id=f"{prefix}-warning-title",
-            text=str(context.copy.get("warning_title") or "Critical Security Warning").upper(),
+            text=str(
+                context.content.copy.get("warning_title") or "Critical Security Warning"
+            ).upper(),
             style=SENTINEL_THEME.sans_style(size_pt=11.2, bold=True, color=SENTINEL_BLACK),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=8.0,
@@ -328,7 +291,7 @@ def _warning_plans(
         ).plan(surface, PdfRect(rect.x_mm + 14.0, rect.y_mm + 3.8, 95.0, 5.0)),
         TextBox(
             component_id=f"{prefix}-warning-body",
-            text=str(context.copy.get("warning_body") or ""),
+            text=str(context.content.copy.get("warning_body") or ""),
             style=SENTINEL_THEME.sans_style(size_pt=10.0, color=SENTINEL_TEXT),
             policy=TextFitPolicy.WRAP,
             line_height_multiplier=1.12,
@@ -348,7 +311,9 @@ def _inventory_plans(
         *_small_box_icon_plans(surface, prefix=prefix, name="inventory-icon", x_mm=15.8, y_mm=81.4),
         TextBox(
             component_id=f"{prefix}-inventory-title",
-            text=str(context.copy.get("hardware_inventory_label") or "Hardware Inventory").upper(),
+            text=str(
+                context.content.copy.get("hardware_inventory_label") or "Hardware Inventory"
+            ).upper(),
             style=SENTINEL_THEME.sans_style(size_pt=15.0, bold=True, color=SENTINEL_BLACK),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=10.0,
@@ -475,7 +440,7 @@ def _inventory_row_plans(
     ]
 
 
-def _custody_plans(
+def _handling_log_plans(
     surface: PdfSurface,
     context: SentinelShellContext,
     *,
@@ -484,39 +449,41 @@ def _custody_plans(
     plans: list[PaintPlan] = [
         *_small_pen_icon_plans(surface, prefix=prefix, x_mm=15.8, y_mm=159.4),
         TextBox(
-            component_id=f"{prefix}-custody-title",
-            text=str(context.copy.get("chain_of_custody_label") or "Chain of Custody").upper(),
+            component_id=f"{prefix}-handling-log-title",
+            text=str(context.content.copy.get("handling_log_label") or "Handling Log").upper(),
             style=SENTINEL_THEME.sans_style(size_pt=15.0, bold=True, color=SENTINEL_BLACK),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=10.0,
             line_height_multiplier=1.0,
         ).plan(surface, PdfRect(23.5, 158.2, 95.0, 7.0)),
         Panel(
-            component_id=f"{prefix}-custody-table",
+            component_id=f"{prefix}-handling-log-table",
             stroke=SENTINEL_BORDER,
             fill=SENTINEL_WHITE,
             line_width_mm=0.2,
-        ).plan(surface, _CUSTODY_TABLE_RECT),
+        ).plan(surface, _HANDLING_LOG_TABLE_RECT),
         Panel(
-            component_id=f"{prefix}-custody-header",
+            component_id=f"{prefix}-handling-log-header",
             stroke=None,
             fill=SENTINEL_BACKGROUND,
             line_width_mm=0.2,
         ).plan(
             surface,
             PdfRect(
-                _CUSTODY_TABLE_RECT.x_mm,
-                _CUSTODY_TABLE_RECT.y_mm,
-                _CUSTODY_TABLE_RECT.width_mm,
+                _HANDLING_LOG_TABLE_RECT.x_mm,
+                _HANDLING_LOG_TABLE_RECT.y_mm,
+                _HANDLING_LOG_TABLE_RECT.width_mm,
                 11.0,
             ),
         ),
         Rule(
-            component_id=f"{prefix}-custody-header-rule",
+            component_id=f"{prefix}-handling-log-header-rule",
             color=SENTINEL_BORDER,
         ).plan(
             surface,
-            PdfRect(_CUSTODY_TABLE_RECT.x_mm, _CUSTODY_TABLE_RECT.y_mm + 11.0, 179.0, 0.2),
+            PdfRect(
+                _HANDLING_LOG_TABLE_RECT.x_mm, _HANDLING_LOG_TABLE_RECT.y_mm + 11.0, 179.0, 0.2
+            ),
         ),
     ]
     headers = (
@@ -527,7 +494,7 @@ def _custody_plans(
     )
     for label, x_mm, width_mm, align in headers:
         plans.append(
-            _custody_header_plan(
+            _handling_log_header_plan(
                 surface,
                 prefix=prefix,
                 label=label,
@@ -536,11 +503,11 @@ def _custody_plans(
                 align=align,
             )
         )
-    plans.extend(_custody_grid_plans(surface, prefix=prefix))
+    plans.extend(_handling_log_grid_plans(surface, prefix=prefix))
     return plans
 
 
-def _custody_header_plan(
+def _handling_log_header_plan(
     surface: PdfSurface,
     *,
     prefix: str,
@@ -551,34 +518,34 @@ def _custody_header_plan(
 ) -> PaintPlan:
     component_label = label.lower().replace(" / ", "-").replace(" ", "-")
     return TextBox(
-        component_id=f"{prefix}-custody-header-{component_label}",
+        component_id=f"{prefix}-handling-log-header-{component_label}",
         text=label,
         style=SENTINEL_THEME.sans_style(size_pt=8.8, bold=True, color=SENTINEL_TEXT),
         policy=TextFitPolicy.SHRINK,
         min_size_pt=6.0,
         align=align,
-    ).plan(surface, PdfRect(x_mm, _CUSTODY_TABLE_RECT.y_mm + 3.7, width_mm, 4.0))
+    ).plan(surface, PdfRect(x_mm, _HANDLING_LOG_TABLE_RECT.y_mm + 3.7, width_mm, 4.0))
 
 
-def _custody_grid_plans(surface: PdfSurface, *, prefix: str) -> list[PaintPlan]:
+def _handling_log_grid_plans(surface: PdfSurface, *, prefix: str) -> list[PaintPlan]:
     plans: list[PaintPlan] = []
-    body_y = _CUSTODY_TABLE_RECT.y_mm + 11.0
-    body_height = _CUSTODY_TABLE_RECT.height_mm - 11.0
+    body_y = _HANDLING_LOG_TABLE_RECT.y_mm + 11.0
+    body_height = _HANDLING_LOG_TABLE_RECT.height_mm - 11.0
     row_height = body_height / 7.0
     for index in range(1, 7):
         y_mm = body_y + index * row_height
         plans.append(
             Rule(
-                component_id=f"{prefix}-custody-row-rule-{index}",
+                component_id=f"{prefix}-handling-log-row-rule-{index}",
                 color=SENTINEL_BORDER,
-            ).plan(surface, PdfRect(_CUSTODY_TABLE_RECT.x_mm, y_mm, 179.0, 0.16))
+            ).plan(surface, PdfRect(_HANDLING_LOG_TABLE_RECT.x_mm, y_mm, 179.0, 0.16))
         )
     for index, x_mm in enumerate((52.5, 97.5, 149.5)):
         plans.extend(
             _vertical_dash_line_plans(
                 surface,
                 prefix=prefix,
-                name=f"custody-col-{index}",
+                name=f"handling-log-col-{index}",
                 x_mm=x_mm,
                 y_mm=body_y,
                 height_mm=body_height,
@@ -620,7 +587,7 @@ def _small_pen_icon_plans(
 ) -> list[PaintPlan]:
     return [
         Line(
-            component_id=f"{prefix}-custody-icon-pen",
+            component_id=f"{prefix}-handling-log-icon-pen",
             color=SENTINEL_BLACK,
             line_width_mm=0.55,
         ).plan(
@@ -631,7 +598,7 @@ def _small_pen_icon_plans(
             end_y_mm=y_mm + 5.2,
         ),
         Panel(
-            component_id=f"{prefix}-custody-icon-box",
+            component_id=f"{prefix}-handling-log-icon-box",
             stroke=SENTINEL_BLACK,
             fill=None,
             line_width_mm=0.5,
@@ -703,14 +670,6 @@ def _vertical_dash_line_plans(
     return plans
 
 
-def _positive_int(value: object, *, default: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return default
-    return max(0, value)
-
-
 __all__ = [
-    "SentinelKitIndexDirectPlan",
     "build_sentinel_kit_index_direct_plan",
-    "render_sentinel_kit_index_direct_pdf",
 ]

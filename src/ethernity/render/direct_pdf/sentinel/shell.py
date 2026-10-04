@@ -1,15 +1,14 @@
-"""Shared Sentinel direct-PDF shell helpers."""
+"""Build the Sentinel direct-PDF page shell."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timezone
 
-from ethernity.render.copy_catalog import build_copy_bundle, build_instruction_copy
+from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.components import (
-    BoxPlacementProof,
+    BoxPlacement,
     EllipsePlan,
     ImageBoxPlan,
     LinePlan,
@@ -21,7 +20,7 @@ from ethernity.render.direct_pdf.components import (
     TextBox,
     TextBoxPlan,
     TextLinePlacement,
-    TextPlacementProof,
+    TextPlacement,
 )
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
@@ -34,19 +33,10 @@ from ethernity.render.direct_pdf.page import (
 from ethernity.render.direct_pdf.page_geometry import PageGeometry, resolve_page_geometry
 from ethernity.render.direct_pdf.responsive_layout import Insets, PageRegions, resolve_page_regions
 from ethernity.render.direct_pdf.sentinel.theme import SENTINEL_THEME
-from ethernity.render.direct_pdf.structured_common import (
-    component_prefix,
-    generator_label,
-    lineage_payload,
-    resolve_doc_id,
-    timestamp_from_string,
-)
-from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
+from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitError, TextFitPolicy
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect
-from ethernity.render.template_style import TemplateCapabilities, load_template_style
-from ethernity.render.types import RenderInputs, RenderLineage
-from ethernity.version import get_ethernity_version
+from ethernity.render.types import RenderInputs
 
 SENTINEL_PAGE_RECT = PdfRect(
     0.0,
@@ -90,7 +80,7 @@ _CORNER_MARK_SUFFIXES = (
 
 @dataclass(frozen=True)
 class SentinelPageLayout:
-    """Dimension-driven Sentinel safe area and canonical-design reflow anchors."""
+    """Dimension-driven Sentinel safe area and reference-design reflow anchors."""
 
     geometry: PageGeometry
     horizontal_offset_mm: float
@@ -104,7 +94,7 @@ class SentinelPageLayout:
         return self.geometry.rect
 
     def map_x(self, value_mm: float) -> float:
-        """Center a canonical Sentinel x coordinate on the configured page."""
+        """Center a reference Sentinel x coordinate on the configured page."""
 
         return value_mm + self.horizontal_offset_mm
 
@@ -153,7 +143,7 @@ class SentinelPageLayout:
         return PdfRect(x_mm, y_mm, width_mm, height_mm)
 
     def reference_rect(self, rect: PdfRect) -> PdfRect:
-        """Convert a measured page rectangle to canonical planning coordinates."""
+        """Convert a measured page rectangle to reference planning coordinates."""
 
         y_mm = self.reference_y(rect.y_mm)
         return PdfRect(
@@ -198,7 +188,7 @@ class SentinelQrCompound:
         if self.caption_component_id is not None:
             required_ids.add(self.caption_component_id)
         if not required_ids.issubset(member_ids):
-            raise ValueError("Sentinel QR compound members must include all semantic components")
+            raise ValueError("Sentinel QR compound members must include all required components")
         for field_name, value in (
             ("minimum_marker_clearance_mm", self.minimum_marker_clearance_mm),
             ("minimum_caption_clearance_mm", self.minimum_caption_clearance_mm),
@@ -248,39 +238,12 @@ def build_sentinel_page_layout(inputs: RenderInputs) -> SentinelPageLayout:
     )
 
 
-def build_sentinel_surface(inputs: RenderInputs | None = None) -> FpdfSurface:
-    """Create a PDF surface with Sentinel's page geometry."""
-
-    if inputs is None:
-        width_mm = SENTINEL_THEME.layout.page_width_mm
-        height_mm = SENTINEL_THEME.layout.page_height_mm
-    else:
-        geometry = resolve_page_geometry(inputs)
-        width_mm = geometry.width_mm
-        height_mm = geometry.height_mm
-    return FpdfSurface(
-        page_width_mm=width_mm,
-        page_height_mm=height_mm,
-    )
-
-
 @dataclass(frozen=True)
 class SentinelShellContext:
-    """Shared copy and metadata used by Sentinel direct-PDF document shells."""
+    """Shared document content paired with Sentinel's responsive layout."""
 
-    doc_type: str
-    doc_id: str
-    created_timestamp_utc: str
-    created_date: str
-    copy: dict[str, object]
-    instructions_label: str
-    instruction_lines: tuple[str, ...]
-    footer_left: str
-    footer_right: str
-    lineage: RenderLineage
-    values: dict[str, object]
+    content: document_inputs.DocumentRenderContext
     page_layout: SentinelPageLayout
-    capabilities: TemplateCapabilities
 
 
 def build_sentinel_shell_context(
@@ -288,33 +251,11 @@ def build_sentinel_shell_context(
     *,
     doc_type: str,
 ) -> SentinelShellContext:
-    """Build Sentinel shell context from existing render inputs and copy catalogs."""
+    """Pair normalized document content with the Sentinel page geometry."""
 
-    base_context = dict(inputs.context)
-    created_timestamp_utc = resolve_created_timestamp(base_context)
-    created_date = str(base_context.get("created_date") or "")
-    doc_id = resolve_doc_id(inputs, base_context)
-    base_context["doc_id"] = doc_id
-    base_context["lineage"] = lineage_payload(inputs.lineage)
-
-    page_layout = build_sentinel_page_layout(inputs)
-    base_context["paper_size"] = page_layout.geometry.paper_size
-    copy = build_copy_bundle(doc_type=doc_type, context=base_context)
-    instructions = build_instruction_copy(doc_type=doc_type, context=base_context)
     return SentinelShellContext(
-        doc_type=doc_type,
-        doc_id=doc_id,
-        created_timestamp_utc=created_timestamp_utc,
-        created_date=created_date,
-        copy=copy,
-        instructions_label=instructions.label,
-        instruction_lines=instructions.lines,
-        footer_left=generator_label(get_ethernity_version()),
-        footer_right=str(copy.get("footer_guidance") or ""),
-        lineage=inputs.lineage,
-        values=base_context,
-        page_layout=page_layout,
-        capabilities=load_template_style(inputs.design_name).capabilities,
+        content=document_inputs.build_document_render_context(inputs, doc_type=doc_type),
+        page_layout=build_sentinel_page_layout(inputs),
     )
 
 
@@ -323,28 +264,41 @@ def build_sentinel_page_plan(
     page_number: int,
     page_layout: SentinelPageLayout,
     plans: list[PaintPlan],
+    footer_plans: Sequence[PaintPlan] = (),
     qr_compounds: Sequence[SentinelQrCompound] = (),
+    qr_image_component_ids: Sequence[str] = (),
     physical_component_ids: Sequence[str] = (),
+    fixed_height_component_ids: Sequence[str] = (),
 ) -> DirectPdfPagePlan:
-    """Reflow canonical Sentinel placements and build a geometry-checked page."""
+    """Reflow reference Sentinel placements and build a geometry-checked page."""
 
-    reference_plans = tuple(plans)
+    reference_plans = (*plans, *footer_plans)
     compounds = tuple(qr_compounds)
-    physical_ids = tuple(physical_component_ids)
-    if len(set(physical_ids)) != len(physical_ids):
-        raise ValueError("Sentinel physical component ids must be unique")
     plan_ids = {plan.component_id for plan in reference_plans}
-    missing_physical_ids = set(physical_ids).difference(plan_ids)
-    if missing_physical_ids:
-        raise ValueError(
-            "Sentinel physical component references missing plan: "
-            f"{sorted(missing_physical_ids)[0]}"
-        )
-    physical_id_set = set(physical_ids)
+    footer_ids = _validated_component_ids(
+        tuple(plan.component_id for plan in footer_plans), available_ids=plan_ids, label="footer"
+    )
+    if footer_ids.intersection(plan.component_id for plan in plans):
+        raise ValueError("Sentinel body and footer components must be separate")
+    qr_ids = (
+        *(compound.image_component_id for compound in compounds),
+        *qr_image_component_ids,
+    )
+    _validated_component_ids(qr_ids, available_ids=plan_ids, label="QR image")
+    physical_id_set = _validated_component_ids(
+        physical_component_ids, available_ids=plan_ids, label="physical"
+    )
+    fixed_height_ids = _validated_component_ids(
+        fixed_height_component_ids, available_ids=plan_ids, label="fixed-height"
+    ) | {compound.anchor_component_id for compound in compounds}
     responsive_plans = _anchor_qr_compounds(
         reference_plans,
         tuple(
-            plan if plan.component_id in physical_id_set else _reflow_paint_plan(plan, page_layout)
+            plan
+            if plan.component_id in physical_id_set
+            else _reflow_paint_plan(
+                plan, page_layout, preserve_height=plan.component_id in fixed_height_ids
+            )
             for plan in reference_plans
         ),
         compounds,
@@ -358,10 +312,26 @@ def build_sentinel_page_plan(
                 responsive_plans,
                 page_layout,
                 page_number=page_number,
+                footer_component_ids=footer_ids,
+                qr_component_ids=qr_ids,
             ),
             *_qr_compound_separation_constraints(compounds, page_number=page_number),
         ),
     )
+
+
+def _validated_component_ids(
+    component_ids: Sequence[str], *, available_ids: set[str], label: str
+) -> set[str]:
+    resolved = set(component_ids)
+    if len(resolved) != len(component_ids):
+        raise ValueError(f"Sentinel {label} component ids must be unique")
+    missing_ids = resolved.difference(available_ids)
+    if missing_ids:
+        raise ValueError(
+            f"Sentinel {label} component references missing plan: {sorted(missing_ids)[0]}"
+        )
+    return resolved
 
 
 def build_sentinel_header_plans(
@@ -371,17 +341,17 @@ def build_sentinel_header_plans(
     page_label: str,
     page_number: int,
     component_base: str,
-    top_strip_text: str = "Emergency Recovery Material // Keep Offline // Never Photograph",
+    top_strip_text: str = "Emergency Recovery Documents // Keep Offline // Never Photograph",
     title_default: str = "Document",
     subtitle_default: str = "",
 ) -> list[PaintPlan]:
     """Build measured Sentinel header plans for a direct-PDF page."""
 
-    prefix = component_prefix(component_base, page_number)
+    prefix = document_inputs.component_prefix(component_base, page_number)
     layout = SENTINEL_THEME.layout
     text = SENTINEL_THEME.text
-    title = str(context.copy.get("title") or title_default).upper()
-    subtitle = str(context.copy.get("subtitle") or subtitle_default).upper()
+    title = str(context.content.copy.get("title") or title_default).upper()
+    subtitle = str(context.content.copy.get("subtitle") or subtitle_default).upper()
     title_box = TextBox(
         component_id=f"{prefix}-header-title",
         text=title,
@@ -426,7 +396,7 @@ def build_sentinel_header_plans(
                 size_pt=text.top_strip_pt,
                 bold=True,
                 color=SENTINEL_BLACK,
-                char_spacing_mm=0.25,
+                char_spacing_pt=0.25,
             ),
             policy=TextFitPolicy.SHRINK,
             align=TextAlign.CENTER,
@@ -451,14 +421,14 @@ def build_sentinel_header_plans(
             style=SENTINEL_THEME.sans_style(
                 size_pt=text.header_subtitle_pt,
                 color=SENTINEL_MUTED,
-                char_spacing_mm=0.26,
+                char_spacing_pt=0.26,
             ),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=text.header_subtitle_min_pt,
         ).plan(surface, subtitle_rect),
         TextBox(
             component_id=f"{prefix}-header-doc-id",
-            text=f"DOC ID: {context.doc_id}",
+            text=f"DOC ID: {context.content.doc_id}",
             style=SENTINEL_THEME.mono_style(size_pt=text.header_meta_pt, color=SENTINEL_TEXT),
             policy=TextFitPolicy.SHRINK,
             align=TextAlign.RIGHT,
@@ -466,7 +436,7 @@ def build_sentinel_header_plans(
         ).plan(surface, PdfRect(136.0, 15.1, 59.0, 4.0)),
         TextBox(
             component_id=f"{prefix}-header-generated",
-            text=f"GENERATED (UTC): {context.created_timestamp_utc}",
+            text=f"GENERATED (UTC): {context.content.created_timestamp_utc}",
             style=SENTINEL_THEME.mono_style(size_pt=text.header_meta_pt, color=SENTINEL_TEXT),
             policy=TextFitPolicy.SHRINK,
             align=TextAlign.RIGHT,
@@ -504,7 +474,7 @@ def build_sentinel_footer_plans(
 ) -> list[PaintPlan]:
     """Build measured Sentinel footer plans for a direct-PDF page."""
 
-    prefix = component_prefix(component_base, page_number)
+    prefix = document_inputs.component_prefix(component_base, page_number)
     layout = SENTINEL_THEME.layout
     text = SENTINEL_THEME.text
     mono_style = SENTINEL_THEME.mono_style(size_pt=text.footer_pt, color=SENTINEL_TEXT)
@@ -523,7 +493,7 @@ def build_sentinel_footer_plans(
         ),
         TextBox(
             component_id=f"{prefix}-footer-left",
-            text=context.footer_left.upper(),
+            text=context.content.footer_left.upper(),
             style=mono_style,
             policy=TextFitPolicy.SHRINK,
             min_size_pt=text.footer_min_pt,
@@ -537,7 +507,7 @@ def build_sentinel_footer_plans(
         ).plan(surface, PdfRect(81.0, 290.0, 48.0, 4.5)),
         TextBox(
             component_id=f"{prefix}-footer-right",
-            text=context.footer_right.upper(),
+            text=context.content.footer_right.upper(),
             style=mono_style,
             policy=TextFitPolicy.SHRINK,
             align=TextAlign.RIGHT,
@@ -609,60 +579,33 @@ def sentinel_corner_mark_component_ids(
     return tuple(f"{component_prefix}-{marker_name}-{suffix}" for suffix in _CORNER_MARK_SUFFIXES)
 
 
-def resolve_created_timestamp(base_context: dict[str, object]) -> str:
-    """Normalize created timestamp fields for direct Sentinel display."""
-
-    created_value = base_context.get("created_timestamp_utc")
-    if created_value is None:
-        created_value = base_context.get("created_date")
-
-    created_dt = None
-    created_timestamp_utc = None
-    if isinstance(created_value, datetime):
-        if created_value.tzinfo is None:
-            created_value = created_value.replace(tzinfo=timezone.utc)
-        created_dt = created_value.astimezone(timezone.utc)
-    elif isinstance(created_value, date):
-        created_dt = datetime.combine(created_value, datetime.min.time(), tzinfo=timezone.utc)
-    elif isinstance(created_value, str):
-        created_timestamp_utc, created_dt = timestamp_from_string(created_value)
-
-    if created_timestamp_utc is None:
-        created_dt = created_dt or datetime.now(timezone.utc)
-        created_timestamp_utc = created_dt.strftime("%Y-%m-%d %H:%M UTC")
-
-    base_context["created_timestamp_utc"] = created_timestamp_utc
-    if created_dt is not None:
-        base_context["created_date"] = created_dt.date().isoformat()
-    return created_timestamp_utc
-
-
-def _reflow_paint_plan(plan: PaintPlan, layout: SentinelPageLayout) -> PaintPlan:
+def _reflow_paint_plan(
+    plan: PaintPlan, layout: SentinelPageLayout, *, preserve_height: bool
+) -> PaintPlan:
     if isinstance(plan, PanelPlan):
-        preserve_height = "qr-frame" in plan.component_id or "qr-image-frame" in plan.component_id
         rect = layout.map_rect(plan.rect, preserve_height=preserve_height)
-        return replace(plan, rect=rect, proof=_box_proof(plan.proof, rect))
+        return replace(plan, rect=rect, layout=_box_placement(plan.layout, rect))
     if isinstance(plan, RulePlan):
         rect = layout.map_rect(plan.rect)
-        return replace(plan, rect=rect, proof=_box_proof(plan.proof, rect))
+        return replace(plan, rect=rect, layout=_box_placement(plan.layout, rect))
     if isinstance(plan, EllipsePlan):
         rect = layout.map_rect(plan.rect, preserve_height=True)
-        return replace(plan, rect=rect, proof=_box_proof(plan.proof, rect))
+        return replace(plan, rect=rect, layout=_box_placement(plan.layout, rect))
     if isinstance(plan, ImageBoxPlan):
         rect = layout.map_rect(plan.rect, preserve_height=True)
-        return replace(plan, rect=rect, proof=_box_proof(plan.proof, rect))
+        return replace(plan, rect=rect, layout=_box_placement(plan.layout, rect))
     if isinstance(plan, LinePlan):
         start_x, end_x = _mapped_line_x(plan, layout)
         start_y = layout.map_y(plan.start_y_mm)
         end_y = layout.map_y(plan.end_y_mm)
-        proof_rect = layout.map_rect(plan.proof.rect)
+        layout_rect = layout.map_rect(plan.layout.rect)
         return replace(
             plan,
             start_x_mm=start_x,
             start_y_mm=start_y,
             end_x_mm=end_x,
             end_y_mm=end_y,
-            proof=_box_proof(plan.proof, proof_rect),
+            layout=_box_placement(plan.layout, layout_rect),
         )
     if isinstance(plan, TextBoxPlan):
         return _reflow_text_plan(plan, layout)
@@ -672,12 +615,12 @@ def _reflow_paint_plan(plan: PaintPlan, layout: SentinelPageLayout) -> PaintPlan
 def _reflow_text_plan(plan: TextBoxPlan, layout: SentinelPageLayout) -> TextBoxPlan:
     mapped_rect = layout.map_rect(plan.rect)
     mapped_used_rect = PdfRect(
-        layout.map_x(plan.proof.used_rect.x_mm),
-        layout.map_y(plan.proof.used_rect.y_mm),
-        plan.proof.used_rect.width_mm,
-        plan.proof.used_rect.height_mm,
+        layout.map_x(plan.layout.used_rect.x_mm),
+        mapped_rect.y_mm + plan.layout.used_rect.y_mm - plan.rect.y_mm,
+        plan.layout.used_rect.width_mm,
+        plan.layout.used_rect.height_mm,
     )
-    required_height = max(mapped_rect.height_mm, mapped_used_rect.height_mm)
+    required_height = max(mapped_rect.height_mm, plan.fit.height_mm)
     rect = replace(mapped_rect, height_mm=required_height)
     y_delta = rect.y_mm - plan.rect.y_mm
     lines = tuple(
@@ -689,17 +632,17 @@ def _reflow_text_plan(plan: TextBoxPlan, layout: SentinelPageLayout) -> TextBoxP
         )
         for line in plan.lines
     )
-    proof = TextPlacementProof(
-        component_id=plan.proof.component_id,
+    placement = TextPlacement(
+        component_id=plan.layout.component_id,
         rect=rect,
         used_rect=mapped_used_rect,
-        policy=plan.proof.policy,
-        line_count=plan.proof.line_count,
-        overflow_line_count=plan.proof.overflow_line_count,
-        font_size_pt=plan.proof.font_size_pt,
-        overflow=plan.proof.overflow,
+        policy=plan.layout.policy,
+        line_count=plan.layout.line_count,
+        overflow_line_count=plan.layout.overflow_line_count,
+        font_size_pt=plan.layout.font_size_pt,
+        overflow=plan.layout.overflow,
     )
-    return replace(plan, rect=rect, lines=lines, proof=proof)
+    return replace(plan, rect=rect, lines=lines, layout=placement)
 
 
 def _anchor_qr_compounds(
@@ -729,8 +672,8 @@ def _anchor_qr_compounds(
             raise ValueError(
                 f"Sentinel QR compound references missing anchor: {compound.anchor_component_id}"
             )
-        x_delta_mm = responsive_anchor.proof.rect.x_mm - reference_anchor.proof.rect.x_mm
-        y_delta_mm = responsive_anchor.proof.rect.y_mm - reference_anchor.proof.rect.y_mm
+        x_delta_mm = responsive_anchor.layout.rect.x_mm - reference_anchor.layout.rect.x_mm
+        y_delta_mm = responsive_anchor.layout.rect.y_mm - reference_anchor.layout.rect.y_mm
         for component_id in compound.member_component_ids:
             reference_plan = reference_by_id.get(component_id)
             if reference_plan is None:
@@ -751,10 +694,10 @@ def _translate_paint_plan(
 ) -> PaintPlan:
     if isinstance(plan, (PanelPlan, RulePlan, EllipsePlan, ImageBoxPlan)):
         rect = _translated_rect(plan.rect, x_delta_mm=x_delta_mm, y_delta_mm=y_delta_mm)
-        return replace(plan, rect=rect, proof=_box_proof(plan.proof, rect))
+        return replace(plan, rect=rect, layout=_box_placement(plan.layout, rect))
     if isinstance(plan, LinePlan):
-        proof_rect = _translated_rect(
-            plan.proof.rect,
+        layout_rect = _translated_rect(
+            plan.layout.rect,
             x_delta_mm=x_delta_mm,
             y_delta_mm=y_delta_mm,
         )
@@ -764,16 +707,16 @@ def _translate_paint_plan(
             start_y_mm=plan.start_y_mm + y_delta_mm,
             end_x_mm=plan.end_x_mm + x_delta_mm,
             end_y_mm=plan.end_y_mm + y_delta_mm,
-            proof=_box_proof(plan.proof, proof_rect),
+            layout=_box_placement(plan.layout, layout_rect),
         )
     if isinstance(plan, TextBoxPlan):
         rect = _translated_rect(plan.rect, x_delta_mm=x_delta_mm, y_delta_mm=y_delta_mm)
         used_rect = _translated_rect(
-            plan.proof.used_rect,
+            plan.layout.used_rect,
             x_delta_mm=x_delta_mm,
             y_delta_mm=y_delta_mm,
         )
-        proof = replace(plan.proof, rect=rect, used_rect=used_rect)
+        layout = replace(plan.layout, rect=rect, used_rect=used_rect)
         lines = tuple(
             replace(
                 line,
@@ -782,7 +725,7 @@ def _translate_paint_plan(
             )
             for line in plan.lines
         )
-        return replace(plan, rect=rect, proof=proof, lines=lines)
+        return replace(plan, rect=rect, layout=layout, lines=lines)
     raise TypeError(f"unsupported Sentinel QR compound plan: {type(plan).__name__}")
 
 
@@ -799,8 +742,8 @@ def _translated_rect(
     )
 
 
-def _box_proof(proof: BoxPlacementProof, rect: PdfRect) -> BoxPlacementProof:
-    return replace(proof, rect=rect)
+def _box_placement(layout: BoxPlacement, rect: PdfRect) -> BoxPlacement:
+    return replace(layout, rect=rect)
 
 
 def _mapped_line_x(plan: LinePlan, layout: SentinelPageLayout) -> tuple[float, float]:
@@ -823,6 +766,8 @@ def _footer_separation_constraints(
     layout: SentinelPageLayout,
     *,
     page_number: int,
+    footer_component_ids: set[str],
+    qr_component_ids: tuple[str, ...],
 ) -> tuple[SeparationConstraint, ...]:
     footer_region = LayoutRegion(
         region_id=f"sentinel-footer-region-p{page_number}",
@@ -834,7 +779,7 @@ def _footer_separation_constraints(
         ),
     )
     body_component_ids = tuple(
-        plan.component_id for plan in plans if "-footer-" not in plan.component_id
+        plan.component_id for plan in plans if plan.component_id not in footer_component_ids
     )
     constraints: list[SeparationConstraint] = []
     if body_component_ids:
@@ -849,7 +794,6 @@ def _footer_separation_constraints(
                 minimum_clearance_mm=_BODY_FOOTER_CLEARANCE_MM,
             )
         )
-    qr_component_ids = tuple(plan.component_id for plan in plans if "qr-image" in plan.component_id)
     if qr_component_ids:
         constraints.append(
             SeparationConstraint(
@@ -927,6 +871,5 @@ __all__ = [
     "build_sentinel_page_layout",
     "build_sentinel_page_plan",
     "build_sentinel_shell_context",
-    "build_sentinel_surface",
     "sentinel_corner_mark_component_ids",
 ]

@@ -15,7 +15,7 @@ from ethernity.render.direct_pdf.fallback_layout import (
     paginate_single_page_fallback_columns,
 )
 from ethernity.render.direct_pdf.responsive_layout import GridPolicy, ResolvedGrid, resolve_grid
-from ethernity.render.direct_pdf.sentinel.common import SENTINEL_BLACK, SentinelPageLayout
+from ethernity.render.direct_pdf.sentinel.shell import SENTINEL_BLACK, SentinelPageLayout
 from ethernity.render.direct_pdf.sentinel.theme import SENTINEL_THEME
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_measure import measured_grouped_line_length

@@ -2,20 +2,18 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
-from ethernity.render.direct_pdf.page_geometry import A4_HEIGHT_MM, A4_WIDTH_MM
-from ethernity.render.direct_pdf.sentinel.kit_index import (
-    build_sentinel_kit_index_direct_plan,
-    render_sentinel_kit_index_direct_pdf,
-)
-from ethernity.render.direct_pdf.surface import FpdfSurface
-from ethernity.render.doc_types import DOC_TYPE_KIT_INDEX
-from ethernity.render.proofs import (
+from ethernity.render import render_frames_to_pdf
+from ethernity.render.checks import (
     validate_pdf_has_pages,
-    validate_render_artifact_proof,
+    validate_rendered_document_summary,
     validate_text_in_pdf,
 )
-from ethernity.render.types import RenderInputs, RenderLineage
+from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf.page_geometry import A4_HEIGHT_MM, A4_WIDTH_MM
+from ethernity.render.direct_pdf.sentinel.kit_index import build_sentinel_kit_index_direct_plan
+from ethernity.render.direct_pdf.surface import FpdfSurface
+from ethernity.render.doc_types import DOC_TYPE_KIT_INDEX
+from ethernity.render.types import DocumentOrigin, RenderInputs
 
 
 def _inputs(output_path: Path, *, row_count: int = 3) -> RenderInputs:
@@ -39,7 +37,7 @@ def _inputs(output_path: Path, *, row_count: int = 3) -> RenderInputs:
         },
         doc_type=DOC_TYPE_KIT_INDEX,
         design_name="sentinel",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         qr_payloads=(),
         render_qr=False,
         render_fallback=False,
@@ -47,7 +45,7 @@ def _inputs(output_path: Path, *, row_count: int = 3) -> RenderInputs:
 
 
 class TestDirectPdfSentinelKitIndex(unittest.TestCase):
-    def test_build_plan_uses_inventory_and_custody_layout(self) -> None:
+    def test_build_plan_uses_inventory_and_handling_log_layout(self) -> None:
         with TemporaryDirectory() as tmp:
             inputs = _inputs(Path(tmp) / "kit_index.pdf", row_count=6)
             surface = FpdfSurface(page_width_mm=A4_WIDTH_MM, page_height_mm=A4_HEIGHT_MM)
@@ -56,17 +54,17 @@ class TestDirectPdfSentinelKitIndex(unittest.TestCase):
             plan = build_sentinel_kit_index_direct_plan(surface, inputs)
 
             self.assertEqual(len(plan.page_plans), 2)
-            component_ids = plan.page_plans[0].proof.component_ids
+            component_ids = plan.page_plans[0].layout.component_ids
             self.assertIn("sentinel-kit-index-p1-stats-band", component_ids)
             self.assertIn("sentinel-kit-index-p1-warning-panel", component_ids)
             self.assertIn("sentinel-kit-index-p1-inventory-table", component_ids)
-            self.assertIn("sentinel-kit-index-p1-custody-table", component_ids)
-            self.assertFalse(plan.page_plans[0].proof.overflow)
-            self.assertEqual(plan.artifact_proof.physical_qr_count, 0)
-            validate_render_artifact_proof(
-                artifact_label="direct Sentinel kit-index document",
+            self.assertIn("sentinel-kit-index-p1-handling-log-table", component_ids)
+            self.assertFalse(plan.page_plans[0].layout.overflow)
+            self.assertEqual(plan.document_summary.physical_qr_count, 0)
+            validate_rendered_document_summary(
+                document_label="direct Sentinel kit-index document",
                 inputs=inputs,
-                artifact_proof=plan.artifact_proof,
+                document_summary=plan.document_summary,
             )
 
     def test_render_writes_valid_pdf_with_inventory_text(self) -> None:
@@ -74,19 +72,19 @@ class TestDirectPdfSentinelKitIndex(unittest.TestCase):
             output_path = Path(tmp) / "kit_index.pdf"
             inputs = _inputs(output_path, row_count=2)
 
-            result = render_sentinel_kit_index_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct Sentinel kit-index document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct Sentinel kit-index document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
             validate_text_in_pdf(
-                artifact_label="direct Sentinel kit-index document",
+                document_label="direct Sentinel kit-index document",
                 reader=reader,
-                expected_text=("RECOVERY KIT INDEX", "HARDWARE INVENTORY", "CHAIN OF CUSTODY"),
+                expected_text=("RECOVERY KIT INDEX", "HARDWARE INVENTORY", "HANDLING LOG"),
             )
 
 

@@ -7,26 +7,24 @@ from tempfile import TemporaryDirectory
 import ethernity.render.direct_pdf.sentinel.recovery as sentinel_recovery_module
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.page_sizes import PaperSize, resolve_paper_size
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
-from ethernity.render.direct_pdf.page_geometry import A4_HEIGHT_MM, A4_WIDTH_MM
-from ethernity.render.direct_pdf.sentinel.common import (
-    build_sentinel_page_layout,
-    build_sentinel_surface,
+from ethernity.render import render_frames_to_pdf
+from ethernity.render.checks import (
+    validate_fallback_summary,
+    validate_fallback_text_in_pdf,
+    validate_pdf_has_pages,
+    validate_rendered_document_summary,
 )
-from ethernity.render.direct_pdf.sentinel.recovery import (
-    build_sentinel_recovery_direct_plan,
-    render_sentinel_recovery_direct_pdf,
+from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf.document import build_document_surface
+from ethernity.render.direct_pdf.page_geometry import A4_HEIGHT_MM, A4_WIDTH_MM
+from ethernity.render.direct_pdf.sentinel.recovery import build_sentinel_recovery_direct_plan
+from ethernity.render.direct_pdf.sentinel.shell import (
+    build_sentinel_page_layout,
 )
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
-from ethernity.render.proofs import (
-    validate_fallback_render_proof,
-    validate_fallback_text_in_pdf,
-    validate_pdf_has_pages,
-    validate_render_artifact_proof,
-)
 from ethernity.render.recovery_meta import build_recovery_meta
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 
 def _frame(frame_type: FrameType, *, data: bytes, index: int = 0, total: int = 1) -> Frame:
@@ -53,7 +51,7 @@ def _inputs(output_path: Path, *, main_data: bytes = b"payload") -> RenderInputs
         },
         doc_type=DOC_TYPE_RECOVERY,
         design_name="sentinel",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=False,
         render_fallback=True,
         recovery_meta=build_recovery_meta(
@@ -101,29 +99,29 @@ class TestDirectPdfSentinelRecovery(unittest.TestCase):
             plan = build_sentinel_recovery_direct_plan(surface, inputs)
 
             self.assertEqual(len(plan.page_plans), 1)
-            self.assertFalse(plan.page_plans[0].proof.overflow)
-            self.assertIn("sentinel-recovery-p1-top-strip", plan.page_plans[0].proof.component_ids)
+            self.assertFalse(plan.page_plans[0].layout.overflow)
+            self.assertIn("sentinel-recovery-p1-top-strip", plan.page_plans[0].layout.component_ids)
             self.assertIn(
                 "sentinel-recovery-p1-session-panel",
-                plan.page_plans[0].proof.component_ids,
+                plan.page_plans[0].layout.component_ids,
             )
             self.assertIn(
                 "sentinel-recovery-p1-fallback-table",
-                plan.page_plans[0].proof.component_ids,
+                plan.page_plans[0].layout.component_ids,
             )
             self.assertIn(
                 "sentinel-recovery-p1-metadata-box-0",
-                plan.page_plans[0].proof.component_ids,
+                plan.page_plans[0].layout.component_ids,
             )
-            validate_render_artifact_proof(
-                artifact_label="direct Sentinel recovery document",
+            validate_rendered_document_summary(
+                document_label="direct Sentinel recovery document",
                 inputs=inputs,
-                artifact_proof=plan.artifact_proof,
+                document_summary=plan.document_summary,
             )
-            validate_fallback_render_proof(
-                artifact_label="direct Sentinel recovery document",
+            validate_fallback_summary(
+                document_label="direct Sentinel recovery document",
                 frames=tuple(section.frame for section in inputs.fallback_sections or ()),
-                fallback_proof=plan.fallback_proof,
+                fallback_summary=plan.fallback_summary,
             )
 
     def test_render_writes_valid_pdf_with_extractable_fallback_text(self) -> None:
@@ -131,25 +129,25 @@ class TestDirectPdfSentinelRecovery(unittest.TestCase):
             output_path = Path(tmp) / "recovery.pdf"
             inputs = _inputs(output_path)
 
-            result = render_sentinel_recovery_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct Sentinel recovery document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct Sentinel recovery document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
-            validate_fallback_render_proof(
-                artifact_label="direct Sentinel recovery document",
+            validate_fallback_summary(
+                document_label="direct Sentinel recovery document",
                 frames=tuple(section.frame for section in inputs.fallback_sections or ()),
-                fallback_proof=result.fallback_proof,
+                fallback_summary=result.fallback_summary,
             )
             validate_fallback_text_in_pdf(
-                artifact_label="direct Sentinel recovery document",
+                document_label="direct Sentinel recovery document",
                 reader=reader,
                 fallback_sections=inputs.fallback_sections or (),
-                fallback_proof=result.fallback_proof,
+                fallback_summary=result.fallback_summary,
             )
 
     def test_build_plan_paginates_large_fallback_payload(self) -> None:
@@ -161,8 +159,8 @@ class TestDirectPdfSentinelRecovery(unittest.TestCase):
             plan = build_sentinel_recovery_direct_plan(surface, inputs)
 
             self.assertGreater(len(plan.page_plans), 1)
-            self.assertEqual(plan.artifact_proof.page_count, len(plan.page_plans))
-            self.assertTrue(plan.fallback_proof.fully_consumed)
+            self.assertEqual(plan.document_summary.page_count, len(plan.page_plans))
+            self.assertTrue(plan.fallback_summary.fully_consumed)
             for page in plan.page_plans:
                 labels = [
                     placement.text
@@ -192,8 +190,7 @@ class TestDirectPdfSentinelRecovery(unittest.TestCase):
                         paper_name,
                         dimensions_mm,
                     )
-                    surface = build_sentinel_surface(inputs)
-                    packaged_direct_pdf_assets().register_fonts(surface)
+                    surface = build_document_surface(inputs)
                     plan = build_sentinel_recovery_direct_plan(surface, inputs)
                     page_layout = build_sentinel_page_layout(inputs)
                     mapped_area = page_layout.map_rect(
@@ -205,7 +202,7 @@ class TestDirectPdfSentinelRecovery(unittest.TestCase):
                     )
 
                     self.assertGreater(len(plan.page_plans), 1)
-                    self.assertTrue(all(not page.proof.overflow for page in plan.page_plans))
+                    self.assertTrue(all(not page.layout.overflow for page in plan.page_plans))
                     page_counts[paper_name] = len(plan.page_plans)
                     continuation_capacities[paper_name] = expected_capacity
 
@@ -231,7 +228,7 @@ class TestDirectPdfSentinelRecovery(unittest.TestCase):
                                     0.9,
                                 )
                                 self.assertAlmostEqual(
-                                    item.proof.font_size_pt,
+                                    item.layout.font_size_pt,
                                     expected_body_size_pt,
                                 )
                     self.assertGreater(page_line_lengths[1], page_line_lengths[0])
@@ -291,18 +288,18 @@ class TestDirectPdfSentinelRecovery(unittest.TestCase):
                         dimensions_mm,
                     )
 
-                    result = render_sentinel_recovery_direct_pdf(inputs)
+                    result = render_frames_to_pdf(inputs)
 
                     reader = validate_pdf_has_pages(output_path)
-                    self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-                    self.assertTrue(result.fallback_proof.fully_consumed)
-                    assert result.layout_proof is not None
-                    self.assertTrue(all(not page.overflow for page in result.layout_proof.pages))
+                    self.assertEqual(result.document_summary.page_count, len(reader.pages))
+                    self.assertTrue(result.fallback_summary.fully_consumed)
+                    assert result.layout_report is not None
+                    self.assertTrue(all(not page.overflow for page in result.layout_report.pages))
                     validate_fallback_text_in_pdf(
-                        artifact_label="direct Sentinel responsive recovery document",
+                        document_label="direct Sentinel responsive recovery document",
                         reader=reader,
                         fallback_sections=inputs.fallback_sections or (),
-                        fallback_proof=result.fallback_proof,
+                        fallback_summary=result.fallback_summary,
                     )
 
 

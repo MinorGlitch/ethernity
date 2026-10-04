@@ -10,29 +10,25 @@ import ethernity.render.direct_pdf.sentinel.signing_key_shard as sentinel_signin
 from ethernity.core.bounds import MAX_SHARD_CBOR_BYTES
 from ethernity.page_sizes import PaperSize, resolve_paper_size
 from ethernity.qr.codec import QrConfig
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render import render_frames_to_pdf
+from ethernity.render.checks import validate_fallback_text_in_pdf, validate_pdf_has_pages
+from ethernity.render.direct_pdf import document_inputs
+from ethernity.render.direct_pdf.components import ImageBox, Panel
+from ethernity.render.direct_pdf.document import build_document_surface
 from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
-from ethernity.render.direct_pdf.sentinel.common import (
-    build_sentinel_page_layout,
-    build_sentinel_shell_context,
-    build_sentinel_surface,
-)
-from ethernity.render.direct_pdf.sentinel.kit import render_sentinel_kit_direct_pdf
-from ethernity.render.direct_pdf.sentinel.kit_index import render_sentinel_kit_index_direct_pdf
-from ethernity.render.direct_pdf.sentinel.main import render_sentinel_main_direct_pdf
-from ethernity.render.direct_pdf.sentinel.recovery import render_sentinel_recovery_direct_pdf
-from ethernity.render.direct_pdf.sentinel.shard import render_sentinel_shard_direct_pdf
 from ethernity.render.direct_pdf.sentinel.shard_fallback import (
     SENTINEL_SHARD_FALLBACK_PROFILES,
     build_sentinel_shard_fallback_candidate,
     resolve_sentinel_shard_fallback_layout,
 )
-from ethernity.render.direct_pdf.sentinel.signing_key_shard import (
-    render_sentinel_signing_key_shard_direct_pdf,
+from ethernity.render.direct_pdf.sentinel.shell import (
+    build_sentinel_page_layout,
+    build_sentinel_page_plan,
+    build_sentinel_shell_context,
 )
 from ethernity.render.direct_pdf.sentinel.theme import SENTINEL_THEME
-from ethernity.render.proofs import validate_fallback_text_in_pdf, validate_pdf_has_pages
-from ethernity.render.types import RenderInputs, RenderPageLayoutProof
+from ethernity.render.direct_pdf.types import PdfRect
+from ethernity.render.types import PageLayout, RenderInputs
 from tests.unit.render.direct_pdf.sentinel.test_kit import _inputs as kit_inputs
 from tests.unit.render.direct_pdf.sentinel.test_kit_index import _inputs as kit_index_inputs
 from tests.unit.render.direct_pdf.sentinel.test_main import _inputs as main_inputs
@@ -68,47 +64,134 @@ def _with_paper(
 
 
 class TestDirectPdfSentinelResponsive(unittest.TestCase):
+    def test_footer_membership_uses_declared_plans_instead_of_names(self) -> None:
+        inputs = main_inputs(Path("ignored.pdf"))
+        surface = build_document_surface(inputs)
+        layout = build_sentinel_page_layout(inputs)
+        footer = Panel(component_id="ordinary-panel", fill=SENTINEL_THEME.palette.background).plan(
+            surface, PdfRect(20.0, layout.footer_rule_y_mm + 2.0, 10.0, 1.0)
+        )
+        build_sentinel_page_plan(
+            page_number=1, page_layout=layout, plans=[], footer_plans=(footer,)
+        )
+        body = Panel(
+            component_id="misleading-footer-label", fill=SENTINEL_THEME.palette.background
+        ).plan(surface, PdfRect(20.0, layout.footer_rule_y_mm - 0.5, 10.0, 0.3))
+        with self.assertRaisesRegex(ValueError, "sentinel-body-footer"):
+            build_sentinel_page_plan(
+                page_number=1, page_layout=layout, plans=[body], footer_plans=(footer,)
+            )
+        with self.assertRaisesRegex(ValueError, "body and footer components must be separate"):
+            build_sentinel_page_plan(
+                page_number=1, page_layout=layout, plans=[footer], footer_plans=(footer,)
+            )
+
+    def test_qr_footer_clearance_uses_declared_image_role_instead_of_names(self) -> None:
+        inputs = main_inputs(Path("ignored.pdf"))
+        surface = build_document_surface(inputs)
+        layout = build_sentinel_page_layout(inputs)
+        qr_image = document_inputs.qr_image(b"declared-qr", config=QrConfig())
+        rect = PdfRect(20.0, layout.footer_rule_y_mm - 11.5, 10.0, 10.0)
+        for component_id in ("ordinary-image", "content-qr-image"):
+            with self.subTest(component_id=component_id):
+                image = ImageBox(component_id=component_id, image=qr_image, image_type="PNG").plan(
+                    surface, rect
+                )
+                build_sentinel_page_plan(page_number=1, page_layout=layout, plans=[image])
+                with self.assertRaisesRegex(ValueError, "sentinel-qr-footer"):
+                    build_sentinel_page_plan(
+                        page_number=1,
+                        page_layout=layout,
+                        plans=[image],
+                        qr_image_component_ids=(component_id,),
+                    )
+
+    def test_frame_height_depends_on_declaration_and_not_component_name(self) -> None:
+        inputs = _with_paper(main_inputs(Path("ignored.pdf")), "LETTER")
+        surface = build_document_surface(inputs)
+        layout = build_sentinel_page_layout(inputs)
+        rect = PdfRect(20, 100, 40, 40)
+
+        for component_id in ("ordinary-panel", "content-qr-frame"):
+            for fixed_height in (False, True):
+                with self.subTest(component_id=component_id, fixed_height=fixed_height):
+                    panel = Panel(
+                        component_id=component_id, fill=SENTINEL_THEME.palette.background
+                    ).plan(surface, rect)
+                    page = build_sentinel_page_plan(
+                        page_number=1,
+                        page_layout=layout,
+                        plans=[panel],
+                        fixed_height_component_ids=(component_id,) if fixed_height else (),
+                    )
+                    height = page.plans[0].layout.rect.height_mm
+                    if fixed_height:
+                        self.assertEqual(height, rect.height_mm)
+                    else:
+                        self.assertLess(height, rect.height_mm)
+
+    def test_fixed_height_declaration_requires_existing_unique_components(self) -> None:
+        inputs = main_inputs(Path("ignored.pdf"))
+        surface = build_document_surface(inputs)
+        layout = build_sentinel_page_layout(inputs)
+        panel = Panel(component_id="panel", fill=SENTINEL_THEME.palette.background).plan(
+            surface, PdfRect(20, 100, 40, 40)
+        )
+
+        for component_ids, message in (
+            (("missing",), "references missing plan"),
+            (("panel", "panel"), "must be unique"),
+        ):
+            with self.subTest(component_ids=component_ids):
+                with self.assertRaisesRegex(ValueError, message):
+                    build_sentinel_page_plan(
+                        page_number=1,
+                        page_layout=layout,
+                        plans=[panel],
+                        fixed_height_component_ids=component_ids,
+                    )
+
     def test_every_document_type_renders_registered_and_custom_boundary_cases(self) -> None:
         cases = (
             (
                 "main",
                 lambda path: main_inputs(path, count=20),
-                render_sentinel_main_direct_pdf,
+                render_frames_to_pdf,
                 "qr-image",
                 True,
             ),
             (
                 "kit",
                 lambda path: kit_inputs(path, count=14),
-                render_sentinel_kit_direct_pdf,
+                render_frames_to_pdf,
                 "qr-image",
                 True,
             ),
             (
                 "kit-index",
                 lambda path: kit_index_inputs(path, row_count=7),
-                render_sentinel_kit_index_direct_pdf,
+                render_frames_to_pdf,
                 "inventory-component",
                 True,
             ),
             (
                 "recovery",
                 lambda path: recovery_inputs(path, main_data=b"x" * 2250),
-                render_sentinel_recovery_direct_pdf,
+                render_frames_to_pdf,
                 "fallback-line-text",
                 True,
             ),
             (
                 "shard",
                 lambda path: shard_inputs(path, data=b"x" * 900),
-                render_sentinel_shard_direct_pdf,
+                render_frames_to_pdf,
                 "fallback-line-",
                 False,
             ),
             (
                 "signing-key-shard",
                 lambda path: signing_inputs(path, data=b"x" * 900),
-                render_sentinel_signing_key_shard_direct_pdf,
+                render_frames_to_pdf,
                 "fallback-line-",
                 False,
             ),
@@ -133,29 +216,29 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                         result = renderer(inputs)
                         reader = validate_pdf_has_pages(output_path)
                         geometry = resolve_page_geometry(inputs)
-                        artifact_proof = result.artifact_proof
-                        layout_proof = result.layout_proof
-                        assert artifact_proof is not None
-                        assert layout_proof is not None
+                        document_summary = result.document_summary
+                        layout_report = result.layout_report
+                        assert document_summary is not None
+                        assert layout_report is not None
 
                         if expects_multiple:
-                            self.assertGreater(artifact_proof.page_count, 1)
+                            self.assertGreater(document_summary.page_count, 1)
                         else:
-                            self.assertEqual(artifact_proof.page_count, 1)
-                            self.assertEqual(artifact_proof.physical_qr_count, 1)
-                        self.assertEqual(artifact_proof.page_count, len(reader.pages))
-                        self.assertFalse(layout_proof.overflow)
+                            self.assertEqual(document_summary.page_count, 1)
+                            self.assertEqual(document_summary.physical_qr_count, 1)
+                        self.assertEqual(document_summary.page_count, len(reader.pages))
+                        self.assertFalse(layout_report.overflow)
                         self._assert_page_geometry(
                             reader.pages, geometry.width_mm, geometry.height_mm
                         )
                         self._assert_page_labels(reader.pages)
-                        self._assert_readable_font_floor(layout_proof.pages)
-                        self._assert_footer_constraints(layout_proof.pages)
+                        self._assert_readable_font_floor(layout_report.pages)
+                        self._assert_footer_constraints(layout_report.pages)
                         qr_widths = tuple(
                             sorted(
                                 {
                                     round(component.rect.width_mm, 3)
-                                    for page in layout_proof.pages
+                                    for page in layout_report.pages
                                     for component in page.components
                                     if "qr-image" in component.component_id
                                 }
@@ -165,7 +248,7 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                             qr_widths_by_case[(name, paper_size)] = qr_widths
                         if expects_multiple:
                             self._assert_partial_final_page(
-                                layout_proof.pages,
+                                layout_report.pages,
                                 marker=partial_marker,
                             )
         for name in ("main", "kit", "shard", "signing-key-shard"):
@@ -180,19 +263,19 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
             (
                 "main",
                 lambda path: main_inputs(path, count=20),
-                render_sentinel_main_direct_pdf,
+                render_frames_to_pdf,
                 True,
             ),
             (
                 "shard",
                 lambda path: shard_inputs(path, data=b"x" * 900),
-                render_sentinel_shard_direct_pdf,
+                render_frames_to_pdf,
                 False,
             ),
             (
                 "signing-key-shard",
                 lambda path: signing_inputs(path, data=b"x" * 900),
-                render_sentinel_signing_key_shard_direct_pdf,
+                render_frames_to_pdf,
                 True,
             ),
         )
@@ -213,9 +296,9 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                         )
 
                         result = renderer(inputs)
-                        layout_proof = result.layout_proof
-                        assert layout_proof is not None
-                        for page in layout_proof.pages:
+                        layout_report = result.layout_report
+                        assert layout_report is not None
+                        for page in layout_report.pages:
                             qr_images = tuple(
                                 component
                                 for component in page.components
@@ -278,13 +361,13 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                         dimensions_mm,
                     )
 
-                    result = render_sentinel_shard_direct_pdf(inputs)
-                    layout_proof = result.layout_proof
-                    assert layout_proof is not None
+                    result = render_frames_to_pdf(inputs)
+                    layout_report = result.layout_report
+                    assert layout_report is not None
 
-                    self.assertEqual(len(layout_proof.pages), 1)
-                    self.assertFalse(layout_proof.overflow)
-                    for page in layout_proof.pages:
+                    self.assertEqual(len(layout_report.pages), 1)
+                    self.assertFalse(layout_report.overflow)
+                    for page in layout_report.pages:
                         fallback_panel = next(
                             component
                             for component in page.components
@@ -327,13 +410,13 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
             (
                 "shard",
                 shard_inputs,
-                render_sentinel_shard_direct_pdf,
+                render_frames_to_pdf,
                 "-fallback-panel",
             ),
             (
                 "signing-key-shard",
                 signing_inputs,
-                render_sentinel_signing_key_shard_direct_pdf,
+                render_frames_to_pdf,
                 "-payload-panel",
             ),
         )
@@ -361,25 +444,25 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                                 dimensions_mm,
                             )
                             result = renderer(inputs)
-                            artifact_proof = result.artifact_proof
-                            layout_proof = result.layout_proof
-                            assert artifact_proof is not None
-                            assert layout_proof is not None
+                            document_summary = result.document_summary
+                            layout_report = result.layout_report
+                            assert document_summary is not None
+                            assert layout_report is not None
                             reader = validate_pdf_has_pages(output_path)
                             validate_fallback_text_in_pdf(
-                                artifact_label=f"direct Sentinel {document_name} document",
+                                document_label=f"direct Sentinel {document_name} document",
                                 reader=reader,
                                 fallback_sections=inputs.fallback_sections or (),
-                                fallback_proof=result.fallback_proof,
+                                fallback_summary=result.fallback_summary,
                             )
-                            self.assertEqual(artifact_proof.page_count, 1)
-                            self.assertEqual(artifact_proof.physical_qr_count, 1)
-                            self.assertTrue(result.fallback_proof.fully_consumed)
-                            self.assertEqual(len(layout_proof.pages), 1)
+                            self.assertEqual(document_summary.page_count, 1)
+                            self.assertEqual(document_summary.physical_qr_count, 1)
+                            self.assertTrue(result.fallback_summary.fully_consumed)
+                            self.assertEqual(len(layout_report.pages), 1)
                             panels.append(
                                 next(
                                     component
-                                    for component in layout_proof.pages[0].components
+                                    for component in layout_report.pages[0].components
                                     if component.component_id.endswith(panel_suffix)
                                 ).rect
                             )
@@ -409,13 +492,13 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
             (
                 "shard",
                 shard_inputs,
-                render_sentinel_shard_direct_pdf,
+                render_frames_to_pdf,
                 "-fallback-panel",
             ),
             (
                 "signing-key-shard",
                 signing_inputs,
-                render_sentinel_signing_key_shard_direct_pdf,
+                render_frames_to_pdf,
                 "-payload-panel",
             ),
         )
@@ -447,9 +530,9 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                                     dimensions_mm,
                                 )
                             )
-                            layout_proof = result.layout_proof
-                            assert layout_proof is not None
-                            page = layout_proof.pages[0]
+                            layout_report = result.layout_report
+                            assert layout_report is not None
+                            page = layout_report.pages[0]
                             panel = next(
                                 component
                                 for component in page.components
@@ -483,7 +566,7 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                                 expected_inner_width_mm + 0.01,
                             )
                             self.assertGreaterEqual(
-                                max(map(len, result.fallback_proof.emitted_fallback_lines)),
+                                max(map(len, result.fallback_summary.emitted_fallback_lines)),
                                 130,
                             )
 
@@ -504,8 +587,7 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                         Path(tmp) / f"{document_name}.pdf",
                         data=b"x" * MAX_SHARD_CBOR_BYTES,
                     )
-                    surface = build_sentinel_surface(inputs)
-                    packaged_direct_pdf_assets().register_fonts(surface)
+                    surface = build_document_surface(inputs)
                     page_layout = build_sentinel_page_layout(inputs)
                     sections = inputs.fallback_sections or ()
 
@@ -557,8 +639,8 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                         )
                     )
                     context = build_sentinel_shell_context(inputs, doc_type=inputs.doc_type)
-                    qr_image = module.qr_image(
-                        module.resolved_single_qr_payload(inputs),
+                    qr_image = document_inputs.qr_image(
+                        document_inputs.resolved_single_qr_payload(inputs),
                         config=inputs.qr_config or QrConfig(),
                     )
                     rescue_plan = module._build_page(
@@ -569,9 +651,9 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                         total_pages=1,
                     )
                     rescue_plan.paint(surface)
-                    self.assertFalse(rescue_plan.proof.overflow)
+                    self.assertFalse(rescue_plan.layout.overflow)
                     rescue_titles = tuple(
-                        plan.proof
+                        plan.layout
                         for plan in rescue_plan.plans
                         if "-fallback-title-" in plan.component_id
                     )
@@ -595,11 +677,11 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
 
     def test_shards_are_single_page_on_minimum_and_larger_future_sizes(self) -> None:
         document_cases = (
-            ("shard", shard_inputs, render_sentinel_shard_direct_pdf),
+            ("shard", shard_inputs, render_frames_to_pdf),
             (
                 "signing-key-shard",
                 signing_inputs,
-                render_sentinel_signing_key_shard_direct_pdf,
+                render_frames_to_pdf,
             ),
         )
         paper_cases = (
@@ -621,17 +703,17 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                         )
 
                         result = renderer(inputs)
-                        artifact_proof = result.artifact_proof
-                        layout_proof = result.layout_proof
-                        assert artifact_proof is not None
-                        assert layout_proof is not None
+                        document_summary = result.document_summary
+                        layout_report = result.layout_report
+                        assert document_summary is not None
+                        assert layout_report is not None
 
-                        self.assertEqual(artifact_proof.page_count, 1)
-                        self.assertEqual(artifact_proof.physical_qr_count, 1)
-                        self.assertEqual(len(layout_proof.pages), 1)
-                        self.assertFalse(layout_proof.overflow)
-                        self._assert_readable_font_floor(layout_proof.pages)
-                        self._assert_footer_constraints(layout_proof.pages)
+                        self.assertEqual(document_summary.page_count, 1)
+                        self.assertEqual(document_summary.physical_qr_count, 1)
+                        self.assertEqual(len(layout_report.pages), 1)
+                        self.assertFalse(layout_report.overflow)
+                        self._assert_readable_font_floor(layout_report.pages)
+                        self._assert_footer_constraints(layout_report.pages)
 
     def _assert_page_geometry(
         self,
@@ -651,7 +733,7 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
             text = " ".join((page.extract_text() or "").upper().split())
             self.assertIn(f"PAGE {page_number} / {total_pages}", text)
 
-    def _assert_readable_font_floor(self, pages: Sequence[RenderPageLayoutProof]) -> None:
+    def _assert_readable_font_floor(self, pages: Sequence[PageLayout]) -> None:
         font_sizes = tuple(
             component.font_size_pt
             for page in pages
@@ -673,7 +755,7 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
                 _MINIMUM_MANUAL_LINE_NUMBER_FONT_SIZE_PT,
             )
 
-    def _assert_footer_constraints(self, pages: Sequence[RenderPageLayoutProof]) -> None:
+    def _assert_footer_constraints(self, pages: Sequence[PageLayout]) -> None:
         for page in pages:
             body_constraints = tuple(
                 constraint
@@ -702,7 +784,7 @@ class TestDirectPdfSentinelResponsive(unittest.TestCase):
 
     def _assert_partial_final_page(
         self,
-        pages: Sequence[RenderPageLayoutProof],
+        pages: Sequence[PageLayout],
         *,
         marker: str,
     ) -> None:

@@ -6,22 +6,22 @@ from tempfile import TemporaryDirectory
 from ethernity.core.bounds import MAX_SHARD_CBOR_BYTES
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.page_sizes import resolve_paper_size
+from ethernity.render import render_frames_to_pdf
+from ethernity.render.checks import (
+    validate_fallback_summary,
+    validate_fallback_text_in_pdf,
+    validate_pdf_has_pages,
+    validate_rendered_document_summary,
+    validate_text_in_pdf,
+)
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
 from ethernity.render.direct_pdf.page_geometry import A4_HEIGHT_MM, A4_WIDTH_MM
 from ethernity.render.direct_pdf.sentinel.signing_key_shard import (
     build_sentinel_signing_key_shard_direct_plan,
-    render_sentinel_signing_key_shard_direct_pdf,
 )
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
-from ethernity.render.proofs import (
-    validate_fallback_render_proof,
-    validate_fallback_text_in_pdf,
-    validate_pdf_has_pages,
-    validate_render_artifact_proof,
-    validate_text_in_pdf,
-)
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 
 def _frame(*, data: bytes = b"signing-key-shard-payload") -> Frame:
@@ -50,7 +50,7 @@ def _inputs(output_path: Path, *, data: bytes = b"signing-key-shard-payload") ->
         },
         doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
         design_name="sentinel",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=True,
         render_fallback=True,
         fallback_sections=(FallbackSection(label="SHARD PAYLOAD", frame=frame),),
@@ -66,24 +66,24 @@ class TestDirectPdfSentinelSigningKeyShard(unittest.TestCase):
 
             plan = build_sentinel_signing_key_shard_direct_plan(surface, inputs)
 
-            component_ids = plan.page_plans[0].proof.component_ids
+            component_ids = plan.page_plans[0].layout.component_ids
             self.assertIn("sentinel-signing-key-shard-p1-warning-fill", component_ids)
             self.assertIn("sentinel-signing-key-shard-p1-payload-heading", component_ids)
             self.assertIn("sentinel-signing-key-shard-p1-qr-image", component_ids)
             self.assertIn("sentinel-signing-key-shard-p1-payload-panel", component_ids)
             self.assertIn("sentinel-signing-key-shard-p1-reference-panel", component_ids)
             self.assertIn("sentinel-signing-key-shard-p1-specs-panel", component_ids)
-            self.assertFalse(plan.page_plans[0].proof.overflow)
-            self.assertEqual(plan.artifact_proof.physical_qr_payload_indexes, (0,))
-            validate_render_artifact_proof(
-                artifact_label="direct Sentinel signing-key shard document",
+            self.assertFalse(plan.page_plans[0].layout.overflow)
+            self.assertEqual(plan.document_summary.physical_qr_payload_indexes, (0,))
+            validate_rendered_document_summary(
+                document_label="direct Sentinel signing-key shard document",
                 inputs=inputs,
-                artifact_proof=plan.artifact_proof,
+                document_summary=plan.document_summary,
             )
-            validate_fallback_render_proof(
-                artifact_label="direct Sentinel signing-key shard document",
+            validate_fallback_summary(
+                document_label="direct Sentinel signing-key shard document",
                 frames=tuple(section.frame for section in inputs.fallback_sections or ()),
-                fallback_proof=plan.fallback_proof,
+                fallback_summary=plan.fallback_summary,
             )
 
     def test_render_writes_valid_pdf_with_fallback_text(self) -> None:
@@ -91,25 +91,25 @@ class TestDirectPdfSentinelSigningKeyShard(unittest.TestCase):
             output_path = Path(tmp) / "signing_key_shard.pdf"
             inputs = _inputs(output_path)
 
-            result = render_sentinel_signing_key_shard_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct Sentinel signing-key shard document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct Sentinel signing-key shard document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
             validate_fallback_text_in_pdf(
-                artifact_label="direct Sentinel signing-key shard document",
+                document_label="direct Sentinel signing-key shard document",
                 reader=reader,
                 fallback_sections=inputs.fallback_sections or (),
-                fallback_proof=result.fallback_proof,
+                fallback_summary=result.fallback_summary,
             )
             validate_text_in_pdf(
-                artifact_label="direct Sentinel signing-key shard document",
+                document_label="direct Sentinel signing-key shard document",
                 reader=reader,
-                expected_text=("KEY MATERIAL PAYLOAD", "MASTER FINGERPRINT", "SCHEMA"),
+                expected_text=("KEY SHARE", "DOCUMENT ID", "SCHEMA"),
             )
 
     def test_build_plan_fits_maximum_frame_on_one_page(self) -> None:
@@ -135,11 +135,11 @@ class TestDirectPdfSentinelSigningKeyShard(unittest.TestCase):
                     plan = build_sentinel_signing_key_shard_direct_plan(surface, inputs)
 
                     self.assertEqual(len(plan.page_plans), 1)
-                    self.assertEqual(plan.artifact_proof.page_count, 1)
-                    self.assertEqual(plan.artifact_proof.physical_qr_count, 1)
-                    self.assertEqual(plan.artifact_proof.physical_qr_payload_indexes, (0,))
-                    self.assertTrue(plan.fallback_proof.fully_consumed)
-                    self.assertFalse(plan.page_plans[0].proof.overflow)
+                    self.assertEqual(plan.document_summary.page_count, 1)
+                    self.assertEqual(plan.document_summary.physical_qr_count, 1)
+                    self.assertEqual(plan.document_summary.physical_qr_payload_indexes, (0,))
+                    self.assertTrue(plan.fallback_summary.fully_consumed)
+                    self.assertFalse(plan.page_plans[0].layout.overflow)
 
 
 if __name__ == "__main__":

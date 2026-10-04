@@ -6,19 +6,19 @@ from ethernity.render.direct_pdf.assets import (
     ROBOTO_MONO_FAMILY,
     packaged_direct_pdf_assets,
 )
-from ethernity.render.direct_pdf.sentinel.common import (
+from ethernity.render.direct_pdf.sentinel.shell import (
     SENTINEL_BACKGROUND,
     SENTINEL_CONTENT_WIDTH_MM,
     SENTINEL_CONTENT_X_MM,
     SENTINEL_ORANGE,
     SENTINEL_PAGE_RECT,
-    build_sentinel_surface,
 )
 from ethernity.render.direct_pdf.sentinel.theme import (
     SENTINEL_THEME,
     SentinelLayoutScale,
     SentinelTextScale,
 )
+from ethernity.render.direct_pdf.surface import FpdfSurface
 
 
 class TestDirectPdfSentinelTheme(unittest.TestCase):
@@ -37,8 +37,11 @@ class TestDirectPdfSentinelTheme(unittest.TestCase):
         self.assertEqual(SENTINEL_ORANGE, SENTINEL_THEME.palette.primary)
         self.assertEqual(SENTINEL_BACKGROUND, SENTINEL_THEME.palette.background)
 
-    def test_surface_uses_sentinel_page_geometry(self) -> None:
-        surface = build_sentinel_surface()
+    def test_theme_fonts_can_be_measured(self) -> None:
+        surface = FpdfSurface(
+            page_width_mm=SENTINEL_THEME.layout.page_width_mm,
+            page_height_mm=SENTINEL_THEME.layout.page_height_mm,
+        )
         packaged_direct_pdf_assets().register_fonts(surface)
         text_width = surface.measure_text_width(
             "SENTINEL",

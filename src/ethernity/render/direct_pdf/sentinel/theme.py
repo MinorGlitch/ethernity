@@ -30,7 +30,7 @@ class SentinelPalette:
 
 @dataclass(frozen=True)
 class SentinelFonts:
-    """Font roles from the Sentinel HTML templates mapped to PDF families."""
+    """PDF font families used for Sentinel text and symbols."""
 
     sans: str
     mono: str
@@ -73,7 +73,7 @@ class SentinelLayoutScale:
 
 @dataclass(frozen=True)
 class SentinelTheme:
-    """Direct-PDF representation of the Sentinel design contract."""
+    """Direct-PDF Sentinel theme values."""
 
     palette: SentinelPalette
     fonts: SentinelFonts
@@ -86,14 +86,14 @@ class SentinelTheme:
         size_pt: float,
         color: PdfColor,
         bold: bool = False,
-        char_spacing_mm: float = 0.0,
+        char_spacing_pt: float = 0.0,
     ) -> TextStyle:
         return TextStyle(
             family=self.fonts.sans,
             size_pt=size_pt,
             style="B" if bold else "",
             color=color,
-            char_spacing_mm=char_spacing_mm,
+            char_spacing_pt=char_spacing_pt,
         )
 
     def mono_style(
@@ -102,14 +102,14 @@ class SentinelTheme:
         size_pt: float,
         color: PdfColor,
         bold: bool = False,
-        char_spacing_mm: float = 0.0,
+        char_spacing_pt: float = 0.0,
     ) -> TextStyle:
         return TextStyle(
             family=self.fonts.mono,
             size_pt=size_pt,
             style="B" if bold else "",
             color=color,
-            char_spacing_mm=char_spacing_mm,
+            char_spacing_pt=char_spacing_pt,
         )
 
     def symbol_style(self, *, size_pt: float, color: PdfColor) -> TextStyle:

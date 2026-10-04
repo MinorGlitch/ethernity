@@ -3,20 +3,18 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
-from ethernity.render.direct_pdf.page_geometry import A4_HEIGHT_MM, A4_WIDTH_MM
-from ethernity.render.direct_pdf.sentinel.kit import (
-    build_sentinel_kit_direct_plan,
-    render_sentinel_kit_direct_pdf,
-)
-from ethernity.render.direct_pdf.surface import FpdfSurface
-from ethernity.render.doc_types import DOC_TYPE_KIT
-from ethernity.render.proofs import (
+from ethernity.render import render_frames_to_pdf
+from ethernity.render.checks import (
     validate_pdf_has_pages,
-    validate_render_artifact_proof,
+    validate_rendered_document_summary,
     validate_text_in_pdf,
 )
-from ethernity.render.types import RenderInputs, RenderLineage
+from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
+from ethernity.render.direct_pdf.page_geometry import A4_HEIGHT_MM, A4_WIDTH_MM
+from ethernity.render.direct_pdf.sentinel.kit import build_sentinel_kit_direct_plan
+from ethernity.render.direct_pdf.surface import FpdfSurface
+from ethernity.render.doc_types import DOC_TYPE_KIT
+from ethernity.render.types import DocumentOrigin, RenderInputs
 
 
 def _frames(count: int) -> tuple[Frame, ...]:
@@ -45,7 +43,7 @@ def _inputs(output_path: Path, *, count: int = 5) -> RenderInputs:
         },
         doc_type=DOC_TYPE_KIT,
         design_name="sentinel",
-        lineage=RenderLineage(kind="recovery_kit"),
+        origin=DocumentOrigin(kind="recovery_kit"),
         qr_payloads=tuple(f"kit-chunk-{index}" for index in range(count)),
         render_qr=True,
         render_fallback=False,
@@ -62,8 +60,8 @@ class TestDirectPdfSentinelKit(unittest.TestCase):
             plan = build_sentinel_kit_direct_plan(surface, inputs)
 
             self.assertEqual(len(plan.page_plans), 2)
-            self.assertEqual(plan.artifact_proof.physical_qr_count, 5)
-            self.assertEqual(plan.artifact_proof.physical_qr_payload_indexes, (0, 1, 2, 3, 4))
+            self.assertEqual(plan.document_summary.physical_qr_count, 5)
+            self.assertEqual(plan.document_summary.physical_qr_payload_indexes, (0, 1, 2, 3, 4))
             warning_panel = next(
                 item
                 for item in plan.page_plans[0].plans
@@ -91,15 +89,15 @@ class TestDirectPdfSentinelKit(unittest.TestCase):
                 if item.component_id == "sentinel-kit-p2-checklist-card"
             )
 
-            self.assertLess(warning_panel.proof.rect.y_mm, 35.0)
-            self.assertGreater(first_card.proof.rect.width_mm, 55.0)
-            self.assertGreater(first_qr.proof.rect.width_mm, 49.0)
-            self.assertLess(title.proof.rect.y_mm, 25.0)
-            self.assertGreater(checklist_card.proof.rect.height_mm, 80.0)
-            validate_render_artifact_proof(
-                artifact_label="direct Sentinel kit document",
+            self.assertLess(warning_panel.layout.rect.y_mm, 35.0)
+            self.assertGreater(first_card.layout.rect.width_mm, 55.0)
+            self.assertGreater(first_qr.layout.rect.width_mm, 49.0)
+            self.assertLess(title.layout.rect.y_mm, 25.0)
+            self.assertGreater(checklist_card.layout.rect.height_mm, 80.0)
+            validate_rendered_document_summary(
+                document_label="direct Sentinel kit document",
                 inputs=inputs,
-                artifact_proof=plan.artifact_proof,
+                document_summary=plan.document_summary,
             )
 
     def test_render_writes_valid_pdf_with_instruction_text(self) -> None:
@@ -107,17 +105,17 @@ class TestDirectPdfSentinelKit(unittest.TestCase):
             output_path = Path(tmp) / "kit.pdf"
             inputs = _inputs(output_path, count=4)
 
-            result = render_sentinel_kit_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct Sentinel kit document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct Sentinel kit document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
             validate_text_in_pdf(
-                artifact_label="direct Sentinel kit document",
+                document_label="direct Sentinel kit document",
                 reader=reader,
                 expected_text=("PART 01", "HOW TO REBUILD THE RECOVERY KIT"),
             )
@@ -131,7 +129,7 @@ class TestDirectPdfSentinelKit(unittest.TestCase):
             plan = build_sentinel_kit_direct_plan(surface, inputs)
 
             self.assertEqual(len(plan.page_plans), 3)
-            self.assertEqual(plan.artifact_proof.physical_qr_count, 14)
+            self.assertEqual(plan.document_summary.physical_qr_count, 14)
 
 
 if __name__ == "__main__":
