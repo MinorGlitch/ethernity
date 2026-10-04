@@ -10,7 +10,12 @@ from __future__ import annotations
 from textual.app import App
 
 from ethernity.app.app_types import ActiveTask, TaskState, UnlockTaskState
+from ethernity.app.backup_context import LoadedBackupContext
+from ethernity.app.backup_estimate_controller import BackupEstimateController
+from ethernity.app.execution import ReviewedTask
 from ethernity.app.execution_controller import ExecutionController
+from ethernity.app.navigation import NavMenu
+from ethernity.app.recovery_check_controller import RecoveryCheckController
 from ethernity.app.settings_controller import SettingsController
 from ethernity.app.source_assessment_controller import SourceAssessmentController
 from ethernity.app.workflow_state import WorkflowUiState
@@ -25,7 +30,7 @@ from ethernity.tasks.settings import SettingsTaskState
 
 
 class EthernityAppContext(App[None]):
-    """Shared type surface expected by app action controllers."""
+    """Shared application context required by action controllers."""
 
     active_task: ActiveTask
     backup_state: BackupTaskState
@@ -38,21 +43,25 @@ class EthernityAppContext(App[None]):
     settings_controller: SettingsController
     execution_controller: ExecutionController
     source_assessment_controller: SourceAssessmentController
+    backup_estimate_controller: BackupEstimateController
+    recovery_check_controller: RecoveryCheckController
     workflow_ui_states: dict[ActiveTask, WorkflowUiState]
     _initial_task_payloads: dict[ActiveTask, str]
     _last_execution_result: TaskExecutionResult | None
+    _last_reviewed_task: ReviewedTask | None
+    _review_edit_task: ActiveTask | None
     _preparing_review_task: ActiveTask | None
-    _nav_drawer_open: bool
-    _nav_rendered_task: ActiveTask | None
-    _nav_return_focus_id: str | None
-    _nav_return_focus_task: ActiveTask | None
-    _nav_focus_generation: int
+    _nav_menu_open: bool
+    _nav_menu: NavMenu
+    _loaded_backup_context: LoadedBackupContext | None
 
     @property
-    def _running_task(self) -> ActiveTask | None:
+    def running_task(self) -> ActiveTask | None:
         raise NotImplementedError
 
     def refresh_task_view(self) -> None: ...
+
+    def _commit_form_inputs(self) -> None: ...
 
     def _rehydrate_workflow_defaults(self) -> None: ...
 
@@ -61,6 +70,14 @@ class EthernityAppContext(App[None]):
     async def action_primary(self) -> None: ...
 
     async def _edit_next_section(self) -> None: ...
+
+    async def _edit_section(self, section_key: str) -> None: ...
+
+    async def _edit_qr_chunk_size(self) -> None: ...
+
+    async def _edit_expected_head_fingerprint(self) -> None: ...
+
+    async def _edit_current_unlock(self) -> None: ...
 
     def _focus_issue(self, issue: TaskIssue | None) -> None: ...
 
@@ -75,6 +92,8 @@ class EthernityAppContext(App[None]):
     def _current_layout(self) -> tuple[str, str]: ...
 
     def _current_state(self) -> TaskState: ...
+
+    def _state_for_task(self, task: ActiveTask) -> TaskState: ...
 
     def _unlock_state(self) -> UnlockTaskState | None: ...
 
@@ -92,15 +111,21 @@ class EthernityAppContext(App[None]):
 
     def _show_task(self, task: ActiveTask) -> None: ...
 
-    def _open_nav_drawer(self) -> None: ...
+    def _open_nav_menu(self, menu: NavMenu) -> None: ...
 
-    def _close_nav_drawer(
+    def _close_nav_menu(
         self,
         *,
         refresh: bool = True,
         restore_focus: bool = True,
     ) -> None: ...
 
-    def _nav_should_collapse(self) -> bool: ...
+    async def _select_workbench_step(self, key: str) -> None: ...
+
+    def _focus_active_task(self, task: ActiveTask) -> None: ...
+
+    def _refresh_navigation(self) -> None: ...
+
+    def action_open_navigation(self) -> None: ...
 
     def _sync_nav_layout(self) -> None: ...

@@ -1,93 +1,85 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
-from textual.widgets import Button, ListView
+import pytest
+from textual.widgets import (
+    Button,
+    Input,
+    ListView,
+    OptionList,
+    Select,
+    TextArea,
+)
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens.confirm_action import ConfirmActionScreen
+from ethernity.app.screens.edit_field import EditFieldScreen
+from ethernity.app.screens.file_picker import FilePickerScreen
+from ethernity.app.screens.paste_text import PasteTextScreen
+from ethernity.app.widgets.settings_form import SettingsForm
+from ethernity.app.widgets.workbench import WorkbenchSteps
+from ethernity.app.widgets.workflow.controls import KeyedRadioSet
+from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 
 
-def test_narrow_drawer_traversal_closes_and_restores_its_invoker() -> None:
+def test_menu_traversal_closes_and_restores_its_invoker() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
-            await pilot.press("2")
-            await pilot.pause()
-
-            source_methods = app.query_one("#workflow-restore-source-body-methods")
-            source_methods.focus()
-            await pilot.pause()
-
             for close_key in ("tab", "shift+tab", "escape"):
-                await pilot.press("h")
+                await pilot.click("#nav-manage")
                 await pilot.pause()
-
-                assert app._nav_drawer_open
+                assert app._nav_menu_open
                 assert app.screen.focused is app.query_one("#nav-list", ListView)
-                assert not app.query_one("#canvas-task-workspaces").has_focus_within
-
                 await pilot.press(close_key)
                 await pilot.pause()
-
-                assert not app._nav_drawer_open
-                assert app.screen.focused is source_methods
-
-            await pilot.click("#nav-strip")
-            await pilot.pause()
-            assert app._nav_drawer_open
-
-            await pilot.press("tab")
-            await pilot.pause()
-
-            assert not app._nav_drawer_open
-            assert app.screen.focused is app.query_one("#nav-strip", Button)
+                assert not app._nav_menu_open
+                assert app.screen.focused is app.query_one("#nav-manage", Button)
 
     asyncio.run(run())
 
 
-def test_narrow_drawer_selection_leaves_focus_in_a_coherent_workflow() -> None:
+def test_menu_selection_leaves_focus_in_a_coherent_workflow() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
-            await pilot.press("2")
+            await pilot.press("ctrl+b", "right", "right", "enter")
             await pilot.pause()
-            source_header = app.query_one("#workflow-restore-source-header")
-            source_header.focus()
-            await pilot.pause()
-
-            await pilot.press("left")
-            await pilot.pause()
+            assert app._nav_menu_open
+            assert app.active_task == "backup"
             await pilot.press("enter")
             await pilot.pause()
-
-            assert app.active_task == "restore"
-            assert not app._nav_drawer_open
-            assert app.screen.focused is source_header
-
-            await pilot.press("left")
-            await pilot.pause()
-            await pilot.press("down")
-            await pilot.press("enter")
-            await pilot.pause()
-
             assert app.active_task == "add_files"
-            assert not app._nav_drawer_open
-            assert app.screen.focused is app.query_one(
-                "#workflow-add_files-source-body-source-methods"
-            )
+            assert not app._nav_menu_open
+            assert app.query_one("#canvas-task-workspaces").has_focus_within
 
     asyncio.run(run())
 
 
-def test_tab_remains_canonical_for_guided_controls_and_modal_actions() -> None:
+@pytest.mark.parametrize("menu,choice", [("manage", "rebuild"), ("tools", "settings")])
+@pytest.mark.parametrize("row", [0, 2])
+def test_menu_padding_selects_the_whole_choice(menu: str, choice: str, row: int) -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.click(f"#nav-{menu}")
+            await pilot.click(f"#{choice}", offset=(1, row))
+            assert app.active_task == choice
+            assert not app._nav_menu_open
+
+    asyncio.run(run())
+
+
+def test_tab_remains_stable_for_guided_controls_and_modal_actions() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.press("2")
             await pilot.pause()
-            source_methods = app.query_one("#workflow-restore-source-body-methods")
-            source_methods.focus()
+            source_load = app.query_one("#workflow-restore-source-body-load", Button)
+            source_load.focus()
             await pilot.pause()
 
             await pilot.press("tab")
@@ -95,17 +87,17 @@ def test_tab_remains_canonical_for_guided_controls_and_modal_actions() -> None:
 
             guided_focus = app.screen.focused
             assert guided_focus is not None
-            assert guided_focus is not source_methods
+            assert guided_focus is not source_load
             assert guided_focus.has_class("workspace-control")
             assert app.query_one("#canvas-task-workspaces").has_focus_within
 
             await pilot.press("shift+tab")
             await pilot.pause()
-            assert app.screen.focused is source_methods
+            assert app.screen.focused is source_load
 
-            await pilot.press("h")
+            await pilot.click("#nav-manage")
             await pilot.pause()
-            assert app._nav_drawer_open
+            assert app._nav_menu_open
 
             confirm_screen = ConfirmActionScreen(
                 title="Confirm action",
@@ -119,21 +111,257 @@ def test_tab_remains_canonical_for_guided_controls_and_modal_actions() -> None:
             await pilot.press("tab")
             await pilot.pause()
             assert app.screen.focused is confirm_screen.query_one("#confirm-action-confirm", Button)
-            assert app._nav_drawer_open
+            assert app._nav_menu_open
 
             await pilot.press("shift+tab")
             await pilot.pause()
             assert app.screen.focused is confirm_screen.query_one("#confirm-action-cancel", Button)
-            assert app._nav_drawer_open
+            assert app._nav_menu_open
 
             await pilot.press("escape")
             await pilot.pause()
             assert app.screen is app.screen_stack[0]
-            assert app._nav_drawer_open
+            assert app._nav_menu_open
 
             await pilot.press("tab")
             await pilot.pause()
-            assert not app._nav_drawer_open
-            assert app.screen.focused is source_methods
+            assert not app._nav_menu_open
+            assert app.screen.focused is app.query_one("#nav-manage", Button)
+
+    asyncio.run(run())
+
+
+def test_clicking_workspace_dismisses_menu() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(120, 32)) as pilot:
+            await pilot.click("#nav-manage")
+            assert app._nav_menu_open
+            await pilot.click("#canvas-title", offset=(1, 0))
+            await pilot.pause()
+            assert not app._nav_menu_open
+            assert app.active_task == "backup"
+            await pilot.click("#nav-manage")
+            choose_files = app.query_one("#workspace-backup-files", Button)
+            assert not app.query_one("#nav-menu").region.contains(
+                choose_files.region.x, choose_files.region.y
+            )
+            await pilot.click(choose_files, offset=(0, 0))
+            await pilot.pause()
+            assert isinstance(app.screen, FilePickerScreen)
+            assert not app._nav_menu_open
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("size", [(80, 24), (120, 32)])
+def test_closed_dropdowns_share_form_focus_order(size: tuple[int, int]) -> None:
+    async def run() -> None:
+        app = EthernityApp(
+            replace_recovery_docs_state=ReplaceRecoveryDocsTaskState(
+                payloads_file=Path("backup.payloads"),
+                passphrase="test-only phrase",
+            )
+        )
+        async with app.run_test(size=size) as pilot:
+            for task, selector in (
+                ("backup", "#workspace-backup-design"),
+                ("restore", "#workspace-restore-auth-policy"),
+                ("add_files", "#workspace-add-files-signature-source"),
+                ("rebuild", "#workspace-rebuild-signature-source"),
+                ("replace_recovery_docs", "#workspace-replace-signing-key-select"),
+                ("kit", "#workspace-kit-variant-select"),
+                ("settings", "#setting-control-render_style"),
+            ):
+                app._show_task(task)
+                await pilot.pause()
+                app._reveal_focus_target(selector)
+                await pilot.pause()
+                control = app.query_one(selector, Select)
+                original = control.value
+                chain = app.screen.focus_chain
+                index = chain.index(control)
+                for key, direction in (("down", 1), ("j", 1), ("up", -1), ("k", -1)):
+                    control.focus()
+                    await pilot.press(key)
+                    assert app.screen.focused is chain[(index + direction) % len(chain)]
+                    assert not control.expanded
+                    assert control.value == original
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("size", [(80, 24), (120, 32)])
+def test_dropdown_commit_cancel_and_traversal(size: tuple[int, int]) -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=size) as pilot:
+            app._show_task("restore")
+            app._reveal_focus_target("#workspace-restore-auth-policy")
+            await pilot.pause()
+            control = app.query_one("#workspace-restore-auth-policy", Select)
+            before = app.query_one("#workflow-restore-source-body-secondary-1", Button)
+            after = app.query_one("#workspace-restore-signature-source", Select)
+            original_state = app.restore_state.model_dump()
+
+            for key, target in (("escape", control), ("tab", after), ("shift+tab", before)):
+                control.focus()
+                await pilot.press("enter", "down")
+                assert control.expanded
+                assert isinstance(app.screen.focused, OptionList)
+                assert app.screen.focused.highlighted == 1
+                assert app.restore_state.model_dump() == original_state
+                await pilot.press(key)
+                assert not control.expanded
+                assert app.screen.focused is target
+                assert control.value == "require-signed"
+                assert app.restore_state.model_dump() == original_state
+
+            control.focus()
+            await pilot.press("space", "down", "enter")
+            assert control.value == "allow-unsigned"
+            assert not control.expanded
+            assert app.screen.focused is control
+            assert app.restore_state.model_dump() != original_state
+            await pilot.press("enter", "home", "enter")
+            assert control.value == "require-signed"
+            assert app.restore_state.model_dump() == original_state
+
+    asyncio.run(run())
+
+
+def test_dropdown_typeahead_and_navigation_shortcut_do_not_change_values() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(120, 32)) as pilot:
+            await pilot.pause()
+            await app._select_workbench_step("print")
+            await pilot.pause()
+            control = app.query_one("#workspace-backup-design", Select)
+            original = control.value
+            control.focus()
+            await pilot.press("enter", "l", "e", "d")
+            assert control.expanded
+            overlay = app.screen.focused
+            assert isinstance(overlay, OptionList)
+            assert overlay.highlighted is not None
+            assert "Ledger" in str(overlay.get_option_at_index(overlay.highlighted).prompt)
+            await pilot.press("ctrl+b")
+            await pilot.pause()
+            assert not control.expanded
+            assert control.value == original
+            assert app.screen.focused is app.query_one("#nav-create", Button)
+
+    asyncio.run(run())
+
+
+def test_arrows_reach_step_rail_open_sections_and_bottom_actions() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            steps = app.query_one(WorkbenchSteps)
+            steps.button_for("files").focus()
+            await pilot.press("down")
+            assert app.screen.focused is steps.button_for("recovery")
+            assert steps.button_for("files").has_class("active-step")
+            await pilot.press("enter")
+            assert steps.button_for("recovery").has_class("active-step")
+
+            app._show_task("restore")
+            await pilot.pause()
+            last_source = app.query_one("#workflow-restore-source-body-secondary-1", Button)
+            last_source.focus()
+            await pilot.press("down")
+            assert app.screen.focused is app.query_one("#workspace-restore-auth-policy")
+            await pilot.press("down")
+            assert app.screen.focused is app.query_one("#workspace-restore-signature-source")
+            await pilot.press("down")
+            assert app.screen.focused is app.query_one("#workspace-restore-expected-head")
+            await pilot.press("down")
+            assert app.screen.focused is app.query_one("#canvas-primary", Button)
+            await pilot.press("up")
+            assert app.screen.focused is app.query_one("#workspace-restore-expected-head")
+
+    asyncio.run(run())
+
+
+def test_radio_arrows_and_hjkl_keep_choice_focus_until_tab() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(120, 32)) as pilot:
+            await app._select_workbench_step("recovery")
+            radio = app.query_one("#workspace-backup-recovery-method", KeyedRadioSet)
+            radio.focus()
+            await pilot.press("j", "space")
+            assert radio.has_focus
+            assert radio.selected_key == "single_phrase"
+            await pilot.press("up", "space")
+            assert radio.selected_key == "recommended_shards"
+            await pilot.press("tab")
+            assert not radio.has_focus
+
+    asyncio.run(run())
+
+
+def test_text_editing_keeps_letters_and_cursor_keys_in_the_editor() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            editor = EditFieldScreen(title="Label", prompt="Enter a label")
+            await app.push_screen(editor)
+            await pilot.press("h", "j", "k", "l", "left", "left", "X")
+            field = editor.query_one(Input)
+            assert field.value == "hjXkl"
+            assert field.has_focus
+            await pilot.press("escape")
+
+            paste = PasteTextScreen(title="Text", prompt="Paste text", value="first\nsecond")
+            await app.push_screen(paste)
+            area = paste.query_one(TextArea)
+            area.move_cursor((1, 3))
+            await pilot.press("up", "left")
+            assert area.cursor_location == (0, 2)
+            assert area.has_focus
+            await pilot.press("h", "j", "k", "l")
+            assert area.text == "fihjklrst\nsecond"
+            assert app.active_task == "backup"
+
+    asyncio.run(run())
+
+
+def test_returning_to_settings_focuses_the_active_category() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.press("7")
+            form = app.query_one(SettingsForm)
+            rail = form.query_one("#settings-categories", WorkbenchSteps)
+            rail.button_for("Printing").focus()
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            assert form.active_group == "Backup defaults"
+            assert form.active_pane in app.screen.focused.ancestors
+
+            form.show_group("Advanced")
+            await pilot.pause()
+            pane = form.active_pane
+            control = app.query_one("#setting-control-qr_error", Select)
+            control.focus()
+            await pilot.press("right")
+            focused = app.screen.focused
+            assert focused is not None and pane in focused.ancestors
+            assert focused in app.screen.focus_chain
+            assert focused.has_class("settings-control")
+
+            await pilot.press("ctrl+b", "1", "ctrl+b", "7")
+            await pilot.pause()
+            assert app.active_task == "settings"
+            await pilot.press("down")
+            assert form.active_pane is pane
+            focused = app.screen.focused
+            assert focused is not None and pane in focused.ancestors
+            assert focused in app.screen.focus_chain
+            assert focused.has_class("settings-control")
 
     asyncio.run(run())

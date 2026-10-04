@@ -27,9 +27,22 @@ class TaskActionBar(Widget):
 
     def compose(self) -> ComposeResult:
         with HorizontalGroup(id="canvas-action-row"):
+            yield Button(
+                "< Back",
+                id="canvas-back",
+            )
             yield Static("", classes="canvas-action-spacer")
-            yield Button("Diagnostics", id="canvas-internals", compact=True)
-            yield Button("Review", id="canvas-primary", variant="primary", compact=True)
+            yield Static("", id="canvas-progress", classes="field-text", markup=False)
+            yield Static("", classes="canvas-action-spacer")
+            yield Button(
+                "Diagnostics",
+                id="canvas-internals",
+            )
+            yield Button(
+                "Review",
+                id="canvas-primary",
+                variant="primary",
+            )
 
     def update_actions(
         self,
@@ -54,7 +67,10 @@ class TaskActionBar(Widget):
         button.disabled = running or not primary_enabled
         button.display = True
         button.variant = "primary"
-        button.label = (running_label or "Task in progress") if running else primary_label
+        label = (running_label or "Task in progress") if running else primary_label
+        if str(button.label) != label:
+            button.label = label
+            button.refresh(layout=True)
 
     def _sync_loading_indicator(
         self,

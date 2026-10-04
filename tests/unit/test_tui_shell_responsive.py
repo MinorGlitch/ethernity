@@ -12,8 +12,8 @@ from ethernity.tasks.backup import BackupTaskState
 def test_shell_breakpoints_drive_navigation_and_header_priority() -> None:
     assert EthernityApp.HORIZONTAL_BREAKPOINTS == [
         (0, "-ethernity-narrow"),
-        (88, "-ethernity-standard"),
-        (132, "-ethernity-wide"),
+        (110, "-ethernity-standard"),
+        (150, "-ethernity-wide"),
     ]
     assert EthernityApp.VERTICAL_BREAKPOINTS == [
         (0, "-ethernity-short"),
@@ -22,31 +22,28 @@ def test_shell_breakpoints_drive_navigation_and_header_priority() -> None:
 
     async def run() -> None:
         cases = (
-            ((160, 48), "-ethernity-wide", "-ethernity-tall", False),
-            ((120, 32), "-ethernity-standard", "-ethernity-tall", True),
-            ((80, 24), "-ethernity-narrow", "-ethernity-short", True),
-            ((160, 24), "-ethernity-wide", "-ethernity-short", True),
+            ((160, 48), "-ethernity-wide", "-ethernity-tall"),
+            ((120, 32), "-ethernity-standard", "-ethernity-tall"),
+            ((80, 24), "-ethernity-narrow", "-ethernity-short"),
+            ((160, 24), "-ethernity-wide", "-ethernity-short"),
         )
-        for size, width_class, height_class, collapsed in cases:
+        for size, width_class, height_class in cases:
             app = EthernityApp()
             async with app.run_test(size=size) as pilot:
                 await pilot.pause()
 
                 assert app.screen.has_class(width_class)
                 assert app.screen.has_class(height_class)
-                nav = app.query_one("#nav")
-                nav_button = app.query_one("#nav-strip", Button)
+                nav_button = app.query_one("#nav-tools", Button)
                 header_title = app.query_one("#app-header-title", Label)
                 header_status = app.query_one("#app-header-status", Label)
 
-                assert nav.region.width == (4 if collapsed else 34)
-                assert nav_button.display is collapsed
-                show_secondary_header = size[0] >= 88 and size[1] >= 28
-                assert header_title.display is show_secondary_header
-                assert header_status.display is show_secondary_header
-                if collapsed:
-                    assert nav_button.region.y == app.query_one("#shell").region.y
-                    assert nav_button.region.height < nav.region.height
+                assert not list(app.query("#nav-drawer, #nav-strip"))
+                assert nav_button.display
+                assert header_title.display
+                assert header_status.display
+                assert app.query_one("#app-header").region.height == (1 if size[1] < 28 else 3)
+                assert nav_button.region.bottom <= app.query_one("#shell").region.y
 
     asyncio.run(run())
 
@@ -65,7 +62,7 @@ def test_shell_constrains_reading_width_and_reserves_the_action_row() -> None:
                 primary = app.query_one("#canvas-primary", Button).region
 
                 assert canvas.x == workspace.x
-                assert canvas.width == min(workspace.width, 112)
+                assert canvas.width == workspace.width
                 assert scroll_viewport.bottom <= action_bar.y
                 assert action_bar.x <= primary.x
                 assert primary.right <= action_bar.right
@@ -75,24 +72,38 @@ def test_shell_constrains_reading_width_and_reserves_the_action_row() -> None:
     asyncio.run(run())
 
 
-def test_navigation_drawer_is_top_aligned_and_labels_fit() -> None:
+def test_navigation_menus_fit_below_their_buttons_and_close_on_resize() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
-            await pilot.click("#nav-strip")
-            await pilot.pause()
-
-            drawer = app.query_one("#nav-drawer").region
-            shell = app.query_one("#shell").region
-            workspace = app.query_one("#workspace").region
-            nav_button = app.query_one("#nav-strip", Button).region
-
-            assert drawer.width == 34
-            assert drawer.y == shell.y
-            assert drawer.overlaps(workspace)
-            assert not drawer.overlaps(nav_button)
-            for label in app.query_one("#nav-list", ListView).query(".nav-row-label"):
-                assert len(str(label.content)) <= label.region.width
+        async with app.run_test(size=(160, 48)) as pilot:
+            for menu, items in (("manage", 3), ("tools", 2)):
+                for width, rows in ((160, 48), (120, 32), (80, 24), (60, 20)):
+                    await pilot.resize_terminal(width, rows)
+                    await pilot.pause()
+                    assert not app._nav_menu_open
+                    await pilot.click(f"#nav-{menu}")
+                    await pilot.pause()
+                    dropdown = app.query_one("#nav-menu").region
+                    owner = app.query_one(f"#nav-{menu}", Button).region
+                    assert dropdown.width == 34
+                    assert dropdown.height == items * 3 + 2
+                    assert dropdown.y == owner.bottom
+                    assert dropdown.x == min(owner.x, width - dropdown.width)
+                    assert dropdown.right <= width
+                    assert not dropdown.overlaps(owner)
+                    choices = [item for item in app.query("#nav-list > ListItem") if item.display]
+                    for current, following in zip(choices, choices[1:]):
+                        assert following.region.y == current.region.bottom
+                    for choice in choices:
+                        number = choice.query_one(".nav-row-number").region
+                        label = choice.query_one(".nav-row-label").region
+                        assert number.y == label.y == choice.region.y + 1
+                        assert number.height == label.height == 1
+                        assert choice.region.height == 3
+                    for label in app.query_one("#nav-list", ListView).query(".nav-row-label"):
+                        if label.region.width:
+                            assert len(str(label.content)) <= label.region.width
+                await pilot.press("escape")
 
     asyncio.run(run())
 
@@ -110,7 +121,8 @@ def test_action_bar_keeps_its_label_and_uses_screen_breakpoints() -> None:
             primary = app.query_one("#canvas-primary", Button)
             full_label = str(primary.label)
 
-            assert full_label.startswith("Review")
+            assert full_label == "Continue >"
+            assert primary.region.height == 3
             assert not action_row.has_class("narrow-mode")
 
             await pilot.resize_terminal(80, 24)
@@ -120,13 +132,16 @@ def test_action_bar_keeps_its_label_and_uses_screen_breakpoints() -> None:
             assert app.screen.has_class("-ethernity-short")
             assert str(primary.label) == full_label
             assert primary.region.right == action_row.region.right
-            assert primary.region.width >= action_row.region.width - 19
+            assert primary.region.width >= 18
+            assert primary.region.height == 1
+            assert len(str(primary.label)) <= primary.region.width
 
             await pilot.resize_terminal(120, 32)
             await pilot.pause()
 
             assert app.screen.has_class("-ethernity-standard")
             assert str(primary.label) == full_label
+            assert primary.region.height == 3
 
     asyncio.run(run())
 
@@ -137,7 +152,7 @@ def test_ethernity_theme_preserves_light_and_no_color_modes(monkeypatch) -> None
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
             assert app.theme == "ethernity-dark"
-            assert app.current_theme.primary == "#55AFA5"
+            assert app.current_theme.primary == "#E0B56D"
             assert app.no_color
 
             app.theme = "ethernity-light"

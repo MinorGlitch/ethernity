@@ -35,15 +35,14 @@ def modal_action_row(
         widgets.append(Static("", classes="modal-action-spacer"))
     for index, action in enumerate(actions):
         if index > 0:
-            widgets.append(Static("", classes="modal-action-gap"))
+            widgets.append(Static("", classes="action-gap"))
         widgets.append(
             Button(
                 Content.from_text(action.label, markup=False),
                 id=action.id,
                 variant=action.variant,
                 disabled=action.disabled,
-                compact=True,
-                classes=_button_classes(action),
+                classes=action.classes,
             )
         )
     return HorizontalGroup(*widgets, id=row_id, classes=" ".join(classes))
@@ -61,29 +60,14 @@ def inline_action_group(
     widgets: list[Widget] = []
     for index, action in enumerate(actions):
         if index > 0:
-            widgets.append(Static("", classes="inline-action-gap"))
+            widgets.append(Static("", classes="action-gap"))
         widgets.append(
             Button(
                 Content.from_text(action.label, markup=False),
                 id=action.id,
                 variant=action.variant,
                 disabled=action.disabled,
-                compact=True,
-                classes=_inline_button_classes(action),
+                classes=action.classes,
             )
         )
     return HorizontalGroup(*widgets, id=group_id, classes=group_classes)
-
-
-def _button_classes(action: ActionButton) -> str:
-    classes = ["modal-action", f"{action.variant}-modal-action"]
-    if action.classes:
-        classes.append(action.classes)
-    return " ".join(classes)
-
-
-def _inline_button_classes(action: ActionButton) -> str:
-    classes = ["inline-action", f"{action.variant}-inline-action"]
-    if action.classes:
-        classes.append(action.classes)
-    return " ".join(classes)

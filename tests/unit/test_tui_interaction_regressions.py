@@ -10,12 +10,10 @@ from textual.widgets import (
     Label,
     MarkdownViewer,
     OptionList,
-    RadioButton,
     RichLog,
     Select,
     SelectionList,
     Static,
-    TabbedContent,
 )
 
 from ethernity.app.application import EthernityApp
@@ -28,7 +26,10 @@ from ethernity.app.screens.help import HelpScreen, _help_markdown
 from ethernity.app.screens.paste_text import PasteTextScreen
 from ethernity.app.screens.review_task import ReviewTaskScreen
 from ethernity.app.screens.task_result import TaskResultScreen
-from ethernity.app.workspaces.common import WorkspacePathList, WorkspaceRadioSet
+from ethernity.app.widgets.settings_form import SettingsForm
+from ethernity.app.widgets.workbench import WorkbenchSteps
+from ethernity.app.widgets.workflow.controls import KeyedRadioSet
+from ethernity.app.workspaces.workspace_controls import WorkspacePathList
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.models import (
@@ -43,7 +44,6 @@ from ethernity.tasks.models import (
     TaskSection,
     TaskValidation,
 )
-from ethernity.tasks.presentation.models import WorkspaceChoice
 
 
 def test_editor_and_diagnostics_actions_use_concrete_labels() -> None:
@@ -201,7 +201,7 @@ def test_open_paths_picker_actions_fit_at_60_columns(tmp_path: Path) -> None:
             await app.push_screen(picker)
             await pilot.pause()
 
-            distinguishing_name = "recovery-material-final.pdf"
+            distinguishing_name = "recovery-sheets-final.pdf"
             picker.set_selected_paths((tmp_path / "a-very-long-folder-name" / distinguishing_name,))
             await pilot.pause()
 
@@ -295,17 +295,17 @@ def test_destructive_clear_has_no_bare_key_binding() -> None:
     assert all(getattr(binding, "key", None) != "c" for binding in APP_BINDINGS)
 
 
-def test_escape_closes_navigation_drawer_without_affecting_closed_shell() -> None:
+def test_escape_closes_navigation_menu_without_affecting_closed_shell() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
-            await pilot.click("#nav-strip")
+            await pilot.click("#nav-tools")
             await pilot.pause()
-            assert app._nav_drawer_open
+            assert app._nav_menu_open
 
             await pilot.press("escape")
             await pilot.pause()
-            assert not app._nav_drawer_open
+            assert not app._nav_menu_open
 
             await pilot.press("escape")
             await pilot.pause()
@@ -328,7 +328,7 @@ def test_action_bar_uses_screen_breakpoints_after_resize() -> None:
             primary = app.query_one("#canvas-primary", Button)
             full_label = str(primary.label)
             assert app.screen.has_class("-ethernity-standard")
-            assert full_label.startswith("Review")
+            assert full_label == "Continue >"
 
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
@@ -337,7 +337,8 @@ def test_action_bar_uses_screen_breakpoints_after_resize() -> None:
             assert app.screen.has_class("-ethernity-short")
             assert str(primary.label) == full_label
             assert primary.region.right == action_row.region.right
-            assert primary.region.width >= action_row.region.width - 19
+            assert primary.region.width >= len(full_label)
+            assert action_row.region.bottom <= app.screen.size.height
 
             await pilot.resize_terminal(120, 30)
             await pilot.pause()
@@ -354,7 +355,7 @@ def test_settings_advanced_tab_exposes_direct_traversable_controls() -> None:
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.press("7")
             await pilot.pause()
-            app.query_one("#settings-tabs", TabbedContent).active = "settings-pane-advanced"
+            app.query_one(SettingsForm).show_group("Advanced")
             await pilot.pause()
 
             assert not list(app.query("#settings-advanced-panel"))
@@ -368,54 +369,36 @@ def test_settings_advanced_tab_exposes_direct_traversable_controls() -> None:
     asyncio.run(run())
 
 
-def test_workspace_radio_set_synchronizes_through_native_adapter() -> None:
+def test_backup_recovery_options_synchronizes_after_state_refresh() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(100, 30)) as pilot:
-            choice_set = app.query_one(
-                "#workspace-backup-recovery-method",
-                WorkspaceRadioSet,
-            )
-            choices = (
-                WorkspaceChoice("recommended_shards", "Recommended", False),
-                WorkspaceChoice("single_phrase", "Single phrase", True),
-                WorkspaceChoice("custom_shards", "Custom", False),
-            )
-
-            choice_set.sync_choices(choices)
-            await pilot.pause()
-
-            assert choice_set.selected_key == "single_phrase"
-            assert choice_set.query_one(
-                "#workspace-backup-recovery-single_phrase",
-                RadioButton,
-            ).value
-
-            choice_set.sync_choices(
-                tuple(WorkspaceChoice(choice.key, choice.label, False) for choice in choices)
-            )
-            await pilot.pause()
-
-            assert choice_set.selected_key is None
+            choice = app.query_one("#workspace-backup-recovery-method", KeyedRadioSet)
+            assert choice.selected_key == "recommended_shards"
+            for method in ("single_phrase", "custom_shards", "recommended_shards"):
+                app.backup_state.recovery_method = method
+                app.refresh_task_view()
+                await pilot.pause()
+                assert choice.selected_key == method
+                assert app.backup_state.recovery_method == method
 
     asyncio.run(run())
 
 
-def test_workspace_radio_set_accepts_keyboard_selection() -> None:
+def test_backup_recovery_options_accepts_keyboard_selection() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(100, 30)) as pilot:
-            choice_set = app.query_one(
-                "#workspace-backup-recovery-method",
-                WorkspaceRadioSet,
-            )
-            choice_set.focus()
+            choice = app.query_one("#workspace-backup-recovery-method", KeyedRadioSet)
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
+            choice.focus()
 
-            await pilot.press("down", "down", "space")
+            await pilot.press("right", "space")
             await pilot.pause()
 
-            assert app.backup_state.recovery_method == "custom_shards"
-            assert choice_set.selected_key == "custom_shards"
+            assert app.backup_state.recovery_method == "single_phrase"
+            assert choice.selected_key == "single_phrase"
+            assert choice.has_focus
 
     asyncio.run(run())
 
@@ -432,6 +415,8 @@ def test_workspace_path_lists_are_read_only_and_render_markup_literally() -> Non
         )
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.pause()
+            app.query_one("#backup-files-panel", Collapsible).collapsed = False
+            await pilot.pause(0.1)
 
             path_list = app.query_one("#backup-files-list", WorkspacePathList)
             prompt = str(path_list.get_option_at_index(0).prompt)
@@ -441,9 +426,14 @@ def test_workspace_path_lists_are_read_only_and_render_markup_literally() -> Non
             assert "## injected.txt" in rendered_paths
             assert not list(path_list.query("SelectionListItem"))
 
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("print"))
+            await pilot.pause()
             output = app.query_one("#backup-output-value", Static)
             assert str(output.content) == str(output_path)
-            assert "[red]output [docs](target.md)" in output.render_line(0).text
+            rendered_output = "\n".join(
+                output.render_line(line).text for line in range(output.region.height)
+            )
+            assert "[red]output [docs](target.md)" in rendered_output
 
     asyncio.run(run())
 
@@ -536,7 +526,7 @@ def test_result_renders_messages_and_newline_paths_without_markup() -> None:
         task="backup",
         title=dangerous,
         result=TaskExecutionResult(
-            ok=False,
+            status="failed",
             message=dangerous,
             output_paths=(output_path,),
         ),
@@ -565,7 +555,7 @@ def test_result_renders_messages_and_newline_paths_without_markup() -> None:
 
             issue_line = next(
                 line
-                for line in screen.query(".result-summary-line").results(Static)
+                for line in screen.query(".detail-text").results(Static)
                 if str(line.content) == dangerous
             )
             assert dangerous in issue_line.render_line(0).text
@@ -580,8 +570,9 @@ def test_help_avoids_duplicate_intro_and_focuses_scroll_content() -> None:
         assert content.title == "Restore files"
         assert content.mode.summary not in markdown
         assert "## Restore files" not in markdown
-        assert markdown.count("### ") == 3
-        assert "Keyboard" not in markdown
+        assert markdown.count("### ") == 4
+        assert "### Keyboard navigation" in markdown
+        assert "Enter or Space opens a dropdown" in markdown
 
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
@@ -600,7 +591,7 @@ def test_help_avoids_duplicate_intro_and_focuses_scroll_content() -> None:
     asyncio.run(run())
 
 
-def test_review_is_structured_and_scrollable_at_80_columns() -> None:
+def test_review_shows_detail_lines_and_visible_actions_at_80_columns() -> None:
     async def run() -> None:
         validation = TaskValidation(
             sections=(
@@ -636,7 +627,7 @@ def test_review_is_structured_and_scrollable_at_80_columns() -> None:
             assert not list(screen.query(MarkdownViewer))
             assert screen.focused is screen.query_one("#review-execute", Button)
             detail_lines = [
-                str(line.content) for line in screen.query(".review-detail-line").results(Static)
+                str(line.content) for line in screen.query(".detail-line").results(Static)
             ]
             assert "Existing output may be replaced." in detail_lines
             assert "- Existing output may be replaced." not in detail_lines
@@ -725,7 +716,7 @@ def test_review_header_and_actions_fit_at_60_by_20() -> None:
 def test_large_result_keeps_actions_visible_at_80_by_24(tmp_path: Path) -> None:
     async def run() -> None:
         result = TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message="Backup complete.",
             output_paths=tuple(tmp_path / f"backup-{index}.pdf" for index in range(20)),
         )
@@ -759,7 +750,7 @@ def test_add_files_result_shows_version_history_and_storage_guidance(monkeypatch
             task="add_files",
             title="Add files",
             result=TaskExecutionResult(
-                ok=True,
+                status="succeeded",
                 message="Update complete.",
                 details=(
                     TaskResultDetail(
@@ -778,11 +769,11 @@ def test_add_files_result_shows_version_history_and_storage_guidance(monkeypatch
 
             metadata = "\n".join(
                 str(line.content)
-                for line in screen.query("#result-metadata .result-summary-line").results(Static)
+                for line in screen.query("#result-metadata .detail-text").results(Static)
             )
             summary = "\n".join(
                 str(line.content)
-                for line in screen.query("#result-next-steps .result-summary-line").results(Static)
+                for line in screen.query("#result-next-steps .detail-text").results(Static)
             )
             assert "New full fingerprint" in metadata
             assert fingerprint in metadata
@@ -803,7 +794,7 @@ def test_result_fingerprint_action_requires_a_full_document_hash() -> None:
         task="add_files",
         title="Add files",
         result=TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message="Update complete.",
             details=(TaskResultDetail(key="doc_hash", label="Fingerprint", value="ab" * 31),),
         ),
@@ -812,7 +803,7 @@ def test_result_fingerprint_action_requires_a_full_document_hash() -> None:
         task="add_files",
         title="Add files",
         result=TaskExecutionResult(
-            ok=True,
+            status="succeeded",
             message="Update complete.",
             details=(TaskResultDetail(key="doc_id", label="Document ID", value="ab" * 32),),
         ),
@@ -821,7 +812,7 @@ def test_result_fingerprint_action_requires_a_full_document_hash() -> None:
         task="add_files",
         title="Add files",
         result=TaskExecutionResult(
-            ok=False,
+            status="failed",
             message="Update failed.",
             details=(TaskResultDetail(key="doc_hash", label="Fingerprint", value="ab" * 32),),
         ),
@@ -841,7 +832,7 @@ def test_failure_result_leads_with_actionable_error_and_partial_write_location(
             task="restore",
             title="Restore files",
             result=TaskExecutionResult(
-                ok=False,
+                status="failed",
                 message="Worker exited with status 1.",
                 output_paths=(partial_path,),
             ),
@@ -925,7 +916,9 @@ def test_result_variants_keep_content_and_actions_visible_at_small_sizes(
                 TaskResultScreen(
                     task="kit",
                     title="Create recovery kit PDF",
-                    result=TaskExecutionResult(ok=True, message="Complete.", output_paths=()),
+                    result=TaskExecutionResult(
+                        status="succeeded", message="Complete.", output_paths=()
+                    ),
                 ),
                 size,
             )
@@ -953,7 +946,7 @@ def test_result_variants_keep_content_and_actions_visible_at_small_sizes(
             task="replace_recovery_docs",
             title="Create replacement recovery sheets",
             result=TaskExecutionResult(
-                ok=False,
+                status="failed",
                 message="Stopped after reporting partial output.",
                 output_paths=(partial_path,),
             ),
@@ -967,24 +960,50 @@ def test_result_variants_keep_content_and_actions_visible_at_small_sizes(
         )
 
 
-def test_restore_expert_controls_live_in_advanced_disclosure() -> None:
+def test_result_presents_partial_success_as_a_completed_write(tmp_path: Path) -> None:
+    update_path = tmp_path / "extensions" / "01" / "qr_document.pdf"
+    screen = TaskResultScreen(
+        task="add_files",
+        title="Add files",
+        result=TaskExecutionResult(
+            status="partially_succeeded",
+            message="Backup update 01 was published, but recovery sheets were not created.",
+            output_paths=(update_path,),
+            next_steps=("Run Replace Recovery Docs for update 01.",),
+        ),
+    )
+
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await app.push_screen(screen)
+            await pilot.pause()
+
+            assert screen.query_one("#result-modal").has_class("partial")
+            assert str(screen.query_one("#result-status", Static).content) == (
+                "The main write completed, but a follow-up step failed."
+            )
+            assert str(screen.query_one("#result-output-title", Static).content) == "Files created"
+            assert not list(screen.query("#result-return"))
+            assert screen.focused is screen.query_one("#result-close", Button)
+
+    asyncio.run(run())
+
+
+def test_restore_verification_controls_live_on_source_step() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.press("2")
             await pilot.pause()
 
-            panel = app.query_one("#restore-advanced-panel", Collapsible)
-            assert panel.collapsed
-            assert "Trusted signatures required" in panel.title
-            assert panel.query_one("#workspace-restore-expected-head", Button)
-            assert panel.query_one("#workspace-restore-auth-policy")
-            assert not list(panel.query("#workspace-restore-payloads"))
-            assert not list(panel.query("#workspace-restore-target-fingerprint"))
-            assert app.query_one("#workflow-restore-source-body-methods") not in panel.query("*")
-            assert app.query_one(
-                "#workflow-restore-destination-body-action",
-                Button,
-            ) not in panel.query(Button)
+            section = app.query_one("#restore-verification-section")
+            assert section.display
+            assert section.query_one("#workspace-restore-expected-head", Button)
+            assert section.query_one("#workspace-restore-auth-policy")
+            assert app.query_one("#workflow-restore-source-body-load") not in section.query("*")
+            app._reveal_focus_target("#workspace-restore-auth-policy")
+            await pilot.pause()
+            assert app.workflow_ui_states["restore"].active_step == "source"
 
     asyncio.run(run())

@@ -4,15 +4,16 @@ import asyncio
 from pathlib import Path
 
 from textual.containers import VerticalScroll
-from textual.widgets import Button, Select, Static
+from textual.widgets import Button, Input, Select, Static
 
 from ethernity.app.application import EthernityApp
+from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.restore import RestoreTaskState
 
 
-def test_narrow_kit_prioritizes_output_and_custom_qr_warning(tmp_path: Path) -> None:
+def test_narrow_kit_keeps_fields_and_their_warning_reachable(tmp_path: Path) -> None:
     async def run() -> None:
         app = EthernityApp(
             kit_state=PrintKitTaskState(
@@ -29,7 +30,7 @@ def test_narrow_kit_prioritizes_output_and_custom_qr_warning(tmp_path: Path) -> 
             output = app.query_one("#kit-output-value", Static)
             choose_output = app.query_one("#workspace-kit-output", Button)
             warning = app.query_one("#kit-qr-warning", InlineNotice)
-            advanced_title = app.query_one("#kit-advanced-panel CollapsibleTitle")
+            qr_value = app.query_one("#kit-chunk-size-value", Static)
             document_setup = app.query_one("#workspace-kit-variant-select", Select)
             primary = app.query_one("#canvas-primary", Button)
 
@@ -37,25 +38,20 @@ def test_narrow_kit_prioritizes_output_and_custom_qr_warning(tmp_path: Path) -> 
             assert str(primary.label) == "Review PDF"
             assert not primary.disabled
             assert output.render_line(0).text.rstrip().endswith("recovery-kit.pdf")
-            assert "Choose PDF file..." in choose_output.render_line(0).text
-            assert "QR sizing - 384 bytes per code" in advanced_title.render_line(0).text
+            assert "Change..." in choose_output.render_line(0).text
+            assert len(str(choose_output.label)) <= choose_output.content_region.width
+            assert "384 bytes per code" in str(qr_value.content)
             warning_text = " ".join(
                 warning.render_line(line).text.strip() for line in range(warning.region.height)
             )
-            assert "page count and make codes harder to scan" in warning_text
+            assert "Warning: Custom QR sizing may make codes harder to scan." in warning_text
 
             viewport = scroll.content_region
-            for critical in (output, choose_output, warning, advanced_title):
-                assert viewport.y <= critical.region.y
-                assert critical.region.bottom <= viewport.bottom
-            assert output.region.y < warning.region.y < advanced_title.region.y
-            assert advanced_title.region.y < document_setup.region.y
-
-            assert document_setup.display
-            document_setup.scroll_visible(animate=False, immediate=True)
-            await pilot.pause()
-            assert viewport.y <= document_setup.region.y
-            assert document_setup.region.bottom <= viewport.bottom
+            assert output.region.y < document_setup.region.y < qr_value.region.y < warning.region.y
+            for critical in (output, choose_output, document_setup, qr_value, warning):
+                critical.scroll_visible(animate=False, immediate=True)
+                await pilot.pause()
+                assert viewport.contains_region(critical.region)
 
     asyncio.run(run())
 
@@ -66,7 +62,7 @@ def test_restore_destination_path_stays_on_one_line_at_wide_and_narrow_sizes(
     destination = (
         tmp_path
         / "very-long-project-folder"
-        / "nested-backup-material"
+        / "nested-backup-documents"
         / "paper-recovery-session"
         / "final-destination"
         / "restored-files-folder"
@@ -83,26 +79,26 @@ def test_restore_destination_path_stays_on_one_line_at_wide_and_narrow_sizes(
         async with app.run_test(size=(96, 40)) as pilot:
             await pilot.press("2")
             await pilot.pause()
-            for _step in range(3):
-                await pilot.click("#canvas-primary")
-                await pilot.pause()
-
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("destination"))
+            await pilot.pause()
             value = app.query_one(
-                "#workflow-restore-destination-body .guided-field-value",
-                Static,
+                "#workflow-restore-destination-body-value",
+                Input,
             )
             for size in ((96, 40), (80, 24)):
                 if app.size != size:
                     await pilot.resize_terminal(*size)
                     await pilot.pause()
 
-                rendered = value.render_line(0).text.rstrip()
-                assert value.region.height == 1
+                value.focus(scroll_visible=True)
+                await pilot.pause()
+                assert value.value == str(destination)
+                assert value.region.width <= app.query_one("#task-canvas").region.width
                 assert value.content_region.height == 1
-                assert len(rendered) <= value.content_region.width
-                assert rendered.endswith(destination.name)
-                assert "..." in rendered
-                assert str(value.tooltip) == str(value.content)
+                rendered_value = [
+                    value.render_line(line).text.strip() for line in range(value.region.height)
+                ]
+                assert sum(bool(line) for line in rendered_value) == 1
                 assert value.region.bottom <= app.query_one("#task-action-bar").region.y
 
     asyncio.run(run())

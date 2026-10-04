@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from functools import partial
 from pathlib import Path
 
 from textual.app import ComposeResult, SystemCommand
@@ -13,18 +14,25 @@ from ethernity.app.app_state import (
     build_initial_task_states,
 )
 from ethernity.app.app_types import ActiveTask
+from ethernity.app.backup_context import LoadedBackupContext
+from ethernity.app.backup_estimate_controller import BackupEstimateController
 from ethernity.app.bindings import APP_BINDINGS, APP_SUB_TITLE, APP_TITLE
 from ethernity.app.editing.actions import TaskEditingActions
 from ethernity.app.events import AppEventHandlers
+from ethernity.app.execution import ReviewedTask
 from ethernity.app.execution_controller import ExecutionController
 from ethernity.app.mutations.actions import TaskMutationActions
+from ethernity.app.navigation import NavMenu
 from ethernity.app.output_paths import open_folder, single_output_folder
+from ethernity.app.recovery_check_controller import RecoveryCheckController
 from ethernity.app.settings_controller import SettingsController
 from ethernity.app.shell import compose_app_shell
 from ethernity.app.source_assessment_controller import SourceAssessmentController
 from ethernity.app.task_catalog import review_label
 from ethernity.app.task_view import TaskViewActions
+from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.app.workflow_presenter import initial_workflow_ui_states
+from ethernity.app.workflow_registry import WORKFLOWS
 from ethernity.security import prepare_disposable_worker_runtime
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
@@ -35,50 +43,82 @@ from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.settings import SettingsTaskState
 
+_TASK_COMMAND_DESCRIPTIONS: dict[ActiveTask, str] = {
+    "backup": "Create paper backup documents for selected files",
+    "restore": "Recover files from backup documents",
+    "add_files": "Add or replace files in an existing backup",
+    "rebuild": "Create a standalone backup from the loaded history",
+    "replace_recovery_docs": "Create new recovery sheets for an existing backup",
+    "kit": "Print the reusable offline recovery tool",
+    "settings": "Change saved defaults",
+}
+
 ETHERNITY_DARK_THEME = Theme(
     name="ethernity-dark",
-    primary="#55AFA5",
-    secondary="#78BDB5",
-    accent="#9FC9C3",
-    foreground="#ECE9E1",
-    background="#171A1B",
-    surface="#202526",
-    panel="#2A3031",
-    warning="#D4A64A",
-    error="#D16C72",
-    success="#75A987",
+    primary="#E0B56D",
+    secondary="#C9BA93",
+    accent="#E8D7AE",
+    foreground="#EAE6DA",
+    background="#171918",
+    surface="#20231F",
+    panel="#2A2E26",
+    warning="#F0A06A",
+    error="#EB879B",
+    success="#8CCBAD",
     variables={
-        "border": "#607170",
-        "border-blurred": "#384342",
-        "button-color-foreground": "#111718",
+        "text": "#EAE6DA",
+        "text-muted": "#A7AA99",
+        "text-disabled": "#74796B",
+        "text-primary": "#E0B56D",
+        "text-warning": "#F0A06A",
+        "text-error": "#EB879B",
+        "text-success": "#8CCBAD",
+        "button-foreground": "#EAE6DA",
+        "block-cursor-foreground": "#1C211A",
+        "block-cursor-text-style": "none",
+        "footer-description-foreground": "#A7AA99",
+        "border": "#777B69",
+        "border-blurred": "#3B3E34",
+        "button-color-foreground": "#1C211A",
         "button-focus-text-style": "bold",
-        "footer-background": "#202526",
-        "footer-key-foreground": "#55AFA5",
-        "input-selection-background": "#55AFA5 35%",
+        "footer-background": "#20231F",
+        "footer-key-foreground": "#E0B56D",
+        "input-selection-background": "#E0B56D 35%",
     },
 )
 
 ETHERNITY_LIGHT_THEME = Theme(
     name="ethernity-light",
-    primary="#267B73",
-    secondary="#3E8D85",
-    accent="#226D66",
-    foreground="#272A2A",
-    background="#F3F0E9",
-    surface="#E8E5DE",
-    panel="#DCD9D2",
-    warning="#9A6B13",
-    error="#A8474F",
-    success="#4D7C5B",
+    primary="#805818",
+    secondary="#74694D",
+    accent="#805818",
+    foreground="#2C3028",
+    background="#F4F0E6",
+    surface="#EAE5D9",
+    panel="#DDD6C7",
+    warning="#A64719",
+    error="#AD2F49",
+    success="#25694D",
     dark=False,
     variables={
-        "border": "#71817F",
-        "border-blurred": "#BBC3C1",
-        "button-color-foreground": "#F8F6F0",
+        "text": "#2C3028",
+        "text-muted": "#656959",
+        "text-disabled": "#959889",
+        "text-primary": "#805818",
+        "text-warning": "#A64719",
+        "text-error": "#AD2F49",
+        "text-success": "#25694D",
+        "button-foreground": "#2C3028",
+        "block-cursor-foreground": "#FFFAF0",
+        "block-cursor-text-style": "none",
+        "footer-description-foreground": "#656959",
+        "border": "#797A69",
+        "border-blurred": "#CDC6B6",
+        "button-color-foreground": "#FFFAF0",
         "button-focus-text-style": "bold",
-        "footer-background": "#E8E5DE",
-        "footer-key-foreground": "#267B73",
-        "input-selection-background": "#267B73 25%",
+        "footer-background": "#EAE5D9",
+        "footer-key-foreground": "#805818",
+        "input-selection-background": "#805818 25%",
     },
 )
 
@@ -91,14 +131,16 @@ class EthernityApp(
 ):
     """Terminal-first Ethernity application shell."""
 
-    CSS_PATH = "theme.tcss"
+    CSS_PATH = [
+        Path(__file__).with_name(name) for name in ("theme.tcss", "workbench.tcss", "dialogs.tcss")
+    ]
     BINDINGS = APP_BINDINGS
     TITLE = APP_TITLE
     SUB_TITLE = APP_SUB_TITLE
     HORIZONTAL_BREAKPOINTS = [
         (0, "-ethernity-narrow"),
-        (88, "-ethernity-standard"),
-        (132, "-ethernity-wide"),
+        (110, "-ethernity-standard"),
+        (150, "-ethernity-wide"),
     ]
     VERTICAL_BREAKPOINTS = [
         (0, "-ethernity-short"),
@@ -141,56 +183,65 @@ class EthernityApp(
         self.execution_controller = ExecutionController(self)
         self.settings_controller = SettingsController(self)
         self._last_execution_result: TaskExecutionResult | None = None
+        self._last_reviewed_task: ReviewedTask | None = None
+        self._review_edit_task: ActiveTask | None = None
         self._preparing_review_task: ActiveTask | None = None
         self.workflow_ui_states = initial_workflow_ui_states()
         self.source_assessment_controller = SourceAssessmentController(self)
-        self._nav_drawer_open = False
-        self._nav_rendered_task: ActiveTask | None = None
-        self._nav_return_focus_id: str | None = None
-        self._nav_return_focus_task: ActiveTask | None = None
-        self._nav_focus_generation = 0
+        self.backup_estimate_controller = BackupEstimateController(self)
+        self.recovery_check_controller = RecoveryCheckController(self)
+        self._nav_menu_open = False
+        self._loaded_backup_context: LoadedBackupContext | None = None
+        self._nav_menu: NavMenu = "manage"
 
     def _task_payloads(self) -> dict[ActiveTask, str]:
         return {
-            task: getattr(self, f"{task}_state").model_dump_json()
-            for task in (
-                "backup",
-                "restore",
-                "add_files",
-                "rebuild",
-                "replace_recovery_docs",
-                "kit",
-                "settings",
-            )
+            workflow.key: getattr(self, workflow.state_attribute).model_dump_json()
+            for workflow in WORKFLOWS
         }
 
-    def _nav_should_collapse(self) -> bool:
-        """Keep navigation responsive to the same app-level layout contract as TCSS."""
-
-        return self.size.width < 132 or self.size.height < 28
-
     @property
-    def _running_task(self) -> ActiveTask | None:
-        """Compatibility view used by settings while writes are locked."""
-
+    def running_task(self) -> ActiveTask | None:
+        """Task whose reviewed snapshot currently owns the execution worker."""
         return self.execution_controller.running_task
 
     def compose(self) -> ComposeResult:
         yield from compose_app_shell()
 
-    def action_focus_next(self) -> None:
-        """Keep Tab from moving focus underneath an open navigation drawer."""
+    def on_unmount(self) -> None:
+        self.backup_estimate_controller.close()
+        self.recovery_check_controller.close()
 
-        if self._nav_drawer_open and self.screen is self.screen_stack[0]:
-            self._close_nav_drawer()
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "close_navigation":
+            return self._nav_menu_open
+        if action == "open_navigation":
+            return True if self.screen is self.screen_stack[0] else None
+        return super().check_action(action, parameters)
+
+    def action_open_navigation(self) -> None:
+        if self.screen is not self.screen_stack[0]:
+            return
+        self._close_nav_menu(restore_focus=False)
+        self.call_after_refresh(self._focus_top_navigation)
+
+    def _focus_top_navigation(self) -> None:
+        if not self._nav_menu_open and self.screen is self.screen_stack[0]:
+            self.query_one("#workbench-navigation Button.active-task").focus()
+
+    def action_focus_next(self) -> None:
+        """Keep Tab from moving focus underneath an open menu."""
+
+        if self._nav_menu_open and self.screen is self.screen_stack[0]:
+            self._close_nav_menu()
             return
         self.screen.focus_next()
 
     def action_focus_previous(self) -> None:
-        """Keep Shift+Tab symmetric with forward traversal around the drawer."""
+        """Keep Shift+Tab symmetric with forward traversal around the menu."""
 
-        if self._nav_drawer_open and self.screen is self.screen_stack[0]:
-            self._close_nav_drawer()
+        if self._nav_menu_open and self.screen is self.screen_stack[0]:
+            self._close_nav_menu()
             return
         self.screen.focus_previous()
 
@@ -201,6 +252,12 @@ class EthernityApp(
             "Close the application",
             self.action_quit,
         )
+        for workflow in WORKFLOWS:
+            yield SystemCommand(
+                workflow.title,
+                _TASK_COMMAND_DESCRIPTIONS[workflow.key],
+                partial(self._show_task, workflow.key),
+            )
         yield from self._workflow_system_commands()
 
     def _workflow_system_commands(self) -> Iterable[SystemCommand]:
@@ -222,11 +279,13 @@ class EthernityApp(
                 self.action_diagnostics,
             )
         if self.active_task == "settings":
-            yield SystemCommand(
-                "Reset current tab",
-                "Reset settings in the focused tab",
-                self.settings_controller.reset_selected_group,
-            )
+            group = self.query_one(SettingsForm).active_group
+            if group != "Config file":
+                yield SystemCommand(
+                    "Reset current section",
+                    "Restore defaults for this settings category",
+                    partial(self.settings_controller.reset_group, group),
+                )
             yield SystemCommand(
                 "Reset all settings",
                 "Return every setting to its default value",
@@ -296,22 +355,25 @@ class EthernityApp(
                 "Select files or folders for this update",
                 self.action_edit_primary,
             )
-            if self.add_files_state.source_paths:
-                yield SystemCommand(
-                    "Set update output",
-                    "Choose a new or empty folder for scan-based update documents",
-                    self.action_edit_output,
-                )
-            else:
-                yield SystemCommand(
-                    "Set backup folder",
-                    "Use the folder containing the current backup",
-                    self.action_edit_output,
-                )
             yield SystemCommand(
-                "Load backup pages",
-                "Use scanned pages as the current backup source",
-                self._edit_add_files_current_source,
+                "Load backup documents",
+                "Use PDFs, scans, images, or folders of documents",
+                self._edit_add_files_source,
+            )
+            yield SystemCommand(
+                "Paste recovery text",
+                "Use recovery blocks for the original backup and every update",
+                self._edit_add_files_recovery_text_source,
+            )
+            yield SystemCommand(
+                "Load backup payload",
+                "Use payloads exported from the backup documents",
+                self._edit_add_files_payloads_source,
+            )
+            yield SystemCommand(
+                "Set update output folder",
+                "Save new update documents to a separate folder",
+                self.action_edit_output,
             )
             yield SystemCommand(
                 "Change unlock method",
@@ -381,13 +443,8 @@ class EthernityApp(
         return single_output_folder(result.output_paths)
 
     def _install_task_states(self, states: InitialTaskStates) -> None:
-        self.backup_state = states.backup
-        self.restore_state = states.restore
-        self.add_files_state = states.add_files
-        self.rebuild_state = states.rebuild
-        self.replace_recovery_docs_state = states.replace_recovery_docs
-        self.kit_state = states.kit
-        self.settings_state = states.settings
+        for workflow in WORKFLOWS:
+            setattr(self, workflow.state_attribute, getattr(states, workflow.key))
 
     def _rehydrate_workflow_defaults(self) -> None:
         self._install_task_states(

@@ -11,15 +11,28 @@ from ethernity.app.widgets.task_canvas import TaskCanvas
 def compose_app_shell() -> ComposeResult:
     with Horizontal(id="app-header"):
         yield Label("ETHERNITY", id="app-header-brand")
-        yield Label("Paper backup and recovery", id="app-header-title")
+        yield Label("Paper backup & recovery", id="app-header-title")
         yield Label(app_version_label(), id="app-header-status")
+    with Horizontal(id="workbench-navigation"):
+        yield Button(
+            "1 Create backup",
+            id="nav-create",
+        )
+        yield Button(
+            "2 Restore files",
+            id="nav-restore",
+        )
+        yield Button(
+            "Manage",
+            id="nav-manage",
+        )
+        yield Button(
+            "Tools",
+            id="nav-tools",
+        )
     with Horizontal(id="shell"):
-        with Vertical(id="nav"):
-            nav_button = Button("☰", id="nav-strip", compact=True)
-            nav_button.tooltip = "Open workflow navigation"
-            yield nav_button
-            with Vertical(id="nav-drawer"):
-                yield Label("Workflows", id="nav-title")
+        with Vertical(id="nav-menu-anchor"):
+            with Vertical(id="nav-menu", classes="popup-menu"):
                 yield ListView(
                     *nav_items(),
                     id="nav-list",

@@ -9,13 +9,14 @@ APP_SUB_TITLE = "Paper backup and recovery"
 
 APP_BINDINGS: list[BindingType] = [
     Binding("q", "quit", "Quit"),
-    Binding("escape", "close_navigation", "Close navigation", show=False),
+    Binding("escape", "close_navigation", "Close menu"),
     Binding("?", "help", "Help"),
+    Binding("ctrl+b", "open_navigation", "Navigation"),
     # The sticky task action already exposes review in every workflow, while
     # Settings has no review action. Keep the shortcut without advertising an
     # inapplicable global command in the footer.
     Binding("ctrl+r", "review", "Review", show=False),
-    Binding("ctrl+p", "command_palette", "Command palette", show=False),
+    Binding("ctrl+p", "command_palette", "Actions"),
     Binding("j", "move_down", "Down", show=False),
     Binding("down", "move_down", "Down", show=False),
     Binding("k", "move_up", "Up", show=False),

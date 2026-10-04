@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TypeVar, cast
 
 from pydantic import BaseModel
 
+from ethernity.app.app_types import ActiveTask
+from ethernity.app.workflow_registry import workflow_definition
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
@@ -15,6 +18,16 @@ from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.settings import SettingsTaskState
 
 TaskStateModel = TypeVar("TaskStateModel", bound=BaseModel)
+
+
+def fresh_task_state(
+    task: ActiveTask,
+    *,
+    settings_config_path: Path | None = None,
+) -> BaseModel:
+    """Create fresh state from the workflow definition."""
+
+    return workflow_definition(task).fresh_state(settings_config_path=settings_config_path)
 
 
 @dataclass(slots=True)
@@ -39,13 +52,17 @@ def build_initial_task_states(
     settings_state: SettingsTaskState | None,
 ) -> InitialTaskStates:
     states = InitialTaskStates(
-        backup=backup_state or BackupTaskState(),
-        restore=restore_state or RestoreTaskState(),
-        add_files=add_files_state or AddFilesTaskState(),
-        rebuild=rebuild_state or RebuildTaskState(),
-        replace_recovery_docs=replace_recovery_docs_state or ReplaceRecoveryDocsTaskState(),
-        kit=kit_state or PrintKitTaskState(),
-        settings=settings_state or SettingsTaskState.from_current(),
+        backup=backup_state or cast(BackupTaskState, fresh_task_state("backup")),
+        restore=restore_state or cast(RestoreTaskState, fresh_task_state("restore")),
+        add_files=add_files_state or cast(AddFilesTaskState, fresh_task_state("add_files")),
+        rebuild=rebuild_state or cast(RebuildTaskState, fresh_task_state("rebuild")),
+        replace_recovery_docs=replace_recovery_docs_state
+        or cast(
+            ReplaceRecoveryDocsTaskState,
+            fresh_task_state("replace_recovery_docs"),
+        ),
+        kit=kit_state or cast(PrintKitTaskState, fresh_task_state("kit")),
+        settings=settings_state or cast(SettingsTaskState, fresh_task_state("settings")),
     )
     return apply_settings_defaults(states)
 
@@ -101,8 +118,7 @@ def apply_settings_defaults(states: InitialTaskStates) -> InitialTaskStates:
         states.add_files,
         {
             "config_path": config_path,
-            "base_dir": settings.path_value("extend_base_dir"),
-            "unlock_policy": settings.setting_value("extend_unlock_policy") or "self-contained",
+            "base_dir": settings.path_value("add_files_base_dir"),
             "paper_size": paper_size,
             "design": design,
         },
