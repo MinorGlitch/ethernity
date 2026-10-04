@@ -7,12 +7,12 @@ from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_BASE64, decode_qr_pa
 from ethernity.render.types import RenderInputs
 
 
-def validate_single_shard_fallback_contract(
+def validate_shard_frame_consistency(
     inputs: RenderInputs,
     *,
     renderer_label: str,
 ) -> None:
-    """Require one canonical frame to drive both the QR and manual fallback."""
+    """Require one frame to drive both the QR and manual fallback."""
 
     if len(inputs.frames) != 1:
         raise ValueError(f"{renderer_label} requires exactly one frame")
@@ -42,4 +42,4 @@ def validate_single_shard_fallback_contract(
         raise ValueError(f"{renderer_label} QR payload must encode its shard frame")
 
 
-__all__ = ["validate_single_shard_fallback_contract"]
+__all__ = ["validate_shard_frame_consistency"]

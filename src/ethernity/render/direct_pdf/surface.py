@@ -1,9 +1,4 @@
-"""A thin direct-PDF surface over `fpdf2`.
-
-The surface is deliberately small: layout code should measure and paint through this API instead
-of reaching into `FPDF` directly. That keeps the renderer testable and leaves room to swap the
-backend if the feasibility spike proves `fpdf2` insufficient.
-"""
+"""Drawing and text measurement for direct PDF rendering through `fpdf2`."""
 
 from __future__ import annotations
 
@@ -13,15 +8,24 @@ from io import BytesIO
 from pathlib import Path
 from typing import Protocol, cast
 
+from fontTools.pens.boundsPen import BoundsPen
 from fpdf import FPDF
+from fpdf.fonts import TTFFont
 
-from ethernity.render.direct_pdf.types import FontStyle, PdfColor, PdfRect, TextStyle
+from ethernity.render.direct_pdf.types import (
+    FontStyle,
+    PdfColor,
+    PdfRect,
+    TextInkMetrics,
+    TextStyle,
+)
+from ethernity.render.types import RenderTextMetadata
 
 _POINT_TO_MM = 25.4 / 72.0
 
 
 class PdfSurface(Protocol):
-    """Minimal drawing and measurement boundary for direct PDF rendering."""
+    """Minimal drawing and measurement interface for direct PDF rendering."""
 
     def add_page(self) -> None:
         """Append a page to the output document."""
@@ -38,8 +42,17 @@ class PdfSurface(Protocol):
     def line_height(self, style: TextStyle, *, multiplier: float = 1.2) -> float:
         """Return a default line height in millimeters for the supplied style."""
 
+    def text_ink_metrics(self, text: str, style: TextStyle) -> TextInkMetrics:
+        """Return glyph ink extents relative to the baseline in millimeters."""
+
     def draw_text(self, x_mm: float, baseline_y_mm: float, text: str, style: TextStyle) -> None:
         """Draw text at a PDF baseline coordinate."""
+
+    def begin_text_metadata(self, metadata: RenderTextMetadata) -> None:
+        """Mark a recovery value so extracted fallback text excludes secret data."""
+
+    def end_text_metadata(self) -> None:
+        """Finish a marked recovery value."""
 
     def draw_rect(
         self,
@@ -98,6 +111,7 @@ class FpdfSurface:
         self._pdf = FPDF(unit="mm", format=(page_width_mm, page_height_mm))
         self._pdf.set_auto_page_break(False)
         self._registered_fonts: set[tuple[str, FontStyle]] = set()
+        self._glyph_bounds: dict[tuple[str, str], tuple[float, float]] = {}
 
     def add_page(self) -> None:
         self._pdf.add_page()
@@ -121,10 +135,46 @@ class FpdfSurface:
             raise ValueError("multiplier must be positive")
         return style.size_pt * _POINT_TO_MM * multiplier
 
+    def text_ink_metrics(self, text: str, style: TextStyle) -> TextInkMetrics:
+        self._set_text_style(style)
+        if not text.strip():
+            return TextInkMetrics(0.0, 0.0)
+        font = self._pdf.current_font
+        if isinstance(font, TTFFont):
+            glyph_set = font.ttfont.getGlyphSet()
+            bottom, top = 0.0, 0.0
+            for character in set(text):
+                glyph_name = font.cmap.get(ord(character), ".notdef")
+                key = (font.fontkey, glyph_name)
+                if key not in self._glyph_bounds:
+                    pen = BoundsPen(glyph_set)
+                    glyph_set[glyph_name].draw(pen)
+                    self._glyph_bounds[key] = (
+                        (pen.bounds[1], pen.bounds[3]) if pen.bounds else (0.0, 0.0)
+                    )
+                glyph_bottom, glyph_top = self._glyph_bounds[key]
+                bottom = min(bottom, glyph_bottom)
+                top = max(top, glyph_top)
+            scale = style.size_pt * _POINT_TO_MM / font.ttfont["head"].unitsPerEm
+            return TextInkMetrics(top * scale, -bottom * scale)
+
+        # Standard PDF fonts have no embedded outlines. Their font bounding boxes
+        # conservatively cover every glyph, including accented capitals and descenders.
+        ascent, descent = _core_font_extents(style.family)
+        scale = style.size_pt * _POINT_TO_MM / 1000.0
+        return TextInkMetrics(ascent * scale, descent * scale)
+
     def draw_text(self, x_mm: float, baseline_y_mm: float, text: str, style: TextStyle) -> None:
         self._set_text_style(style)
         self._set_text_color(style.color)
         self._pdf.text(x=x_mm, y=baseline_y_mm, text=text)
+
+    def begin_text_metadata(self, metadata: RenderTextMetadata) -> None:
+        # Marked-content tags carry structure without changing page appearance.
+        getattr(self._pdf, "_out")(f"/{metadata.role} BMC")
+
+    def end_text_metadata(self) -> None:
+        getattr(self._pdf, "_out")("EMC")
 
     def draw_rect(
         self,
@@ -248,7 +298,7 @@ class FpdfSurface:
 
     def _set_text_style(self, style: TextStyle) -> None:
         self._pdf.set_font(style.family, style=style.style, size=cast(int, style.size_pt))
-        self._pdf.set_char_spacing(style.char_spacing_mm)
+        self._pdf.set_char_spacing(style.char_spacing_pt)
 
     def _set_text_color(self, color: PdfColor) -> None:
         self._pdf.set_text_color(color.red, color.green, color.blue)
@@ -266,3 +316,16 @@ def _rect_style(*, stroke: PdfColor | None, fill: PdfColor | None) -> str:
     if fill is not None:
         return "F"
     return "D"
+
+
+def _core_font_extents(family: str) -> tuple[int, int]:
+    normalized = family.lower()
+    if normalized == "courier":
+        return 805, 250
+    if normalized == "times":
+        return 935, 218
+    if normalized == "symbol":
+        return 1010, 293
+    if normalized == "zapfdingbats":
+        return 820, 143
+    return 962, 228

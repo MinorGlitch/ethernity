@@ -6,15 +6,15 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
+from ethernity.render.direct_pdf.layout_report import build_direct_layout_report
 from ethernity.render.direct_pdf.page import DirectPdfPagePlan
 from ethernity.render.types import (
-    RenderComponentLayoutProof,
+    ComponentLayout,
+    LayoutReport,
+    PageLayout,
     RenderInputs,
-    RenderLayoutProof,
-    RenderPageLayoutProof,
-    RenderRectProof,
-    RenderSeparationConstraintProof,
+    RenderRect,
+    SeparationCheck,
 )
 
 
@@ -23,7 +23,7 @@ def write_direct_layout_debug_json(
     inputs: RenderInputs,
     page_plans: Sequence[DirectPdfPagePlan],
     style_name: str,
-    layout_proof: RenderLayoutProof | None = None,
+    layout_report: LayoutReport | None = None,
 ) -> None:
     """Write a direct-renderer layout sidecar when requested by render inputs."""
 
@@ -33,21 +33,21 @@ def write_direct_layout_debug_json(
 
     resolved = Path(debug_path).expanduser()
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    proof = layout_proof or build_direct_layout_proof(page_plans)
+    layout = layout_report or build_direct_layout_report(page_plans)
     payload = {
-        "backend": proof.backend,
+        "backend": layout.backend,
         "doc_type": inputs.doc_type,
         "design_name": inputs.design_name,
         "layout_first": True,
         "style_name": style_name,
         "output_path": str(inputs.output_path),
-        "page_count": proof.page_count,
-        "pages": [_page_payload(page) for page in proof.pages],
+        "page_count": layout.page_count,
+        "pages": [_page_payload(page) for page in layout.pages],
     }
     resolved.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _page_payload(page: RenderPageLayoutProof) -> dict[str, object]:
+def _page_payload(page: PageLayout) -> dict[str, object]:
     qr_count = sum(
         1
         for component in page.components
@@ -74,7 +74,7 @@ def _looks_like_qr_component(component_id: str) -> bool:
     return "qr" in lowered and ("image" in lowered or lowered.endswith("-qr"))
 
 
-def _component_payload(component: RenderComponentLayoutProof) -> dict[str, object]:
+def _component_payload(component: ComponentLayout) -> dict[str, object]:
     payload: dict[str, object] = {
         "component_id": component.component_id,
         "rect": _rect_payload(component.rect),
@@ -96,7 +96,7 @@ def _component_payload(component: RenderComponentLayoutProof) -> dict[str, objec
 
 
 def _separation_constraint_payload(
-    constraint: RenderSeparationConstraintProof,
+    constraint: SeparationCheck,
 ) -> dict[str, object]:
     return {
         "constraint_id": constraint.constraint_id,
@@ -109,7 +109,7 @@ def _separation_constraint_payload(
     }
 
 
-def _rect_payload(rect: RenderRectProof) -> dict[str, float]:
+def _rect_payload(rect: RenderRect) -> dict[str, float]:
     return {
         "x_mm": rect.x_mm,
         "y_mm": rect.y_mm,

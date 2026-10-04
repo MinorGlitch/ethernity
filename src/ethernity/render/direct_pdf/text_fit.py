@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import Enum
+from math import floor
 from typing import Sequence
 
 from ethernity.render.direct_pdf.surface import PdfSurface
@@ -37,6 +38,8 @@ class TextFitResult:
     line_height_mm: float
     width_mm: float
     height_mm: float
+    ascent_mm: float
+    descent_mm: float
     overflow_lines: tuple[str, ...] = ()
 
     @property
@@ -51,6 +54,7 @@ def fit_text_to_width(
     *,
     max_width_mm: float,
     max_lines: int | None = None,
+    max_height_mm: float | None = None,
     policy: TextFitPolicy = TextFitPolicy.WRAP,
     min_size_pt: float | None = None,
     line_height_multiplier: float = 1.2,
@@ -61,6 +65,8 @@ def fit_text_to_width(
         raise ValueError("max_width_mm must be positive")
     if max_lines is not None and max_lines <= 0:
         raise ValueError("max_lines must be positive")
+    if max_height_mm is not None and max_height_mm <= 0:
+        raise ValueError("max_height_mm must be positive")
 
     if policy == TextFitPolicy.FAIL:
         return _fit_without_wrapping(
@@ -69,6 +75,7 @@ def fit_text_to_width(
             style,
             max_width_mm=max_width_mm,
             max_lines=max_lines,
+            max_height_mm=max_height_mm,
             line_height_multiplier=line_height_multiplier,
         )
     if policy == TextFitPolicy.SHRINK:
@@ -78,36 +85,35 @@ def fit_text_to_width(
             style,
             max_width_mm=max_width_mm,
             max_lines=max_lines,
+            max_height_mm=max_height_mm,
             min_size_pt=min_size_pt,
             line_height_multiplier=line_height_multiplier,
         )
 
     lines = _wrap_text(surface, text, style, max_width_mm=max_width_mm)
-    if policy == TextFitPolicy.SPLIT and max_lines is not None and len(lines) > max_lines:
+    result = _build_result(
+        surface, lines, style, policy=policy, line_height_multiplier=line_height_multiplier
+    )
+    line_limit = _line_limit(result, max_lines=max_lines, max_height_mm=max_height_mm)
+    if policy == TextFitPolicy.SPLIT and line_limit is not None and len(lines) > line_limit:
         return _build_result(
             surface,
-            lines[:max_lines],
+            lines[:line_limit],
             style,
             policy=policy,
-            overflow_lines=lines[max_lines:],
+            overflow_lines=lines[line_limit:],
             line_height_multiplier=line_height_multiplier,
         )
-    if max_lines is not None and len(lines) > max_lines:
+    if line_limit is not None and len(lines) > line_limit:
         raise TextFitError(
             "wrapped text exceeds max_lines",
             {
                 "line_count": len(lines),
-                "max_lines": max_lines,
+                "max_lines": line_limit,
                 "policy": policy.value,
             },
         )
-    return _build_result(
-        surface,
-        lines,
-        style,
-        policy=policy,
-        line_height_multiplier=line_height_multiplier,
-    )
+    return result
 
 
 def _fit_without_wrapping(
@@ -117,6 +123,7 @@ def _fit_without_wrapping(
     *,
     max_width_mm: float,
     max_lines: int | None,
+    max_height_mm: float | None,
     line_height_multiplier: float,
 ) -> TextFitResult:
     lines = tuple(_source_lines(text))
@@ -131,13 +138,17 @@ def _fit_without_wrapping(
             "text exceeds max_width_mm",
             {"max_width_mm": max_width_mm, "line": too_wide[0]},
         )
-    return _build_result(
+    result = _build_result(
         surface,
         lines,
         style,
         policy=TextFitPolicy.FAIL,
         line_height_multiplier=line_height_multiplier,
     )
+    line_limit = _line_limit(result, max_lines=max_lines, max_height_mm=max_height_mm)
+    if line_limit is not None and len(lines) > line_limit:
+        raise TextFitError("text exceeds box height", {"max_lines": line_limit})
+    return result
 
 
 def _fit_with_shrink(
@@ -147,6 +158,7 @@ def _fit_with_shrink(
     *,
     max_width_mm: float,
     max_lines: int | None,
+    max_height_mm: float | None,
     min_size_pt: float | None,
     line_height_multiplier: float,
 ) -> TextFitResult:
@@ -154,15 +166,21 @@ def _fit_with_shrink(
     current_size = style.size_pt
     while True:
         candidate_style = replace(style, size_pt=current_size)
-        lines = _wrap_text(surface, text, candidate_style, max_width_mm=max_width_mm)
-        if max_lines is None or len(lines) <= max_lines:
-            return _build_result(
+        try:
+            lines = _wrap_text(surface, text, candidate_style, max_width_mm=max_width_mm)
+            result = _build_result(
                 surface,
                 lines,
                 candidate_style,
                 policy=TextFitPolicy.SHRINK,
                 line_height_multiplier=line_height_multiplier,
             )
+            line_limit = _line_limit(result, max_lines=max_lines, max_height_mm=max_height_mm)
+            if line_limit is None or len(lines) <= line_limit:
+                return result
+        except TextFitError:
+            # Width and height failures can both disappear at a smaller size.
+            pass
         if current_size == resolved_min_size:
             break
         current_size = max(
@@ -175,8 +193,23 @@ def _fit_with_shrink(
             "size_pt": style.size_pt,
             "min_size_pt": resolved_min_size,
             "max_lines": max_lines,
+            "max_height_mm": max_height_mm,
         },
     )
+
+
+def _line_limit(
+    result: TextFitResult, *, max_lines: int | None, max_height_mm: float | None
+) -> int | None:
+    if max_height_mm is None:
+        return max_lines
+    height_limit = floor((max_height_mm + 1e-9) / result.line_height_mm)
+    if height_limit <= 0:
+        raise TextFitError(
+            "text box height cannot fit one line",
+            {"height_mm": max_height_mm, "line_height_mm": result.line_height_mm},
+        )
+    return height_limit if max_lines is None else min(height_limit, max_lines)
 
 
 def _resolve_min_size(style: TextStyle, min_size_pt: float | None) -> float:
@@ -280,6 +313,10 @@ def _build_result(
 ) -> TextFitResult:
     line_tuple = tuple(lines)
     line_height = surface.line_height(style, multiplier=line_height_multiplier)
+    ink_metrics = [surface.text_ink_metrics(line, style) for line in line_tuple]
+    ascent = max((metrics.ascent_mm for metrics in ink_metrics), default=0.0)
+    descent = max((metrics.descent_mm for metrics in ink_metrics), default=0.0)
+    line_height = max(line_height, ascent + descent)
     widths = [surface.measure_text_width(line, style) for line in line_tuple]
     return TextFitResult(
         lines=line_tuple,
@@ -288,6 +325,8 @@ def _build_result(
         line_height_mm=line_height,
         width_mm=max(widths, default=0.0),
         height_mm=len(line_tuple) * line_height,
+        ascent_mm=ascent,
+        descent_mm=descent,
         overflow_lines=tuple(overflow_lines),
     )
 

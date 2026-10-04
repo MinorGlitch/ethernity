@@ -4,10 +4,11 @@ import unittest
 from typing import cast
 
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
-from ethernity.render.direct_pdf.classic_planner import (
-    build_classic_qr_plan,
-    build_classic_recovery_plan,
-    build_classic_single_qr_fallback_plan,
+from ethernity.render.direct_pdf.document_planner import (
+    assemble_document_plan,
+    build_qr_document_plan,
+    build_responsive_recovery_document_plan,
+    build_single_qr_fallback_plan,
     recovery_overflow_meta,
 )
 from ethernity.render.direct_pdf.fallback_layout import (
@@ -27,7 +28,7 @@ from ethernity.render.recovery_meta import (
     PASSPHRASE_PRINT_MODE_LITERAL,
     RecoveryMeta,
 )
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 
 def _frame(index: int = 0, total: int = 1) -> Frame:
@@ -45,22 +46,35 @@ def _page_plan(label: str) -> DirectPdfPagePlan:
     return cast(DirectPdfPagePlan, label)
 
 
-class TestClassicPlanner(unittest.TestCase):
-    def test_qr_plan_owns_pagination_trailing_page_and_proof(self) -> None:
+class TestDocumentPlanner(unittest.TestCase):
+    def test_empty_document_is_rejected_before_layout_construction(self) -> None:
+        inputs = RenderInputs(
+            frames=(_frame(),),
+            output_path="empty.pdf",
+            context={},
+            doc_type="main",
+            design_name="ledger",
+            origin=DocumentOrigin(kind="root_backup"),
+            render_fallback=False,
+        )
+        with self.assertRaisesRegex(ValueError, "at least one planned page"):
+            assemble_document_plan(inputs, (), qr_payloads=(), encoded_payload_count=0)
+
+    def test_qr_plan_owns_pagination_trailing_page_and_layout(self) -> None:
         frames = tuple(_frame(index, 3) for index in range(3))
         inputs = RenderInputs(
             frames=frames,
             output_path="classic-qr.pdf",
             context={},
             doc_type="main",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             design_name="ledger",
             render_qr=True,
             render_fallback=False,
         )
         calls: list[tuple[int, int, int, int]] = []
 
-        plan = build_classic_qr_plan(
+        plan = build_qr_document_plan(
             inputs,
             capacity=2,
             first_page_capacity=1,
@@ -75,8 +89,8 @@ class TestClassicPlanner(unittest.TestCase):
 
         self.assertEqual(calls, [(1, 1, 3, 3), (2, 2, 3, 3)])
         self.assertEqual(plan.page_plans, ("qr-1", "qr-2", "trailing-3-3"))
-        self.assertEqual(plan.artifact_proof.page_count, 3)
-        self.assertEqual(plan.artifact_proof.physical_qr_payload_indexes, (0, 1, 2))
+        self.assertEqual(plan.document_summary.page_count, 3)
+        self.assertEqual(plan.document_summary.physical_qr_payload_indexes, (0, 1, 2))
 
     def test_recovery_plan_orders_fallback_before_passphrase_continuation(self) -> None:
         frame = _frame()
@@ -85,7 +99,7 @@ class TestClassicPlanner(unittest.TestCase):
             output_path="classic-recovery.pdf",
             context={},
             doc_type="recovery",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             design_name="maritime",
             render_qr=False,
             render_fallback=True,
@@ -113,7 +127,7 @@ class TestClassicPlanner(unittest.TestCase):
         area = PdfRect(10.0, 20.0, 190.0, 180.0)
         style = TextStyle(family="Courier", size_pt=7.0)
 
-        plan = build_classic_recovery_plan(
+        plan = build_responsive_recovery_document_plan(
             surface,
             inputs,
             passphrase_pagination=pagination,
@@ -144,9 +158,9 @@ class TestClassicPlanner(unittest.TestCase):
         self.assertEqual(fallback_calls, [(1, "alpha beta", area, 2)])
         self.assertEqual(passphrase_calls, [(2, 2)])
         self.assertEqual(plan.page_plans, ("fallback-1", "passphrase-1"))
-        self.assertTrue(plan.fallback_proof and plan.fallback_proof.fully_consumed)
+        self.assertTrue(plan.fallback_summary and plan.fallback_summary.fully_consumed)
 
-    def test_single_qr_fallback_plan_uses_local_page_builder_and_shared_proofs(self) -> None:
+    def test_single_qr_fallback_plan_uses_local_page_builder_and_shared_layouts(self) -> None:
         frame = _frame()
         source_sections = (FallbackSection(label="SHARD PAYLOAD", frame=frame),)
         inputs = RenderInputs(
@@ -154,7 +168,7 @@ class TestClassicPlanner(unittest.TestCase):
             output_path="classic-shard.pdf",
             context={},
             doc_type="shard",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             design_name="ledger",
             render_qr=True,
             render_fallback=True,
@@ -164,10 +178,11 @@ class TestClassicPlanner(unittest.TestCase):
         pages = paginate_fallback_entries(fallback_entries(sections), capacity=1_000)
         calls: list[tuple[int, int, int]] = []
 
-        plan = build_classic_single_qr_fallback_plan(
+        plan = build_single_qr_fallback_plan(
             inputs,
             sections=sections,
             fallback_pages=pages,
+            page_entries=lambda page: tuple(item.entry for item in page.entries),
             page_builder=lambda page, qr_bytes, total_pages: (
                 calls.append((page.page_number, len(qr_bytes), total_pages))
                 or _page_plan(f"shard-{page.page_number}")
@@ -177,8 +192,8 @@ class TestClassicPlanner(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertGreater(calls[0][1], 0)
         self.assertEqual(calls[0][2], 1)
-        self.assertEqual(plan.artifact_proof.physical_qr_count, 1)
-        self.assertTrue(plan.fallback_proof and plan.fallback_proof.fully_consumed)
+        self.assertEqual(plan.document_summary.physical_qr_count, 1)
+        self.assertTrue(plan.fallback_summary and plan.fallback_summary.fully_consumed)
 
 
 if __name__ == "__main__":

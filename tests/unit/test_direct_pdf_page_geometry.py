@@ -11,7 +11,7 @@ from ethernity.render.direct_pdf.page_geometry import (
     registered_paper_sizes,
     resolve_page_geometry,
 )
-from ethernity.render.types import RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, RenderInputs
 
 
 def _inputs(paper_size: str) -> RenderInputs:
@@ -28,14 +28,14 @@ def _inputs(paper_size: str) -> RenderInputs:
         output_path="ignored.pdf",
         context={"paper_size": paper_size},
         doc_type="main",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=True,
         render_fallback=False,
     )
 
 
 class TestDirectPdfPageGeometry(unittest.TestCase):
-    def test_page_geometry_rejects_uncontracted_landscape_orientation(self) -> None:
+    def test_page_geometry_rejects_undeclared_landscape_orientation(self) -> None:
         with self.assertRaisesRegex(ValueError, "portrait orientation"):
             PageGeometry("LANDSCAPE", 297.0, 210.0)
 

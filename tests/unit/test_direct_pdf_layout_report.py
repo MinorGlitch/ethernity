@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from ethernity.qr.codec import qr_bytes
 from ethernity.render.direct_pdf.components import ImageBox, Panel, TextBox
 from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
+from ethernity.render.direct_pdf.layout_report import build_direct_layout_report
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
     SeparationConstraint,
@@ -15,11 +15,11 @@ from ethernity.render.direct_pdf.page import (
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect, TextStyle
-from ethernity.render.types import RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, RenderInputs
 
 
-class TestDirectPdfLayoutProof(unittest.TestCase):
-    def test_build_direct_layout_proof_exposes_component_geometry(self) -> None:
+class TestDirectPdfLayoutLayout(unittest.TestCase):
+    def test_build_direct_layout_layout_exposes_component_geometry(self) -> None:
         surface = FpdfSurface(page_width_mm=80, page_height_mm=80)
         panel = Panel(component_id="panel", stroke=PdfColor(0, 0, 0)).plan(
             surface, PdfRect(5, 5, 40, 30)
@@ -36,18 +36,18 @@ class TestDirectPdfLayoutProof(unittest.TestCase):
             plans=(panel, text),
         )
 
-        proof = build_direct_layout_proof((page,))
+        layout = build_direct_layout_report((page,))
 
-        self.assertEqual(proof.backend, "direct_pdf")
-        self.assertEqual(proof.page_count, 1)
-        self.assertFalse(proof.overflow)
-        self.assertEqual(proof.pages[0].component_ids, ("panel", "title"))
-        self.assertEqual(proof.pages[0].components[0].component_type, "panel")
-        self.assertIsNotNone(proof.pages[0].components[1].used_rect)
-        self.assertEqual(proof.pages[0].components[1].policy, "fail")
-        self.assertEqual(proof.pages[0].components[1].line_count, 1)
+        self.assertEqual(layout.backend, "direct_pdf")
+        self.assertEqual(layout.page_count, 1)
+        self.assertFalse(layout.overflow)
+        self.assertEqual(layout.pages[0].component_ids, ("panel", "title"))
+        self.assertEqual(layout.pages[0].components[0].component_type, "panel")
+        self.assertIsNotNone(layout.pages[0].components[1].used_rect)
+        self.assertEqual(layout.pages[0].components[1].policy, "fail")
+        self.assertEqual(layout.pages[0].components[1].line_count, 1)
 
-    def test_build_direct_layout_proof_identifies_text_components(self) -> None:
+    def test_build_direct_layout_layout_identifies_text_components(self) -> None:
         surface = FpdfSurface(page_width_mm=80, page_height_mm=80)
         text = TextBox(
             component_id="title",
@@ -61,11 +61,11 @@ class TestDirectPdfLayoutProof(unittest.TestCase):
             plans=(text,),
         )
 
-        proof = build_direct_layout_proof((page,))
+        layout = build_direct_layout_report((page,))
 
-        self.assertEqual(proof.pages[0].components[0].component_type, "text")
+        self.assertEqual(layout.pages[0].components[0].component_type, "text")
 
-    def test_build_direct_layout_proof_serializes_separation_constraint_results(self) -> None:
+    def test_build_direct_layout_layout_serializes_separation_constraint_results(self) -> None:
         surface = FpdfSurface(page_width_mm=80, page_height_mm=80)
         left = Panel(component_id="left", stroke=PdfColor(0, 0, 0)).plan(
             surface, PdfRect(5, 5, 20, 20)
@@ -87,9 +87,9 @@ class TestDirectPdfLayoutProof(unittest.TestCase):
             ),
         )
 
-        proof = build_direct_layout_proof((page,))
+        layout = build_direct_layout_report((page,))
 
-        constraint = proof.pages[0].separation_constraints[0]
+        constraint = layout.pages[0].separation_constraints[0]
         self.assertEqual(constraint.constraint_id, "content-columns")
         self.assertEqual(constraint.first_region_id, "left-column")
         self.assertEqual(constraint.second_region_id, "right-column")
@@ -127,7 +127,7 @@ class TestDirectPdfLayoutProof(unittest.TestCase):
                 output_path=Path(tmp) / "unused.pdf",
                 context={},
                 doc_type="main",
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=False,
                 render_fallback=False,
                 layout_debug_json_path=debug_path,
@@ -160,7 +160,7 @@ class TestDirectPdfLayoutProof(unittest.TestCase):
         ).plan(surface, PdfRect(7, 7, 21, 21))
         logo = ImageBox(
             component_id="sample-logo-image",
-            image=qr_bytes("not-semantic-qr"),
+            image=qr_bytes("logo-image-placeholder"),
             image_type="PNG",
         ).plan(surface, PdfRect(40, 5, 20, 20))
         page = build_page_plan(
@@ -176,7 +176,7 @@ class TestDirectPdfLayoutProof(unittest.TestCase):
                 output_path=Path(tmp) / "unused.pdf",
                 context={},
                 doc_type="main",
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=False,
                 render_fallback=False,
                 layout_debug_json_path=debug_path,

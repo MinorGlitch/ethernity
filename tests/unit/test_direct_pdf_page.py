@@ -30,9 +30,9 @@ class TestDirectPdfPagePlan(unittest.TestCase):
             plans=(panel, rule),
         )
 
-        self.assertEqual(page.proof.component_ids, ("panel", "rule"))
-        self.assertEqual(page.proof.overflow_component_ids, ())
-        self.assertFalse(page.proof.overflow)
+        self.assertEqual(page.layout.component_ids, ("panel", "rule"))
+        self.assertEqual(page.layout.overflow_component_ids, ())
+        self.assertFalse(page.layout.overflow)
 
     def test_page_plan_rejects_duplicate_component_ids(self) -> None:
         first = Panel(component_id="same", stroke=PdfColor(0, 0, 0)).plan(
@@ -54,12 +54,12 @@ class TestDirectPdfPagePlan(unittest.TestCase):
             build_page_plan(page_number=1, rect=PdfRect(0, 0, 80, 80), plans=(panel,))
 
     def test_page_plan_rejects_used_rect_outside_assigned_bounds(self) -> None:
-        proof = _FakeProof(
+        layout = _FakeLayout(
             component_id="bad-text",
             rect=PdfRect(10, 10, 20, 20),
             used_rect=PdfRect(10, 10, 24, 10),
         )
-        plan = _FakePlan(component_id="bad-text", proof=proof)
+        plan = _FakePlan(component_id="bad-text", layout=layout)
 
         with self.assertRaisesRegex(
             ValueError,
@@ -81,8 +81,8 @@ class TestDirectPdfPagePlan(unittest.TestCase):
             plans=(background, child),
         )
 
-        self.assertFalse(page.proof.overflow)
-        self.assertEqual(page.proof.separation_constraints, ())
+        self.assertFalse(page.layout.overflow)
+        self.assertEqual(page.layout.separation_constraints, ())
 
     def test_page_plan_allows_boundary_touching_with_zero_clearance(self) -> None:
         left = Panel(component_id="left", stroke=PdfColor(0, 0, 0)).plan(
@@ -105,10 +105,10 @@ class TestDirectPdfPagePlan(unittest.TestCase):
             ),
         )
 
-        proof = page.proof.separation_constraints[0]
-        self.assertTrue(proof.satisfied)
-        self.assertEqual(proof.measured_clearance_mm, 0.0)
-        self.assertEqual(proof.checked_pair_count, 1)
+        layout = page.layout.separation_constraints[0]
+        self.assertTrue(layout.satisfied)
+        self.assertEqual(layout.measured_clearance_mm, 0.0)
+        self.assertEqual(layout.checked_pair_count, 1)
 
     def test_page_plan_accepts_clearance_equal_to_declared_minimum(self) -> None:
         left = Panel(component_id="left", stroke=PdfColor(0, 0, 0)).plan(
@@ -132,7 +132,7 @@ class TestDirectPdfPagePlan(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(page.proof.separation_constraints[0].measured_clearance_mm, 2.0)
+        self.assertEqual(page.layout.separation_constraints[0].measured_clearance_mm, 2.0)
 
     def test_page_plan_rejects_overlap_with_zero_clearance(self) -> None:
         left = Panel(component_id="left", stroke=PdfColor(0, 0, 0)).plan(
@@ -247,7 +247,7 @@ class TestDirectPdfPagePlan(unittest.TestCase):
         page_rect = PdfRect(0, 0, 210, 297)
 
         unconstrained = build_page_plan(page_number=2, rect=page_rect, plans=(qr_last_row,))
-        self.assertFalse(unconstrained.proof.overflow)
+        self.assertFalse(unconstrained.layout.overflow)
 
         with self.assertRaisesRegex(
             ValueError,
@@ -270,7 +270,7 @@ class TestDirectPdfPagePlan(unittest.TestCase):
 
 
 @dataclass(frozen=True)
-class _FakeProof:
+class _FakeLayout:
     component_id: str
     rect: PdfRect
     used_rect: PdfRect
@@ -280,7 +280,7 @@ class _FakeProof:
 @dataclass(frozen=True)
 class _FakePlan:
     component_id: str
-    proof: _FakeProof
+    layout: _FakeLayout
 
     def paint(self, surface: PdfSurface) -> None:
         _ = surface

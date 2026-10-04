@@ -7,7 +7,7 @@ from ethernity.core.bounds import MAX_FALLBACK_LINES, MAX_MAIN_FRAME_DATA_BYTES
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.page_sizes import PaperSize, resolve_paper_size
 from ethernity.render import render_frames_to_pdf
-from ethernity.render.designs import list_design_manifests
+from ethernity.render.designs import list_design_definitions
 from ethernity.render.direct_pdf.fallback_layout import (
     FallbackSectionLines,
     fallback_entries,
@@ -15,7 +15,7 @@ from ethernity.render.direct_pdf.fallback_layout import (
 )
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
 from ethernity.render.recovery_meta import build_recovery_meta
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 _FALLBACK_GROUP_SIZE = 4
 
@@ -72,7 +72,7 @@ def _recovery_inputs(
         },
         doc_type=DOC_TYPE_RECOVERY,
         design_name=design_name,
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=False,
         render_fallback=True,
         recovery_meta=build_recovery_meta(
@@ -95,7 +95,7 @@ class TestFallbackRenderBounds(unittest.TestCase):
         minimum_payload_chars = math.ceil(encoded_char_count / MAX_FALLBACK_LINES)
         manifests = tuple(
             manifest
-            for manifest in list_design_manifests().values()
+            for manifest in list_design_definitions().values()
             if DOC_TYPE_RECOVERY in manifest.documents
         )
 
@@ -124,12 +124,12 @@ class TestFallbackRenderBounds(unittest.TestCase):
 
                         result = render_frames_to_pdf(inputs)
 
-                        self.assertIsNotNone(result.fallback_proof)
-                        self.assertIsNotNone(result.layout_proof)
-                        assert result.fallback_proof is not None
-                        assert result.layout_proof is not None
-                        self.assertFalse(result.layout_proof.overflow)
-                        emitted = iter(result.fallback_proof.emitted_fallback_lines)
+                        self.assertIsNotNone(result.fallback_summary)
+                        self.assertIsNotNone(result.layout_report)
+                        assert result.fallback_summary is not None
+                        assert result.layout_report is not None
+                        self.assertFalse(result.layout_report.overflow)
+                        emitted = iter(result.fallback_summary.emitted_fallback_lines)
                         for section in inputs.fallback_sections or ():
                             remaining = _zbase32_char_count(len(encode_frame(section.frame)))
                             while remaining > 0:
@@ -144,7 +144,7 @@ class TestFallbackRenderBounds(unittest.TestCase):
                         with self.assertRaises(StopIteration):
                             next(emitted)
 
-    def test_structured_display_numbers_reset_per_page_and_section_block(self) -> None:
+    def test_fallback_line_numbers_reset_per_page_and_section(self) -> None:
         frame = Frame(
             version=VERSION,
             frame_type=FrameType.AUTH,
@@ -183,7 +183,7 @@ class TestFallbackRenderBounds(unittest.TestCase):
             (1,),
         )
 
-    def test_structured_continuation_capacity_keeps_title_with_first_line(self) -> None:
+    def test_fallback_continuation_keeps_title_with_first_line(self) -> None:
         frame = _maximum_main_frame()
         sections = (
             FallbackSectionLines(0, "AUTH", ("a", "b", "c"), frame),
@@ -201,7 +201,7 @@ class TestFallbackRenderBounds(unittest.TestCase):
             if page.entries and page.entries[-1].display_line_number is None:
                 self.fail("fallback page ended with an orphan section title")
 
-    def test_structured_title_page_with_one_row_capacity_fails_fast(self) -> None:
+    def test_fallback_title_page_with_one_row_capacity_fails_fast(self) -> None:
         frame = _maximum_main_frame()
         sections = (FallbackSectionLines(0, "AUTH", ("a",), frame),)
 

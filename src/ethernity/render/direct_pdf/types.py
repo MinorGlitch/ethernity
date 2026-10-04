@@ -35,6 +35,18 @@ BLACK = PdfColor(0, 0, 0)
 
 
 @dataclass(frozen=True)
+class TextInkMetrics:
+    """Vertical glyph ink extents above and below the text baseline."""
+
+    ascent_mm: float
+    descent_mm: float
+
+    @property
+    def height_mm(self) -> float:
+        return self.ascent_mm + self.descent_mm
+
+
+@dataclass(frozen=True)
 class PdfRect:
     """A rectangle in millimeters."""
 
@@ -64,11 +76,11 @@ class TextStyle:
     size_pt: float
     style: FontStyle = ""
     color: PdfColor = BLACK
-    char_spacing_mm: float = 0.0
+    char_spacing_pt: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.family.strip():
             raise ValueError("family must be non-empty")
         if self.size_pt <= 0:
             raise ValueError("size_pt must be positive")
-        _validate_non_negative(self.char_spacing_mm, field_name="char_spacing_mm")
+        _validate_non_negative(self.char_spacing_pt, field_name="char_spacing_pt")

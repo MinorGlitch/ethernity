@@ -1,4 +1,4 @@
-"""Reusable text measurement primitives for direct PDF layout."""
+"""Reusable text measurement helpers for direct PDF layout."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def measured_grouped_line_length(
     """Return the longest worst-case grouped line that fits a measured width.
 
     The returned length includes the single spaces between groups, matching the
-    ``line_length`` contract used by fallback text formatting.
+    ``line_length`` required by fallback text formatting.
     """
 
     if not isinstance(alphabet, str) or not alphabet:

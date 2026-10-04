@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Shared layout-debug path helpers."""
+"""Resolve layout-debug output paths."""
 
 from __future__ import annotations
 
@@ -45,14 +45,14 @@ def ensure_layout_debug_dir_allowed(
     *,
     forbidden_dirs: Mapping[str, str | Path] | None = None,
 ) -> None:
-    """Reject debug directories inside managed artifact inventories."""
+    """Reject debug directories inside managed backup directories."""
 
     debug_dir = Path(path).expanduser().resolve()
     for label, raw_dir in (forbidden_dirs or {}).items():
         managed_dir = Path(raw_dir).expanduser().resolve()
         if debug_dir == managed_dir or debug_dir.is_relative_to(managed_dir):
             raise ValueError(
-                "layout debug directory must not be inside managed artifact inventory "
+                "layout debug directory must not be inside a managed backup directory "
                 f"{label}: {managed_dir}"
             )
 
@@ -78,7 +78,7 @@ def ensure_layout_debug_dir_ready(path: str | Path) -> None:
 
 
 def layout_debug_json_path(layout_debug_dir: str | Path | None, stem: str) -> str | None:
-    """Return the JSON sidecar path for one layout-debug artifact."""
+    """Return the JSON sidecar path for one rendered document's layout data."""
 
     if layout_debug_dir is None or not str(layout_debug_dir).strip():
         return None

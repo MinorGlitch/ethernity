@@ -34,14 +34,14 @@ from ethernity.render.recovery_meta import RecoveryMeta
 
 
 @dataclass(frozen=True)
-class RenderLineage:
-    """Render-time lineage metadata for root, extension, compacted, mint, and kit artifacts."""
+class DocumentOrigin:
+    """Render-time origin metadata for root, extension, rebuilt, replacement, and kit documents."""
 
     kind: Literal[
         "root_backup",
         "extension",
-        "compaction_checkpoint",
-        "minted_shard_set",
+        "rebuilt_backup",
+        "replacement_recovery",
         "recovery_kit",
     ]
     extension_index: int | None = None
@@ -63,7 +63,7 @@ class RenderInputs:
     output_path: str | Path
     context: dict[str, object]
     doc_type: str
-    lineage: RenderLineage
+    origin: DocumentOrigin
     design_name: str = "sentinel"
     qr_config: QrConfig | None = None
     qr_payloads: Sequence[bytes | str] | None = None
@@ -72,13 +72,12 @@ class RenderInputs:
     render_fallback: bool = True
     key_lines: Sequence[str] | None = None
     recovery_meta: RecoveryMeta | None = None
-    render_jobs: int | Literal["auto"] | None = None
     layout_debug_json_path: str | Path | None = None
     page_size: PaperSize | None = None
 
     def __post_init__(self) -> None:
-        if self.lineage is None:
-            raise ValueError("render lineage is required")
+        if self.origin is None:
+            raise ValueError("render origin is required")
         if self.render_fallback and not self.fallback_sections:
             raise ValueError("fallback_sections are required when render_fallback is enabled")
         if self.page_size is not None and not isinstance(self.page_size, PaperSize):
@@ -108,8 +107,8 @@ class RenderInputs:
 
 
 @dataclass(frozen=True)
-class RenderFallbackProof:
-    """Structured proof that fallback section data was consumed by page assembly."""
+class FallbackSummary:
+    """Counts and exact fallback text consumed during page assembly."""
 
     section_frame_digests: tuple[str, ...]
     section_titles: tuple[str, ...]
@@ -122,8 +121,8 @@ class RenderFallbackProof:
 
 
 @dataclass(frozen=True)
-class RenderArtifactProof:
-    """Structured proof of what a render operation was asked to emit."""
+class RenderedDocumentSummary:
+    """Expected frames, QR placements, and fallback text for one rendered document."""
 
     output_path: str
     doc_type: str
@@ -131,15 +130,15 @@ class RenderArtifactProof:
     encoded_payload_count: int
     physical_qr_count: int
     page_count: int = 0
-    fallback_proof: RenderFallbackProof | None = None
+    fallback_summary: FallbackSummary | None = None
     qr_payload_digests: tuple[str, ...] = ()
     physical_qr_payload_indexes: tuple[int, ...] = ()
     physical_qr_payload_digests: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
-class RenderRectProof:
-    """A measured rectangle in millimeters for render-layout proofs."""
+class RenderRect:
+    """A measured rectangle in millimeters."""
 
     x_mm: float
     y_mm: float
@@ -156,22 +155,54 @@ class RenderRectProof:
 
 
 @dataclass(frozen=True)
-class RenderComponentLayoutProof:
-    """Structured proof for one measured component placement."""
+class RenderTextMetadata:
+    """Meaning of a printed recovery value, independent of its label and design."""
+
+    role: Literal["recovery_passphrase", "recovery_quorum", "recovery_signing_public_key"]
+    print_mode: str | None = None
+    continuation_index: int = 0
+    value_prefix: str = ""
+
+    def __post_init__(self) -> None:
+        if self.role not in {
+            "recovery_passphrase",
+            "recovery_quorum",
+            "recovery_signing_public_key",
+        }:
+            raise ValueError("unsupported printed recovery value role")
+        if self.continuation_index < 0:
+            raise ValueError("recovery continuation index must be non-negative")
+
+
+@dataclass(frozen=True)
+class RenderTextLine:
+    """Exact text and baseline expected from one planned paint operation."""
+
+    text: str
+    x_mm: float
+    baseline_y_mm: float
+    color: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class ComponentLayout:
+    """Measured placement, text, and overflow status for one component."""
 
     component_id: str
-    rect: RenderRectProof
-    used_rect: RenderRectProof | None = None
+    rect: RenderRect
+    used_rect: RenderRect | None = None
     overflow: bool = False
     component_type: str | None = None
     policy: str | None = None
     line_count: int | None = None
     overflow_line_count: int | None = None
     font_size_pt: float | None = None
+    text_lines: tuple[RenderTextLine, ...] = ()
+    text_metadata: RenderTextMetadata | None = None
 
 
 @dataclass(frozen=True)
-class RenderSeparationConstraintProof:
+class SeparationCheck:
     """Serializable result of one direct-layout separation check."""
 
     constraint_id: str
@@ -184,16 +215,16 @@ class RenderSeparationConstraintProof:
 
 
 @dataclass(frozen=True)
-class RenderPageLayoutProof:
-    """Structured proof for one measured PDF page."""
+class PageLayout:
+    """Measured components and spacing checks for one PDF page."""
 
     page_number: int
-    rect: RenderRectProof
+    rect: RenderRect
     component_ids: tuple[str, ...]
     overflow_component_ids: tuple[str, ...]
     out_of_bounds_component_ids: tuple[str, ...]
-    components: tuple[RenderComponentLayoutProof, ...]
-    separation_constraints: tuple[RenderSeparationConstraintProof, ...] = ()
+    components: tuple[ComponentLayout, ...]
+    separation_constraints: tuple[SeparationCheck, ...] = ()
 
     @property
     def overflow(self) -> bool:
@@ -201,12 +232,12 @@ class RenderPageLayoutProof:
 
 
 @dataclass(frozen=True)
-class RenderLayoutProof:
-    """Structured proof of measured page geometry for a render operation."""
+class LayoutReport:
+    """Measured page geometry for one render operation."""
 
     backend: str
     page_count: int
-    pages: tuple[RenderPageLayoutProof, ...]
+    pages: tuple[PageLayout, ...]
 
     @property
     def overflow(self) -> bool:
@@ -215,8 +246,8 @@ class RenderLayoutProof:
 
 @dataclass(frozen=True)
 class RenderResult:
-    """Structured render result used by callers that must validate emitted content."""
+    """Document summaries and measured layouts used to validate the emitted PDF."""
 
-    fallback_proof: RenderFallbackProof | None = None
-    artifact_proof: RenderArtifactProof | None = None
-    layout_proof: RenderLayoutProof | None = None
+    fallback_summary: FallbackSummary | None = None
+    document_summary: RenderedDocumentSummary | None = None
+    layout_report: LayoutReport | None = None

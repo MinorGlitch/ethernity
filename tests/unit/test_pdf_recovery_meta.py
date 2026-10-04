@@ -83,7 +83,7 @@ class TestPdfRecoveryMeta(unittest.TestCase):
                 signing_pub=None,
             )
 
-    def test_canonical_words_keep_literal_grouping(self) -> None:
+    def test_supplied_words_keep_literal_grouping(self) -> None:
         passphrase = " ".join(f"word{index:02d}" for index in range(24))
 
         meta = build_recovery_meta(

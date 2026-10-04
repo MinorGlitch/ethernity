@@ -3,9 +3,9 @@ from dataclasses import replace
 
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_BASE64, encode_qr_payload
-from ethernity.render.direct_pdf.shard_contract import validate_single_shard_fallback_contract
+from ethernity.render.direct_pdf.shard_frame_consistency import validate_shard_frame_consistency
 from ethernity.render.doc_types import DOC_TYPE_SHARD
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 
 def _inputs(*, qr_payloads: tuple[bytes | str, ...] | None = None) -> RenderInputs:
@@ -23,7 +23,7 @@ def _inputs(*, qr_payloads: tuple[bytes | str, ...] | None = None) -> RenderInpu
         context={},
         doc_type=DOC_TYPE_SHARD,
         design_name="forge",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         qr_payloads=qr_payloads,
         render_qr=True,
         render_fallback=True,
@@ -31,7 +31,7 @@ def _inputs(*, qr_payloads: tuple[bytes | str, ...] | None = None) -> RenderInpu
     )
 
 
-class TestDirectPdfShardContract(unittest.TestCase):
+class TestDirectPdfShardFrameConsistency(unittest.TestCase):
     def test_accepts_implicit_raw_and_base64_carriers_for_the_same_frame(self) -> None:
         inputs = _inputs()
         frame_bytes = encode_frame(inputs.frames[0])
@@ -46,7 +46,7 @@ class TestDirectPdfShardContract(unittest.TestCase):
 
         for variant in variants:
             with self.subTest(qr_payloads=variant.qr_payloads):
-                validate_single_shard_fallback_contract(
+                validate_shard_frame_consistency(
                     variant,
                     renderer_label="test shard renderer",
                 )
@@ -85,7 +85,7 @@ class TestDirectPdfShardContract(unittest.TestCase):
         for variant, message in invalid:
             with self.subTest(message=message):
                 with self.assertRaisesRegex(ValueError, message):
-                    validate_single_shard_fallback_contract(
+                    validate_shard_frame_consistency(
                         variant,
                         renderer_label="test shard renderer",
                     )

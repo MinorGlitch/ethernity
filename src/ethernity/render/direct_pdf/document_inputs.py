@@ -1,47 +1,31 @@
-"""Shared mechanics for structured direct-PDF document families."""
+"""Prepare document metadata, validate inputs, and paginate QR images."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 from ethernity.encoding.framing import encode_frame
 from ethernity.qr.codec import QrConfig, qr_bytes
 from ethernity.render.copy_catalog import build_copy_bundle, build_instruction_copy
-from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
-from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
-from ethernity.render.direct_pdf.layout_proof import build_direct_layout_proof
-from ethernity.render.direct_pdf.page import DirectPdfPagePlan
+from ethernity.render.design_style import DesignCapabilities, load_design_style
 from ethernity.render.direct_pdf.page_geometry import resolve_page_geometry
-from ethernity.render.direct_pdf.shard_contract import validate_single_shard_fallback_contract
-from ethernity.render.direct_pdf.surface import FpdfSurface, PdfSurface
-from ethernity.render.doc_types import DOC_TYPE_RECOVERY
-from ethernity.render.proofs import build_render_artifact_proof
-from ethernity.render.recovery_meta import RecoveryMeta
-from ethernity.render.template_style import TemplateCapabilities, load_template_style
+from ethernity.render.direct_pdf.shard_frame_consistency import validate_shard_frame_consistency
+from ethernity.render.doc_types import (
+    DOC_TYPE_KIT_INDEX,
+    DOC_TYPE_RECOVERY,
+)
 from ethernity.render.types import (
-    RenderArtifactProof,
-    RenderFallbackProof,
+    DocumentOrigin,
     RenderInputs,
-    RenderLineage,
-    RenderResult,
 )
 from ethernity.version import get_ethernity_version
 
 
 @dataclass(frozen=True)
-class StructuredDirectPlan:
-    """Measured pages and proofs for one structured direct render."""
-
-    page_plans: tuple[DirectPdfPagePlan, ...]
-    artifact_proof: RenderArtifactProof
-    fallback_proof: RenderFallbackProof | None = None
-
-
-@dataclass(frozen=True)
-class StructuredContext:
-    """Shared render context for structured direct-PDF design families."""
+class DocumentRenderContext:
+    """Document metadata and printed copy shared by direct-PDF designs."""
 
     doc_type: str
     doc_id: str
@@ -51,9 +35,15 @@ class StructuredContext:
     instruction_lines: tuple[str, ...]
     footer_left: str
     footer_right: str
-    lineage: RenderLineage
+    origin: DocumentOrigin
     values: dict[str, object]
-    capabilities: TemplateCapabilities
+    capabilities: DesignCapabilities
+
+    @property
+    def created_date(self) -> str:
+        """Return the normalized creation date used by document headers."""
+
+        return str(self.values.get("created_date") or "")
 
 
 @dataclass(frozen=True)
@@ -77,51 +67,19 @@ class QrPage:
     items: tuple[QrPayloadItem, ...]
 
 
-StructuredPlanBuilder = Callable[[PdfSurface, RenderInputs], StructuredDirectPlan]
-
-
-def render_structured_plan(
-    inputs: RenderInputs,
-    *,
-    style_name: str,
-    builder: StructuredPlanBuilder,
-) -> RenderResult:
-    """Render a structured direct-PDF plan and return render proofs."""
-
-    page = resolve_page_geometry(inputs)
-    surface = FpdfSurface(page_width_mm=page.width_mm, page_height_mm=page.height_mm)
-    packaged_direct_pdf_assets().register_fonts(surface)
-    plan = builder(surface, inputs)
-    layout_proof = build_direct_layout_proof(plan.page_plans)
-    write_direct_layout_debug_json(
-        inputs=inputs,
-        page_plans=plan.page_plans,
-        style_name=style_name,
-        layout_proof=layout_proof,
-    )
-    for page_plan in plan.page_plans:
-        page_plan.paint(surface)
-    surface.output(inputs.output_path)
-    return RenderResult(
-        fallback_proof=plan.fallback_proof,
-        artifact_proof=plan.artifact_proof,
-        layout_proof=layout_proof,
-    )
-
-
-def build_structured_context(inputs: RenderInputs, *, doc_type: str) -> StructuredContext:
-    """Build shared copy, spec, and metadata context for a structured render."""
+def build_document_render_context(inputs: RenderInputs, *, doc_type: str) -> DocumentRenderContext:
+    """Build printed copy, instructions, and document metadata."""
 
     base_context = dict(inputs.context)
     created_timestamp_utc = resolve_created_timestamp(base_context)
     doc_id = resolve_doc_id(inputs, base_context)
     base_context["doc_id"] = doc_id
-    base_context["lineage"] = lineage_payload(inputs.lineage)
+    base_context["origin"] = origin_payload(inputs.origin)
     page = resolve_page_geometry(inputs)
     base_context["paper_size"] = page.paper_size
     copy = build_copy_bundle(doc_type=doc_type, context=base_context)
     instructions = build_instruction_copy(doc_type=doc_type, context=base_context)
-    return StructuredContext(
+    return DocumentRenderContext(
         doc_type=doc_type,
         doc_id=doc_id,
         created_timestamp_utc=created_timestamp_utc,
@@ -130,9 +88,9 @@ def build_structured_context(inputs: RenderInputs, *, doc_type: str) -> Structur
         instruction_lines=instructions.lines,
         footer_left=generator_label(get_ethernity_version()),
         footer_right=str(copy.get("footer_guidance") or ""),
-        lineage=inputs.lineage,
+        origin=inputs.origin,
         values=base_context,
-        capabilities=load_template_style(inputs.design_name).capabilities,
+        capabilities=load_design_style(inputs.design_name).capabilities,
     )
 
 
@@ -142,17 +100,17 @@ def validate_qr_inputs(
     expected_doc_type: str,
     supported_paper_sizes: frozenset[str] | None = None,
 ) -> None:
-    """Validate structured QR-only document inputs."""
+    """Validate QR-only document inputs."""
 
     if inputs.doc_type.strip().lower() != expected_doc_type:
-        raise ValueError(f"direct structured renderer only supports {expected_doc_type} documents")
+        raise ValueError(f"direct PDF renderer only supports {expected_doc_type} documents")
     if not inputs.render_qr:
-        raise ValueError("direct structured QR renderer requires QR rendering")
+        raise ValueError("direct PDF QR renderer requires QR rendering")
     if inputs.render_fallback:
-        raise ValueError("direct structured QR renderer does not render fallback text")
+        raise ValueError("direct PDF QR renderer does not render fallback text")
     if not inputs.frames:
-        raise ValueError("frames cannot be empty for direct structured QR rendering")
-    validate_paper_and_png(inputs, supported_paper_sizes=supported_paper_sizes)
+        raise ValueError("frames cannot be empty for direct PDF QR rendering")
+    _validate_paper_and_png(inputs, supported_paper_sizes=supported_paper_sizes)
 
 
 def validate_recovery_inputs(
@@ -160,17 +118,17 @@ def validate_recovery_inputs(
     *,
     supported_paper_sizes: frozenset[str] | None = None,
 ) -> None:
-    """Validate structured recovery-document inputs."""
+    """Validate recovery-document inputs."""
 
     if inputs.doc_type.strip().lower() != DOC_TYPE_RECOVERY:
-        raise ValueError("direct structured recovery renderer only supports recovery documents")
+        raise ValueError("direct PDF recovery renderer only supports recovery documents")
     if inputs.render_qr or not inputs.render_fallback:
-        raise ValueError("direct structured recovery renderer requires fallback-only rendering")
+        raise ValueError("direct PDF recovery renderer requires fallback-only rendering")
     if inputs.recovery_meta is None:
-        raise ValueError("recovery_meta is required for direct structured recovery rendering")
+        raise ValueError("recovery_meta is required for direct PDF recovery rendering")
     if not inputs.fallback_sections:
-        raise ValueError("fallback_sections are required for direct structured recovery rendering")
-    validate_paper_and_png(inputs, supported_paper_sizes=supported_paper_sizes)
+        raise ValueError("fallback_sections are required for direct PDF recovery rendering")
+    resolve_page_geometry(inputs, supported_paper_sizes=supported_paper_sizes)
 
 
 def validate_single_qr_fallback_inputs(
@@ -179,31 +137,43 @@ def validate_single_qr_fallback_inputs(
     expected_doc_type: str,
     supported_paper_sizes: frozenset[str] | None = None,
 ) -> None:
-    """Validate structured single-QR plus fallback document inputs."""
+    """Validate single-QR plus fallback document inputs."""
 
     if inputs.doc_type.strip().lower() != expected_doc_type:
-        raise ValueError(f"direct structured renderer only supports {expected_doc_type} documents")
+        raise ValueError(f"direct PDF renderer only supports {expected_doc_type} documents")
     if not inputs.render_qr or not inputs.render_fallback:
-        raise ValueError("direct structured shard renderer requires QR and fallback rendering")
-    validate_single_shard_fallback_contract(
+        raise ValueError("direct PDF shard renderer requires QR and fallback rendering")
+    validate_shard_frame_consistency(
         inputs,
-        renderer_label="direct structured shard renderer",
+        renderer_label="direct PDF shard renderer",
     )
-    validate_paper_and_png(inputs, supported_paper_sizes=supported_paper_sizes)
+    _validate_paper_and_png(inputs, supported_paper_sizes=supported_paper_sizes)
 
 
-def validate_paper_and_png(
+def validate_kit_index_inputs(inputs: RenderInputs) -> None:
+    """Validate an inventory document with no encoded payloads."""
+
+    if inputs.doc_type.strip().lower() != DOC_TYPE_KIT_INDEX:
+        raise ValueError("direct PDF kit-index renderer only supports kit-index documents")
+    if inputs.render_qr or inputs.render_fallback:
+        raise ValueError("direct PDF kit-index renderer does not render QR or fallback text")
+    if inputs.frames:
+        raise ValueError("direct PDF kit-index renderer expects no frames")
+    resolve_page_geometry(inputs)
+
+
+def _validate_paper_and_png(
     inputs: RenderInputs,
     *,
     supported_paper_sizes: frozenset[str] | None = None,
 ) -> None:
-    """Validate common structured-renderer page and QR image constraints."""
+    """Validate shared renderer page and QR image constraints."""
 
     resolve_page_geometry(inputs, supported_paper_sizes=supported_paper_sizes)
     qr_config = inputs.qr_config or QrConfig()
     qr_kind = str(qr_config.kind or "png").strip().lower()
     if qr_kind != "png":
-        raise ValueError("direct structured renderer currently supports PNG QR images only")
+        raise ValueError("direct PDF renderer currently supports PNG QR images only")
 
 
 def resolved_qr_payloads(inputs: RenderInputs) -> tuple[bytes | str, ...]:
@@ -219,14 +189,14 @@ def resolved_qr_payloads(inputs: RenderInputs) -> tuple[bytes | str, ...]:
 
 
 def resolved_single_qr_payload(inputs: RenderInputs) -> bytes | str:
-    """Resolve the only QR payload for single-payload structured documents."""
+    """Resolve the only QR payload for single-payload documents."""
 
     if inputs.qr_payloads is not None:
         payloads = tuple(inputs.qr_payloads)
     else:
         payloads = (encode_frame(inputs.frames[0]),)
     if len(payloads) != 1:
-        raise ValueError("direct structured shard renderer requires exactly one QR payload")
+        raise ValueError("direct PDF shard renderer requires exactly one QR payload")
     return payloads[0]
 
 
@@ -274,7 +244,7 @@ def paginate_qr_items(
     """Paginate QR payload items with an optional smaller first-page capacity."""
 
     if not items:
-        raise ValueError("direct structured renderer has no QR payloads to render")
+        raise ValueError("direct PDF renderer has no QR payloads to render")
     if capacity <= 0:
         raise ValueError("QR page capacity must be positive")
     if first_page_capacity is not None and first_page_capacity <= 0:
@@ -295,33 +265,18 @@ def paginate_qr_items(
     return tuple(pages)
 
 
-def build_artifact_proof(
-    inputs: RenderInputs,
-    *,
-    qr_payloads: Sequence[bytes | str],
-    encoded_payload_count: int,
-    physical_qr_count: int,
-    physical_qr_payload_indexes: Sequence[int],
-    page_count: int,
-    fallback_proof: RenderFallbackProof | None,
-) -> RenderArtifactProof:
-    """Build a render artifact proof for structured direct renderers."""
-
-    return build_render_artifact_proof(
-        inputs,
-        qr_payloads=tuple(qr_payloads),
-        encoded_payload_count=encoded_payload_count,
-        physical_qr_count=physical_qr_count,
-        physical_qr_payload_indexes=tuple(physical_qr_payload_indexes),
-        page_count=page_count,
-        fallback_proof=fallback_proof,
-    )
-
-
 def component_prefix(component_base: str, page_number: int) -> str:
     """Return a stable component id prefix for a page."""
 
     return f"{component_base}-p{page_number}"
+
+
+def non_negative_int(value: object, *, default: int) -> int:
+    """Parse an integer value, falling back for non-integers and clamping below zero."""
+
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    return max(0, value)
 
 
 def positive_int(value: object, *, default: int) -> int:
@@ -342,7 +297,7 @@ def positive_int(value: object, *, default: int) -> int:
 
 
 def resolve_created_timestamp(base_context: dict[str, object]) -> str:
-    """Normalize created timestamp fields for structured direct display."""
+    """Normalize created timestamp fields for printed document headers."""
 
     created_value = base_context.get("created_timestamp_utc")
     if created_value is None:
@@ -367,7 +322,7 @@ def resolve_created_timestamp(base_context: dict[str, object]) -> str:
 
 
 def resolve_doc_id(inputs: RenderInputs, base_context: dict[str, object]) -> str:
-    """Resolve the document id shown in structured document headers."""
+    """Resolve the document id shown in document headers."""
 
     doc_id = base_context.get("doc_id")
     if isinstance(doc_id, str) and doc_id.strip():
@@ -401,12 +356,12 @@ def timestamp_from_string(value: str) -> tuple[str | None, datetime | None]:
     return f"{created_value} UTC", None
 
 
-def lineage_payload(lineage: RenderLineage) -> dict[str, object]:
-    """Convert render lineage to the mapping expected by copy catalogs."""
+def origin_payload(origin: DocumentOrigin) -> dict[str, object]:
+    """Convert render origin to the mapping expected by copy catalogs."""
 
     return {
-        "kind": lineage.kind,
-        "extension_index": lineage.extension_index,
+        "kind": origin.kind,
+        "extension_index": origin.extension_index,
     }
 
 
@@ -419,34 +374,25 @@ def generator_label(ethernity_version: str) -> str:
     return "Ethernity"
 
 
-def recovery_meta_or_default(inputs: RenderInputs) -> RecoveryMeta:
-    """Return required recovery metadata or a default object for typed callers."""
-
-    return inputs.recovery_meta or RecoveryMeta()
-
-
 __all__ = [
     "QrPage",
     "QrPayloadItem",
-    "StructuredContext",
-    "StructuredDirectPlan",
-    "StructuredPlanBuilder",
-    "build_artifact_proof",
-    "build_structured_context",
+    "DocumentRenderContext",
+    "build_document_render_context",
     "component_prefix",
     "generator_label",
-    "lineage_payload",
+    "origin_payload",
+    "non_negative_int",
     "paginate_qr_items",
     "positive_int",
     "qr_image",
     "qr_payload_items",
-    "recovery_meta_or_default",
-    "render_structured_plan",
     "resolved_qr_payloads",
     "resolved_single_qr_payload",
     "resolve_created_timestamp",
     "resolve_doc_id",
     "timestamp_from_string",
+    "validate_kit_index_inputs",
     "validate_qr_inputs",
     "validate_recovery_inputs",
     "validate_single_qr_fallback_inputs",

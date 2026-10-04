@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
@@ -15,8 +14,8 @@ from ethernity.render.direct_pdf.text_fit import (
     fit_text_to_width,
 )
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect, TextStyle
+from ethernity.render.types import RenderTextMetadata
 
-_POINT_TO_MM = 25.4 / 72.0
 MINIMUM_TEXT_SIZE_PT = 6.0
 
 
@@ -38,8 +37,8 @@ class PdfComponent(Protocol):
 
 
 @dataclass(frozen=True)
-class BoxPlacementProof:
-    """Geometry proof for a non-text component."""
+class BoxPlacement:
+    """Geometry layout for a non-text component."""
 
     component_id: str
     component_type: str
@@ -57,7 +56,7 @@ class PanelPlan:
     fill: PdfColor | None
     line_width_mm: float
     corner_radius_mm: float
-    proof: BoxPlacementProof
+    layout: BoxPlacement
 
     def paint(self, surface: PdfSurface) -> None:
         """Paint the planned panel."""
@@ -112,7 +111,7 @@ class Panel:
             fill=self.fill,
             line_width_mm=self.line_width_mm,
             corner_radius_mm=self.corner_radius_mm,
-            proof=BoxPlacementProof(
+            layout=BoxPlacement(
                 component_id=self.component_id,
                 component_type="panel",
                 rect=rect,
@@ -129,7 +128,7 @@ class EllipsePlan:
     stroke: PdfColor | None
     fill: PdfColor | None
     line_width_mm: float
-    proof: BoxPlacementProof
+    layout: BoxPlacement
 
     def paint(self, surface: PdfSurface) -> None:
         """Paint the planned ellipse."""
@@ -169,7 +168,7 @@ class Ellipse:
             stroke=self.stroke,
             fill=self.fill,
             line_width_mm=self.line_width_mm,
-            proof=BoxPlacementProof(
+            layout=BoxPlacement(
                 component_id=self.component_id,
                 component_type="ellipse",
                 rect=rect,
@@ -184,7 +183,7 @@ class RulePlan:
     component_id: str
     rect: PdfRect
     color: PdfColor
-    proof: BoxPlacementProof
+    layout: BoxPlacement
 
     def paint(self, surface: PdfSurface) -> None:
         """Paint the planned rule."""
@@ -211,7 +210,7 @@ class Rule:
             component_id=self.component_id,
             rect=rect,
             color=self.color,
-            proof=BoxPlacementProof(
+            layout=BoxPlacement(
                 component_id=self.component_id,
                 component_type="rule",
                 rect=rect,
@@ -230,7 +229,7 @@ class LinePlan:
     end_y_mm: float
     color: PdfColor
     line_width_mm: float
-    proof: BoxPlacementProof
+    layout: BoxPlacement
 
     def paint(self, surface: PdfSurface) -> None:
         """Paint the planned line segment."""
@@ -247,7 +246,7 @@ class LinePlan:
 
 @dataclass(frozen=True)
 class Line:
-    """A straight line segment with bounded geometry proof."""
+    """A straight line segment with bounded geometry layout."""
 
     component_id: str
     color: PdfColor
@@ -281,7 +280,7 @@ class Line:
             end_y_mm=end_y_mm,
             color=self.color,
             line_width_mm=self.line_width_mm,
-            proof=BoxPlacementProof(
+            layout=BoxPlacement(
                 component_id=self.component_id,
                 component_type="line",
                 rect=rect,
@@ -297,7 +296,7 @@ class ImageBoxPlan:
     rect: PdfRect
     image: bytes
     image_type: str
-    proof: BoxPlacementProof
+    layout: BoxPlacement
 
     def paint(self, surface: PdfSurface) -> None:
         """Paint the planned image."""
@@ -328,7 +327,7 @@ class ImageBox:
             rect=rect,
             image=self.image,
             image_type=self.image_type,
-            proof=BoxPlacementProof(
+            layout=BoxPlacement(
                 component_id=self.component_id,
                 component_type="image",
                 rect=rect,
@@ -347,8 +346,8 @@ class TextLinePlacement:
 
 
 @dataclass(frozen=True)
-class TextPlacementProof:
-    """Geometry and fit proof for a planned text box."""
+class TextPlacement:
+    """Geometry and fit layout for a planned text box."""
 
     component_id: str
     rect: PdfRect
@@ -369,18 +368,25 @@ class TextBoxPlan:
     rect: PdfRect
     fit: TextFitResult
     lines: tuple[TextLinePlacement, ...]
-    proof: TextPlacementProof
+    layout: TextPlacement
+    text_metadata: RenderTextMetadata | None = None
 
     def paint(self, surface: PdfSurface) -> None:
         """Paint planned lines to a PDF surface."""
 
-        for line in self.lines:
-            surface.draw_text(
-                line.x_mm,
-                line.baseline_y_mm,
-                line.text,
-                self.fit.style,
-            )
+        if self.text_metadata is not None:
+            surface.begin_text_metadata(self.text_metadata)
+        try:
+            for line in self.lines:
+                surface.draw_text(
+                    line.x_mm,
+                    line.baseline_y_mm,
+                    line.text,
+                    self.fit.style,
+                )
+        finally:
+            if self.text_metadata is not None:
+                surface.end_text_metadata()
 
 
 @dataclass(frozen=True)
@@ -394,6 +400,7 @@ class TextBox:
     align: TextAlign = TextAlign.LEFT
     min_size_pt: float | None = None
     line_height_multiplier: float = 1.2
+    text_metadata: RenderTextMetadata | None = None
 
     def __post_init__(self) -> None:
         _validate_component_id(self.component_id)
@@ -418,19 +425,13 @@ class TextBox:
         if rect.height_mm <= 0:
             raise ValueError("text box height must be positive")
 
-        max_lines = _max_lines_for_rect(
-            surface,
-            self.style,
-            rect,
-            line_height_multiplier=self.line_height_multiplier,
-        )
         try:
             fit = fit_text_to_width(
                 surface,
                 self.text,
                 self.style,
                 max_width_mm=rect.width_mm,
-                max_lines=max_lines,
+                max_height_mm=rect.height_mm,
                 policy=self.policy,
                 min_size_pt=(
                     self.min_size_pt if self.min_size_pt is not None else MINIMUM_TEXT_SIZE_PT
@@ -439,7 +440,7 @@ class TextBox:
             )
         except TextFitError as exc:
             raise _component_text_fit_error(self.component_id, exc) from exc
-        if fit.height_mm > rect.height_mm:
+        if fit.height_mm > rect.height_mm + 1e-9:
             raise TextFitError(
                 "text height exceeds box height",
                 {
@@ -464,13 +465,22 @@ class TextBox:
             (line.x_mm + line.width_mm for line in lines),
             default=used_x_mm,
         )
+        ink_metrics = [surface.text_ink_metrics(line.text, fit.style) for line in lines]
+        used_top_mm = min(
+            (line.baseline_y_mm - metrics.ascent_mm for line, metrics in zip(lines, ink_metrics)),
+            default=rect.y_mm,
+        )
+        used_bottom_mm = max(
+            (line.baseline_y_mm + metrics.descent_mm for line, metrics in zip(lines, ink_metrics)),
+            default=used_top_mm,
+        )
         used_rect = PdfRect(
             used_x_mm,
-            rect.y_mm,
+            used_top_mm,
             used_right_mm - used_x_mm,
-            fit.height_mm,
+            used_bottom_mm - used_top_mm,
         )
-        proof = TextPlacementProof(
+        layout = TextPlacement(
             component_id=self.component_id,
             rect=rect,
             used_rect=used_rect,
@@ -485,7 +495,8 @@ class TextBox:
             rect=rect,
             fit=fit,
             lines=lines,
-            proof=proof,
+            layout=layout,
+            text_metadata=self.text_metadata,
         )
 
 
@@ -500,23 +511,6 @@ def _component_text_fit_error(component_id: str, exc: TextFitError) -> TextFitEr
     return TextFitError(message, details)
 
 
-def _max_lines_for_rect(
-    surface: PdfSurface,
-    style: TextStyle,
-    rect: PdfRect,
-    *,
-    line_height_multiplier: float,
-) -> int:
-    line_height = surface.line_height(style, multiplier=line_height_multiplier)
-    max_lines = math.floor(rect.height_mm / line_height)
-    if max_lines <= 0:
-        raise TextFitError(
-            "text box height cannot fit one line",
-            {"height_mm": rect.height_mm, "line_height_mm": line_height},
-        )
-    return max_lines
-
-
 def _place_lines(
     surface: PdfSurface,
     rect: PdfRect,
@@ -525,9 +519,8 @@ def _place_lines(
     align: TextAlign,
 ) -> tuple[TextLinePlacement, ...]:
     placements: list[TextLinePlacement] = []
-    font_height = fit.style.size_pt * _POINT_TO_MM
-    leading = max(0.0, fit.line_height_mm - font_height)
-    first_baseline_y = rect.y_mm + (leading / 2.0) + font_height
+    leading = max(0.0, fit.line_height_mm - fit.ascent_mm - fit.descent_mm)
+    first_baseline_y = rect.y_mm + (leading / 2.0) + fit.ascent_mm
     for index, line in enumerate(fit.lines):
         width = surface.measure_text_width(line, fit.style)
         placements.append(
@@ -576,7 +569,7 @@ def _line_bounds(
 
 
 __all__ = [
-    "BoxPlacementProof",
+    "BoxPlacement",
     "Ellipse",
     "EllipsePlan",
     "ImageBox",
@@ -593,5 +586,5 @@ __all__ = [
     "TextBox",
     "TextBoxPlan",
     "TextLinePlacement",
-    "TextPlacementProof",
+    "TextPlacement",
 ]

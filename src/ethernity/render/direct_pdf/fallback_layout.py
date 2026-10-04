@@ -1,4 +1,4 @@
-"""Measured fallback-text encoding, reflow, pagination, and proofs."""
+"""Measured fallback-text encoding, reflow, pagination, and layouts."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from dataclasses import dataclass
 from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import Frame, encode_frame
 from ethernity.encoding.zbase32 import ZBASE32_ALPHABET, encode_zbase32
+from ethernity.render.checks import frame_digest
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_measure import measured_grouped_line_length
 from ethernity.render.direct_pdf.types import PdfRect, TextStyle
 from ethernity.render.fallback_text import fallback_section_title, format_zbase32_lines
-from ethernity.render.proofs import frame_digest
 from ethernity.render.types import (
     FallbackSection,
-    RenderFallbackProof,
+    FallbackSummary,
     RenderInputs,
 )
 
@@ -234,12 +234,12 @@ def paginate_fallback_entries(
     return tuple(pages)
 
 
-def build_fallback_proof_from_entry_groups(
+def build_fallback_summary_from_entry_groups(
     inputs: RenderInputs,
     sections: Sequence[FallbackSectionLines],
     entry_groups: Sequence[Sequence[FallbackEntry]],
-) -> RenderFallbackProof:
-    """Build a proof from renderer-placed entry groups without owning their geometry."""
+) -> FallbackSummary:
+    """Build a layout from renderer-placed entry groups without owning their geometry."""
 
     pages: list[FallbackPage] = []
     for page_number, entries in enumerate(entry_groups, start=1):
@@ -260,7 +260,7 @@ def build_fallback_proof_from_entry_groups(
                 )
             )
         pages.append(FallbackPage(page_number=page_number, entries=tuple(page_entries)))
-    return build_fallback_proof(inputs, sections, pages)
+    return build_fallback_summary(inputs, sections, pages)
 
 
 def paginate_single_page_fallback_columns(
@@ -632,12 +632,12 @@ def measured_fallback_number_width(
     )
 
 
-def build_fallback_proof(
+def build_fallback_summary(
     inputs: RenderInputs,
     sections: Sequence[FallbackSectionLines],
     pages: Sequence[FallbackPage],
-) -> RenderFallbackProof:
-    """Build a render fallback proof from placed fallback pages."""
+) -> FallbackSummary:
+    """Build a render fallback layout from placed fallback pages."""
 
     _validate_complete_fallback_pages(inputs, sections, pages)
     emitted_lines = tuple(
@@ -652,7 +652,7 @@ def build_fallback_proof(
         for page_entry in page.entries
         if isinstance(page_entry.entry, FallbackLineEntry)
     }
-    return RenderFallbackProof(
+    return FallbackSummary(
         section_frame_digests=tuple(
             frame_digest(section.frame) for section in inputs.fallback_sections or ()
         ),
@@ -671,27 +671,27 @@ def _validate_complete_fallback_pages(
     sections: Sequence[FallbackSectionLines],
     pages: Sequence[FallbackPage],
 ) -> None:
-    """Require proof inputs to exactly represent every source section and entry."""
+    """Require layout inputs to exactly represent every source section and entry."""
 
     source_sections = tuple(inputs.fallback_sections or ())
     resolved_sections = tuple(sections)
     if not source_sections:
-        raise ValueError("fallback proof requires at least one source section")
+        raise ValueError("fallback layout requires at least one source section")
     if len(resolved_sections) != len(source_sections):
-        raise ValueError("fallback proof section count does not match render inputs")
+        raise ValueError("fallback layout section count does not match render inputs")
 
     for index, (resolved, source) in enumerate(
         zip(resolved_sections, source_sections, strict=True)
     ):
         if resolved.section_index != index:
-            raise ValueError("fallback proof section indexes must be contiguous and ordered")
+            raise ValueError("fallback layout section indexes must be contiguous and ordered")
         if encode_frame(resolved.frame) != encode_frame(source.frame):
             raise ValueError(
-                f"fallback proof section {index + 1} frame does not match render inputs"
+                f"fallback layout section {index + 1} frame does not match render inputs"
             )
         if resolved.title != fallback_section_title(source.label):
             raise ValueError(
-                f"fallback proof section {index + 1} title does not match render inputs"
+                f"fallback layout section {index + 1} title does not match render inputs"
             )
         emitted_encoded = "".join(
             character.lower()
@@ -702,25 +702,25 @@ def _validate_complete_fallback_pages(
         expected_encoded = encode_zbase32(encode_frame(source.frame))
         if emitted_encoded != expected_encoded:
             raise ValueError(
-                f"fallback proof section {index + 1} lines do not encode its source frame"
+                f"fallback layout section {index + 1} lines do not encode its source frame"
             )
 
     resolved_pages = tuple(pages)
     if not resolved_pages:
-        raise ValueError("fallback proof requires at least one populated page")
+        raise ValueError("fallback layout requires at least one populated page")
     if any(not page.entries for page in resolved_pages):
-        raise ValueError("fallback proof pages cannot be empty")
+        raise ValueError("fallback layout pages cannot be empty")
     if tuple(page.page_number for page in resolved_pages) != tuple(
         range(1, len(resolved_pages) + 1)
     ):
-        raise ValueError("fallback proof page numbers must be contiguous and ordered")
+        raise ValueError("fallback layout page numbers must be contiguous and ordered")
 
     expected_entries = fallback_entries(resolved_sections)
     emitted_entries = tuple(
         page_entry.entry for page in resolved_pages for page_entry in page.entries
     )
     if emitted_entries != expected_entries:
-        raise ValueError("fallback proof pages do not exactly consume section entries")
+        raise ValueError("fallback layout pages do not exactly consume section entries")
 
     for page in resolved_pages:
         display_line_number = 0
@@ -732,7 +732,7 @@ def _validate_complete_fallback_pages(
                 display_line_number += 1
                 expected_display_number = display_line_number
             if page_entry.display_line_number != expected_display_number:
-                raise ValueError("fallback proof page display numbers are not sequential")
+                raise ValueError("fallback layout page display numbers are not sequential")
 
 
 __all__ = [
@@ -746,8 +746,8 @@ __all__ = [
     "ResponsiveFallbackPageProfile",
     "ResponsiveFallbackPagination",
     "ResponsiveFallbackSpec",
-    "build_fallback_proof",
-    "build_fallback_proof_from_entry_groups",
+    "build_fallback_summary",
+    "build_fallback_summary_from_entry_groups",
     "fallback_capacity",
     "fallback_entries",
     "fallback_sections",

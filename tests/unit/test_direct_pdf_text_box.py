@@ -3,11 +3,14 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from fontTools.pens.boundsPen import BoundsPen
+from fontTools.ttLib import TTFont
+
+from ethernity.render.checks import validate_pdf_has_pages
 from ethernity.render.direct_pdf.components import TextAlign, TextBox
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitError, TextFitPolicy
 from ethernity.render.direct_pdf.types import PdfRect, TextStyle
-from ethernity.render.proofs import validate_pdf_has_pages
 
 _DIRECT_PDF_ROOT = (
     Path(__file__).resolve().parents[2] / "src" / "ethernity" / "render" / "direct_pdf"
@@ -16,7 +19,7 @@ _MINIMUM_TEXT_FONT_SIZE_PT = 6.0
 
 
 def _is_font_size_config_name(name: str | None) -> bool:
-    return name is not None and name.endswith("_pt")
+    return name is not None and name.endswith("_pt") and "spacing" not in name.lower()
 
 
 def _numeric_config_values(node: ast.expr) -> tuple[float, ...]:
@@ -39,7 +42,7 @@ class TestDirectPdfTextBox(unittest.TestCase):
         self.surface = FpdfSurface(page_width_mm=100, page_height_mm=100)
         self.style = TextStyle(family="Helvetica", size_pt=10)
 
-    def test_plan_wraps_text_and_records_non_overflow_proof(self) -> None:
+    def test_plan_wraps_text_and_records_non_overflow_layout(self) -> None:
         box = TextBox(
             component_id="instructions",
             text="Record all segment labels for this document set.",
@@ -51,10 +54,10 @@ class TestDirectPdfTextBox(unittest.TestCase):
 
         self.assertEqual(plan.component_id, "instructions")
         self.assertGreater(len(plan.lines), 1)
-        self.assertFalse(plan.proof.overflow)
-        self.assertEqual(plan.proof.overflow_line_count, 0)
-        self.assertLessEqual(plan.proof.used_rect.width_mm, 32)
-        self.assertLessEqual(plan.proof.used_rect.height_mm, 25)
+        self.assertFalse(plan.layout.overflow)
+        self.assertEqual(plan.layout.overflow_line_count, 0)
+        self.assertLessEqual(plan.layout.used_rect.width_mm, 32)
+        self.assertLessEqual(plan.layout.used_rect.height_mm, 25)
         for line in plan.lines:
             self.assertGreaterEqual(line.x_mm, 10)
             self.assertLessEqual(line.x_mm + line.width_mm, 42)
@@ -70,15 +73,77 @@ class TestDirectPdfTextBox(unittest.TestCase):
         plan = box.plan(self.surface, PdfRect(0, 0, 18, self.surface.line_height(self.style)))
 
         self.assertEqual(len(plan.lines), 1)
-        self.assertTrue(plan.proof.overflow)
-        self.assertGreater(plan.proof.overflow_line_count, 0)
-        self.assertEqual(len(plan.fit.overflow_lines), plan.proof.overflow_line_count)
+        self.assertTrue(plan.layout.overflow)
+        self.assertGreater(plan.layout.overflow_line_count, 0)
+        self.assertEqual(len(plan.fit.overflow_lines), plan.layout.overflow_line_count)
 
     def test_plan_rejects_box_that_cannot_fit_one_line(self) -> None:
         box = TextBox(component_id="tiny", text="Nope", style=self.style)
 
         with self.assertRaisesRegex(TextFitError, "text box height cannot fit one line"):
             box.plan(self.surface, PdfRect(0, 0, 30, 0.1))
+
+    def test_shrink_retries_height_that_cannot_fit_starting_size(self) -> None:
+        box = TextBox(
+            component_id="shrink-height",
+            text="hello",
+            style=TextStyle(family="Helvetica", size_pt=20),
+            policy=TextFitPolicy.SHRINK,
+            min_size_pt=6,
+        )
+        plan = box.plan(self.surface, PdfRect(0, 0, 50, 7))
+        self.assertLess(plan.fit.style.size_pt, 20)
+        self.assertLessEqual(plan.fit.height_mm, 7)
+
+    def test_shrink_retries_character_too_wide_at_starting_size(self) -> None:
+        box = TextBox(
+            component_id="shrink-width",
+            text="W",
+            style=TextStyle(family="Helvetica", size_pt=12),
+            policy=TextFitPolicy.SHRINK,
+            min_size_pt=6,
+        )
+        plan = box.plan(self.surface, PdfRect(0, 0, 3, 10))
+        self.assertLess(plan.fit.style.size_pt, 12)
+        self.assertLessEqual(plan.fit.width_mm, 3)
+
+    def test_shrink_recalculates_line_capacity_at_each_size(self) -> None:
+        box = TextBox(
+            component_id="shrink-lines",
+            text="first\nsecond\nthird",
+            style=TextStyle(family="Helvetica", size_pt=12),
+            policy=TextFitPolicy.SHRINK,
+            min_size_pt=6,
+        )
+        plan = box.plan(self.surface, PdfRect(0, 0, 50, 9))
+        self.assertEqual(len(plan.lines), 3)
+        self.assertLessEqual(plan.fit.height_mm, 9)
+
+    def test_descender_ink_is_contained_and_recorded_in_layout(self) -> None:
+        font_path = (
+            _DIRECT_PDF_ROOT.parents[1]
+            / "resources/designs/_shared/assets/fonts/RobotoMono-Regular.ttf"
+        )
+        self.surface.register_ttf_font("Roboto Mono", font_path)
+        style = TextStyle(family="Roboto Mono", size_pt=12)
+        rect = PdfRect(10, 10, 40, 5)
+        plan = TextBox(
+            component_id="descenders", text="gypq", style=style, line_height_multiplier=1.0
+        ).plan(self.surface, rect)
+        with TTFont(font_path) as font:
+            glyph_set = font.getGlyphSet()
+            pens = []
+            for character in "gypq":
+                pen = BoundsPen(glyph_set)
+                glyph_set[font.getBestCmap()[ord(character)]].draw(pen)
+                pens.append(pen)
+            scale = style.size_pt * 25.4 / 72 / font["head"].unitsPerEm
+            ink_top = plan.lines[0].baseline_y_mm - max(pen.bounds[3] for pen in pens) * scale
+            ink_bottom = plan.lines[0].baseline_y_mm - min(pen.bounds[1] for pen in pens) * scale
+        self.assertGreaterEqual(ink_top, rect.y_mm)
+        self.assertLessEqual(ink_bottom, rect.bottom_mm)
+        self.assertAlmostEqual(plan.layout.used_rect.y_mm, ink_top)
+        self.assertAlmostEqual(plan.layout.used_rect.bottom_mm, ink_bottom)
 
     def test_plan_rejects_zero_width_box(self) -> None:
         box = TextBox(component_id="zero-width", text="Nope", style=self.style)
@@ -115,7 +180,7 @@ class TestDirectPdfTextBox(unittest.TestCase):
 
         plan = box.plan(self.surface, PdfRect(0, 0, 40, 10))
 
-        self.assertGreaterEqual(plan.proof.font_size_pt, 6.0)
+        self.assertGreaterEqual(plan.layout.font_size_pt, 6.0)
 
     def test_all_direct_pdf_font_size_literals_respect_six_point_floor(self) -> None:
         violations: list[str] = []
@@ -187,8 +252,8 @@ class TestDirectPdfTextBox(unittest.TestCase):
 
         self.assertGreater(line.x_mm, rect.x_mm)
         self.assertLess(line.x_mm + line.width_mm, rect.right_mm)
-        self.assertAlmostEqual(plan.proof.used_rect.x_mm, line.x_mm)
-        self.assertAlmostEqual(plan.proof.used_rect.right_mm, line.x_mm + line.width_mm)
+        self.assertAlmostEqual(plan.layout.used_rect.x_mm, line.x_mm)
+        self.assertAlmostEqual(plan.layout.used_rect.right_mm, line.x_mm + line.width_mm)
 
     def test_right_alignment_records_the_actual_used_horizontal_bounds(self) -> None:
         box = TextBox(
@@ -203,8 +268,8 @@ class TestDirectPdfTextBox(unittest.TestCase):
         plan = box.plan(self.surface, rect)
         line = plan.lines[0]
 
-        self.assertAlmostEqual(plan.proof.used_rect.x_mm, line.x_mm)
-        self.assertAlmostEqual(plan.proof.used_rect.right_mm, rect.right_mm)
+        self.assertAlmostEqual(plan.layout.used_rect.x_mm, line.x_mm)
+        self.assertAlmostEqual(plan.layout.used_rect.right_mm, rect.right_mm)
 
     def test_paint_writes_valid_pdf(self) -> None:
         with TemporaryDirectory() as tmp:

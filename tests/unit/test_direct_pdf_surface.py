@@ -2,12 +2,14 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from pypdf import PdfReader
+
 from ethernity.qr.codec import qr_bytes
+from ethernity.render.checks import validate_pdf_has_pages
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect, TextStyle
-from ethernity.render.proofs import validate_pdf_has_pages
 
-_ICON_FONT = Path("src/ethernity/resources/templates/_shared/assets/material-symbols-outlined.ttf")
+_ICON_FONT = Path("src/ethernity/resources/designs/_shared/assets/material-symbols-outlined.ttf")
 
 
 class TestDirectPdfSurface(unittest.TestCase):
@@ -29,12 +31,22 @@ class TestDirectPdfSurface(unittest.TestCase):
     def test_text_style_character_spacing_changes_measurement(self) -> None:
         surface = FpdfSurface(page_width_mm=80, page_height_mm=60)
         compact = TextStyle(family="Helvetica", size_pt=10)
-        tracked = TextStyle(family="Helvetica", size_pt=10, char_spacing_mm=0.25)
+        tracked = TextStyle(family="Helvetica", size_pt=10, char_spacing_pt=0.25)
 
-        self.assertGreater(
-            surface.measure_text_width("ETERNITY", tracked),
-            surface.measure_text_width("ETERNITY", compact),
+        self.assertAlmostEqual(
+            surface.measure_text_width("ETERNITY", tracked)
+            - surface.measure_text_width("ETERNITY", compact),
+            8 * 0.25 * 25.4 / 72,
         )
+
+    def test_character_spacing_is_painted_in_points(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "spacing.pdf"
+            surface = FpdfSurface(page_width_mm=80, page_height_mm=60)
+            surface.add_page()
+            surface.draw_text(10, 20, "AB", TextStyle("Helvetica", 10, char_spacing_pt=1.0))
+            surface.output(path)
+            self.assertIn(b"1.00 Tc", PdfReader(path).pages[0].get_contents().get_data())
 
     def test_pdf_output_supports_registered_font_and_images(self) -> None:
         with TemporaryDirectory() as tmp:

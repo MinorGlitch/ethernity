@@ -15,8 +15,8 @@ from ethernity.render.direct_pdf.fallback_layout import (
     FallbackTitleEntry,
     ResponsiveFallbackPageProfile,
     ResponsiveFallbackSpec,
-    build_fallback_proof,
-    build_fallback_proof_from_entry_groups,
+    build_fallback_summary,
+    build_fallback_summary_from_entry_groups,
     fallback_entries,
     fallback_sections,
     paginate_fallback_entries,
@@ -25,7 +25,7 @@ from ethernity.render.direct_pdf.fallback_layout import (
 )
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.direct_pdf.types import PdfRect, TextStyle
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 
 class TestResponsiveFallbackPagination(unittest.TestCase):
@@ -345,7 +345,7 @@ class TestSinglePageFallbackColumns(unittest.TestCase):
             )
 
 
-class TestFallbackProofValidation(unittest.TestCase):
+class TestFallbackSummaryValidation(unittest.TestCase):
     def _fixture(
         self,
     ) -> tuple[
@@ -359,15 +359,15 @@ class TestFallbackProofValidation(unittest.TestCase):
             doc_id=b"\x51" * DOC_ID_LEN,
             index=0,
             total=1,
-            data=b"fallback proof integrity" * 8,
+            data=b"fallback summary integrity" * 8,
         )
         source_sections = (FallbackSection(label="MAIN FRAME", frame=frame),)
         inputs = RenderInputs(
             frames=(frame,),
-            output_path="fallback-proof.pdf",
+            output_path="fallback-summary.pdf",
             context={},
             doc_type="recovery",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             design_name="archive",
             render_qr=False,
             render_fallback=True,
@@ -377,30 +377,30 @@ class TestFallbackProofValidation(unittest.TestCase):
         pages = paginate_fallback_entries(fallback_entries(sections), capacity=1_000)
         return inputs, sections, pages
 
-    def test_build_fallback_proof_accepts_exact_page_entries(self) -> None:
+    def test_build_fallback_summary_accepts_exact_page_entries(self) -> None:
         inputs, sections, pages = self._fixture()
 
-        proof = build_fallback_proof(inputs, sections, pages)
+        summary = build_fallback_summary(inputs, sections, pages)
 
-        self.assertTrue(proof.fully_consumed)
-        self.assertEqual(proof.consumed_section_count, 1)
+        self.assertTrue(summary.fully_consumed)
+        self.assertEqual(summary.consumed_section_count, 1)
         self.assertEqual(
-            proof.emitted_fallback_lines,
+            summary.emitted_fallback_lines,
             tuple(line for section in sections for line in section.lines),
         )
 
-    def test_build_fallback_proof_accepts_renderer_entry_groups(self) -> None:
+    def test_build_fallback_summary_accepts_renderer_entry_groups(self) -> None:
         inputs, sections, pages = self._fixture()
 
-        proof = build_fallback_proof_from_entry_groups(
+        summary = build_fallback_summary_from_entry_groups(
             inputs,
             sections,
             tuple(tuple(page_entry.entry for page_entry in page.entries) for page in pages),
         )
 
-        self.assertTrue(proof.fully_consumed)
+        self.assertTrue(summary.fully_consumed)
         self.assertEqual(
-            proof.emitted_fallback_lines,
+            summary.emitted_fallback_lines,
             tuple(line for section in sections for line in section.lines),
         )
 
@@ -409,16 +409,16 @@ class TestFallbackProofValidation(unittest.TestCase):
         entries = tuple(page_entry.entry for page_entry in pages[0].entries)
 
         with self.assertRaisesRegex(ValueError, "exactly consume section entries"):
-            build_fallback_proof_from_entry_groups(inputs, sections, (entries[:-1],))
+            build_fallback_summary_from_entry_groups(inputs, sections, (entries[:-1],))
 
-    def test_build_fallback_proof_rejects_omitted_entry(self) -> None:
+    def test_build_fallback_summary_rejects_omitted_entry(self) -> None:
         inputs, sections, pages = self._fixture()
         incomplete = (replace(pages[0], entries=pages[0].entries[:-1]),)
 
         with self.assertRaisesRegex(ValueError, "exactly consume section entries"):
-            build_fallback_proof(inputs, sections, incomplete)
+            build_fallback_summary(inputs, sections, incomplete)
 
-    def test_build_fallback_proof_rejects_duplicated_entry(self) -> None:
+    def test_build_fallback_summary_rejects_duplicated_entry(self) -> None:
         inputs, sections, pages = self._fixture()
         duplicated = (
             replace(
@@ -428,9 +428,9 @@ class TestFallbackProofValidation(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "exactly consume section entries"):
-            build_fallback_proof(inputs, sections, duplicated)
+            build_fallback_summary(inputs, sections, duplicated)
 
-    def test_build_fallback_proof_rejects_mismatched_entry(self) -> None:
+    def test_build_fallback_summary_rejects_mismatched_entry(self) -> None:
         inputs, sections, pages = self._fixture()
         final_page_entry = pages[0].entries[-1]
         self.assertIsInstance(final_page_entry.entry, FallbackLineEntry)
@@ -450,9 +450,9 @@ class TestFallbackProofValidation(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "exactly consume section entries"):
-            build_fallback_proof(inputs, sections, mismatched)
+            build_fallback_summary(inputs, sections, mismatched)
 
-    def test_build_fallback_proof_rejects_nonsequential_display_numbers(self) -> None:
+    def test_build_fallback_summary_rejects_nonsequential_display_numbers(self) -> None:
         inputs, sections, pages = self._fixture()
         first_line_index = next(
             index
@@ -475,7 +475,7 @@ class TestFallbackProofValidation(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "display numbers are not sequential"):
-            build_fallback_proof(inputs, sections, misnumbered)
+            build_fallback_summary(inputs, sections, misnumbered)
 
 
 if __name__ == "__main__":

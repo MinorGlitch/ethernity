@@ -78,7 +78,7 @@ class RecoveryPassphraseContinuationPage:
 
 @dataclass(frozen=True)
 class RecoveryPassphrasePagination:
-    """Inline metadata plus any overflow pages, with a lossless round-trip proof."""
+    """Inline metadata plus any overflow pages, with a lossless round-trip layout."""
 
     inline_meta: RecoveryMeta
     inline_parts: tuple[RecoveryPassphrasePart, ...] = ()
@@ -144,7 +144,7 @@ def paginate_recovery_passphrase(
 ) -> RecoveryPassphrasePagination:
     """Keep fitting metadata inline and paginate overflow into lossless JSON parts.
 
-    The supplied heights are text-only capacities after the template has reserved labels,
+    The supplied heights are text-only capacities after the design has reserved labels,
     padding, and page chrome. A passphrase with zero line capacity fails immediately instead of
     entering a non-progressing pagination loop.
     """
@@ -204,7 +204,9 @@ def paginate_recovery_passphrase(
                 line_height_multiplier=line_height_multiplier,
             ).lines
             if " ".join(wrapped_literal_lines) != raw_passphrase:
-                raise ValueError("literal passphrase wrapping failed its lossless round-trip proof")
+                raise ValueError(
+                    "literal passphrase wrapping failed its lossless round-trip layout"
+                )
             if len(wrapped_literal_lines) <= existing_inline_capacity:
                 inline_meta = (
                     meta
@@ -260,7 +262,7 @@ def paginate_recovery_passphrase(
             )
             if pagination.decoded_passphrase() != raw_passphrase:
                 raise ValueError(
-                    "literal recovery passphrase pagination failed its lossless round-trip proof"
+                    "literal recovery passphrase pagination failed its lossless round-trip layout"
                 )
             return pagination
 
@@ -337,7 +339,7 @@ def paginate_recovery_passphrase(
         continuation_pages=continuation_pages,
     )
     if pagination.decoded_passphrase() != raw_passphrase:
-        raise ValueError("recovery passphrase pagination failed its lossless round-trip proof")
+        raise ValueError("recovery passphrase pagination failed its lossless round-trip layout")
     return pagination
 
 

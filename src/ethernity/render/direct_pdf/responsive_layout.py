@@ -1,7 +1,7 @@
-"""Dimension-driven layout primitives for direct PDF renderers.
+"""Dimension-driven layout helpers for direct PDF renderers.
 
-The primitives in this module operate only on physical page geometry.  They deliberately do not
-know about named paper sizes or template names, so a renderer can be measured against any portrait
+The helpers in this module operate only on physical page geometry.  They deliberately do not
+know about named paper sizes or design names, so a renderer can be measured against any portrait
 page that satisfies its minimum legibility constraints.
 """
 

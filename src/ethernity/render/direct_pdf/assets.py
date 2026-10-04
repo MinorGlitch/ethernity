@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
+from ethernity.config.paths import DESIGNS_RESOURCE_ROOT
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.types import FontStyle
 
-_SHARED_ASSET_DIR = TEMPLATES_RESOURCE_ROOT / "_shared" / "assets"
+_SHARED_ASSET_DIR = DESIGNS_RESOURCE_ROOT / "_shared" / "assets"
 
 MATERIAL_SYMBOLS_FAMILY = "Material Symbols Outlined"
 MATERIAL_SYMBOLS_FONT_NAME = "material-symbols-outlined.ttf"

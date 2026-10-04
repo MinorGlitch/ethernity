@@ -1,4 +1,4 @@
-"""Page-level planning and proof containers for direct PDF rendering."""
+"""Page-level planning and layout containers for direct PDF rendering."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ from ethernity.render.direct_pdf.types import PdfRect
 _GEOMETRY_EPSILON_MM = 0.01
 
 
-class PlacementProof(Protocol):
-    """Common proof shape emitted by planned components."""
+class Placement(Protocol):
+    """Common layout shape emitted by planned components."""
 
     @property
     def component_id(self) -> str:
-        """Component identifier attached to this proof."""
+        """Component identifier attached to this layout."""
 
     @property
     def rect(self) -> PdfRect:
@@ -29,15 +29,15 @@ class PlacementProof(Protocol):
 
 
 class PaintPlan(Protocol):
-    """A measured plan that can paint itself and expose placement proof."""
+    """A measured plan that can paint itself and expose placement layout."""
 
     @property
     def component_id(self) -> str:
-        """Component identifier for inventory and proof aggregation."""
+        """Component identifier for inventory and layout aggregation."""
 
     @property
-    def proof(self) -> PlacementProof:
-        """Placement proof emitted by the plan."""
+    def layout(self) -> Placement:
+        """Placement layout emitted by the plan."""
 
     def paint(self, surface: PdfSurface) -> None:
         """Paint the measured plan to a PDF surface."""
@@ -45,7 +45,7 @@ class PaintPlan(Protocol):
 
 @dataclass(frozen=True)
 class ComponentGroup:
-    """A named semantic group of planned components used by layout constraints."""
+    """A named group of planned components used by layout constraints."""
 
     group_id: str
     component_ids: tuple[str, ...]
@@ -66,7 +66,7 @@ class LayoutRegion:
     """A named fixed page region used by layout constraints.
 
     Regions are independent of paper dimensions and can represent page-safe, content,
-    header, footer, or other semantic zones computed by a page builder.
+    header, footer, or other page regions computed by a page builder.
     """
 
     region_id: str
@@ -101,7 +101,7 @@ class SeparationConstraint:
 
 
 @dataclass(frozen=True)
-class SeparationConstraintProof:
+class SeparationCheck:
     """Result of validating one page separation constraint."""
 
     constraint_id: str
@@ -114,15 +114,15 @@ class SeparationConstraintProof:
 
 
 @dataclass(frozen=True)
-class DirectPdfPageProof:
-    """Proof inventory for one planned PDF page."""
+class DirectPdfPageLayout:
+    """Component measurements for one planned PDF page."""
 
     page_number: int
     rect: PdfRect
     component_ids: tuple[str, ...]
     overflow_component_ids: tuple[str, ...]
     out_of_bounds_component_ids: tuple[str, ...] = ()
-    separation_constraints: tuple[SeparationConstraintProof, ...] = ()
+    separation_constraints: tuple[SeparationCheck, ...] = ()
 
     @property
     def overflow(self) -> bool:
@@ -136,7 +136,7 @@ class DirectPdfPagePlan:
     page_number: int
     rect: PdfRect
     plans: tuple[PaintPlan, ...]
-    proof: DirectPdfPageProof
+    layout: DirectPdfPageLayout
 
     def paint(self, surface: PdfSurface) -> None:
         """Append and paint this page to the PDF surface."""
@@ -153,7 +153,7 @@ def build_page_plan(
     plans: Sequence[PaintPlan],
     separation_constraints: Sequence[SeparationConstraint] = (),
 ) -> DirectPdfPagePlan:
-    """Build a page plan and aggregate component proof inventory."""
+    """Build a page plan and aggregate component layout inventory."""
 
     if page_number <= 0:
         raise ValueError("page_number must be positive")
@@ -180,26 +180,26 @@ def build_page_plan(
         raise ValueError(
             f"duplicate separation constraint id in page plan: {duplicate_constraint_ids[0]}"
         )
-    separation_constraint_proofs = _validate_separation_constraints(
+    separation_checks = _validate_separation_constraints(
         plan_tuple,
         constraint_tuple,
     )
     overflow_component_ids = tuple(
-        plan.component_id for plan in plan_tuple if bool(plan.proof.overflow)
+        plan.component_id for plan in plan_tuple if bool(plan.layout.overflow)
     )
-    proof = DirectPdfPageProof(
+    layout = DirectPdfPageLayout(
         page_number=page_number,
         rect=rect,
         component_ids=component_ids,
         overflow_component_ids=overflow_component_ids,
         out_of_bounds_component_ids=(),
-        separation_constraints=separation_constraint_proofs,
+        separation_constraints=separation_checks,
     )
     return DirectPdfPagePlan(
         page_number=page_number,
         rect=rect,
         plans=plan_tuple,
-        proof=proof,
+        layout=layout,
     )
 
 
@@ -208,15 +208,15 @@ def _out_of_bounds_component_ids(
     plans: Sequence[PaintPlan],
 ) -> tuple[str, ...]:
     return tuple(
-        plan.component_id for plan in plans if not _contains_rect(page_rect, plan.proof.rect)
+        plan.component_id for plan in plans if not _contains_rect(page_rect, plan.layout.rect)
     )
 
 
 def _used_rect_out_of_bounds_component_ids(plans: Sequence[PaintPlan]) -> tuple[str, ...]:
     component_ids: list[str] = []
     for plan in plans:
-        used_rect = getattr(plan.proof, "used_rect", None)
-        if isinstance(used_rect, PdfRect) and not _contains_rect(plan.proof.rect, used_rect):
+        used_rect = getattr(plan.layout, "used_rect", None)
+        if isinstance(used_rect, PdfRect) and not _contains_rect(plan.layout.rect, used_rect):
             component_ids.append(plan.component_id)
     return tuple(component_ids)
 
@@ -239,9 +239,9 @@ class _ResolvedConstraintRect:
 def _validate_separation_constraints(
     plans: Sequence[PaintPlan],
     constraints: Sequence[SeparationConstraint],
-) -> tuple[SeparationConstraintProof, ...]:
-    component_rects = {plan.component_id: plan.proof.rect for plan in plans}
-    proofs: list[SeparationConstraintProof] = []
+) -> tuple[SeparationCheck, ...]:
+    component_rects = {plan.component_id: plan.layout.rect for plan in plans}
+    checks: list[SeparationCheck] = []
     for constraint in constraints:
         first_rects = _resolve_constraint_target(
             constraint,
@@ -288,8 +288,8 @@ def _validate_separation_constraints(
                         f"(horizontal gap {horizontal_gap_mm:.3f} mm, "
                         f"vertical gap {vertical_gap_mm:.3f} mm)"
                     )
-        proofs.append(
-            SeparationConstraintProof(
+        checks.append(
+            SeparationCheck(
                 constraint_id=constraint.constraint_id,
                 first_region_id=_target_id(constraint.first),
                 second_region_id=_target_id(constraint.second),
@@ -299,7 +299,7 @@ def _validate_separation_constraints(
                 satisfied=True,
             )
         )
-    return tuple(proofs)
+    return tuple(checks)
 
 
 def _resolve_constraint_target(
@@ -361,12 +361,12 @@ def _duplicates(values: Sequence[str]) -> tuple[str, ...]:
 __all__ = [
     "ComponentGroup",
     "DirectPdfPagePlan",
-    "DirectPdfPageProof",
+    "DirectPdfPageLayout",
     "LayoutRegion",
     "PaintPlan",
-    "PlacementProof",
+    "Placement",
+    "SeparationCheck",
     "SeparationConstraint",
-    "SeparationConstraintProof",
     "SeparationTarget",
     "build_page_plan",
 ]

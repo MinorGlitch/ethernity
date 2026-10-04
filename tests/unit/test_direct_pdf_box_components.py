@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ethernity.qr.codec import qr_bytes
+from ethernity.render.checks import validate_pdf_has_pages
 from ethernity.render.direct_pdf.components import (
     Ellipse,
     ImageBox,
@@ -12,7 +13,6 @@ from ethernity.render.direct_pdf.components import (
 )
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect
-from ethernity.render.proofs import validate_pdf_has_pages
 
 
 class TestDirectPdfBoxComponents(unittest.TestCase):
@@ -23,7 +23,7 @@ class TestDirectPdfBoxComponents(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stroke or fill is required"):
             Panel(component_id="empty-panel")
 
-    def test_panel_plan_records_geometry_proof(self) -> None:
+    def test_panel_plan_records_geometry_layout(self) -> None:
         rect = PdfRect(10, 12, 30, 18)
         panel = Panel(
             component_id="metadata-panel",
@@ -35,8 +35,8 @@ class TestDirectPdfBoxComponents(unittest.TestCase):
         plan = panel.plan(self.surface, rect)
 
         self.assertEqual(plan.rect, rect)
-        self.assertEqual(plan.proof.component_type, "panel")
-        self.assertFalse(plan.proof.overflow)
+        self.assertEqual(plan.layout.component_type, "panel")
+        self.assertFalse(plan.layout.overflow)
 
     def test_panel_plan_records_corner_radius(self) -> None:
         rect = PdfRect(10, 12, 30, 18)
@@ -50,7 +50,7 @@ class TestDirectPdfBoxComponents(unittest.TestCase):
         plan = panel.plan(self.surface, rect)
 
         self.assertEqual(plan.corner_radius_mm, 3.0)
-        self.assertFalse(plan.proof.overflow)
+        self.assertFalse(plan.layout.overflow)
 
     def test_panel_rejects_oversized_corner_radius(self) -> None:
         panel = Panel(
@@ -62,7 +62,7 @@ class TestDirectPdfBoxComponents(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "rounded-panel corner radius is too large"):
             panel.plan(self.surface, PdfRect(10, 12, 20, 10))
 
-    def test_ellipse_plan_records_geometry_proof(self) -> None:
+    def test_ellipse_plan_records_geometry_layout(self) -> None:
         rect = PdfRect(10, 12, 8, 8)
         ellipse = Ellipse(
             component_id="step-marker",
@@ -74,8 +74,8 @@ class TestDirectPdfBoxComponents(unittest.TestCase):
         plan = ellipse.plan(self.surface, rect)
 
         self.assertEqual(plan.rect, rect)
-        self.assertEqual(plan.proof.component_type, "ellipse")
-        self.assertFalse(plan.proof.overflow)
+        self.assertEqual(plan.layout.component_type, "ellipse")
+        self.assertFalse(plan.layout.overflow)
 
     def test_rule_plan_rejects_zero_height(self) -> None:
         rule = Rule(component_id="divider", color=PdfColor(0, 0, 0))
@@ -83,7 +83,7 @@ class TestDirectPdfBoxComponents(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "divider height must be positive"):
             rule.plan(self.surface, PdfRect(0, 0, 20, 0))
 
-    def test_line_plan_records_bounded_geometry_proof(self) -> None:
+    def test_line_plan_records_bounded_geometry_layout(self) -> None:
         line = Line(component_id="hatch-line", color=PdfColor(225, 225, 225))
 
         plan = line.plan(
@@ -94,9 +94,9 @@ class TestDirectPdfBoxComponents(unittest.TestCase):
             end_y_mm=20,
         )
 
-        self.assertEqual(plan.proof.component_type, "line")
-        self.assertEqual(plan.proof.rect, PdfRect(10, 12, 8, 8))
-        self.assertFalse(plan.proof.overflow)
+        self.assertEqual(plan.layout.component_type, "line")
+        self.assertEqual(plan.layout.rect, PdfRect(10, 12, 8, 8))
+        self.assertFalse(plan.layout.overflow)
 
     def test_line_plan_rejects_zero_length(self) -> None:
         line = Line(component_id="empty-line", color=PdfColor(225, 225, 225))
@@ -108,17 +108,17 @@ class TestDirectPdfBoxComponents(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "image must be non-empty"):
             ImageBox(component_id="qr", image=b"")
 
-    def test_image_box_plan_records_geometry_proof(self) -> None:
+    def test_image_box_plan_records_geometry_layout(self) -> None:
         rect = PdfRect(12, 12, 28, 28)
-        image = qr_bytes("box-component-proof", scale=2)
+        image = qr_bytes("box-component-layout", scale=2)
         image_box = ImageBox(component_id="qr-1", image=image, image_type="PNG")
 
         plan = image_box.plan(self.surface, rect)
 
         self.assertEqual(plan.rect, rect)
         self.assertEqual(plan.image, image)
-        self.assertEqual(plan.proof.component_type, "image")
-        self.assertFalse(plan.proof.overflow)
+        self.assertEqual(plan.layout.component_type, "image")
+        self.assertFalse(plan.layout.overflow)
 
     def test_panel_rule_and_image_paint_valid_pdf(self) -> None:
         with TemporaryDirectory() as tmp:
