@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Build render inputs and QR payloads for document rendering flows."""
+"""Build render inputs and QR payloads for document render requests."""
 
 from __future__ import annotations
 
@@ -39,17 +39,17 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SHARD,
 )
 from ethernity.render.recovery_meta import RecoveryMeta
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 
 @dataclass(frozen=True)
 class RenderService:
-    """Facade for constructing render inputs from config and frames."""
+    """Construct render inputs from config and frames."""
 
     config: AppConfig
 
     def base_context(self, extra: dict[str, object] | None = None) -> dict[str, object]:
-        """Build a template context base and merge caller-provided fields."""
+        """Build a document context and merge caller-provided fields."""
 
         paper_size = resolve_paper_size(self.config.paper_size)
         context: dict[str, object] = dict(extra or {})
@@ -101,7 +101,7 @@ class RenderService:
         qr_payloads: Sequence[bytes | str] | None = None,
         context: dict[str, object] | None = None,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Build render inputs for the main QR document."""
 
@@ -114,7 +114,7 @@ class RenderService:
             doc_type=DOC_TYPE_MAIN,
             design_name=self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
         )
 
     def recovery_inputs(
@@ -127,7 +127,7 @@ class RenderService:
         fallback_sections: Sequence[FallbackSection] | None = None,
         context: dict[str, object] | None = None,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Build render inputs for the recovery document."""
 
@@ -142,7 +142,7 @@ class RenderService:
             doc_type=DOC_TYPE_RECOVERY,
             design_name=self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
         )
 
     def shard_inputs(
@@ -157,7 +157,7 @@ class RenderService:
         doc_type: str | None = None,
         design_name: str | None = None,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Build render inputs for a shard or signing-key shard document."""
 
@@ -179,7 +179,7 @@ class RenderService:
             doc_type=resolved_doc_type,
             design_name=design_name or self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
         )
 
     def kit_inputs(
@@ -192,7 +192,7 @@ class RenderService:
         design_name: str | None = None,
         doc_type: str = DOC_TYPE_KIT,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Build render inputs for the QR-bearing recovery kit document."""
 
@@ -205,7 +205,7 @@ class RenderService:
             doc_type=doc_type,
             design_name=design_name or self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
         )
 
     def kit_index_inputs(
@@ -217,7 +217,7 @@ class RenderService:
         qr_page_count: int | None = None,
         qr_chunk_count: int = 0,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Build render inputs for the non-payload recovery kit index document."""
 
@@ -235,7 +235,7 @@ class RenderService:
             doc_type=DOC_TYPE_KIT_INDEX,
             design_name=design_name or self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
         )
 
     def _build_inputs(
@@ -253,12 +253,12 @@ class RenderService:
         doc_type: str,
         design_name: str,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Construct a `RenderInputs` object with config defaults applied."""
 
-        if lineage is None:
-            raise ValueError("render lineage is required")
+        if origin is None:
+            raise ValueError("render origin is required")
         resolved_context = self.base_context(context)
         return RenderInputs(
             frames=frames,
@@ -273,8 +273,7 @@ class RenderService:
             key_lines=key_lines,
             recovery_meta=recovery_meta,
             fallback_sections=fallback_sections,
-            render_jobs=self.config.cli_defaults.runtime.render_jobs,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
             page_size=resolve_paper_size(self.config.paper_size),
         )

@@ -101,7 +101,7 @@ def passphrase_print_label(passphrase: str) -> str:
 
 
 def decode_printed_passphrase(lines: Sequence[str], *, print_mode: str) -> str:
-    """Decode a complete printed passphrase representation for proof and tests."""
+    """Decode a complete printed passphrase representation for validation and tests."""
 
     if print_mode == PASSPHRASE_PRINT_MODE_LITERAL:
         return " ".join(lines)

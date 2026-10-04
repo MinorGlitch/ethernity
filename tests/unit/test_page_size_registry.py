@@ -4,7 +4,7 @@ import click
 
 from ethernity.app import workflow_presenter
 from ethernity.app.input_parsers import parse_layout
-from ethernity.app.workspaces.common import PAPER_OPTIONS
+from ethernity.app.workspaces.workspace_controls import PAPER_OPTIONS
 from ethernity.page_sizes import paper_size_display_name, paper_size_names
 from ethernity.run.commands.add_files import add_files
 from ethernity.run.commands.backup import backup

@@ -14,24 +14,24 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Recovery-kit index helpers shared by rendering workflows."""
+"""Build recovery-kit index content for renderers."""
 
 from __future__ import annotations
 
 from ethernity.config import AppConfig
 from ethernity.crypto.sharding import ShardPayload
-from ethernity.render.designs import load_design_manifest_by_name
+from ethernity.render.design_style import load_design_style
+from ethernity.render.designs import load_design_definition_by_name
 from ethernity.render.doc_types import DOC_TYPE_KIT_INDEX
-from ethernity.render.template_style import load_template_style
 
 
 def supports_recovery_kit_index_style(style: str) -> bool:
     """Return whether a built-in style supports recovery-kit index rendering."""
 
-    manifest = load_design_manifest_by_name(style)
-    if not manifest.supports_doc_type(DOC_TYPE_KIT_INDEX):
+    design = load_design_definition_by_name(style)
+    if not design.supports_doc_type(DOC_TYPE_KIT_INDEX):
         return False
-    return load_template_style(style).capabilities.recovery_kit_index_document
+    return load_design_style(style).capabilities.recovery_kit_index_document
 
 
 def resolve_recovery_kit_index_style(config: AppConfig) -> str | None:

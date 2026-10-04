@@ -9,7 +9,7 @@ from ethernity.config import AppConfig
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.qr.codec import QrConfig
 from ethernity.render.service import RenderService
-from ethernity.render.types import RenderLineage
+from ethernity.render.types import DocumentOrigin
 
 
 def _service(*, paper_size: str = "Letter") -> RenderService:
@@ -17,7 +17,6 @@ def _service(*, paper_size: str = "Letter") -> RenderService:
         paper_size=paper_size,
         design_name="archive",
         qr_config=QrConfig(),
-        cli_defaults=SimpleNamespace(runtime=SimpleNamespace(render_jobs=None)),
     )
     return RenderService(config=cast(AppConfig, cast(Any, config)))
 
@@ -38,7 +37,7 @@ class TestRenderServicePageSize(unittest.TestCase):
         inputs = _service().qr_inputs(
             (_frame(),),
             Path("ignored.pdf"),
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
         )
 
         assert inputs.page_size is not None

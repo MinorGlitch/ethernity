@@ -6,6 +6,7 @@ from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.page_sizes import PaperSize
 from ethernity.render import render_frames_to_pdf
 from ethernity.render.backend_dispatch import DIRECT_PDF_DESIGN_REGISTRY
+from ethernity.render.checks import validate_pdf_has_pages, validate_rendered_document_summary
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_KIT_INDEX,
@@ -14,9 +15,8 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
-from ethernity.render.proofs import validate_pdf_has_pages, validate_render_artifact_proof
 from ethernity.render.recovery_meta import build_recovery_meta
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 
 def _frame(frame_type: FrameType, *, data: bytes) -> Frame:
@@ -51,7 +51,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
         for design_name, expected_doc_types in expected_doc_types_by_design.items():
             design = DIRECT_PDF_DESIGN_REGISTRY[design_name]
             self.assertEqual(design.style_name, design_name)
-            self.assertEqual(set(design.renderers), expected_doc_types)
+            self.assertEqual(set(design.builders), expected_doc_types)
 
     def test_direct_backend_routes_supported_forge_recovery_render(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -67,7 +67,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "created_timestamp_utc": "2026-07-06 12:00 UTC",
                 },
                 doc_type=DOC_TYPE_RECOVERY,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=False,
                 render_fallback=True,
                 key_lines=("recovery-key-line",),
@@ -86,11 +86,11 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend recovery document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend recovery document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_sentinel_recovery_render(self) -> None:
@@ -107,7 +107,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "created_timestamp_utc": "2026-07-06 12:00 UTC",
                 },
                 doc_type=DOC_TYPE_RECOVERY,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=False,
                 render_fallback=True,
                 recovery_meta=build_recovery_meta(
@@ -125,11 +125,11 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend Sentinel recovery document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend Sentinel recovery document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_sentinel_main_render(self) -> None:
@@ -155,7 +155,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "created_timestamp_utc": "2026-07-06 12:00 UTC",
                 },
                 doc_type=DOC_TYPE_MAIN,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=False,
             )
@@ -163,12 +163,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 2)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend Sentinel main document",
+            self.assertEqual(result.document_summary.physical_qr_count, 2)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend Sentinel main document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_sentinel_shard_render(self) -> None:
@@ -187,7 +187,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "shard_threshold": 2,
                 },
                 doc_type=DOC_TYPE_SHARD,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=True,
                 fallback_sections=(FallbackSection(label="SHARD PAYLOAD", frame=frame),),
@@ -196,12 +196,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertGreaterEqual(result.artifact_proof.physical_qr_count, 1)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend Sentinel shard document",
+            self.assertGreaterEqual(result.document_summary.physical_qr_count, 1)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend Sentinel shard document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_sentinel_signing_key_shard_render(self) -> None:
@@ -220,7 +220,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "shard_threshold": 2,
                 },
                 doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=True,
                 fallback_sections=(FallbackSection(label="SHARD PAYLOAD", frame=frame),),
@@ -229,12 +229,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertGreaterEqual(result.artifact_proof.physical_qr_count, 1)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend Sentinel signing-key shard document",
+            self.assertGreaterEqual(result.document_summary.physical_qr_count, 1)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend Sentinel signing-key shard document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_sentinel_kit_index_render(self) -> None:
@@ -257,7 +257,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     ),
                 },
                 doc_type=DOC_TYPE_KIT_INDEX,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 qr_payloads=(),
                 render_qr=False,
                 render_fallback=False,
@@ -266,12 +266,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 0)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend Sentinel kit-index document",
+            self.assertEqual(result.document_summary.physical_qr_count, 0)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend Sentinel kit-index document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_sentinel_kit_render(self) -> None:
@@ -297,7 +297,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "created_timestamp_utc": "2026-07-06 12:00 UTC",
                 },
                 doc_type=DOC_TYPE_KIT,
-                lineage=RenderLineage(kind="recovery_kit"),
+                origin=DocumentOrigin(kind="recovery_kit"),
                 qr_payloads=("kit-0", "kit-1"),
                 render_qr=True,
                 render_fallback=False,
@@ -306,12 +306,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 2)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend Sentinel kit document",
+            self.assertEqual(result.document_summary.physical_qr_count, 2)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend Sentinel kit document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_archive_main_render(self) -> None:
@@ -337,7 +337,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "created_timestamp_utc": "2026-07-06 12:00 UTC",
                 },
                 doc_type=DOC_TYPE_MAIN,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=False,
             )
@@ -345,12 +345,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 2)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend Archive main document",
+            self.assertEqual(result.document_summary.physical_qr_count, 2)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend Archive main document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_ledger_main_render(self) -> None:
@@ -376,7 +376,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "created_timestamp_utc": "2026-07-06 12:00 UTC",
                 },
                 doc_type=DOC_TYPE_MAIN,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=False,
             )
@@ -384,12 +384,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 2)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend Ledger main document",
+            self.assertEqual(result.document_summary.physical_qr_count, 2)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend Ledger main document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_maritime_main_render(self) -> None:
@@ -415,7 +415,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "created_timestamp_utc": "2026-07-06 12:00 UTC",
                 },
                 doc_type=DOC_TYPE_MAIN,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=False,
             )
@@ -423,15 +423,15 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 2)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend Maritime main document",
+            self.assertEqual(result.document_summary.physical_qr_count, 2)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend Maritime main document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
-    def test_direct_renderer_rejects_unsupported_document(self) -> None:
+    def test_main_document_requires_qr_rendering(self) -> None:
         with TemporaryDirectory() as tmp:
             frame = _frame(FrameType.MAIN_DOCUMENT, data=b"main")
             inputs = RenderInputs(
@@ -439,12 +439,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
                 output_path=Path(tmp) / "main.pdf",
                 context={"paper_size": "A4"},
                 doc_type=DOC_TYPE_MAIN,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=False,
                 render_fallback=False,
             )
 
-            with self.assertRaisesRegex(ValueError, "does not support"):
+            with self.assertRaisesRegex(ValueError, "requires QR rendering"):
                 render_frames_to_pdf(inputs)
 
     def test_direct_renderer_preflights_unproven_custom_geometry(self) -> None:
@@ -456,12 +456,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             page_size=PaperSize("A5", "A5", 148.0, 210.0),
             doc_type=DOC_TYPE_MAIN,
             design_name="sentinel",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             render_qr=True,
             render_fallback=False,
         )
 
-        with self.assertRaisesRegex(ValueError, "outside the proven responsive envelope"):
+        with self.assertRaisesRegex(ValueError, "outside the supported dimensions"):
             render_frames_to_pdf(inputs)
 
     def test_render_frames_to_pdf_routes_supported_direct_render(self) -> None:
@@ -477,7 +477,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "created_timestamp_utc": "2026-07-06 12:00 UTC",
                 },
                 doc_type=DOC_TYPE_MAIN,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=False,
             )
@@ -485,7 +485,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
 
     def test_direct_backend_routes_supported_forge_main_render(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -510,7 +510,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "created_timestamp_utc": "2026-07-06 12:00 UTC",
                 },
                 doc_type=DOC_TYPE_MAIN,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=False,
             )
@@ -518,12 +518,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 2)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend main document",
+            self.assertEqual(result.document_summary.physical_qr_count, 2)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend main document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_forge_shard_render(self) -> None:
@@ -542,7 +542,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "shard_threshold": 2,
                 },
                 doc_type=DOC_TYPE_SHARD,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=True,
                 fallback_sections=(FallbackSection(label="SHARD PAYLOAD", frame=frame),),
@@ -551,12 +551,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertGreaterEqual(result.artifact_proof.physical_qr_count, 1)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend shard document",
+            self.assertGreaterEqual(result.document_summary.physical_qr_count, 1)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend shard document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_forge_signing_key_shard_render(self) -> None:
@@ -575,7 +575,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "shard_threshold": 2,
                 },
                 doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=True,
                 fallback_sections=(FallbackSection(label="SHARD PAYLOAD", frame=frame),),
@@ -584,12 +584,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertGreaterEqual(result.artifact_proof.physical_qr_count, 1)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend signing-key shard document",
+            self.assertGreaterEqual(result.document_summary.physical_qr_count, 1)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend signing-key shard document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_forge_kit_render(self) -> None:
@@ -615,7 +615,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "created_timestamp_utc": "2026-07-06 12:00 UTC",
                 },
                 doc_type=DOC_TYPE_KIT,
-                lineage=RenderLineage(kind="recovery_kit"),
+                origin=DocumentOrigin(kind="recovery_kit"),
                 qr_payloads=("kit-0", "kit-1"),
                 render_qr=True,
                 render_fallback=False,
@@ -624,12 +624,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 2)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend kit document",
+            self.assertEqual(result.document_summary.physical_qr_count, 2)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend kit document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
     def test_direct_backend_routes_supported_forge_kit_index_render(self) -> None:
@@ -646,7 +646,7 @@ class TestRenderBackendDispatch(unittest.TestCase):
                     "kit_qr_chunk_count": 2,
                 },
                 doc_type=DOC_TYPE_KIT_INDEX,
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 qr_payloads=(),
                 render_qr=False,
                 render_fallback=False,
@@ -655,12 +655,12 @@ class TestRenderBackendDispatch(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 0)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct backend kit-index document",
+            self.assertEqual(result.document_summary.physical_qr_count, 0)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct backend kit-index document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
 
 

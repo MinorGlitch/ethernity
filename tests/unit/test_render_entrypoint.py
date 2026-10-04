@@ -18,8 +18,8 @@ import unittest
 from pathlib import Path
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
-from ethernity.render import RenderInputs, RenderLineage, render_frames_to_pdf
-from ethernity.render.proofs import validate_pdf_has_pages
+from ethernity.render import DocumentOrigin, RenderInputs, render_frames_to_pdf
+from ethernity.render.checks import validate_pdf_has_pages
 
 
 def _frame() -> Frame:
@@ -42,7 +42,7 @@ class TestRenderEntrypoint(unittest.TestCase):
                 output_path=output_path,
                 context={"paper_size": "A4"},
                 doc_type="main",
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=False,
             )
@@ -50,7 +50,7 @@ class TestRenderEntrypoint(unittest.TestCase):
             result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
 
     def test_render_frames_to_pdf_rejects_empty_frames_when_qr_or_fallback_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -59,7 +59,7 @@ class TestRenderEntrypoint(unittest.TestCase):
                 output_path=Path(tmpdir) / "out.pdf",
                 context={"paper_size": "A4"},
                 doc_type="main",
-                lineage=RenderLineage(kind="root_backup"),
+                origin=DocumentOrigin(kind="root_backup"),
                 render_qr=True,
                 render_fallback=False,
             )
