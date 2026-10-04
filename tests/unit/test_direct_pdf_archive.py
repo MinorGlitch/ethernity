@@ -6,17 +6,20 @@ from tempfile import TemporaryDirectory
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.page_sizes import PaperSize
 from ethernity.render import render_frames_to_pdf
+from ethernity.render.checks import (
+    extract_pdf_text,
+    validate_fallback_text_in_pdf,
+    validate_layout_report,
+    validate_pdf_has_pages,
+    validate_rendered_document_summary,
+    validate_text_in_pdf,
+)
 from ethernity.render.direct_pdf.archive import (
     build_archive_kit_direct_plan,
     build_archive_main_direct_plan,
     build_archive_recovery_direct_plan,
     build_archive_shard_direct_plan,
     build_archive_signing_key_shard_direct_plan,
-    render_archive_kit_direct_pdf,
-    render_archive_main_direct_pdf,
-    render_archive_recovery_direct_pdf,
-    render_archive_shard_direct_pdf,
-    render_archive_signing_key_shard_direct_pdf,
 )
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
 from ethernity.render.direct_pdf.page_geometry import (
@@ -33,16 +36,8 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
-from ethernity.render.proofs import (
-    extract_pdf_text,
-    validate_fallback_text_in_pdf,
-    validate_pdf_has_pages,
-    validate_render_artifact_proof,
-    validate_render_layout_proof,
-    validate_text_in_pdf,
-)
 from ethernity.render.recovery_meta import build_recovery_meta
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 _TWENTY_FOUR_WORD_PASSPHRASE = (
     "able acid also apex arch atom aunt away baby back bake bald "
@@ -99,7 +94,7 @@ def _main_inputs(
         context=_base_context(paper_size=paper_size),
         doc_type=DOC_TYPE_MAIN,
         design_name="archive",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=True,
         render_fallback=False,
     )
@@ -138,7 +133,7 @@ def _recovery_inputs(
         context=_base_context(paper_size=paper_size),
         doc_type=DOC_TYPE_RECOVERY,
         design_name="archive",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=False,
         render_fallback=True,
         recovery_meta=build_recovery_meta(
@@ -172,7 +167,7 @@ def _shard_inputs(
         context=context,
         doc_type=doc_type,
         design_name="archive",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=True,
         render_fallback=True,
         fallback_sections=(FallbackSection(label="SHARD PAYLOAD", frame=frame),),
@@ -192,7 +187,7 @@ def _kit_inputs(
         context=_base_context(paper_size=paper_size),
         doc_type=DOC_TYPE_KIT,
         design_name="archive",
-        lineage=RenderLineage(kind="recovery_kit"),
+        origin=DocumentOrigin(kind="recovery_kit"),
         qr_payloads=tuple(f"kit-chunk-{index}" for index in range(count)),
         render_qr=True,
         render_fallback=False,
@@ -209,17 +204,17 @@ class TestDirectPdfArchive(unittest.TestCase):
             plan = build_archive_main_direct_plan(surface, inputs)
 
             self.assertEqual(len(plan.page_plans), 1)
-            self.assertEqual(plan.artifact_proof.physical_qr_count, 4)
+            self.assertEqual(plan.document_summary.physical_qr_count, 4)
             first_card = next(
                 item
                 for item in plan.page_plans[0].plans
                 if item.component_id == "archive-main-p1-qr-card-0"
             )
-            self.assertGreater(first_card.proof.rect.width_mm, 55.0)
-            validate_render_artifact_proof(
-                artifact_label="direct Archive main document",
+            self.assertGreater(first_card.layout.rect.width_mm, 55.0)
+            validate_rendered_document_summary(
+                document_label="direct Archive main document",
                 inputs=inputs,
-                artifact_proof=plan.artifact_proof,
+                document_summary=plan.document_summary,
             )
 
     def test_build_main_plan_spreads_nine_qrs_then_fits_twelve_on_continuation(self) -> None:
@@ -239,23 +234,23 @@ class TestDirectPdfArchive(unittest.TestCase):
             self.assertEqual(len(first_cards), 9)
             self.assertEqual(len(continuation_cards), 12)
 
-            first_x_positions = sorted({item.proof.rect.x_mm for item in first_cards})
-            first_y_positions = sorted({item.proof.rect.y_mm for item in first_cards})
+            first_x_positions = sorted({item.layout.rect.x_mm for item in first_cards})
+            first_y_positions = sorted({item.layout.rect.y_mm for item in first_cards})
             self.assertEqual(len(first_x_positions), 3)
             self.assertEqual(len(first_y_positions), 3)
             horizontal_gaps = [
-                right - (left + first_cards[0].proof.rect.width_mm)
+                right - (left + first_cards[0].layout.rect.width_mm)
                 for left, right in zip(first_x_positions, first_x_positions[1:])
             ]
             vertical_gaps = [
-                lower - (upper + first_cards[0].proof.rect.height_mm)
+                lower - (upper + first_cards[0].layout.rect.height_mm)
                 for upper, lower in zip(first_y_positions, first_y_positions[1:])
             ]
             self.assertAlmostEqual(horizontal_gaps[0], horizontal_gaps[1])
             self.assertAlmostEqual(vertical_gaps[0], vertical_gaps[1])
             self.assertGreater(vertical_gaps[0], 3.2)
 
-            continuation_rows = {item.proof.rect.y_mm for item in continuation_cards}
+            continuation_rows = {item.layout.rect.y_mm for item in continuation_cards}
             continuation_footer = next(
                 item
                 for item in continuation_page.plans
@@ -263,8 +258,8 @@ class TestDirectPdfArchive(unittest.TestCase):
             )
             self.assertEqual(len(continuation_rows), 4)
             self.assertLessEqual(
-                max(item.proof.rect.bottom_mm for item in continuation_cards),
-                continuation_footer.proof.rect.y_mm,
+                max(item.layout.rect.bottom_mm for item in continuation_cards),
+                continuation_footer.layout.rect.y_mm,
             )
 
     def test_render_main_writes_valid_pdf(self) -> None:
@@ -272,17 +267,17 @@ class TestDirectPdfArchive(unittest.TestCase):
             output_path = Path(tmp) / "main.pdf"
             inputs = _main_inputs(output_path)
 
-            result = render_archive_main_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct Archive main document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct Archive main document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
             validate_text_in_pdf(
-                artifact_label="direct Archive main document",
+                document_label="direct Archive main document",
                 reader=reader,
                 expected_text=("MAIN DOCUMENT", "MODE", "SEGMENT 01"),
             )
@@ -295,7 +290,7 @@ class TestDirectPdfArchive(unittest.TestCase):
             packaged_direct_pdf_assets().register_fonts(surface)
 
             plan = build_archive_main_direct_plan(surface, inputs)
-            result = render_archive_main_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             self.assertEqual(len(plan.page_plans), 2)
             first_page, continuation_page = plan.page_plans
@@ -308,9 +303,9 @@ class TestDirectPdfArchive(unittest.TestCase):
                 for item in continuation_page.plans
                 if item.component_id == "archive-main-p2-footer-rule"
             )
-            first_y_positions = sorted({item.proof.rect.y_mm for item in first_cards})
+            first_y_positions = sorted({item.layout.rect.y_mm for item in first_cards})
             first_vertical_gaps = [
-                lower - (upper + first_cards[0].proof.rect.height_mm)
+                lower - (upper + first_cards[0].layout.rect.height_mm)
                 for upper, lower in zip(first_y_positions, first_y_positions[1:])
             ]
             self.assertEqual(len(first_cards), 9)
@@ -319,8 +314,8 @@ class TestDirectPdfArchive(unittest.TestCase):
             self.assertAlmostEqual(continuation_page.rect.width_mm, 215.9)
             self.assertAlmostEqual(continuation_page.rect.height_mm, 279.4)
             self.assertLessEqual(
-                max(item.proof.rect.bottom_mm for item in continuation_cards),
-                footer_rule.proof.rect.y_mm,
+                max(item.layout.rect.bottom_mm for item in continuation_cards),
+                footer_rule.layout.rect.y_mm,
             )
 
             reader = validate_pdf_has_pages(output_path)
@@ -328,31 +323,31 @@ class TestDirectPdfArchive(unittest.TestCase):
             height_mm = float(reader.pages[0].mediabox.height) * 25.4 / 72.0
             self.assertAlmostEqual(width_mm, 215.9, places=1)
             self.assertAlmostEqual(height_mm, 279.4, places=1)
-            self.assertFalse(result.layout_proof.overflow)
+            self.assertFalse(result.layout_report.overflow)
 
     def test_render_recovery_writes_valid_fallback_pdf(self) -> None:
         with TemporaryDirectory() as tmp:
             output_path = Path(tmp) / "recovery.pdf"
             inputs = _recovery_inputs(output_path)
 
-            result = render_archive_recovery_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            self.assertIsNotNone(result.fallback_proof)
-            validate_render_artifact_proof(
-                artifact_label="direct Archive recovery document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            self.assertIsNotNone(result.fallback_summary)
+            validate_rendered_document_summary(
+                document_label="direct Archive recovery document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
             validate_fallback_text_in_pdf(
-                artifact_label="direct Archive recovery document",
+                document_label="direct Archive recovery document",
                 reader=reader,
                 fallback_sections=inputs.fallback_sections or (),
-                fallback_proof=result.fallback_proof,
+                fallback_summary=result.fallback_summary,
             )
             validate_text_in_pdf(
-                artifact_label="direct Archive recovery document",
+                document_label="direct Archive recovery document",
                 reader=reader,
                 expected_text=("RECOVERY DOCUMENT", "FALLBACK BLOCKS", "AUTH FRAME"),
             )
@@ -397,7 +392,7 @@ class TestDirectPdfArchive(unittest.TestCase):
                     full_rows = [item for item in lines if len(item.lines[0].text) == longest_row]
                     self.assertGreaterEqual(
                         min(
-                            item.proof.used_rect.width_mm / item.proof.rect.width_mm
+                            item.layout.used_rect.width_mm / item.layout.rect.width_mm
                             for item in full_rows
                         ),
                         0.95,
@@ -414,8 +409,8 @@ class TestDirectPdfArchive(unittest.TestCase):
                             if "-fallback-title-" in item.component_id
                             or "-fallback-line-" in item.component_id
                         ]
-                        unused_height_mm = panel.proof.rect.bottom_mm - max(
-                            item.proof.used_rect.bottom_mm for item in fallback_content
+                        unused_height_mm = panel.layout.rect.bottom_mm - max(
+                            item.layout.used_rect.bottom_mm for item in fallback_content
                         )
                         self.assertGreaterEqual(unused_height_mm, 0.0)
                         self.assertLessEqual(unused_height_mm, 2 * 4.25)
@@ -446,20 +441,20 @@ class TestDirectPdfArchive(unittest.TestCase):
                         result = render_frames_to_pdf(inputs)
                         reader = validate_pdf_has_pages(output_path)
 
-                        validate_render_layout_proof(
-                            artifact_label="public Archive 24-word recovery document",
-                            layout_proof=result.layout_proof,
+                        validate_layout_report(
+                            document_label="public Archive 24-word recovery document",
+                            layout_report=result.layout_report,
                             expected_page_count=len(reader.pages),
                         )
-                        assert result.layout_proof is not None
+                        assert result.layout_report is not None
                         self.assertTrue(
                             all(
                                 constraint.satisfied
-                                for page in result.layout_proof.pages
+                                for page in result.layout_report.pages
                                 for constraint in page.separation_constraints
                             )
                         )
-                        for page in result.layout_proof.pages:
+                        for page in result.layout_report.pages:
                             passphrase = next(
                                 component
                                 for component in page.components
@@ -576,16 +571,16 @@ class TestDirectPdfArchive(unittest.TestCase):
                         )
                         self.assertEqual(len(signing_key.lines), 2)
                         self.assertEqual(signing_key.fit.style.size_pt, 6.4)
-                        self.assertFalse(signing_key.proof.overflow)
+                        self.assertFalse(signing_key.layout.overflow)
                         width_scale = (width_mm - 28.0) / 182.0
                         signing_x_mm = 14.0 + (133.0 - 14.0) * width_scale
                         signing_width_mm = 63.0 * width_scale
-                        self.assertAlmostEqual(signing_label.proof.rect.x_mm, signing_x_mm)
-                        self.assertAlmostEqual(signing_label.proof.rect.y_mm, signing_key_y_mm)
-                        self.assertAlmostEqual(signing_label.proof.rect.width_mm, signing_width_mm)
-                        self.assertAlmostEqual(signing_key.proof.rect.x_mm, signing_x_mm)
-                        self.assertAlmostEqual(signing_key.proof.rect.y_mm, signing_key_y_mm + 2.7)
-                        self.assertAlmostEqual(signing_key.proof.rect.width_mm, signing_width_mm)
+                        self.assertAlmostEqual(signing_label.layout.rect.x_mm, signing_x_mm)
+                        self.assertAlmostEqual(signing_label.layout.rect.y_mm, signing_key_y_mm)
+                        self.assertAlmostEqual(signing_label.layout.rect.width_mm, signing_width_mm)
+                        self.assertAlmostEqual(signing_key.layout.rect.x_mm, signing_x_mm)
+                        self.assertAlmostEqual(signing_key.layout.rect.y_mm, signing_key_y_mm + 2.7)
+                        self.assertAlmostEqual(signing_key.layout.rect.width_mm, signing_width_mm)
 
                         document_id = next(
                             item
@@ -597,16 +592,16 @@ class TestDirectPdfArchive(unittest.TestCase):
                             for item in first_page.plans
                             if item.component_id == "archive-recovery-p1-meta-value-1"
                         )
-                        self.assertAlmostEqual(document_id.proof.rect.width_mm, 22.0 * width_scale)
-                        self.assertAlmostEqual(created.proof.rect.width_mm, 28.0 * width_scale)
+                        self.assertAlmostEqual(document_id.layout.rect.width_mm, 22.0 * width_scale)
+                        self.assertAlmostEqual(created.layout.rect.width_mm, 28.0 * width_scale)
                         credential = next(
                             item for item in first_page.plans if item.component_id == expected_label
                         )
-                        self.assertAlmostEqual(credential.proof.rect.y_mm, 26.0)
-                        self.assertAlmostEqual(credential.proof.rect.width_mm, 63.0 * width_scale)
+                        self.assertAlmostEqual(credential.layout.rect.y_mm, 26.0)
+                        self.assertAlmostEqual(credential.layout.rect.width_mm, 63.0 * width_scale)
                         self.assertLessEqual(
-                            credential.proof.rect.right_mm,
-                            signing_key.proof.rect.x_mm,
+                            credential.layout.rect.right_mm,
+                            signing_key.layout.rect.x_mm,
                         )
 
     def test_public_render_paginates_100_word_literal_passphrase(self) -> None:
@@ -629,14 +624,14 @@ class TestDirectPdfArchive(unittest.TestCase):
                     result = render_frames_to_pdf(inputs)
                     reader = validate_pdf_has_pages(output_path)
 
-                    validate_render_layout_proof(
-                        artifact_label="public Archive 100-word recovery document",
-                        layout_proof=result.layout_proof,
+                    validate_layout_report(
+                        document_label="public Archive 100-word recovery document",
+                        layout_report=result.layout_report,
                         expected_page_count=len(reader.pages),
                     )
                     self.assertGreater(len(reader.pages), 1)
                     validate_text_in_pdf(
-                        artifact_label="public Archive 100-word recovery document",
+                        document_label="public Archive 100-word recovery document",
                         reader=reader,
                         expected_text=(
                             "METADATA CONTINUATION",
@@ -653,13 +648,13 @@ class TestDirectPdfArchive(unittest.TestCase):
                     DOC_TYPE_SHARD,
                     "SHARD DOCUMENT",
                     build_archive_shard_direct_plan,
-                    render_archive_shard_direct_pdf,
+                    render_frames_to_pdf,
                 ),
                 (
                     DOC_TYPE_SIGNING_KEY_SHARD,
-                    "SIGNING AUTHORITY SHARD",
+                    "SIGNING KEY SHARD",
                     build_archive_signing_key_shard_direct_plan,
-                    render_archive_signing_key_shard_direct_pdf,
+                    render_frames_to_pdf,
                 ),
             ):
                 output_path = Path(tmp) / f"{doc_type}.pdf"
@@ -682,39 +677,39 @@ class TestDirectPdfArchive(unittest.TestCase):
                     if "-fallback-line-" in item.component_id
                 ]
                 self.assertEqual(len(reader.pages), 1)
-                self.assertEqual(result.artifact_proof.physical_qr_count, 1)
-                self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-                self.assertAlmostEqual(fallback_panel.proof.rect.x_mm, 14.0)
-                self.assertAlmostEqual(fallback_panel.proof.rect.width_mm, A4_WIDTH_MM - 28.0)
+                self.assertEqual(result.document_summary.physical_qr_count, 1)
+                self.assertEqual(result.document_summary.page_count, len(reader.pages))
+                self.assertAlmostEqual(fallback_panel.layout.rect.x_mm, 14.0)
+                self.assertAlmostEqual(fallback_panel.layout.rect.width_mm, A4_WIDTH_MM - 28.0)
                 self.assertAlmostEqual(
-                    plan.page_plans[0].rect.height_mm - fallback_panel.proof.rect.bottom_mm,
+                    plan.page_plans[0].rect.height_mm - fallback_panel.layout.rect.bottom_mm,
                     20.5,
                 )
                 self.assertTrue(fallback_lines)
                 self.assertGreaterEqual(
-                    min(line.proof.font_size_pt for line in fallback_lines),
+                    min(line.layout.font_size_pt for line in fallback_lines),
                     6.5,
                 )
                 panel_midpoint = (
-                    fallback_panel.proof.rect.x_mm + fallback_panel.proof.rect.width_mm / 2.0
+                    fallback_panel.layout.rect.x_mm + fallback_panel.layout.rect.width_mm / 2.0
                 )
                 self.assertTrue(
-                    any(line.proof.rect.x_mm >= panel_midpoint for line in fallback_lines)
+                    any(line.layout.rect.x_mm >= panel_midpoint for line in fallback_lines)
                 )
-                self.assertIsNotNone(result.fallback_proof)
-                validate_render_artifact_proof(
-                    artifact_label=f"direct Archive {doc_type} document",
+                self.assertIsNotNone(result.fallback_summary)
+                validate_rendered_document_summary(
+                    document_label=f"direct Archive {doc_type} document",
                     inputs=inputs,
-                    artifact_proof=result.artifact_proof,
+                    document_summary=result.document_summary,
                 )
                 validate_fallback_text_in_pdf(
-                    artifact_label=f"direct Archive {doc_type} document",
+                    document_label=f"direct Archive {doc_type} document",
                     reader=reader,
                     fallback_sections=inputs.fallback_sections or (),
-                    fallback_proof=result.fallback_proof,
+                    fallback_summary=result.fallback_summary,
                 )
                 validate_text_in_pdf(
-                    artifact_label=f"direct Archive {doc_type} document",
+                    document_label=f"direct Archive {doc_type} document",
                     reader=reader,
                     expected_text=(expected_title, "RAW TEXT FALLBACK"),
                 )
@@ -763,24 +758,24 @@ class TestDirectPdfArchive(unittest.TestCase):
                             for item in page_plan.plans
                             if "-fallback-line-" in item.component_id
                         ]
-                        self.assertAlmostEqual(panel.proof.rect.x_mm, 14.0)
+                        self.assertAlmostEqual(panel.layout.rect.x_mm, 14.0)
                         self.assertAlmostEqual(
-                            panel.proof.rect.width_mm,
+                            panel.layout.rect.width_mm,
                             page_size.width_mm - 28.0,
                         )
                         self.assertAlmostEqual(
-                            page_plan.rect.height_mm - panel.proof.rect.bottom_mm,
+                            page_plan.rect.height_mm - panel.layout.rect.bottom_mm,
                             20.5,
                         )
                         self.assertTrue(lines)
                         self.assertTrue(
                             all(
-                                line.proof.rect.width_mm >= panel.proof.rect.width_mm * 0.9
+                                line.layout.rect.width_mm >= panel.layout.rect.width_mm * 0.9
                                 for line in lines
                             )
                         )
                         self.assertGreaterEqual(
-                            min(line.proof.font_size_pt for line in lines),
+                            min(line.layout.font_size_pt for line in lines),
                             8.5,
                         )
                         self.assertFalse(
@@ -811,19 +806,19 @@ class TestDirectPdfArchive(unittest.TestCase):
             packaged_direct_pdf_assets().register_fonts(surface)
 
             plan = build_archive_kit_direct_plan(surface, inputs)
-            result = render_archive_kit_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
             self.assertEqual(len(plan.page_plans), 2)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 5)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct Archive kit document",
+            self.assertEqual(result.document_summary.physical_qr_count, 5)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct Archive kit document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
             validate_text_in_pdf(
-                artifact_label="direct Archive kit document",
+                document_label="direct Archive kit document",
                 reader=reader,
                 expected_text=(
                     "RECOVERY KIT",
@@ -851,7 +846,7 @@ class TestDirectPdfArchive(unittest.TestCase):
                             count=21,
                             paper_size=input_paper_size,
                         ),
-                        render_archive_main_direct_pdf,
+                        render_frames_to_pdf,
                     ),
                     (
                         DOC_TYPE_KIT,
@@ -860,7 +855,7 @@ class TestDirectPdfArchive(unittest.TestCase):
                             count=14,
                             paper_size=input_paper_size,
                         ),
-                        render_archive_kit_direct_pdf,
+                        render_frames_to_pdf,
                     ),
                     (
                         DOC_TYPE_RECOVERY,
@@ -870,7 +865,7 @@ class TestDirectPdfArchive(unittest.TestCase):
                             auth_size=500,
                             main_size=4_000,
                         ),
-                        render_archive_recovery_direct_pdf,
+                        render_frames_to_pdf,
                     ),
                     (
                         DOC_TYPE_SHARD,
@@ -879,7 +874,7 @@ class TestDirectPdfArchive(unittest.TestCase):
                             doc_type=DOC_TYPE_SHARD,
                             paper_size=input_paper_size,
                         ),
-                        render_archive_shard_direct_pdf,
+                        render_frames_to_pdf,
                     ),
                     (
                         DOC_TYPE_SIGNING_KEY_SHARD,
@@ -888,7 +883,7 @@ class TestDirectPdfArchive(unittest.TestCase):
                             doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
                             paper_size=input_paper_size,
                         ),
-                        render_archive_signing_key_shard_direct_pdf,
+                        render_frames_to_pdf,
                     ),
                 )
                 for doc_type, inputs, renderer in cases:
@@ -907,15 +902,15 @@ class TestDirectPdfArchive(unittest.TestCase):
                         result = renderer(inputs)
                         reader = validate_pdf_has_pages(inputs.output_path)
 
-                        self.assertFalse(result.layout_proof.overflow)
-                        self.assertEqual(result.layout_proof.page_count, len(reader.pages))
+                        self.assertFalse(result.layout_report.overflow)
+                        self.assertEqual(result.layout_report.page_count, len(reader.pages))
                         self.assertTrue(
-                            all(page.separation_constraints for page in result.layout_proof.pages)
+                            all(page.separation_constraints for page in result.layout_report.pages)
                         )
                         self.assertTrue(
                             all(
                                 constraint.satisfied
-                                for page in result.layout_proof.pages
+                                for page in result.layout_report.pages
                                 for constraint in page.separation_constraints
                             )
                         )

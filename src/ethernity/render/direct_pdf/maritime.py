@@ -1,4 +1,4 @@
-"""Maritime design rendering through direct PDF primitives."""
+"""Maritime design rendering through measured PDF components."""
 
 from __future__ import annotations
 
@@ -7,8 +7,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
-from ethernity.render.direct_pdf.classic_common import (
+from ethernity.render.direct_pdf import document_inputs
+from ethernity.render.direct_pdf.classic_kit import (
+    ClassicKitInstructionStyle,
+    build_classic_kit_instruction_page,
+)
+from ethernity.render.direct_pdf.classic_layout import (
     ClassicInstructionStyle,
     ClassicLayout,
     ClassicPageStyle,
@@ -17,12 +21,8 @@ from ethernity.render.direct_pdf.classic_common import (
     body_text_style,
     build_classic_body_zone_constraints,
     build_group_clearance_constraint,
-    build_instruction_bullets_section,
-    build_instruction_checklist,
-    build_instruction_steps_section,
     build_page_background,
     classic_shard_fallback_capacity,
-    classic_shard_fallback_column_width,
     group_fallback_visual_blocks,
     group_shard_fallback_column_blocks,
     monospace_text_style,
@@ -30,13 +30,24 @@ from ethernity.render.direct_pdf.classic_common import (
     resolve_qr_grid,
     title_text_style,
 )
-from ethernity.render.direct_pdf.classic_planner import (
-    build_classic_qr_plan,
-    build_classic_recovery_plan,
-    build_classic_single_qr_fallback_plan,
-    recovery_overflow_meta,
+from ethernity.render.direct_pdf.classic_recovery import (
+    ClassicPassphrasePageGeometry,
+    ClassicPassphrasePageStyle,
+    build_classic_passphrase_continuation_page,
 )
 from ethernity.render.direct_pdf.components import ImageBox, Panel, Rule, TextAlign, TextBox
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import (
+    build_qr_document_plan,
+    build_responsive_recovery_document_plan,
+    build_single_qr_fallback_plan,
+    recovery_overflow_meta,
+)
+from ethernity.render.direct_pdf.fallback_fit import (
+    SinglePageFallbackProfile,
+    fallback_column_width,
+    fit_single_page_fallback,
+)
 from ethernity.render.direct_pdf.fallback_layout import (
     FallbackPage,
     FallbackSectionLines,
@@ -44,7 +55,6 @@ from ethernity.render.direct_pdf.fallback_layout import (
     ResponsiveFallbackSpec,
     fallback_capacity,
     fallback_entries,
-    fallback_sections,
     measured_fallback_number_width,
     paginate_fallback_entries,
 )
@@ -63,23 +73,8 @@ from ethernity.render.direct_pdf.responsive_layout import (
     ResolvedGrid,
     resolve_grid,
 )
-from ethernity.render.direct_pdf.structured_common import (
-    QrPage,
-    QrPayloadItem,
-    StructuredContext,
-    StructuredDirectPlan as MaritimeDirectPlan,
-    StructuredPlanBuilder,
-    build_structured_context,
-    component_prefix,
-    positive_int,
-    render_structured_plan,
-    validate_qr_inputs,
-    validate_recovery_inputs,
-    validate_single_qr_fallback_inputs,
-)
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy, fit_text_to_width
-from ethernity.render.direct_pdf.text_measure import measured_grouped_line_length
 from ethernity.render.direct_pdf.types import PdfColor, PdfRect, TextStyle
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
@@ -89,7 +84,7 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
 from ethernity.render.recovery_meta import RecoveryMeta, recovery_passphrase_display
-from ethernity.render.types import RenderInputs, RenderResult
+from ethernity.render.types import RenderInputs, RenderTextMetadata
 
 _MARGIN_MM = 14.0
 _INK = PdfColor(12, 34, 48)
@@ -117,7 +112,7 @@ _FALLBACK_GROUP_SIZE = 4
 _FALLBACK_ROW_HEIGHT_MM = 4.2
 _RECOVERY_FALLBACK_BODY_SIZE_PT = 8.5
 _RECOVERY_FALLBACK_NUMBER_SIZE_PT = 6.5
-_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_MM = 0.08
+_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_PT = 0.08
 _RECOVERY_FALLBACK_LEFT_INSET_MM = 4.0
 _RECOVERY_FALLBACK_RIGHT_INSET_MM = 4.0
 _RECOVERY_FALLBACK_NUMBER_GAP_MM = 4.0
@@ -147,14 +142,20 @@ _QR_GRID_STYLE = ClassicQrGridStyle(
     minimum_card_size_mm=_MIN_QR_CARD_SIZE_MM,
     gap_mm=_QR_CARD_GAP_MM,
 )
-_INSTRUCTION_STYLE = ClassicInstructionStyle(
-    ink=_INK,
-    rule=_RULE,
-    strong_rule=_RULE_STRONG,
-    tab=_TAB,
-    white=_WHITE,
-    section_accent=_STAMP,
-    section_fill=PdfColor(235, 244, 246),
+_KIT_INSTRUCTION_STYLE = ClassicKitInstructionStyle(
+    instructions=ClassicInstructionStyle(
+        ink=_INK,
+        rule=_RULE,
+        strong_rule=_RULE_STRONG,
+        tab=_TAB,
+        white=_WHITE,
+        section_accent=_STAMP,
+        section_fill=PdfColor(235, 244, 246),
+    ),
+    paper=_PAPER,
+    surface=_SURFACE,
+    note=_NOTE,
+    muted_ink=_INK_MUTED,
 )
 
 
@@ -175,54 +176,21 @@ class _HeaderMetaRow:
     value: str
     kind: _HeaderMetaKind = _HeaderMetaKind.STANDARD
     guidance: str = ""
-
-
-def render_maritime_main_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Maritime main document directly to PDF."""
-
-    return _render_maritime_plan(inputs, build_maritime_main_direct_plan)
-
-
-def render_maritime_recovery_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Maritime recovery document directly to PDF."""
-
-    return _render_maritime_plan(inputs, build_maritime_recovery_direct_plan)
-
-
-def render_maritime_shard_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Maritime shard document directly to PDF."""
-
-    return _render_maritime_plan(inputs, build_maritime_shard_direct_plan)
-
-
-def render_maritime_signing_key_shard_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Maritime signing-key shard document directly to PDF."""
-
-    return _render_maritime_plan(inputs, build_maritime_signing_key_shard_direct_plan)
-
-
-def render_maritime_kit_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render a Maritime recovery-kit document directly to PDF."""
-
-    return _render_maritime_plan(inputs, build_maritime_kit_direct_plan)
-
-
-def _render_maritime_plan(inputs: RenderInputs, builder: StructuredPlanBuilder) -> RenderResult:
-    return render_structured_plan(inputs, style_name="maritime", builder=builder)
+    text_metadata: RenderTextMetadata | None = None
 
 
 def build_maritime_main_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> MaritimeDirectPlan:
-    """Build measured Maritime main-document pages and proof."""
+) -> DirectPdfDocumentPlan:
+    """Build measured Maritime main-document pages and layout."""
 
     layout = resolve_classic_layout(inputs, style=_PAGE_STYLE)
-    validate_qr_inputs(
+    document_inputs.validate_qr_inputs(
         inputs,
         expected_doc_type=DOC_TYPE_MAIN,
     )
-    context = build_structured_context(inputs, doc_type=DOC_TYPE_MAIN)
+    context = document_inputs.build_document_render_context(inputs, doc_type=inputs.doc_type)
     grid = resolve_qr_grid(
         layout,
         top_mm=_qr_page_top_mm(
@@ -235,7 +203,7 @@ def build_maritime_main_direct_plan(
         preferred_rows=_QR_ROWS_PER_PAGE,
         style=_QR_GRID_STYLE,
     )
-    return build_classic_qr_plan(
+    return build_qr_document_plan(
         inputs,
         capacity=grid.capacity,
         page_builder=lambda qr_page, total_pages, item_count: _build_qr_page(
@@ -248,7 +216,7 @@ def build_maritime_main_direct_plan(
             total_pages=total_pages,
             include_subtitle=False,
             include_instructions=True,
-            label_prefix="Segment",
+            label_prefix=str(context.copy.get("segment_prefix") or "Segment"),
             label_total=item_count,
         ),
     )
@@ -257,13 +225,13 @@ def build_maritime_main_direct_plan(
 def build_maritime_recovery_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> MaritimeDirectPlan:
-    """Build measured Maritime recovery-document pages and proof."""
+) -> DirectPdfDocumentPlan:
+    """Build measured Maritime recovery-document pages and layout."""
 
     layout = resolve_classic_layout(inputs, style=_PAGE_STYLE)
-    validate_recovery_inputs(inputs)
+    document_inputs.validate_recovery_inputs(inputs)
     recovery_meta = inputs.recovery_meta or RecoveryMeta()
-    context = build_structured_context(inputs, doc_type=DOC_TYPE_RECOVERY)
+    context = document_inputs.build_document_render_context(inputs, doc_type=DOC_TYPE_RECOVERY)
     passphrase_pagination = _paginate_maritime_passphrase(
         surface,
         recovery_meta,
@@ -291,7 +259,7 @@ def build_maritime_recovery_direct_plan(
         number_style=monospace_text_style(
             size_pt=_RECOVERY_FALLBACK_NUMBER_SIZE_PT,
             color=_INK_SOFT,
-            char_spacing_mm=_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_MM,
+            char_spacing_pt=_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_PT,
         ),
         content_left_inset_mm=_RECOVERY_FALLBACK_LEFT_INSET_MM,
         content_right_inset_mm=_RECOVERY_FALLBACK_RIGHT_INSET_MM,
@@ -301,7 +269,7 @@ def build_maritime_recovery_direct_plan(
         number_padding_mm=_RECOVERY_FALLBACK_NUMBER_PADDING_MM,
         safety_mm=_RECOVERY_FALLBACK_LINE_SAFETY_MM,
     )
-    return build_classic_recovery_plan(
+    return build_responsive_recovery_document_plan(
         surface,
         inputs,
         passphrase_pagination=passphrase_pagination,
@@ -339,7 +307,7 @@ def _paginate_maritime_passphrase(
     *,
     layout: ClassicLayout,
 ) -> RecoveryPassphrasePagination:
-    style = monospace_text_style(size_pt=7.2, color=_INK, char_spacing_mm=0.08)
+    style = monospace_text_style(size_pt=7.2, color=_INK, char_spacing_pt=0.08)
     guidance_style = body_text_style(size_pt=6.0, color=_INK_MUTED)
     value_rect = _passphrase_continuation_value_rect(layout)
     return paginate_recovery_passphrase(
@@ -371,8 +339,8 @@ def _passphrase_continuation_value_rect(layout: ClassicLayout) -> PdfRect:
 def build_maritime_shard_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> MaritimeDirectPlan:
-    """Build measured Maritime shard-document pages and proof."""
+) -> DirectPdfDocumentPlan:
+    """Build measured Maritime shard-document pages and layout."""
 
     return _build_maritime_single_qr_fallback_plan(
         surface,
@@ -384,8 +352,8 @@ def build_maritime_shard_direct_plan(
 def build_maritime_signing_key_shard_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> MaritimeDirectPlan:
-    """Build measured Maritime signing-key shard pages and proof."""
+) -> DirectPdfDocumentPlan:
+    """Build measured Maritime signing-key shard pages and layout."""
 
     return _build_maritime_single_qr_fallback_plan(
         surface,
@@ -397,15 +365,15 @@ def build_maritime_signing_key_shard_direct_plan(
 def build_maritime_kit_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> MaritimeDirectPlan:
-    """Build measured Maritime recovery-kit pages and proof."""
+) -> DirectPdfDocumentPlan:
+    """Build measured Maritime recovery-kit pages and layout."""
 
     layout = resolve_classic_layout(inputs, style=_PAGE_STYLE)
-    validate_qr_inputs(
+    document_inputs.validate_qr_inputs(
         inputs,
         expected_doc_type=DOC_TYPE_KIT,
     )
-    context = build_structured_context(inputs, doc_type=DOC_TYPE_KIT)
+    context = document_inputs.build_document_render_context(inputs, doc_type=DOC_TYPE_KIT)
     grid = resolve_qr_grid(
         layout,
         top_mm=_qr_page_top_mm(
@@ -418,7 +386,7 @@ def build_maritime_kit_direct_plan(
         preferred_rows=_QR_ROWS_PER_PAGE,
         style=_QR_GRID_STYLE,
     )
-    return build_classic_qr_plan(
+    return build_qr_document_plan(
         inputs,
         capacity=grid.capacity,
         page_builder=lambda qr_page, total_pages, item_count: _build_qr_page(
@@ -434,10 +402,13 @@ def build_maritime_kit_direct_plan(
             label_prefix="Part",
             label_total=item_count,
         ),
-        trailing_page_builder=lambda page_number, total_pages: _build_kit_instruction_page(
+        trailing_page_builder=lambda page_number, total_pages: build_classic_kit_instruction_page(
             surface,
             context,
             layout=layout,
+            component_base="maritime-kit",
+            renderer_label="Maritime",
+            style=_KIT_INSTRUCTION_STYLE,
             page_number=page_number,
             total_pages=total_pages,
         ),
@@ -449,13 +420,13 @@ def _build_maritime_single_qr_fallback_plan(
     inputs: RenderInputs,
     *,
     expected_doc_type: str,
-) -> MaritimeDirectPlan:
+) -> DirectPdfDocumentPlan:
     layout = resolve_classic_layout(inputs, style=_PAGE_STYLE)
-    validate_single_qr_fallback_inputs(
+    document_inputs.validate_single_qr_fallback_inputs(
         inputs,
         expected_doc_type=expected_doc_type,
     )
-    context = build_structured_context(inputs, doc_type=expected_doc_type)
+    context = document_inputs.build_document_render_context(inputs, doc_type=expected_doc_type)
     qr_rect, fallback_area = _shard_content_areas(surface, context, layout)
     fallback_layout, sections = _resolve_maritime_shard_fallback(
         surface,
@@ -470,10 +441,11 @@ def _build_maritime_single_qr_fallback_plan(
             renderer_label="Maritime",
         ),
     )
-    return build_classic_single_qr_fallback_plan(
+    return build_single_qr_fallback_plan(
         inputs,
         sections=sections,
         fallback_pages=fallback_pages,
+        page_entries=lambda page: tuple(item.entry for item in page.entries),
         page_builder=lambda fallback_page, rendered_qr, total_pages: _build_shard_page(
             surface,
             context,
@@ -490,7 +462,7 @@ def _build_maritime_single_qr_fallback_plan(
 
 def _qr_page_top_mm(
     surface: PdfSurface,
-    context: StructuredContext,
+    context: document_inputs.DocumentRenderContext,
     layout: ClassicLayout,
     *,
     include_subtitle: bool,
@@ -517,7 +489,7 @@ def _qr_page_top_mm(
 
 def _recovery_fallback_area(
     surface: PdfSurface,
-    context: StructuredContext,
+    context: document_inputs.DocumentRenderContext,
     recovery_meta: RecoveryMeta,
     layout: ClassicLayout,
 ) -> PdfRect:
@@ -549,9 +521,11 @@ def _recovery_fallback_area(
 
 def _shard_content_areas(
     surface: PdfSurface,
-    context: StructuredContext,
+    context: document_inputs.DocumentRenderContext,
     layout: ClassicLayout,
 ) -> tuple[PdfRect, PdfRect]:
+    shard_index = document_inputs.positive_int(context.values.get("shard_index"), default=1)
+    shard_total = document_inputs.positive_int(context.values.get("shard_total"), default=1)
     header = _header_layout(
         surface,
         context,
@@ -562,8 +536,7 @@ def _shard_content_areas(
         rows=(
             _HeaderMetaRow(
                 "Shard",
-                f"{positive_int(context.values.get('shard_index'), default=1)} / "
-                f"{positive_int(context.values.get('shard_total'), default=1)}",
+                f"{shard_index} / {shard_total}",
             ),
         ),
     )
@@ -605,8 +578,8 @@ def _shard_content_areas(
 
 def _build_qr_page(
     surface: PdfSurface,
-    context: StructuredContext,
-    qr_page: QrPage,
+    context: document_inputs.DocumentRenderContext,
+    qr_page: document_inputs.QrPage,
     *,
     layout: ClassicLayout,
     grid: ResolvedGrid,
@@ -617,7 +590,7 @@ def _build_qr_page(
     label_prefix: str,
     label_total: int,
 ) -> DirectPdfPagePlan:
-    prefix = component_prefix(component_base, qr_page.page_number)
+    prefix = document_inputs.component_prefix(component_base, qr_page.page_number)
     page_label = f"Page {qr_page.page_number} / {total_pages}"
     plans: list[PaintPlan] = []
     plans.extend(build_page_background(surface, layout=layout, prefix=prefix, fill=_PAPER))
@@ -671,7 +644,7 @@ def _build_qr_page(
 
 def _build_recovery_page(
     surface: PdfSurface,
-    context: StructuredContext,
+    context: document_inputs.DocumentRenderContext,
     recovery_meta: RecoveryMeta,
     fallback_page: FallbackPage,
     *,
@@ -679,7 +652,7 @@ def _build_recovery_page(
     fallback_area: PdfRect,
     total_pages: int,
 ) -> DirectPdfPagePlan:
-    prefix = component_prefix("maritime-recovery", fallback_page.page_number)
+    prefix = document_inputs.component_prefix("maritime-recovery", fallback_page.page_number)
     page_label = f"Page {fallback_page.page_number} / {total_pages}"
     plans: list[PaintPlan] = []
     plans.extend(build_page_background(surface, layout=layout, prefix=prefix, fill=_PAPER))
@@ -730,98 +703,60 @@ def _build_recovery_page(
 
 def _build_passphrase_continuation_page(
     surface: PdfSurface,
-    context: StructuredContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ClassicLayout,
     continuation_page: RecoveryPassphraseContinuationPage,
     page_number: int,
     total_pages: int,
 ) -> DirectPdfPagePlan:
-    prefix = component_prefix("maritime-recovery", page_number)
-    page_label = f"Page {page_number} / {total_pages}"
-    plans: list[PaintPlan] = []
-    plans.extend(build_page_background(surface, layout=layout, prefix=prefix, fill=_PAPER))
+    prefix = document_inputs.component_prefix("maritime-recovery", page_number)
     header = _header_layout(
         surface,
         context,
         layout=layout,
         prefix=prefix,
-        page_label=page_label,
+        page_label=f"Page {page_number} / {total_pages}",
         include_subtitle=True,
     )
-    header_plans = list(header.plans)
-    plans.extend(header_plans)
-    value_rect = _passphrase_continuation_value_rect(layout)
-    panel_rect = PdfRect(
-        value_rect.x_mm - 2.0,
-        value_rect.y_mm - 2.0,
-        value_rect.width_mm + 4.0,
-        value_rect.height_mm + 4.0,
-    )
-    content_plans: list[PaintPlan] = [
-        TextBox(
-            component_id=f"{prefix}-passphrase-continuation-title",
-            text=(
-                "PASSPHRASE CONTINUATION "
-                f"{continuation_page.page_index} / {continuation_page.total_pages}"
-            ),
-            style=title_text_style(size_pt=10.0, color=_STAMP, char_spacing_mm=0.2),
-            policy=TextFitPolicy.FAIL,
-        ).plan(
-            surface,
-            PdfRect(
+    return build_classic_passphrase_continuation_page(
+        surface,
+        prefix=prefix,
+        layout=layout,
+        page_number=page_number,
+        continuation_page=continuation_page,
+        header_plans=header.plans,
+        geometry=ClassicPassphrasePageGeometry(
+            title=PdfRect(
                 layout.safe_rect.x_mm,
                 header.content_start_y_mm + 3.0,
                 layout.safe_rect.width_mm,
                 5.0,
             ),
-        ),
-        TextBox(
-            component_id=f"{prefix}-passphrase-continuation-instructions",
-            text=continuation_page.instructions,
-            style=body_text_style(size_pt=7.8, color=_INK_MUTED),
-            policy=TextFitPolicy.WRAP,
-        ).plan(
-            surface,
-            PdfRect(
+            instructions=PdfRect(
                 layout.safe_rect.x_mm,
                 header.content_start_y_mm + 10.0,
                 layout.safe_rect.width_mm,
                 16.0,
             ),
+            value=_passphrase_continuation_value_rect(layout),
         ),
-        Panel(
-            component_id=f"{prefix}-passphrase-continuation-panel",
-            stroke=_SURFACE_BORDER,
-            fill=_SURFACE,
-            line_width_mm=0.3,
-        ).plan(surface, panel_rect),
-        TextBox(
-            component_id=f"{prefix}-passphrase-continuation-value",
-            text=continuation_page.text,
-            style=monospace_text_style(size_pt=7.2, color=_INK, char_spacing_mm=0.08),
-            policy=TextFitPolicy.FAIL,
+        style=ClassicPassphrasePageStyle(
+            background=_PAPER,
+            panel_fill=_SURFACE,
+            panel_stroke=_SURFACE_BORDER,
+            title=title_text_style(size_pt=10.0, color=_STAMP, char_spacing_pt=0.2),
+            instructions=body_text_style(size_pt=7.8, color=_INK_MUTED),
+            value=monospace_text_style(size_pt=7.2, color=_INK, char_spacing_pt=0.08),
             line_height_multiplier=1.1,
-        ).plan(surface, value_rect),
-    ]
-    plans.extend(content_plans)
-    return build_page_plan(
-        page_number=page_number,
-        rect=layout.page.rect,
-        plans=plans,
-        separation_constraints=build_classic_body_zone_constraints(
-            prefix=prefix,
-            header_plans=header_plans,
-            content_plans=content_plans,
-            layout=layout,
-            renderer_label="Maritime",
         ),
+        renderer_label="Maritime",
     )
 
 
 def _build_shard_page(
     surface: PdfSurface,
-    context: StructuredContext,
+    context: document_inputs.DocumentRenderContext,
     fallback_page: FallbackPage,
     *,
     layout: ClassicLayout,
@@ -837,10 +772,10 @@ def _build_shard_page(
         if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD
         else "maritime-shard"
     )
-    prefix = component_prefix(component_base, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(component_base, fallback_page.page_number)
     page_label = f"Page {fallback_page.page_number} / {total_pages}"
-    shard_index = positive_int(context.values.get("shard_index"), default=1)
-    shard_total = positive_int(context.values.get("shard_total"), default=1)
+    shard_index = document_inputs.positive_int(context.values.get("shard_index"), default=1)
+    shard_total = document_inputs.positive_int(context.values.get("shard_total"), default=1)
     plans: list[PaintPlan] = []
     plans.extend(build_page_background(surface, layout=layout, prefix=prefix, fill=_PAPER))
     header = _header_layout(
@@ -906,52 +841,9 @@ def _build_shard_page(
     )
 
 
-def _build_kit_instruction_page(
-    surface: PdfSurface,
-    context: StructuredContext,
-    *,
-    layout: ClassicLayout,
-    page_number: int,
-    total_pages: int,
-) -> DirectPdfPagePlan:
-    prefix = component_prefix("maritime-kit", page_number)
-    plans: list[PaintPlan] = []
-    plans.extend(build_page_background(surface, layout=layout, prefix=prefix, fill=_PAPER))
-    insert_plans = _instruction_insert_plans(
-        surface,
-        context,
-        prefix=prefix,
-        rect=layout.safe_rect,
-        page_label=f"Page {page_number} / {total_pages}",
-    )
-    plans.extend(insert_plans)
-    body_plans = tuple(
-        plan
-        for plan in insert_plans
-        if "-insert-footer-" not in plan.component_id
-        and not plan.component_id.endswith(("-insert-shell", "-insert-inner-rule"))
-    )
-    footer_plans = tuple(plan for plan in insert_plans if "-insert-footer-" in plan.component_id)
-    return build_page_plan(
-        page_number=page_number,
-        rect=layout.page.rect,
-        plans=plans,
-        separation_constraints=(
-            build_group_clearance_constraint(
-                prefix=prefix,
-                first_group_id="insert-body",
-                first_plans=body_plans,
-                second_group_id="insert-footer",
-                second_plans=footer_plans,
-                clearance_mm=3.0,
-            ),
-        ),
-    )
-
-
 def _header_layout(
     surface: PdfSurface,
-    context: StructuredContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ClassicLayout,
     prefix: str,
@@ -969,7 +861,7 @@ def _header_layout(
         TextBox(
             component_id=f"{prefix}-title",
             text=str(context.copy.get("title") or "Document").upper(),
-            style=title_text_style(size_pt=15.5, color=_INK, char_spacing_mm=0.26),
+            style=title_text_style(size_pt=15.5, color=_INK, char_spacing_pt=0.26),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=11.0,
         ).plan(surface, PdfRect(safe_rect.x_mm, safe_rect.y_mm + 0.4, title_width, 7.0)),
@@ -980,7 +872,7 @@ def _header_layout(
             TextBox(
                 component_id=f"{prefix}-subtitle",
                 text=str(context.copy.get("subtitle") or "").upper(),
-                style=body_text_style(size_pt=8.0, color=_INK_MUTED, char_spacing_mm=0.26),
+                style=body_text_style(size_pt=8.0, color=_INK_MUTED, char_spacing_pt=0.26),
                 policy=TextFitPolicy.SHRINK,
                 min_size_pt=6.0,
             ).plan(surface, PdfRect(safe_rect.x_mm, meta_y, title_width - 2.0, 4.0))
@@ -1000,7 +892,7 @@ def _header_layout(
     label_style = title_text_style(
         size_pt=6.0,
         color=_INK_SOFT,
-        char_spacing_mm=0.32,
+        char_spacing_pt=0.32,
     )
     meta_right_mm = safe_rect.right_mm if include_subtitle else stamp_x - _META_STAMP_CLEARANCE_MM
     max_label_width_mm = (
@@ -1023,7 +915,7 @@ def _header_layout(
     for index, row in enumerate(meta_rows):
         label = row.label
         value = row.value
-        value_style = monospace_text_style(size_pt=7.2, color=_INK, char_spacing_mm=0.08)
+        value_style = monospace_text_style(size_pt=7.2, color=_INK, char_spacing_pt=0.08)
         guidance_height_mm = 0.0
         guidance_style = body_text_style(size_pt=6.0, color=_INK_MUTED)
         if row.guidance:
@@ -1099,6 +991,7 @@ def _header_layout(
             TextBox(
                 component_id=f"{prefix}-meta-value-{index}",
                 text=value,
+                text_metadata=row.text_metadata,
                 style=value_style,
                 policy=TextFitPolicy.WRAP,
                 min_size_pt=6.0,
@@ -1125,7 +1018,7 @@ def _header_layout(
 
 def _stamp_plans(
     surface: PdfSurface,
-    context: StructuredContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     layout: ClassicLayout,
     prefix: str,
@@ -1141,14 +1034,14 @@ def _stamp_plans(
         TextBox(
             component_id=f"{prefix}-stamp-label",
             text="CREATED (UTC)",
-            style=title_text_style(size_pt=7.0, color=_STAMP, char_spacing_mm=0.24),
+            style=title_text_style(size_pt=7.0, color=_STAMP, char_spacing_pt=0.24),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
         ).plan(surface, PdfRect(stamp.x_mm + 3.0, stamp.y_mm + 3.0, stamp.width_mm - 6.0, 3.2)),
         TextBox(
             component_id=f"{prefix}-stamp-value",
             text=context.created_timestamp_utc,
-            style=title_text_style(size_pt=8.8, color=_INK, char_spacing_mm=0.16),
+            style=title_text_style(size_pt=8.8, color=_INK, char_spacing_pt=0.16),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
         ).plan(surface, PdfRect(stamp.x_mm + 3.0, stamp.y_mm + 8.8, stamp.width_mm - 6.0, 4.5)),
@@ -1162,10 +1055,17 @@ def _recovery_meta_rows(recovery_meta: RecoveryMeta) -> tuple[_HeaderMetaRow, ..
             _HeaderMetaRow(
                 recovery_meta.quorum_label or "Shard Quorum",
                 recovery_meta.quorum_value,
+                text_metadata=RenderTextMetadata("recovery_quorum"),
             )
         )
     if recovery_meta.signing_pub_lines:
-        rows.append(_HeaderMetaRow("Signing Pub Key", " ".join(recovery_meta.signing_pub_lines)))
+        rows.append(
+            _HeaderMetaRow(
+                "Signing Pub Key",
+                " ".join(recovery_meta.signing_pub_lines),
+                text_metadata=RenderTextMetadata("recovery_signing_public_key"),
+            )
+        )
     if recovery_meta.passphrase_lines:
         passphrase = recovery_passphrase_display(recovery_meta)
         rows.append(
@@ -1174,6 +1074,7 @@ def _recovery_meta_rows(recovery_meta: RecoveryMeta) -> tuple[_HeaderMetaRow, ..
                 "\n".join(passphrase.value_lines),
                 _HeaderMetaKind.PASSPHRASE,
                 passphrase.guidance,
+                RenderTextMetadata("recovery_passphrase", recovery_meta.passphrase_print_mode),
             )
         )
     return tuple(rows)
@@ -1199,7 +1100,7 @@ def _meta_row_height(
 
 def _instructions_plans(
     surface: PdfSurface,
-    context: StructuredContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     rect: PdfRect,
@@ -1214,7 +1115,7 @@ def _instructions_plans(
         TextBox(
             component_id=f"{prefix}-instructions-label",
             text=context.instructions_label.upper(),
-            style=title_text_style(size_pt=6.5, color=_STAMP, char_spacing_mm=0.32),
+            style=title_text_style(size_pt=6.5, color=_STAMP, char_spacing_pt=0.32),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
         ).plan(surface, PdfRect(rect.x_mm + 3.0, rect.y_mm + 2.0, 29.0, 3.2)),
@@ -1239,11 +1140,11 @@ def _instructions_plans(
             available_rect.x_mm,
             available_rect.y_mm,
             available_rect.width_mm,
-            measured_plan.proof.used_rect.height_mm,
+            measured_plan.layout.used_rect.height_mm,
         )
         line_plan = text_box.plan(surface, line_rect)
         plans.append(line_plan)
-        y_mm = line_plan.proof.used_rect.bottom_mm
+        y_mm = line_plan.layout.used_rect.bottom_mm
         if index < len(context.instruction_lines) - 1:
             y_mm += _INSTRUCTION_LINE_GAP_MM
     return plans
@@ -1251,7 +1152,7 @@ def _instructions_plans(
 
 def _qr_field_plans(
     surface: PdfSurface,
-    qr_page: QrPage,
+    qr_page: document_inputs.QrPage,
     *,
     grid: ResolvedGrid,
     prefix: str,
@@ -1292,7 +1193,7 @@ def _single_qr_field_plans(
     plans.extend(
         _qr_image_plans(
             surface,
-            QrPayloadItem(payload_index=0, payload=b"", image=qr_image_bytes),
+            document_inputs.QrPayloadItem(payload_index=0, payload=b"", image=qr_image_bytes),
             prefix=prefix,
             rect=rect,
             label_prefix=None,
@@ -1342,7 +1243,7 @@ def _qr_field_background(surface: PdfSurface, *, prefix: str, rect: PdfRect) -> 
 
 def _qr_image_plans(
     surface: PdfSurface,
-    item: QrPayloadItem,
+    item: document_inputs.QrPayloadItem,
     *,
     prefix: str,
     rect: PdfRect,
@@ -1383,7 +1284,7 @@ def _qr_image_plans(
                     size_pt=6.7,
                     bold=True,
                     color=_STAMP,
-                    char_spacing_mm=0.08,
+                    char_spacing_pt=0.08,
                 ),
                 policy=TextFitPolicy.SHRINK,
                 align=TextAlign.CENTER,
@@ -1406,7 +1307,7 @@ def _fallback_block_plans(
     number_style = monospace_text_style(
         size_pt=_RECOVERY_FALLBACK_NUMBER_SIZE_PT,
         color=_INK_SOFT,
-        char_spacing_mm=_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_MM,
+        char_spacing_pt=_RECOVERY_FALLBACK_NUMBER_CHAR_SPACING_PT,
     )
     number_width_mm = measured_fallback_number_width(
         surface,
@@ -1445,7 +1346,7 @@ def _fallback_block_plans(
                         style=title_text_style(
                             size_pt=6.5,
                             color=_STAMP,
-                            char_spacing_mm=0.32,
+                            char_spacing_pt=0.32,
                         ),
                         policy=TextFitPolicy.SHRINK,
                         min_size_pt=6.0,
@@ -1498,42 +1399,31 @@ def _resolve_maritime_shard_fallback(
         (1, _FALLBACK_ROW_HEIGHT_MM, 8.5, 6.5),
         (_SHARD_FALLBACK_COLUMNS, _SHARD_FALLBACK_ROW_HEIGHT_MM, 6.0, 6.0),
     )
-    for columns, row_height_mm, body_font_size_pt, title_font_size_pt in candidates:
-        column_width_mm = classic_shard_fallback_column_width(
-            area,
-            columns=columns,
-            column_gap_mm=_SHARD_FALLBACK_COLUMN_GAP_MM,
-            renderer_label="Maritime",
-        )
-        body_style = monospace_text_style(size_pt=body_font_size_pt, color=_INK)
-        payload_width_mm = column_width_mm - 1.3 - 6.0 - 0.8 - 1.2
-        line_length = measured_grouped_line_length(
-            surface,
-            style=body_style,
-            alphabet=ZBASE32_ALPHABET,
-            group_size=_FALLBACK_GROUP_SIZE,
-            max_width_mm=payload_width_mm,
-            safety_mm=_SHARD_FALLBACK_LINE_SAFETY_MM,
-        )
-        layout = _MaritimeShardFallbackLayout(
-            columns=columns,
-            row_height_mm=row_height_mm,
-            line_length=line_length,
-            body_font_size_pt=body_font_size_pt,
-            title_font_size_pt=title_font_size_pt,
-        )
-        sections = fallback_sections(
-            inputs.fallback_sections or (),
-            group_size=_FALLBACK_GROUP_SIZE,
-            line_length=line_length,
-        )
-        if len(fallback_entries(sections)) <= classic_shard_fallback_capacity(
-            area,
-            layout=layout,
-            renderer_label="Maritime",
-        ):
-            return layout, sections
-    raise ValueError("Maritime shard fallback payload exceeds the responsive one-page capacity")
+    fitted = fit_single_page_fallback(
+        surface,
+        inputs.fallback_sections or (),
+        area=area,
+        profiles=tuple(
+            SinglePageFallbackProfile(
+                columns=columns,
+                row_height_mm=row_height_mm,
+                body_style=monospace_text_style(size_pt=body_size_pt, color=_INK),
+                column_gap_mm=_SHARD_FALLBACK_COLUMN_GAP_MM,
+                payload_inset_mm=1.3 + 6.0 + 0.8 + 1.2,
+                safety_mm=_SHARD_FALLBACK_LINE_SAFETY_MM,
+            )
+            for columns, row_height_mm, body_size_pt, title_size_pt in candidates
+        ),
+        group_size=_FALLBACK_GROUP_SIZE,
+        overflow_message="Maritime shard fallback payload exceeds the responsive one-page capacity",
+    )
+    columns, row_height_mm, body_size_pt, title_size_pt = candidates[fitted.profile_index]
+    return _MaritimeShardFallbackLayout(
+        columns=columns,
+        row_height_mm=row_height_mm,
+        body_font_size_pt=body_size_pt,
+        title_font_size_pt=title_size_pt,
+    ), fitted.sections
 
 
 def _visible_shard_fallback_area(
@@ -1564,11 +1454,10 @@ def _shard_fallback_block_plans(
     layout: _MaritimeShardFallbackLayout,
 ) -> list[PaintPlan]:
     rows_per_column = math.floor(area.height_mm / layout.row_height_mm)
-    column_width_mm = classic_shard_fallback_column_width(
+    column_width_mm = fallback_column_width(
         area,
         columns=layout.columns,
         column_gap_mm=_SHARD_FALLBACK_COLUMN_GAP_MM,
-        renderer_label="Maritime",
     )
     if rows_per_column <= 0 or column_width_mm <= 0:
         raise ValueError("Maritime shard fallback columns have no usable area")
@@ -1578,7 +1467,7 @@ def _shard_fallback_block_plans(
         layout=layout,
     )
 
-    number_style = monospace_text_style(size_pt=6.5, color=_INK_SOFT, char_spacing_mm=0.04)
+    number_style = monospace_text_style(size_pt=6.5, color=_INK_SOFT, char_spacing_pt=0.04)
     number_width_mm = measured_fallback_number_width(
         surface,
         fallback_page,
@@ -1618,7 +1507,7 @@ def _shard_fallback_block_plans(
                         style=title_text_style(
                             size_pt=layout.title_font_size_pt,
                             color=_STAMP,
-                            char_spacing_mm=0.08,
+                            char_spacing_pt=0.08,
                         ),
                         policy=TextFitPolicy.SHRINK,
                         min_size_pt=6.0,
@@ -1670,276 +1559,10 @@ def _shard_fallback_block_plans(
     return plans
 
 
-def _instruction_insert_plans(
-    surface: PdfSurface,
-    context: StructuredContext,
-    *,
-    prefix: str,
-    rect: PdfRect,
-    page_label: str,
-) -> list[PaintPlan]:
-    inner_x = rect.x_mm + 8.0
-    inner_right = rect.right_mm - 8.0
-    inner_width = inner_right - inner_x
-    right_width = 58.0
-    right_x = inner_right - right_width - 6.0
-    left_width = right_x - inner_x - 8.0
-    footer_rule_y = rect.bottom_mm - 17.0
-    checklist_y = rect.y_mm + 155.0
-    checklist_height = min(56.0, footer_rule_y - 8.0 - checklist_y)
-    if left_width < 80.0 or checklist_height < 44.0:
-        raise ValueError("Maritime recovery-kit insert has no usable two-column body")
-    plans: list[PaintPlan] = [
-        Panel(
-            component_id=f"{prefix}-insert-shell",
-            stroke=_RULE_STRONG,
-            fill=_SURFACE,
-            line_width_mm=0.45,
-        ).plan(surface, rect),
-        Panel(
-            component_id=f"{prefix}-insert-inner-rule",
-            stroke=_RULE_STRONG,
-            fill=None,
-            line_width_mm=0.35,
-        ).plan(
-            surface,
-            PdfRect(rect.x_mm + 1.5, rect.y_mm + 1.5, rect.width_mm - 3.0, rect.height_mm - 3.0),
-        ),
-        TextBox(
-            component_id=f"{prefix}-insert-stamp",
-            text="INSTRUCTION INSERT",
-            style=title_text_style(size_pt=7.0, color=_STAMP, char_spacing_mm=0.35),
-            policy=TextFitPolicy.SHRINK,
-            align=TextAlign.CENTER,
-            min_size_pt=6.0,
-        ).plan(surface, PdfRect(inner_right - 41.0, rect.y_mm + 4.0, 39.0, 5.4)),
-        TextBox(
-            component_id=f"{prefix}-insert-title",
-            text="HOW TO REBUILD THE RECOVERY KIT",
-            style=title_text_style(size_pt=15.0, color=_INK, char_spacing_mm=0.26),
-            policy=TextFitPolicy.SHRINK,
-            min_size_pt=11.0,
-        ).plan(surface, PdfRect(inner_x, rect.y_mm + 9.0, inner_width - 25.0, 8.0)),
-        TextBox(
-            component_id=f"{prefix}-insert-subtitle",
-            text="Use this page after scanning the QR pages. Keep everything offline.",
-            style=body_text_style(size_pt=9.0, color=_INK_MUTED, char_spacing_mm=0.08),
-            policy=TextFitPolicy.SHRINK,
-            min_size_pt=7.0,
-        ).plan(surface, PdfRect(inner_x, rect.y_mm + 20.0, inner_width - 21.0, 4.5)),
-        Rule(component_id=f"{prefix}-insert-hero-rule", color=_RULE_STRONG).plan(
-            surface,
-            PdfRect(inner_x, rect.y_mm + 28.2, inner_width, 0.55),
-        ),
-    ]
-    plans.extend(
-        build_instruction_steps_section(
-            surface,
-            prefix=prefix,
-            title="Scan + Assemble",
-            lines=(
-                "Scan every QR code left to right, top to bottom.",
-                "Save each decoded chunk in order. Do not insert spaces or blank lines.",
-                "Concatenate the chunks into one continuous file.",
-                "Name the file exactly: recovery_kit.bundle.html",
-            ),
-            rect=PdfRect(inner_x, rect.y_mm + 37.0, left_width, 64.0),
-            index=1,
-            style=_INSTRUCTION_STYLE,
-        )
-    )
-    plans.extend(
-        build_instruction_steps_section(
-            surface,
-            prefix=prefix,
-            title="Open the Kit",
-            lines=(
-                "Open recovery_kit.bundle.html in a browser while offline.",
-                "If the file is large, wait for it to finish loading.",
-                "Follow the on-screen prompts to recover your payload.",
-            ),
-            rect=PdfRect(inner_x, rect.y_mm + 90.0, left_width, 52.0),
-            index=2,
-            style=_INSTRUCTION_STYLE,
-        )
-    )
-    plans.extend(
-        build_instruction_bullets_section(
-            surface,
-            prefix=prefix,
-            title="Troubleshooting",
-            lines=(
-                "If the kit does not load, re-check chunk order and re-save the file.",
-                "Try another browser if rendering stalls.",
-                "Confirm the file size matches the sum of all QR chunks.",
-            ),
-            rect=PdfRect(inner_x, rect.y_mm + 137.0, left_width, 44.0),
-            index=3,
-            style=_INSTRUCTION_STYLE,
-        )
-    )
-    plans.extend(
-        _instruction_callout_plans(
-            surface,
-            prefix=prefix,
-            rect=PdfRect(right_x, rect.y_mm + 37.0, right_width, 33.0),
-            title="Verify",
-            lines=(
-                "Confirm the kit loads and shows the Recovery Kit home screen.",
-                "If it fails to open, re-check the order and re-save the file.",
-            ),
-            index=1,
-        )
-    )
-    plans.extend(
-        _instruction_callout_plans(
-            surface,
-            prefix=prefix,
-            rect=PdfRect(right_x, rect.y_mm + 77.0, right_width, 33.0),
-            title="Storage",
-            lines=(
-                "Keep the QR pages and the bundle file in separate locations.",
-                "Store the bundle on a write-protected drive if possible.",
-            ),
-            index=2,
-        )
-    )
-    plans.extend(
-        _instruction_callout_plans(
-            surface,
-            prefix=prefix,
-            rect=PdfRect(right_x, rect.y_mm + 117.0, right_width, 30.0),
-            title="Security",
-            lines=(
-                "Work offline and on a trusted machine.",
-                "Delete temporary files after recovery.",
-            ),
-            index=3,
-        )
-    )
-    plans.extend(
-        build_instruction_checklist(
-            surface,
-            prefix=prefix,
-            rect=PdfRect(right_x, checklist_y, right_width, checklist_height),
-            style=_INSTRUCTION_STYLE,
-        )
-    )
-    plans.extend(
-        _instruction_insert_footer(
-            surface,
-            context,
-            prefix=prefix,
-            rect=rect,
-            page_label=page_label,
-        )
-    )
-    return plans
-
-
-def _instruction_callout_plans(
-    surface: PdfSurface,
-    *,
-    prefix: str,
-    rect: PdfRect,
-    title: str,
-    lines: Sequence[str],
-    index: int,
-) -> list[PaintPlan]:
-    plans: list[PaintPlan] = [
-        Panel(
-            component_id=f"{prefix}-callout-{index}",
-            stroke=_RULE,
-            fill=_NOTE,
-            line_width_mm=0.35,
-        ).plan(surface, rect),
-        TextBox(
-            component_id=f"{prefix}-callout-title-{index}",
-            text=title.upper(),
-            style=title_text_style(size_pt=8.0, color=_STAMP, char_spacing_mm=0.24),
-            policy=TextFitPolicy.FAIL,
-        ).plan(surface, PdfRect(rect.x_mm + 3.0, rect.y_mm + 3.0, rect.width_mm - 6.0, 3.5)),
-    ]
-    y_mm = rect.y_mm + 10.0
-    for line_index, line in enumerate(lines):
-        text_plan = TextBox(
-            component_id=f"{prefix}-callout-line-{index}-{line_index}",
-            text=line,
-            style=body_text_style(size_pt=8.4, color=_INK),
-            policy=TextFitPolicy.WRAP,
-            line_height_multiplier=1.2,
-        ).plan(surface, PdfRect(rect.x_mm + 3.0, y_mm, rect.width_mm - 6.0, 10.0))
-        plans.append(text_plan)
-        y_mm += max(7.2, text_plan.proof.used_rect.height_mm + 1.6)
-    return plans
-
-
-def _instruction_insert_footer(
-    surface: PdfSurface,
-    context: StructuredContext,
-    *,
-    prefix: str,
-    rect: PdfRect,
-    page_label: str,
-) -> list[PaintPlan]:
-    inner_x = rect.x_mm + 8.0
-    inner_width = rect.width_mm - 16.0
-    rule_y = rect.bottom_mm - 17.0
-    text_y = rule_y + 5.2
-    kind_width = inner_width * 0.42
-    page_width = 28.0
-    doc_x = inner_x + kind_width + page_width
-    doc_width = inner_width - kind_width - page_width
-    return [
-        Rule(component_id=f"{prefix}-insert-footer-rule", color=_RULE_STRONG).plan(
-            surface,
-            PdfRect(inner_x, rule_y, inner_width, 0.55),
-        ),
-        TextBox(
-            component_id=f"{prefix}-insert-footer-kind",
-            text="RECOVERY KIT: OFFLINE HTML BUNDLE",
-            style=body_text_style(size_pt=8.0, color=_INK_MUTED, char_spacing_mm=0.2),
-            policy=TextFitPolicy.SHRINK,
-            min_size_pt=6.0,
-        ).plan(surface, PdfRect(inner_x, text_y, kind_width, 4.2)),
-        TextBox(
-            component_id=f"{prefix}-insert-footer-page",
-            text=page_label,
-            style=monospace_text_style(
-                size_pt=7.0,
-                bold=True,
-                color=_STAMP,
-                char_spacing_mm=0.06,
-            ),
-            policy=TextFitPolicy.SHRINK,
-            align=TextAlign.CENTER,
-            min_size_pt=6.0,
-        ).plan(surface, PdfRect(inner_x + kind_width, text_y, page_width, 4.2)),
-        TextBox(
-            component_id=f"{prefix}-insert-footer-doc",
-            text=f"Document ID: {context.doc_id}",
-            style=monospace_text_style(
-                size_pt=7.0,
-                color=_INK,
-                char_spacing_mm=0.06,
-            ),
-            policy=TextFitPolicy.SHRINK,
-            align=TextAlign.RIGHT,
-            min_size_pt=6.0,
-        ).plan(surface, PdfRect(doc_x, text_y, doc_width, 4.2)),
-    ]
-
-
 __all__ = [
-    "MaritimeDirectPlan",
     "build_maritime_kit_direct_plan",
     "build_maritime_main_direct_plan",
     "build_maritime_recovery_direct_plan",
     "build_maritime_shard_direct_plan",
     "build_maritime_signing_key_shard_direct_plan",
-    "render_maritime_kit_direct_pdf",
-    "render_maritime_main_direct_pdf",
-    "render_maritime_recovery_direct_pdf",
-    "render_maritime_shard_direct_pdf",
-    "render_maritime_signing_key_shard_direct_pdf",
 ]

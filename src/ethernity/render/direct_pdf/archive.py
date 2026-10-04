@@ -1,4 +1,4 @@
-"""Archive design rendering through direct PDF primitives."""
+"""Archive design rendering through measured PDF components."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
-from ethernity.qr.codec import QrConfig
+from ethernity.render.design_style import load_design_style
+from ethernity.render.direct_pdf import document_inputs, fallback_layout
 from ethernity.render.direct_pdf.assets import MATERIAL_SYMBOLS_FAMILY
 from ethernity.render.direct_pdf.components import (
     Ellipse,
@@ -18,17 +19,12 @@ from ethernity.render.direct_pdf.components import (
     TextAlign,
     TextBox,
 )
-from ethernity.render.direct_pdf.fallback_layout import (
-    FallbackPage as _FallbackPage,
-    FallbackSectionLines as _FallbackSectionLines,
-    FallbackTitleEntry as _FallbackTitleEntry,
-    ResponsiveFallbackPageProfile,
-    ResponsiveFallbackSpec,
-    build_fallback_proof as _build_fallback_proof,
-    fallback_entries as _fallback_entries,
-    fallback_sections as _fallback_sections,
-    paginate_fallback_entries as _paginate_fallback_entries,
-    resolve_responsive_fallback_pagination,
+from ethernity.render.direct_pdf.document import DirectPdfDocumentPlan
+from ethernity.render.direct_pdf.document_planner import (
+    build_qr_document_plan,
+    build_responsive_recovery_document_plan,
+    build_single_qr_fallback_plan,
+    recovery_overflow_meta,
 )
 from ethernity.render.direct_pdf.page import (
     ComponentGroup,
@@ -49,26 +45,6 @@ from ethernity.render.direct_pdf.responsive_layout import (
     ResolvedGrid,
     resolve_grid,
 )
-from ethernity.render.direct_pdf.structured_common import (
-    QrPage as _QrPage,
-    QrPayloadItem as _QrPayloadItem,
-    StructuredContext as _ArchiveContext,
-    StructuredDirectPlan as ArchiveDirectPlan,
-    StructuredPlanBuilder,
-    build_artifact_proof as build_render_artifact_proof,
-    build_structured_context as _build_archive_context,
-    component_prefix as _component_prefix,
-    paginate_qr_items as _paginate_qr_items,
-    positive_int as _positive_int,
-    qr_image as _qr_image,
-    qr_payload_items as _qr_payload_items,
-    render_structured_plan,
-    resolved_qr_payloads as _resolved_qr_payloads,
-    resolved_single_qr_payload as _resolved_single_qr_payload,
-    validate_qr_inputs as _validate_qr_inputs,
-    validate_recovery_inputs as _validate_recovery_inputs,
-    validate_single_qr_fallback_inputs as _validate_single_qr_fallback_inputs,
-)
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitPolicy, fit_text_to_width
 from ethernity.render.direct_pdf.text_measure import measured_grouped_line_length
@@ -84,8 +60,7 @@ from ethernity.render.recovery_meta import (
     RecoveryMeta,
     recovery_passphrase_display,
 )
-from ethernity.render.template_style import load_template_style
-from ethernity.render.types import RenderInputs, RenderResult
+from ethernity.render.types import RenderInputs, RenderTextMetadata
 
 _MARGIN_MM = 14.0
 _CONTENT_X_MM = 14.0
@@ -171,6 +146,7 @@ class _ArchiveRecoveryMetadataRow:
     guidance: str = ""
     visible: bool = True
     grouped_signing_key: bool = False
+    text_metadata: RenderTextMetadata | None = None
 
 
 @dataclass(frozen=True)
@@ -202,7 +178,7 @@ class _ArchiveKitGeometry:
 
 def _archive_main_geometry(inputs: RenderInputs) -> _ArchiveMainGeometry:
     page = resolve_page_geometry(inputs)
-    capabilities = load_template_style(inputs.design_name).capabilities
+    capabilities = load_design_style(inputs.design_name).capabilities
     preferred_card_size_mm = capabilities.main_qr_grid_size_mm or _QR_CARD_SIZE_MM
     content_width_mm = page.width_mm - 2 * _CONTENT_X_MM
     footer_rule_y_mm = page.height_mm - _FOOTER_BOTTOM_INSET_MM
@@ -254,7 +230,7 @@ def _archive_recovery_geometry(
     surface: PdfSurface,
     inputs: RenderInputs,
     recovery_meta: RecoveryMeta,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
 ) -> _ArchiveRecoveryGeometry:
     page = resolve_page_geometry(inputs)
     content_rect = PdfRect(
@@ -418,18 +394,23 @@ def _archive_recovery_metadata_rows(
             recovery_meta.quorum_label or "Shard Quorum",
             (recovery_meta.quorum_value,) if recovery_meta.quorum_value else (),
             visible=bool(recovery_meta.quorum_value),
+            text_metadata=RenderTextMetadata("recovery_quorum"),
         ),
         _ArchiveRecoveryMetadataRow(
             "Signing Key",
             tuple(recovery_meta.signing_pub_lines),
             visible=bool(recovery_meta.signing_pub_lines),
             grouped_signing_key=True,
+            text_metadata=RenderTextMetadata("recovery_signing_public_key"),
         ),
         _ArchiveRecoveryMetadataRow(
             passphrase.label,
             passphrase.value_lines,
             passphrase.guidance,
             visible=bool(passphrase.value_lines),
+            text_metadata=RenderTextMetadata(
+                "recovery_passphrase", print_mode=recovery_meta.passphrase_print_mode
+            ),
         ),
     )
 
@@ -525,87 +506,37 @@ def _archive_kit_geometry(inputs: RenderInputs) -> _ArchiveKitGeometry:
     )
 
 
-def render_archive_main_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render an Archive main document directly to PDF."""
+def build_archive_main_direct_plan(
+    surface: PdfSurface, inputs: RenderInputs
+) -> DirectPdfDocumentPlan:
+    """Build measured Archive main pages through the shared QR planner."""
 
-    return _render_archive_plan(inputs, build_archive_main_direct_plan)
-
-
-def render_archive_recovery_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render an Archive recovery document directly to PDF."""
-
-    return _render_archive_plan(inputs, build_archive_recovery_direct_plan)
-
-
-def render_archive_shard_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render an Archive shard document directly to PDF."""
-
-    return _render_archive_plan(inputs, build_archive_shard_direct_plan)
-
-
-def render_archive_signing_key_shard_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render an Archive signing-key shard document directly to PDF."""
-
-    return _render_archive_plan(inputs, build_archive_signing_key_shard_direct_plan)
-
-
-def render_archive_kit_direct_pdf(inputs: RenderInputs) -> RenderResult:
-    """Render an Archive recovery-kit document directly to PDF."""
-
-    return _render_archive_plan(inputs, build_archive_kit_direct_plan)
-
-
-def _render_archive_plan(
-    inputs: RenderInputs,
-    builder: StructuredPlanBuilder,
-) -> RenderResult:
-    return render_structured_plan(inputs, style_name="archive", builder=builder)
-
-
-def build_archive_main_direct_plan(surface: PdfSurface, inputs: RenderInputs) -> ArchiveDirectPlan:
-    """Build measured Archive main-document pages and proof."""
-
-    _validate_qr_inputs(inputs, expected_doc_type=DOC_TYPE_MAIN)
-    payloads = _resolved_qr_payloads(inputs)
-    items = _qr_payload_items(payloads, config=inputs.qr_config or QrConfig())
+    document_inputs.validate_qr_inputs(inputs, expected_doc_type=DOC_TYPE_MAIN)
     geometry = _archive_main_geometry(inputs)
-    qr_pages = _paginate_qr_items(
-        items,
+    context = document_inputs.build_document_render_context(inputs, doc_type=inputs.doc_type)
+    return build_qr_document_plan(
+        inputs,
         capacity=geometry.continuation_grid.capacity,
         first_page_capacity=geometry.first_page_grid.capacity,
-    )
-    context = _build_archive_context(inputs, doc_type=DOC_TYPE_MAIN)
-    page_plans = tuple(
-        _build_main_qr_page(
+        page_builder=lambda qr_page, total_pages, item_count: _build_main_qr_page(
             surface,
             context,
             qr_page,
             geometry=geometry,
-            total_pages=len(qr_pages),
-        )
-        for qr_page in qr_pages
+            total_pages=total_pages,
+        ),
     )
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=payloads,
-        encoded_payload_count=len(payloads),
-        physical_qr_count=len(items),
-        physical_qr_payload_indexes=tuple(item.payload_index for item in items),
-        page_count=len(page_plans),
-        fallback_proof=None,
-    )
-    return ArchiveDirectPlan(page_plans=page_plans, artifact_proof=artifact_proof)
 
 
 def build_archive_recovery_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> ArchiveDirectPlan:
-    """Build measured Archive recovery-document pages and proofs."""
+) -> DirectPdfDocumentPlan:
+    """Build measured Archive recovery-document pages and layouts."""
 
-    _validate_recovery_inputs(inputs)
+    document_inputs.validate_recovery_inputs(inputs)
     recovery_meta = inputs.recovery_meta or RecoveryMeta()
-    context = _build_archive_context(inputs, doc_type=DOC_TYPE_RECOVERY)
+    context = document_inputs.build_document_render_context(inputs, doc_type=DOC_TYPE_RECOVERY)
     passphrase_pagination = _paginate_archive_passphrase(surface, inputs, recovery_meta)
     geometry = _archive_recovery_geometry(
         surface,
@@ -613,18 +544,13 @@ def build_archive_recovery_direct_plan(
         passphrase_pagination.inline_meta,
         context,
     )
-    overflow_meta = replace(
-        passphrase_pagination.inline_meta,
-        passphrase=None,
-        passphrase_lines=(),
-        passphrase_instructions="",
-    )
+    overflow_meta = recovery_overflow_meta(passphrase_pagination)
     continuation_geometry = (
         _archive_recovery_geometry(surface, inputs, overflow_meta, context)
         if passphrase_pagination.continuation_pages
         else geometry
     )
-    fallback_spec = ResponsiveFallbackSpec(
+    fallback_spec = fallback_layout.ResponsiveFallbackSpec(
         group_size=_FALLBACK_GROUP_SIZE,
         row_height_mm=_FALLBACK_ROW_HEIGHT_MM,
         body_style=_mono_style(size_pt=_RECOVERY_FALLBACK_BODY_SIZE_PT, color=_INK),
@@ -636,30 +562,18 @@ def build_archive_recovery_direct_plan(
         inline_number=True,
         safety_mm=_RECOVERY_FALLBACK_LINE_SAFETY_MM,
     )
-    fallback_pagination = resolve_responsive_fallback_pagination(
+    return build_responsive_recovery_document_plan(
         surface,
-        inputs.fallback_sections or (),
-        first_profile=ResponsiveFallbackPageProfile(
-            area=geometry.fallback_area,
-            spec=fallback_spec,
-        ),
-        continuation_profile=ResponsiveFallbackPageProfile(
-            area=continuation_geometry.fallback_area,
-            spec=fallback_spec,
-        ),
-    )
-    sections = fallback_pagination.sections
-    fallback_pages = fallback_pagination.pages
-    total_pages = len(fallback_pages) + len(passphrase_pagination.continuation_pages)
-    fallback_page_plans = tuple(
-        _build_recovery_page(
+        inputs,
+        passphrase_pagination=passphrase_pagination,
+        overflow_meta=overflow_meta,
+        first_fallback_area=geometry.fallback_area,
+        continuation_fallback_area=continuation_geometry.fallback_area,
+        fallback_spec=fallback_spec,
+        fallback_page_builder=lambda fallback_page, meta, area, total_pages: _build_recovery_page(
             surface,
             context,
-            (
-                passphrase_pagination.inline_meta
-                if fallback_page.page_number == 1 or not passphrase_pagination.continuation_pages
-                else overflow_meta
-            ),
+            meta,
             fallback_page,
             geometry=(
                 geometry
@@ -667,35 +581,17 @@ def build_archive_recovery_direct_plan(
                 else continuation_geometry
             ),
             total_pages=total_pages,
-        )
-        for fallback_page in fallback_pages
-    )
-    passphrase_page_plans = tuple(
-        _build_passphrase_continuation_page(
-            surface,
-            context,
-            geometry=geometry,
-            continuation_page=continuation_page,
-            page_number=len(fallback_pages) + continuation_page.page_index,
-            total_pages=total_pages,
-        )
-        for continuation_page in passphrase_pagination.continuation_pages
-    )
-    page_plans = fallback_page_plans + passphrase_page_plans
-    fallback_proof = _build_fallback_proof(inputs, sections, fallback_pages)
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=(),
-        encoded_payload_count=len(inputs.qr_payloads or inputs.frames),
-        physical_qr_count=0,
-        physical_qr_payload_indexes=(),
-        page_count=len(page_plans),
-        fallback_proof=fallback_proof,
-    )
-    return ArchiveDirectPlan(
-        page_plans=page_plans,
-        artifact_proof=artifact_proof,
-        fallback_proof=fallback_proof,
+        ),
+        passphrase_page_builder=lambda continuation_page, page_number, total_pages: (
+            _build_passphrase_continuation_page(
+                surface,
+                context,
+                geometry=geometry,
+                continuation_page=continuation_page,
+                page_number=page_number,
+                total_pages=total_pages,
+            )
+        ),
     )
 
 
@@ -744,8 +640,8 @@ def _passphrase_continuation_value_rect(
 def build_archive_shard_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> ArchiveDirectPlan:
-    """Build measured Archive shard-document pages and proofs."""
+) -> DirectPdfDocumentPlan:
+    """Build measured Archive shard-document pages and layouts."""
 
     return _build_archive_single_qr_fallback_plan(
         surface,
@@ -757,8 +653,8 @@ def build_archive_shard_direct_plan(
 def build_archive_signing_key_shard_direct_plan(
     surface: PdfSurface,
     inputs: RenderInputs,
-) -> ArchiveDirectPlan:
-    """Build measured Archive signing-key shard pages and proofs."""
+) -> DirectPdfDocumentPlan:
+    """Build measured Archive signing-key shard pages and layouts."""
 
     return _build_archive_single_qr_fallback_plan(
         surface,
@@ -767,46 +663,32 @@ def build_archive_signing_key_shard_direct_plan(
     )
 
 
-def build_archive_kit_direct_plan(surface: PdfSurface, inputs: RenderInputs) -> ArchiveDirectPlan:
-    """Build measured Archive recovery-kit pages and proof."""
+def build_archive_kit_direct_plan(
+    surface: PdfSurface, inputs: RenderInputs
+) -> DirectPdfDocumentPlan:
+    """Build measured Archive kit pages through the shared QR planner."""
 
-    _validate_qr_inputs(inputs, expected_doc_type=DOC_TYPE_KIT)
+    document_inputs.validate_qr_inputs(inputs, expected_doc_type=DOC_TYPE_KIT)
     geometry = _archive_kit_geometry(inputs)
-    payloads = _resolved_qr_payloads(inputs)
-    items = _qr_payload_items(payloads, config=inputs.qr_config or QrConfig())
-    qr_pages = _paginate_qr_items(items, capacity=geometry.qr_grid.capacity)
-    context = _build_archive_context(inputs, doc_type=DOC_TYPE_KIT)
-    total_pages = len(qr_pages) + 1
-    page_plans = tuple(
-        _build_kit_qr_page(
+    context = document_inputs.build_document_render_context(inputs, doc_type=DOC_TYPE_KIT)
+    return build_qr_document_plan(
+        inputs,
+        capacity=geometry.qr_grid.capacity,
+        page_builder=lambda qr_page, total_pages, item_count: _build_kit_qr_page(
             surface,
             context,
             qr_page,
             geometry=geometry,
             total_pages=total_pages,
-        )
-        for qr_page in qr_pages
-    )
-    page_plans = (
-        *page_plans,
-        _build_kit_instruction_page(
+        ),
+        trailing_page_builder=lambda page_number, total_pages: _build_kit_instruction_page(
             surface,
             context,
             geometry=geometry,
-            page_number=total_pages,
+            page_number=page_number,
             total_pages=total_pages,
         ),
     )
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=payloads,
-        encoded_payload_count=len(payloads),
-        physical_qr_count=len(items),
-        physical_qr_payload_indexes=tuple(item.payload_index for item in items),
-        page_count=len(page_plans),
-        fallback_proof=None,
-    )
-    return ArchiveDirectPlan(page_plans=page_plans, artifact_proof=artifact_proof)
 
 
 def _build_archive_single_qr_fallback_plan(
@@ -814,63 +696,49 @@ def _build_archive_single_qr_fallback_plan(
     inputs: RenderInputs,
     *,
     expected_doc_type: str,
-) -> ArchiveDirectPlan:
-    _validate_single_qr_fallback_inputs(inputs, expected_doc_type=expected_doc_type)
+) -> DirectPdfDocumentPlan:
+    document_inputs.validate_single_qr_fallback_inputs(inputs, expected_doc_type=expected_doc_type)
     geometry = _archive_single_geometry(inputs)
-    payload = _resolved_single_qr_payload(inputs)
-    qr_image = _qr_image(payload, config=inputs.qr_config or QrConfig())
-    context = _build_archive_context(inputs, doc_type=expected_doc_type)
-    fallback_layout, sections = _resolve_archive_shard_fallback(
+    context = document_inputs.build_document_render_context(inputs, doc_type=expected_doc_type)
+    shard_layout, sections = _resolve_archive_shard_fallback(
         surface,
         inputs,
         area=geometry.fallback_area,
     )
-    fallback_pages = _paginate_fallback_entries(
-        _fallback_entries(sections),
+    fallback_pages = fallback_layout.paginate_fallback_entries(
+        fallback_layout.fallback_entries(sections),
         capacity=_shard_fallback_capacity(
             geometry.fallback_area,
-            layout=fallback_layout,
+            layout=shard_layout,
         ),
     )
-    page_plans = tuple(
-        _build_single_qr_fallback_page(
+    return build_single_qr_fallback_plan(
+        inputs,
+        sections=sections,
+        fallback_pages=fallback_pages,
+        page_entries=lambda page: tuple(item.entry for item in page.entries),
+        page_builder=lambda fallback_page, qr_image, total_pages: _build_single_qr_fallback_page(
             surface,
             context,
             fallback_page,
             qr_image=qr_image,
             geometry=geometry,
-            fallback_layout=fallback_layout,
-            total_pages=len(fallback_pages),
-        )
-        for fallback_page in fallback_pages
-    )
-    fallback_proof = _build_fallback_proof(inputs, sections, fallback_pages)
-    artifact_proof = build_render_artifact_proof(
-        inputs,
-        qr_payloads=(payload,),
-        encoded_payload_count=1,
-        physical_qr_count=len(page_plans),
-        physical_qr_payload_indexes=tuple(0 for _ in page_plans),
-        page_count=len(page_plans),
-        fallback_proof=fallback_proof,
-    )
-    return ArchiveDirectPlan(
-        page_plans=page_plans,
-        artifact_proof=artifact_proof,
-        fallback_proof=fallback_proof,
+            shard_layout=shard_layout,
+            total_pages=total_pages,
+        ),
     )
 
 
 def _build_main_qr_page(
     surface: PdfSurface,
-    context: _ArchiveContext,
-    qr_page: _QrPage,
+    context: document_inputs.DocumentRenderContext,
+    qr_page: document_inputs.QrPage,
     *,
     geometry: _ArchiveMainGeometry,
     total_pages: int,
 ) -> DirectPdfPagePlan:
     page_label = f"Page {qr_page.page_number} / {total_pages}"
-    prefix = _component_prefix("archive-main", qr_page.page_number)
+    prefix = document_inputs.component_prefix("archive-main", qr_page.page_number)
     plans: list[PaintPlan] = []
     plans.extend(_archive_page_background(surface, prefix=prefix, page_rect=geometry.page.rect))
     plans.extend(
@@ -917,7 +785,7 @@ def _build_main_qr_page(
             top_mm=qr_top,
             card_size_mm=grid.item_width_mm,
             image_size_mm=grid.item_width_mm * (_QR_IMAGE_SIZE_MM / _QR_CARD_SIZE_MM),
-            label_prefix="SEGMENT",
+            label_prefix=str(context.copy.get("segment_prefix") or "Segment").upper(),
             item_rects=item_rects,
         )
     )
@@ -968,15 +836,15 @@ def _build_main_qr_page(
 
 def _build_recovery_page(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     recovery_meta: RecoveryMeta,
-    fallback_page: _FallbackPage,
+    fallback_page: fallback_layout.FallbackPage,
     *,
     geometry: _ArchiveRecoveryGeometry,
     total_pages: int,
 ) -> DirectPdfPagePlan:
     page_label = f"Page {fallback_page.page_number} / {total_pages}"
-    prefix = _component_prefix("archive-recovery", fallback_page.page_number)
+    prefix = document_inputs.component_prefix("archive-recovery", fallback_page.page_number)
     plans: list[PaintPlan] = []
     plans.extend(_archive_page_background(surface, prefix=prefix, page_rect=geometry.page.rect))
     plans.extend(
@@ -1104,14 +972,14 @@ def _build_recovery_page(
 
 def _build_passphrase_continuation_page(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     geometry: _ArchiveRecoveryGeometry,
     continuation_page: RecoveryPassphraseContinuationPage,
     page_number: int,
     total_pages: int,
 ) -> DirectPdfPagePlan:
-    prefix = _component_prefix("archive-recovery", page_number)
+    prefix = document_inputs.component_prefix("archive-recovery", page_number)
     page_label = f"Page {page_number} / {total_pages}"
     passphrase_width_mm = 90.0 * (geometry.content_rect.width_mm / _REFERENCE_CONTENT_WIDTH_MM)
     value_rect = _passphrase_continuation_value_rect(
@@ -1185,6 +1053,11 @@ def _build_passphrase_continuation_page(
             TextBox(
                 component_id=f"{prefix}-passphrase-continuation-value",
                 text=continuation_page.text,
+                text_metadata=RenderTextMetadata(
+                    "recovery_passphrase",
+                    print_mode=continuation_page.print_mode,
+                    continuation_index=continuation_page.page_index,
+                ),
                 style=_mono_style(size_pt=6.4, bold=True, color=_INK),
                 policy=TextFitPolicy.FAIL,
                 line_height_multiplier=1.08,
@@ -1241,12 +1114,12 @@ def _build_passphrase_continuation_page(
 
 def _build_single_qr_fallback_page(
     surface: PdfSurface,
-    context: _ArchiveContext,
-    fallback_page: _FallbackPage,
+    context: document_inputs.DocumentRenderContext,
+    fallback_page: fallback_layout.FallbackPage,
     *,
     qr_image: bytes,
     geometry: _ArchiveSingleGeometry,
-    fallback_layout: _ArchiveShardFallbackLayout,
+    shard_layout: _ArchiveShardFallbackLayout,
     total_pages: int,
 ) -> DirectPdfPagePlan:
     page_label = f"Page {fallback_page.page_number} / {total_pages}"
@@ -1256,7 +1129,7 @@ def _build_single_qr_fallback_page(
         if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD
         else "archive-shard"
     )
-    prefix = _component_prefix(component_base, fallback_page.page_number)
+    prefix = document_inputs.component_prefix(component_base, fallback_page.page_number)
     plans: list[PaintPlan] = []
     plans.extend(_archive_page_background(surface, prefix=prefix, page_rect=geometry.page.rect))
     plans.extend(
@@ -1294,7 +1167,7 @@ def _build_single_qr_fallback_page(
             fallback_page,
             prefix=prefix,
             area=geometry.fallback_area,
-            layout=fallback_layout,
+            layout=shard_layout,
         )
     )
     plans.extend(
@@ -1352,14 +1225,14 @@ def _build_single_qr_fallback_page(
 
 def _build_kit_qr_page(
     surface: PdfSurface,
-    context: _ArchiveContext,
-    qr_page: _QrPage,
+    context: document_inputs.DocumentRenderContext,
+    qr_page: document_inputs.QrPage,
     *,
     geometry: _ArchiveKitGeometry,
     total_pages: int,
 ) -> DirectPdfPagePlan:
     page_label = f"Page {qr_page.page_number} / {total_pages}"
-    prefix = _component_prefix("archive-kit", qr_page.page_number)
+    prefix = document_inputs.component_prefix("archive-kit", qr_page.page_number)
     plans: list[PaintPlan] = []
     plans.extend(_archive_page_background(surface, prefix=prefix, page_rect=geometry.page.rect))
     plans.extend(
@@ -1401,13 +1274,13 @@ def _build_kit_qr_page(
 
 def _build_kit_instruction_page(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     geometry: _ArchiveKitGeometry,
     page_number: int,
     total_pages: int,
 ) -> DirectPdfPagePlan:
-    prefix = _component_prefix("archive-kit", page_number)
+    prefix = document_inputs.component_prefix("archive-kit", page_number)
     plans: list[PaintPlan] = []
     plans.extend(_archive_page_background(surface, prefix=prefix, page_rect=geometry.page.rect))
     plans.extend(
@@ -1469,7 +1342,7 @@ def _archive_page_background(
 
 def _main_header_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     page_label: str,
@@ -1493,14 +1366,14 @@ def _main_header_plans(
         TextBox(
             component_id=f"{prefix}-mode-chip-text",
             text="MODE",
-            style=_mono_style(size_pt=6.0, bold=True, color=_PAPER, char_spacing_mm=0.12),
+            style=_mono_style(size_pt=6.0, bold=True, color=_PAPER, char_spacing_pt=0.12),
             policy=TextFitPolicy.FAIL,
             align=TextAlign.CENTER,
         ).plan(surface, PdfRect(14.6, 24.1, 8.5, 2.6)),
         TextBox(
             component_id=f"{prefix}-subtitle",
             text=str(context.copy.get("subtitle") or "Passphrase-Protected Payload").upper(),
-            style=_mono_style(size_pt=6.8, bold=True, color=_INK, char_spacing_mm=0.16),
+            style=_mono_style(size_pt=6.8, bold=True, color=_INK, char_spacing_pt=0.16),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
         ).plan(surface, PdfRect(25.0, 23.4, 102.0, 4.0)),
@@ -1516,7 +1389,7 @@ def _main_header_plans(
 
 def _right_meta_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     page_label: str,
@@ -1541,7 +1414,7 @@ def _right_meta_plans(
             TextBox(
                 component_id=f"{prefix}-meta-label-{index}",
                 text=label,
-                style=_mono_style(size_pt=6.0, bold=True, color=_MUTED, char_spacing_mm=0.1),
+                style=_mono_style(size_pt=6.0, bold=True, color=_MUTED, char_spacing_pt=0.1),
                 policy=TextFitPolicy.FAIL,
             ).plan(surface, PdfRect(meta_x_mm, y_mm, 18.0, 3.0))
         )
@@ -1564,7 +1437,7 @@ def _right_meta_plans(
 
 def _instructions_panel_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     rect: PdfRect,
@@ -1583,7 +1456,7 @@ def _instructions_panel_plans(
         TextBox(
             component_id=f"{prefix}-instructions-label",
             text=context.instructions_label.upper(),
-            style=_mono_style(size_pt=6.2, bold=True, color=_INK, char_spacing_mm=0.1),
+            style=_mono_style(size_pt=6.2, bold=True, color=_INK, char_spacing_pt=0.1),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
         ).plan(surface, PdfRect(rect.x_mm + 2.8, rect.y_mm + 2.0, 25.0, 4.0)),
@@ -1605,7 +1478,7 @@ def _instructions_panel_plans(
 
 def _qr_grid_plans(
     surface: PdfSurface,
-    qr_page: _QrPage,
+    qr_page: document_inputs.QrPage,
     *,
     prefix: str,
     top_mm: float,
@@ -1649,7 +1522,7 @@ def _qr_card_plans(
     surface: PdfSurface,
     *,
     prefix: str,
-    item: _QrPayloadItem,
+    item: document_inputs.QrPayloadItem,
     rect: PdfRect,
     image_size_mm: float,
     label_prefix: str | None,
@@ -1685,7 +1558,7 @@ def _qr_card_plans(
             TextBox(
                 component_id=f"{prefix}-qr-label-{item.payload_index}",
                 text=f"{label_prefix} {item.label_index:02d}",
-                style=_mono_style(size_pt=6.2, bold=True, color=_MUTED, char_spacing_mm=0.12),
+                style=_mono_style(size_pt=6.2, bold=True, color=_MUTED, char_spacing_pt=0.12),
                 policy=TextFitPolicy.FAIL,
                 align=TextAlign.RIGHT,
             ).plan(surface, PdfRect(rect.x_mm + 2.0, rect.y_mm + 1.6, rect.width_mm - 3.0, 3.0))
@@ -1695,7 +1568,7 @@ def _qr_card_plans(
 
 def _recovery_header_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     recovery_meta: RecoveryMeta,
     *,
     prefix: str,
@@ -1725,7 +1598,7 @@ def _recovery_header_plans(
         TextBox(
             component_id=f"{prefix}-badge-text",
             text="CONFIDENTIAL",
-            style=_mono_style(size_pt=6.0, bold=True, color=_PAPER, char_spacing_mm=0.12),
+            style=_mono_style(size_pt=6.0, bold=True, color=_PAPER, char_spacing_pt=0.12),
             policy=TextFitPolicy.SHRINK,
             align=TextAlign.CENTER,
             min_size_pt=6.0,
@@ -1733,7 +1606,7 @@ def _recovery_header_plans(
         TextBox(
             component_id=f"{prefix}-subtitle",
             text=str(context.copy.get("subtitle") or "Keys + Text Fallback").upper(),
-            style=_mono_style(size_pt=6.8, bold=True, color=_INK, char_spacing_mm=0.18),
+            style=_mono_style(size_pt=6.8, bold=True, color=_INK, char_spacing_pt=0.18),
             policy=TextFitPolicy.SHRINK,
             align=TextAlign.RIGHT,
             min_size_pt=6.0,
@@ -1764,7 +1637,7 @@ def _recovery_header_plans(
 
 def _recovery_meta_grid_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     recovery_meta: RecoveryMeta,
     *,
     prefix: str,
@@ -1816,7 +1689,7 @@ def _recovery_meta_grid_plans(
             TextBox(
                 component_id=f"{prefix}-meta-label-{index}",
                 text=row.label.upper(),
-                style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_mm=0.12),
+                style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_pt=0.12),
                 policy=TextFitPolicy.SHRINK,
                 min_size_pt=6.0,
             ).plan(surface, PdfRect(rect.x_mm, rect.y_mm, rect.width_mm, 2.6))
@@ -1825,6 +1698,7 @@ def _recovery_meta_grid_plans(
             TextBox(
                 component_id=f"{prefix}-meta-value-{index}",
                 text="\n".join(value_lines),
+                text_metadata=row.text_metadata,
                 style=value_style,
                 policy=(TextFitPolicy.SHRINK if row.grouped_signing_key else TextFitPolicy.WRAP),
                 min_size_pt=(
@@ -1846,7 +1720,7 @@ def _recovery_meta_grid_plans(
 
 def _recovery_fallback_plans(
     surface: PdfSurface,
-    fallback_page: _FallbackPage,
+    fallback_page: fallback_layout.FallbackPage,
     *,
     prefix: str,
     area: PdfRect,
@@ -1857,7 +1731,7 @@ def _recovery_fallback_plans(
         TextBox(
             component_id=f"{prefix}-fallback-heading",
             text="FALLBACK BLOCKS",
-            style=_display_style(size_pt=7.7, bold=True, char_spacing_mm=0.08),
+            style=_display_style(size_pt=7.7, bold=True, char_spacing_pt=0.08),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(content_rect.x_mm, heading_y_mm, 48.0, 4.0)),
         Rule(
@@ -1875,7 +1749,7 @@ def _recovery_fallback_plans(
         TextBox(
             component_id=f"{prefix}-fallback-manual",
             text="MANUAL",
-            style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_mm=0.12),
+            style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_pt=0.12),
             policy=TextFitPolicy.FAIL,
             align=TextAlign.RIGHT,
         ).plan(
@@ -1898,7 +1772,7 @@ def _resolve_archive_shard_fallback(
     inputs: RenderInputs,
     *,
     area: PdfRect,
-) -> tuple[_ArchiveShardFallbackLayout, tuple[_FallbackSectionLines, ...]]:
+) -> tuple[_ArchiveShardFallbackLayout, tuple[fallback_layout.FallbackSectionLines, ...]]:
     candidates = (
         (1, _FALLBACK_ROW_HEIGHT_MM, 8.5, 6.5),
         (_SHARD_FALLBACK_COLUMNS, _SHARD_FALLBACK_ROW_HEIGHT_MM, 6.5, 6.0),
@@ -1922,12 +1796,14 @@ def _resolve_archive_shard_fallback(
             body_font_size_pt=body_font_size_pt,
             title_font_size_pt=title_font_size_pt,
         )
-        sections = _fallback_sections(
+        sections = fallback_layout.fallback_sections(
             inputs.fallback_sections or (),
             group_size=_FALLBACK_GROUP_SIZE,
             line_length=line_length,
         )
-        if len(_fallback_entries(sections)) <= _shard_fallback_capacity(area, layout=layout):
+        if len(fallback_layout.fallback_entries(sections)) <= _shard_fallback_capacity(
+            area, layout=layout
+        ):
             return layout, sections
     raise ValueError("Archive shard fallback payload exceeds the responsive one-page capacity")
 
@@ -1953,7 +1829,7 @@ def _shard_fallback_capacity(
 
 
 def _visible_shard_fallback_area(
-    fallback_page: _FallbackPage,
+    fallback_page: fallback_layout.FallbackPage,
     *,
     area: PdfRect,
     layout: _ArchiveShardFallbackLayout,
@@ -1973,7 +1849,7 @@ def _visible_shard_fallback_area(
 
 def _shard_fallback_entry_plans(
     surface: PdfSurface,
-    fallback_page: _FallbackPage,
+    fallback_page: fallback_layout.FallbackPage,
     *,
     prefix: str,
     area: PdfRect,
@@ -2004,7 +1880,7 @@ def _shard_fallback_entry_plans(
         column_x_mm = area.x_mm + column_index * (column_width_mm + _SHARD_FALLBACK_COLUMN_GAP_MM)
         y_mm = area.y_mm + local_row * layout.row_height_mm
         entry = page_entry.entry
-        if isinstance(entry, _FallbackTitleEntry):
+        if isinstance(entry, fallback_layout.FallbackTitleEntry):
             plans.append(
                 TextBox(
                     component_id=f"{prefix}-fallback-title-{entry.section_index}",
@@ -2013,7 +1889,7 @@ def _shard_fallback_entry_plans(
                         size_pt=layout.title_font_size_pt,
                         bold=True,
                         color=_INK,
-                        char_spacing_mm=0.04,
+                        char_spacing_pt=0.04,
                     ),
                     policy=TextFitPolicy.SHRINK,
                     min_size_pt=6.0,
@@ -2051,7 +1927,7 @@ def _shard_fallback_entry_plans(
 
 def _fallback_entry_plans(
     surface: PdfSurface,
-    fallback_page: _FallbackPage,
+    fallback_page: fallback_layout.FallbackPage,
     *,
     prefix: str,
     area: PdfRect,
@@ -2060,12 +1936,12 @@ def _fallback_entry_plans(
     for page_entry in fallback_page.entries:
         y_mm = area.y_mm + 2.0 + page_entry.row_index * _FALLBACK_ROW_HEIGHT_MM
         entry = page_entry.entry
-        if isinstance(entry, _FallbackTitleEntry):
+        if isinstance(entry, fallback_layout.FallbackTitleEntry):
             plans.append(
                 TextBox(
                     component_id=f"{prefix}-fallback-title-{entry.section_index}",
                     text=entry.title.upper(),
-                    style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_mm=0.08),
+                    style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_pt=0.08),
                     policy=TextFitPolicy.SHRINK,
                     min_size_pt=6.0,
                 ).plan(surface, PdfRect(area.x_mm + 1.2, y_mm, area.width_mm - 2.4, 3.0))
@@ -2112,7 +1988,7 @@ def _recovery_validation_plans(
         TextBox(
             component_id=f"{prefix}-security-title",
             text="SECURITY INSTRUCTIONS",
-            style=_mono_style(size_pt=6.2, bold=True, color=_INK, char_spacing_mm=0.1),
+            style=_mono_style(size_pt=6.2, bold=True, color=_INK, char_spacing_pt=0.1),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(rect.x_mm, rect.y_mm + 1.5, column_width_mm, 3.0)),
         TextBox(
@@ -2120,7 +1996,7 @@ def _recovery_validation_plans(
             text=(
                 "- Store this document in a fireproof and waterproof location.\n"
                 "- Do not photograph or store these values in cloud services.\n"
-                "- Treat all recovery material as high-risk secret data."
+                "- Treat all recovery documents as secret data."
             ),
             style=_body_style(size_pt=6.4, color=_INK),
             policy=TextFitPolicy.WRAP,
@@ -2132,7 +2008,7 @@ def _recovery_validation_plans(
         TextBox(
             component_id=f"{prefix}-validation-title",
             text="VALIDATION",
-            style=_mono_style(size_pt=6.2, bold=True, color=_INK, char_spacing_mm=0.1),
+            style=_mono_style(size_pt=6.2, bold=True, color=_INK, char_spacing_pt=0.1),
             policy=TextFitPolicy.FAIL,
         ).plan(
             surface,
@@ -2158,13 +2034,13 @@ def _recovery_validation_plans(
 
 def _shard_header_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     page_rect: PdfRect,
 ) -> list[PaintPlan]:
-    shard_index = _positive_int(context.values.get("shard_index"), default=1)
-    shard_total = _positive_int(context.values.get("shard_total"), default=1)
+    shard_index = document_inputs.positive_int(context.values.get("shard_index"), default=1)
+    shard_total = document_inputs.positive_int(context.values.get("shard_total"), default=1)
     content_width_mm = page_rect.width_mm - 2 * _CONTENT_X_MM
     badge_x_mm = page_rect.right_mm - _CONTENT_X_MM - 22.0
     return [
@@ -2181,7 +2057,7 @@ def _shard_header_plans(
             style=_body_style(size_pt=7.2, bold=True),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
-        ).plan(surface, PdfRect(14.0, 22.2, 92.0, 4.0)),
+        ).plan(surface, PdfRect(14.0, 21.6, 92.0, 3.2)),
         Panel(
             component_id=f"{prefix}-badge",
             fill=_INK,
@@ -2190,7 +2066,7 @@ def _shard_header_plans(
         TextBox(
             component_id=f"{prefix}-badge-text",
             text=f"SHARD {shard_index} / {shard_total}",
-            style=_mono_style(size_pt=6.0, bold=True, color=_PAPER, char_spacing_mm=0.1),
+            style=_mono_style(size_pt=6.0, bold=True, color=_PAPER, char_spacing_pt=0.1),
             policy=TextFitPolicy.SHRINK,
             align=TextAlign.CENTER,
             min_size_pt=6.0,
@@ -2198,7 +2074,7 @@ def _shard_header_plans(
         TextBox(
             component_id=f"{prefix}-confidential",
             text="CONFIDENTIAL",
-            style=_mono_style(size_pt=6.0, bold=True, color=_MUTED, char_spacing_mm=0.12),
+            style=_mono_style(size_pt=6.0, bold=True, color=_MUTED, char_spacing_pt=0.12),
             policy=TextFitPolicy.FAIL,
             align=TextAlign.RIGHT,
         ).plan(surface, PdfRect(page_rect.right_mm - _CONTENT_X_MM - 28.0, 21.0, 28.0, 3.0)),
@@ -2211,7 +2087,7 @@ def _shard_header_plans(
         TextBox(
             component_id=f"{prefix}-doc-id-label",
             text="DOCUMENT ID",
-            style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_mm=0.1),
+            style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_pt=0.1),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(15.4, 26.8, 48.0, 2.6)),
         TextBox(
@@ -2224,7 +2100,7 @@ def _shard_header_plans(
         TextBox(
             component_id=f"{prefix}-created-label",
             text="CREATED (UTC)",
-            style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_mm=0.1),
+            style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_pt=0.1),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(61.0, 26.8, 48.0, 2.6)),
         TextBox(
@@ -2291,7 +2167,7 @@ def _corner_mark_plans(surface: PdfSurface, *, prefix: str, rect: PdfRect) -> li
 
 def _single_fallback_plans(
     surface: PdfSurface,
-    fallback_page: _FallbackPage,
+    fallback_page: fallback_layout.FallbackPage,
     *,
     prefix: str,
     area: PdfRect,
@@ -2317,13 +2193,13 @@ def _single_fallback_plans(
         TextBox(
             component_id=f"{prefix}-fallback-heading",
             text="RAW TEXT FALLBACK",
-            style=_mono_style(size_pt=6.1, bold=True, color=_INK, char_spacing_mm=0.1),
+            style=_mono_style(size_pt=6.1, bold=True, color=_INK, char_spacing_pt=0.1),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(visible_area.x_mm, visible_area.y_mm - 2.8, 58.0, 3.0)),
         TextBox(
-            component_id=f"{prefix}-fallback-helper",
+            component_id=f"{prefix}-fallback-guidance",
             text="USE IF QR IS UNREADABLE",
-            style=_mono_style(size_pt=6.0, color=_MUTED_SOFT, char_spacing_mm=0.1),
+            style=_mono_style(size_pt=6.0, color=_MUTED_SOFT, char_spacing_pt=0.1),
             policy=TextFitPolicy.FAIL,
             align=TextAlign.RIGHT,
         ).plan(
@@ -2351,7 +2227,7 @@ def _single_fallback_plans(
 
 def _kit_header_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     page_label: str,
@@ -2370,7 +2246,7 @@ def _kit_header_plans(
         TextBox(
             component_id=f"{prefix}-subtitle",
             text=str(context.copy.get("subtitle") or "Standalone Offline HTML Bundle").upper(),
-            style=_mono_style(size_pt=7.0, bold=True, color=_INK, char_spacing_mm=0.12),
+            style=_mono_style(size_pt=7.0, bold=True, color=_INK, char_spacing_pt=0.12),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
         ).plan(surface, PdfRect(14.0, 23.0, 110.0, 4.0)),
@@ -2404,7 +2280,7 @@ def _kit_header_plans(
 
 def _kit_meta_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     page_label: str,
@@ -2448,7 +2324,7 @@ def _kit_meta_plans(
             TextBox(
                 component_id=f"{prefix}-kit-meta-label-{index}",
                 text=label,
-                style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_mm=0.1),
+                style=_mono_style(size_pt=6.0, bold=True, color=_INK, char_spacing_pt=0.1),
                 policy=TextFitPolicy.FAIL,
                 align=align,
             ).plan(surface, PdfRect(rect.x_mm, rect.y_mm, rect.width_mm, 2.6))
@@ -2468,7 +2344,7 @@ def _kit_meta_plans(
 
 def _kit_qr_stage_plans(
     surface: PdfSurface,
-    qr_page: _QrPage,
+    qr_page: document_inputs.QrPage,
     *,
     prefix: str,
     geometry: _ArchiveKitGeometry,
@@ -2499,7 +2375,7 @@ def _kit_qr_stage_plans(
         TextBox(
             component_id=f"{prefix}-kit-step-title",
             text="RECOVERY KIT PAYLOAD",
-            style=_mono_style(size_pt=7.1, bold=True, color=_ACCENT, char_spacing_mm=0.12),
+            style=_mono_style(size_pt=7.1, bold=True, color=_ACCENT, char_spacing_pt=0.12),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(22.0, 42.0, 70.0, 3.5)),
     ]
@@ -2522,7 +2398,7 @@ def _kit_qr_stage_plans(
 
 def _kit_instruction_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     geometry: _ArchiveKitGeometry,
@@ -2680,7 +2556,7 @@ def _instruction_section_plans(
             line_height_multiplier=1.16,
         ).plan(surface, PdfRect(rect.x_mm + 8.5, y_mm - 0.2, rect.width_mm - 8.5, 12.0))
         plans.append(text_plan)
-        y_mm += max(8.9, text_plan.proof.used_rect.height_mm + 2.1)
+        y_mm += max(8.9, text_plan.layout.used_rect.height_mm + 2.1)
     return plans
 
 
@@ -2710,7 +2586,7 @@ def _instruction_badge_plans(
         TextBox(
             component_id=f"{prefix}-instruction-badge-text-{index}",
             text=title.upper(),
-            style=_body_style(size_pt=7.6, bold=True, char_spacing_mm=0.16),
+            style=_body_style(size_pt=7.6, bold=True, char_spacing_pt=0.16),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.2,
         ).plan(surface, PdfRect(rect.x_mm + 10.8, rect.y_mm + 2.6, rect.width_mm - 13.0, 3.4)),
@@ -2719,7 +2595,7 @@ def _instruction_badge_plans(
 
 def _instruction_right_column_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     x_mm: float,
@@ -2783,7 +2659,7 @@ def _instruction_info_card_plans(
         TextBox(
             component_id=f"{prefix}-info-title-{index}",
             text=title.upper(),
-            style=_body_style(size_pt=7.4, bold=True, char_spacing_mm=0.16),
+            style=_body_style(size_pt=7.4, bold=True, char_spacing_pt=0.16),
             policy=TextFitPolicy.FAIL,
         ).plan(surface, PdfRect(rect.x_mm + 3.3, rect.y_mm + 4.0, rect.width_mm - 6.6, 3.8)),
     ]
@@ -2797,13 +2673,13 @@ def _instruction_info_card_plans(
             line_height_multiplier=1.16,
         ).plan(surface, PdfRect(rect.x_mm + 3.3, y_mm, rect.width_mm - 6.6, 12.0))
         plans.append(text_plan)
-        y_mm += max(8.4, text_plan.proof.used_rect.height_mm + 1.8)
+        y_mm += max(8.4, text_plan.layout.used_rect.height_mm + 1.8)
     return plans
 
 
 def _instruction_checklist_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     rect: PdfRect,
@@ -2832,7 +2708,7 @@ def _instruction_checklist_plans(
             text=str(
                 context.copy.get("checklist_label") or "Security Verification Checklist"
             ).upper(),
-            style=_body_style(size_pt=7.3, bold=True, char_spacing_mm=0.14),
+            style=_body_style(size_pt=7.3, bold=True, char_spacing_pt=0.14),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
         ).plan(surface, PdfRect(rect.x_mm + 10.5, rect.y_mm + 5.0, rect.width_mm - 14.0, 4.0)),
@@ -2854,15 +2730,15 @@ def _instruction_checklist_plans(
             style=_body_style(size_pt=9.4),
             policy=TextFitPolicy.WRAP,
             line_height_multiplier=1.08,
-        ).plan(surface, PdfRect(rect.x_mm + 12.0, y_mm, rect.width_mm - 16.0, 11.0))
+        ).plan(surface, PdfRect(rect.x_mm + 12.0, y_mm, rect.width_mm - 16.0, 13.0))
         plans.append(text_plan)
-        y_mm += max(8.0, text_plan.proof.used_rect.height_mm + 1.7)
+        y_mm += max(8.0, text_plan.layout.used_rect.height_mm + 1.7)
     return plans
 
 
 def _instruction_footer_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     page_label: str,
@@ -2878,14 +2754,14 @@ def _instruction_footer_plans(
         TextBox(
             component_id=f"{prefix}-instruction-footer-kind",
             text="RECOVERY KIT: OFFLINE HTML BUNDLE",
-            style=_body_style(size_pt=7.4, color=_INK, char_spacing_mm=0.16),
+            style=_body_style(size_pt=7.4, color=_INK, char_spacing_pt=0.16),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
         ).plan(surface, PdfRect(rect.x_mm, rect.y_mm + 5.0, side_width_mm, 4.0)),
         TextBox(
             component_id=f"{prefix}-instruction-footer-page",
             text=page_label,
-            style=_mono_style(size_pt=6.5, color=_MUTED, char_spacing_mm=0.1),
+            style=_mono_style(size_pt=6.5, color=_MUTED, char_spacing_pt=0.1),
             policy=TextFitPolicy.SHRINK,
             align=TextAlign.CENTER,
             min_size_pt=6.0,
@@ -2901,7 +2777,7 @@ def _instruction_footer_plans(
         TextBox(
             component_id=f"{prefix}-instruction-footer-doc-id",
             text=f"DOCUMENT ID: {context.doc_id}",
-            style=_mono_style(size_pt=6.5, color=_INK, char_spacing_mm=0.1),
+            style=_mono_style(size_pt=6.5, color=_INK, char_spacing_pt=0.1),
             policy=TextFitPolicy.SHRINK,
             align=TextAlign.RIGHT,
             min_size_pt=6.0,
@@ -2919,7 +2795,7 @@ def _instruction_footer_plans(
 
 def _footer_plans(
     surface: PdfSurface,
-    context: _ArchiveContext,
+    context: document_inputs.DocumentRenderContext,
     *,
     prefix: str,
     page_label: str,
@@ -2949,14 +2825,14 @@ def _footer_plans(
         TextBox(
             component_id=f"{prefix}-footer-left",
             text=context.footer_left.upper(),
-            style=_mono_style(size_pt=6.1, color=_MUTED_SOFT, char_spacing_mm=0.12),
+            style=_mono_style(size_pt=6.1, color=_MUTED_SOFT, char_spacing_pt=0.12),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
         ).plan(surface, PdfRect(_CONTENT_X_MM + 3.2, footer_text_y_mm, 70.0, 3.5)),
         TextBox(
             component_id=f"{prefix}-footer-page",
-            text=page_label.upper().replace("PAGE", "PAGE"),
-            style=_mono_style(size_pt=6.0, color=_MUTED, char_spacing_mm=0.12),
+            text=page_label.upper(),
+            style=_mono_style(size_pt=6.0, color=_MUTED, char_spacing_pt=0.12),
             policy=TextFitPolicy.SHRINK,
             align=TextAlign.RIGHT,
             min_size_pt=6.0,
@@ -2972,14 +2848,14 @@ def _display_style(
     size_pt: float,
     bold: bool = False,
     color: PdfColor = _INK,
-    char_spacing_mm: float = 0.0,
+    char_spacing_pt: float = 0.0,
 ) -> TextStyle:
     return TextStyle(
         family="Helvetica",
         size_pt=size_pt,
         style="B" if bold else "",
         color=color,
-        char_spacing_mm=char_spacing_mm,
+        char_spacing_pt=char_spacing_pt,
     )
 
 
@@ -2988,14 +2864,14 @@ def _body_style(
     size_pt: float,
     bold: bool = False,
     color: PdfColor = _INK,
-    char_spacing_mm: float = 0.0,
+    char_spacing_pt: float = 0.0,
 ) -> TextStyle:
     return TextStyle(
         family="Helvetica",
         size_pt=size_pt,
         style="B" if bold else "",
         color=color,
-        char_spacing_mm=char_spacing_mm,
+        char_spacing_pt=char_spacing_pt,
     )
 
 
@@ -3004,14 +2880,14 @@ def _mono_style(
     size_pt: float,
     color: PdfColor,
     bold: bool = False,
-    char_spacing_mm: float = 0.0,
+    char_spacing_pt: float = 0.0,
 ) -> TextStyle:
     return TextStyle(
         family="Courier",
         size_pt=size_pt,
         style="B" if bold else "",
         color=color,
-        char_spacing_mm=char_spacing_mm,
+        char_spacing_pt=char_spacing_pt,
     )
 
 
@@ -3020,15 +2896,9 @@ def _symbol_style(*, size_pt: float, color: PdfColor) -> TextStyle:
 
 
 __all__ = [
-    "ArchiveDirectPlan",
     "build_archive_kit_direct_plan",
     "build_archive_main_direct_plan",
     "build_archive_recovery_direct_plan",
     "build_archive_shard_direct_plan",
     "build_archive_signing_key_shard_direct_plan",
-    "render_archive_kit_direct_pdf",
-    "render_archive_main_direct_pdf",
-    "render_archive_recovery_direct_pdf",
-    "render_archive_shard_direct_pdf",
-    "render_archive_signing_key_shard_direct_pdf",
 ]

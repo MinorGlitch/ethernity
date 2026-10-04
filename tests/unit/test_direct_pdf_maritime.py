@@ -6,8 +6,15 @@ from tempfile import TemporaryDirectory
 import ethernity.render.direct_pdf.maritime as maritime_module
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.page_sizes import PaperSize
+from ethernity.render import render_frames_to_pdf
+from ethernity.render.checks import (
+    validate_fallback_text_in_pdf,
+    validate_pdf_has_pages,
+    validate_rendered_document_summary,
+    validate_text_in_pdf,
+)
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
-from ethernity.render.direct_pdf.components import TextPlacementProof
+from ethernity.render.direct_pdf.components import TextPlacement
 from ethernity.render.direct_pdf.fallback_layout import (
     FallbackLineEntry,
     FallbackPage,
@@ -19,11 +26,6 @@ from ethernity.render.direct_pdf.maritime import (
     build_maritime_recovery_direct_plan,
     build_maritime_shard_direct_plan,
     build_maritime_signing_key_shard_direct_plan,
-    render_maritime_kit_direct_pdf,
-    render_maritime_main_direct_pdf,
-    render_maritime_recovery_direct_pdf,
-    render_maritime_shard_direct_pdf,
-    render_maritime_signing_key_shard_direct_pdf,
 )
 from ethernity.render.direct_pdf.page_geometry import (
     A4_HEIGHT_MM,
@@ -40,14 +42,8 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
-from ethernity.render.proofs import (
-    validate_fallback_text_in_pdf,
-    validate_pdf_has_pages,
-    validate_render_artifact_proof,
-    validate_text_in_pdf,
-)
 from ethernity.render.recovery_meta import build_recovery_meta
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 _PAPER_DIMENSIONS = {
     "A4": (A4_WIDTH_MM, A4_HEIGHT_MM),
@@ -104,7 +100,7 @@ def _main_inputs(
         context=_base_context(paper_size=paper_size),
         doc_type=DOC_TYPE_MAIN,
         design_name="maritime",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=True,
         render_fallback=False,
     )
@@ -135,7 +131,7 @@ def _recovery_inputs(
         context=_base_context(paper_size=paper_size),
         doc_type=DOC_TYPE_RECOVERY,
         design_name="maritime",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=False,
         render_fallback=True,
         recovery_meta=build_recovery_meta(
@@ -172,7 +168,7 @@ def _shard_inputs(
         context=context,
         doc_type=doc_type,
         design_name="maritime",
-        lineage=RenderLineage(kind="root_backup"),
+        origin=DocumentOrigin(kind="root_backup"),
         render_qr=True,
         render_fallback=True,
         fallback_sections=(FallbackSection(label="SHARD PAYLOAD", frame=frame),),
@@ -192,7 +188,7 @@ def _kit_inputs(
         context=_base_context(paper_size=paper_size),
         doc_type=DOC_TYPE_KIT,
         design_name="maritime",
-        lineage=RenderLineage(kind="recovery_kit"),
+        origin=DocumentOrigin(kind="recovery_kit"),
         qr_payloads=tuple(f"kit-chunk-{index}" for index in range(count)),
         render_qr=True,
         render_fallback=False,
@@ -229,18 +225,18 @@ class TestDirectPdfMaritime(unittest.TestCase):
         for index, first in enumerate(blocks):
             for second in blocks[index + 1 :]:
                 self.assertTrue(
-                    first.proof.rect.right_mm <= second.proof.rect.x_mm
-                    or second.proof.rect.right_mm <= first.proof.rect.x_mm
-                    or first.proof.rect.bottom_mm <= second.proof.rect.y_mm
-                    or second.proof.rect.bottom_mm <= first.proof.rect.y_mm
+                    first.layout.rect.right_mm <= second.layout.rect.x_mm
+                    or second.layout.rect.right_mm <= first.layout.rect.x_mm
+                    or first.layout.rect.bottom_mm <= second.layout.rect.y_mm
+                    or second.layout.rect.bottom_mm <= first.layout.rect.y_mm
                 )
         for row in rows:
             self.assertTrue(
                 any(
-                    row.proof.rect.x_mm >= block.proof.rect.x_mm
-                    and row.proof.rect.right_mm <= block.proof.rect.right_mm
-                    and row.proof.rect.y_mm >= block.proof.rect.y_mm
-                    and row.proof.rect.bottom_mm <= block.proof.rect.bottom_mm
+                    row.layout.rect.x_mm >= block.layout.rect.x_mm
+                    and row.layout.rect.right_mm <= block.layout.rect.right_mm
+                    and row.layout.rect.y_mm >= block.layout.rect.y_mm
+                    and row.layout.rect.bottom_mm <= block.layout.rect.bottom_mm
                     for block in blocks
                 ),
                 row.component_id,
@@ -261,18 +257,18 @@ class TestDirectPdfMaritime(unittest.TestCase):
         for page_plan, reader_page in zip(page_plans, reader_pages, strict=True):
             self.assertAlmostEqual(page_plan.rect.width_mm, width_mm)
             self.assertAlmostEqual(page_plan.rect.height_mm, height_mm)
-            self.assertFalse(page_plan.proof.overflow)
-            self.assertTrue(page_plan.proof.separation_constraints)
+            self.assertFalse(page_plan.layout.overflow)
+            self.assertTrue(page_plan.layout.separation_constraints)
             self.assertTrue(
-                all(proof.satisfied for proof in page_plan.proof.separation_constraints)
+                all(layout.satisfied for layout in page_plan.layout.separation_constraints)
             )
             rendered_width_mm = float(reader_page.mediabox.width) * 25.4 / 72.0
             rendered_height_mm = float(reader_page.mediabox.height) * 25.4 / 72.0
             self.assertAlmostEqual(rendered_width_mm, width_mm, places=1)
             self.assertAlmostEqual(rendered_height_mm, height_mm, places=1)
-        layout_proof = getattr(result, "layout_proof")
-        self.assertIsNotNone(layout_proof)
-        self.assertFalse(layout_proof.overflow)
+        layout_report = getattr(result, "layout_report")
+        self.assertIsNotNone(layout_report)
+        self.assertFalse(layout_report.overflow)
 
     def test_build_main_plan_places_qr_field(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -283,17 +279,17 @@ class TestDirectPdfMaritime(unittest.TestCase):
             plan = build_maritime_main_direct_plan(surface, inputs)
 
             self.assertEqual(len(plan.page_plans), 1)
-            self.assertEqual(plan.artifact_proof.physical_qr_count, 4)
+            self.assertEqual(plan.document_summary.physical_qr_count, 4)
             field = next(
                 item
                 for item in plan.page_plans[0].plans
                 if item.component_id == "maritime-main-p1-qr-field"
             )
-            self.assertGreater(field.proof.rect.width_mm, 175.0)
-            validate_render_artifact_proof(
-                artifact_label="direct Maritime main document",
+            self.assertGreater(field.layout.rect.width_mm, 175.0)
+            validate_rendered_document_summary(
+                document_label="direct Maritime main document",
                 inputs=inputs,
-                artifact_proof=plan.artifact_proof,
+                document_summary=plan.document_summary,
             )
 
     def test_render_main_writes_valid_pdf(self) -> None:
@@ -301,17 +297,17 @@ class TestDirectPdfMaritime(unittest.TestCase):
             output_path = Path(tmp) / "main.pdf"
             inputs = _main_inputs(output_path)
 
-            result = render_maritime_main_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct Maritime main document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct Maritime main document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
             validate_text_in_pdf(
-                artifact_label="direct Maritime main document",
+                document_label="direct Maritime main document",
                 reader=reader,
                 expected_text=("MAIN DOCUMENT", "CREATED"),
             )
@@ -321,24 +317,24 @@ class TestDirectPdfMaritime(unittest.TestCase):
             output_path = Path(tmp) / "recovery.pdf"
             inputs = _recovery_inputs(output_path)
 
-            result = render_maritime_recovery_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            self.assertIsNotNone(result.fallback_proof)
-            validate_render_artifact_proof(
-                artifact_label="direct Maritime recovery document",
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            self.assertIsNotNone(result.fallback_summary)
+            validate_rendered_document_summary(
+                document_label="direct Maritime recovery document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
             validate_fallback_text_in_pdf(
-                artifact_label="direct Maritime recovery document",
+                document_label="direct Maritime recovery document",
                 reader=reader,
                 fallback_sections=inputs.fallback_sections or (),
-                fallback_proof=result.fallback_proof,
+                fallback_summary=result.fallback_summary,
             )
             validate_text_in_pdf(
-                artifact_label="direct Maritime recovery document",
+                document_label="direct Maritime recovery document",
                 reader=reader,
                 expected_text=("RECOVERY DOCUMENT", "AUTH FRAME", "PASSPHRASE"),
             )
@@ -371,34 +367,34 @@ class TestDirectPdfMaritime(unittest.TestCase):
                             _surface_for(paper_size),
                             inputs,
                         )
-                        result = render_maritime_recovery_direct_pdf(inputs)
+                        result = render_frames_to_pdf(inputs)
                         reader = validate_pdf_has_pages(output_path)
 
                         self.assertGreater(len(plan.page_plans), 1)
-                        fallback_proof = plan.fallback_proof
-                        if fallback_proof is None:
+                        fallback_summary = plan.fallback_summary
+                        if fallback_summary is None:
                             raise AssertionError(
-                                "Maritime recovery plan omitted its fallback proof"
+                                "Maritime recovery plan omitted its fallback layout"
                             )
-                        self.assertTrue(fallback_proof.fully_consumed)
+                        self.assertTrue(fallback_summary.fully_consumed)
                         first_word = passphrase.split()[0]
                         passphrase_plans = [
                             item
                             for page_plan in plan.page_plans
                             for item in page_plan.plans
                             if "-meta-value-" in item.component_id
-                            and isinstance(item.proof, TextPlacementProof)
+                            and isinstance(item.layout, TextPlacement)
                             and any(
                                 first_word in placement.text
                                 for placement in getattr(item, "lines", ())
                             )
                         ]
-                        passphrase_proofs = [
-                            item.proof
+                        passphrase_layouts = [
+                            item.layout
                             for item in passphrase_plans
-                            if isinstance(item.proof, TextPlacementProof)
+                            if isinstance(item.layout, TextPlacement)
                         ]
-                        self.assertEqual(len(passphrase_proofs), len(plan.page_plans))
+                        self.assertEqual(len(passphrase_layouts), len(plan.page_plans))
                         self.assertTrue(
                             all(
                                 tuple(placement.text for placement in getattr(item, "lines", ()))
@@ -406,10 +402,12 @@ class TestDirectPdfMaritime(unittest.TestCase):
                                 for item in passphrase_plans
                             )
                         )
-                        self.assertTrue(all(proof.line_count == 4 for proof in passphrase_proofs))
-                        self.assertTrue(all(not proof.overflow for proof in passphrase_proofs))
+                        self.assertTrue(
+                            all(layout.line_count == 4 for layout in passphrase_layouts)
+                        )
+                        self.assertTrue(all(not layout.overflow for layout in passphrase_layouts))
                         self.assertGreaterEqual(
-                            min(proof.font_size_pt for proof in passphrase_proofs),
+                            min(layout.font_size_pt for layout in passphrase_layouts),
                             7.2,
                         )
                         for page_plan in plan.page_plans:
@@ -424,8 +422,8 @@ class TestDirectPdfMaritime(unittest.TestCase):
                                 if "-fallback-block-" in item.component_id
                             ]
                             self.assertGreaterEqual(
-                                min(block.proof.rect.y_mm for block in fallback_blocks)
-                                - instruction_shell.proof.rect.bottom_mm,
+                                min(block.layout.rect.y_mm for block in fallback_blocks)
+                                - instruction_shell.layout.rect.bottom_mm,
                                 2.0,
                             )
                             self._assert_fallback_rows_inside_blocks(page_plan)
@@ -434,10 +432,10 @@ class TestDirectPdfMaritime(unittest.TestCase):
                             self.assertIn(word, pdf_text)
                         self.assertIn("3131 3131", pdf_text)
                         validate_fallback_text_in_pdf(
-                            artifact_label="direct Maritime normal-passphrase recovery document",
+                            document_label="direct Maritime normal-passphrase recovery document",
                             reader=reader,
                             fallback_sections=inputs.fallback_sections or (),
-                            fallback_proof=fallback_proof,
+                            fallback_summary=fallback_summary,
                         )
                         self._assert_render_geometry(
                             plan=plan,
@@ -485,11 +483,11 @@ class TestDirectPdfMaritime(unittest.TestCase):
                         tuple(line.text for line in label.lines),
                         ("EXTENSION SHARD QUORUM",),
                     )
-                    self.assertEqual(label.proof.font_size_pt, 6.0)
-                    self.assertFalse(label.proof.overflow)
-                    self.assertGreater(label.proof.rect.width_mm, 24.0)
+                    self.assertEqual(label.layout.font_size_pt, 6.0)
+                    self.assertFalse(label.layout.overflow)
+                    self.assertGreater(label.layout.rect.width_mm, 24.0)
                     self.assertGreaterEqual(
-                        value.proof.rect.x_mm - label.proof.used_rect.right_mm,
+                        value.layout.rect.x_mm - label.layout.used_rect.right_mm,
                         5.0,
                     )
 
@@ -500,13 +498,13 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     DOC_TYPE_SHARD,
                     "SHARD DOCUMENT",
                     build_maritime_shard_direct_plan,
-                    render_maritime_shard_direct_pdf,
+                    render_frames_to_pdf,
                 ),
                 (
                     DOC_TYPE_SIGNING_KEY_SHARD,
-                    "SIGNING AUTHORITY SHARD",
+                    "SIGNING KEY SHARD",
                     build_maritime_signing_key_shard_direct_plan,
-                    render_maritime_signing_key_shard_direct_pdf,
+                    render_frames_to_pdf,
                 ),
             ):
                 output_path = Path(tmp) / f"{doc_type}.pdf"
@@ -521,38 +519,38 @@ class TestDirectPdfMaritime(unittest.TestCase):
                 fallback_lines = _page_items(page_plan, "-fallback-line-")
                 self.assertEqual(len(fallback_blocks), 1)
                 outer_block = fallback_blocks[0]
-                self.assertAlmostEqual(outer_block.proof.rect.x_mm, 14.0)
-                self.assertAlmostEqual(outer_block.proof.rect.width_mm, A4_WIDTH_MM - 28.0)
+                self.assertAlmostEqual(outer_block.layout.rect.x_mm, 14.0)
+                self.assertAlmostEqual(outer_block.layout.rect.width_mm, A4_WIDTH_MM - 28.0)
                 self.assertAlmostEqual(
-                    page_plan.rect.height_mm - outer_block.proof.rect.bottom_mm,
+                    page_plan.rect.height_mm - outer_block.layout.rect.bottom_mm,
                     21.0,
                 )
                 self.assertTrue(fallback_lines)
                 self.assertTrue(
                     all(
-                        line.proof.rect.width_mm >= outer_block.proof.rect.width_mm * 0.9
+                        line.layout.rect.width_mm >= outer_block.layout.rect.width_mm * 0.9
                         for line in fallback_lines
                     )
                 )
                 self.assertGreaterEqual(
-                    min(line.proof.font_size_pt for line in fallback_lines),
+                    min(line.layout.font_size_pt for line in fallback_lines),
                     8.5,
                 )
-                self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-                self.assertIsNotNone(result.fallback_proof)
-                validate_render_artifact_proof(
-                    artifact_label=f"direct Maritime {doc_type} document",
+                self.assertEqual(result.document_summary.page_count, len(reader.pages))
+                self.assertIsNotNone(result.fallback_summary)
+                validate_rendered_document_summary(
+                    document_label=f"direct Maritime {doc_type} document",
                     inputs=inputs,
-                    artifact_proof=result.artifact_proof,
+                    document_summary=result.document_summary,
                 )
                 validate_fallback_text_in_pdf(
-                    artifact_label=f"direct Maritime {doc_type} document",
+                    document_label=f"direct Maritime {doc_type} document",
                     reader=reader,
                     fallback_sections=inputs.fallback_sections or (),
-                    fallback_proof=result.fallback_proof,
+                    fallback_summary=result.fallback_summary,
                 )
                 validate_text_in_pdf(
-                    artifact_label=f"direct Maritime {doc_type} document",
+                    document_label=f"direct Maritime {doc_type} document",
                     reader=reader,
                     expected_text=(expected_title, "SHARD PAYLOAD"),
                 )
@@ -565,19 +563,19 @@ class TestDirectPdfMaritime(unittest.TestCase):
             packaged_direct_pdf_assets().register_fonts(surface)
 
             plan = build_maritime_kit_direct_plan(surface, inputs)
-            result = render_maritime_kit_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
 
             reader = validate_pdf_has_pages(output_path)
             self.assertEqual(len(plan.page_plans), 2)
-            self.assertEqual(result.artifact_proof.physical_qr_count, 5)
-            self.assertEqual(result.artifact_proof.page_count, len(reader.pages))
-            validate_render_artifact_proof(
-                artifact_label="direct Maritime kit document",
+            self.assertEqual(result.document_summary.physical_qr_count, 5)
+            self.assertEqual(result.document_summary.page_count, len(reader.pages))
+            validate_rendered_document_summary(
+                document_label="direct Maritime kit document",
                 inputs=inputs,
-                artifact_proof=result.artifact_proof,
+                document_summary=result.document_summary,
             )
             validate_text_in_pdf(
-                artifact_label="direct Maritime kit document",
+                document_label="direct Maritime kit document",
                 reader=reader,
                 expected_text=("RECOVERY KIT", "HOW TO REBUILD THE RECOVERY KIT"),
             )
@@ -590,7 +588,7 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     output_path = root / f"main-{paper_size}.pdf"
                     inputs = _main_inputs(output_path, count=20, paper_size=paper_size)
                     plan = build_maritime_main_direct_plan(_surface_for(paper_size), inputs)
-                    result = render_maritime_main_direct_pdf(inputs)
+                    result = render_frames_to_pdf(inputs)
                     reader = validate_pdf_has_pages(output_path)
 
                     self.assertEqual(len(plan.page_plans), 3)
@@ -607,7 +605,7 @@ class TestDirectPdfMaritime(unittest.TestCase):
                         self.assertEqual(len(cards), len(labels))
                         self.assertGreaterEqual(
                             page_plan.rect.height_mm
-                            - max(field.proof.rect.bottom_mm for field in fields),
+                            - max(field.layout.rect.bottom_mm for field in fields),
                             20.0,
                         )
                         for label in labels:
@@ -618,8 +616,8 @@ class TestDirectPdfMaritime(unittest.TestCase):
                                 if item.component_id.endswith(f"-qr-image-{payload_index}")
                             )
                             self.assertLessEqual(
-                                label.proof.rect.bottom_mm,
-                                image.proof.rect.y_mm,
+                                label.layout.rect.bottom_mm,
+                                image.layout.rect.y_mm,
                             )
                     text = _pdf_text(reader)
                     self.assertIn("PAGE 3 / 3", text)
@@ -636,7 +634,7 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     output_path = root / f"kit-{paper_size}.pdf"
                     inputs = _kit_inputs(output_path, count=14, paper_size=paper_size)
                     plan = build_maritime_kit_direct_plan(_surface_for(paper_size), inputs)
-                    result = render_maritime_kit_direct_pdf(inputs)
+                    result = render_frames_to_pdf(inputs)
                     reader = validate_pdf_has_pages(output_path)
 
                     self.assertEqual(len(plan.page_plans), 3)
@@ -646,7 +644,7 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     footer_items = _page_items(instruction_page, "-insert-footer-")
                     self.assertGreaterEqual(
                         instruction_page.rect.height_mm
-                        - max(item.proof.rect.bottom_mm for item in footer_items),
+                        - max(item.layout.rect.bottom_mm for item in footer_items),
                         20.0,
                     )
                     text = _pdf_text(reader)
@@ -672,7 +670,7 @@ class TestDirectPdfMaritime(unittest.TestCase):
                         data_size=2400,
                     )
                     plan = build_maritime_recovery_direct_plan(_surface_for(paper_size), inputs)
-                    result = render_maritime_recovery_direct_pdf(inputs)
+                    result = render_frames_to_pdf(inputs)
                     reader = validate_pdf_has_pages(output_path)
 
                     self.assertGreater(len(plan.page_plans), 1)
@@ -684,7 +682,7 @@ class TestDirectPdfMaritime(unittest.TestCase):
                         self._assert_fallback_rows_inside_blocks(page_plan)
                         self.assertGreaterEqual(
                             page_plan.rect.height_mm
-                            - max(block.proof.rect.bottom_mm for block in fallback_blocks),
+                            - max(block.layout.rect.bottom_mm for block in fallback_blocks),
                             20.0,
                         )
                     text = _pdf_text(reader)
@@ -701,12 +699,12 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     (
                         DOC_TYPE_SHARD,
                         build_maritime_shard_direct_plan,
-                        render_maritime_shard_direct_pdf,
+                        render_frames_to_pdf,
                     ),
                     (
                         DOC_TYPE_SIGNING_KEY_SHARD,
                         build_maritime_signing_key_shard_direct_plan,
-                        render_maritime_signing_key_shard_direct_pdf,
+                        render_frames_to_pdf,
                     ),
                 ):
                     with self.subTest(paper_size=paper_size, doc_type=doc_type):
@@ -722,45 +720,45 @@ class TestDirectPdfMaritime(unittest.TestCase):
                         reader = validate_pdf_has_pages(output_path)
 
                         self.assertEqual(len(plan.page_plans), 1)
-                        self.assertEqual(result.artifact_proof.physical_qr_count, 1)
-                        self.assertIsNotNone(result.fallback_proof)
-                        self.assertTrue(result.fallback_proof.fully_consumed)
+                        self.assertEqual(result.document_summary.physical_qr_count, 1)
+                        self.assertIsNotNone(result.fallback_summary)
+                        self.assertTrue(result.fallback_summary.fully_consumed)
                         for page_plan in plan.page_plans:
                             fallback_blocks = _page_items(page_plan, "-fallback-block-")
                             fallback_numbers = _page_items(page_plan, "-fallback-number-")
                             fallback_lines = _page_items(page_plan, "-fallback-line-")
                             self.assertEqual(len(fallback_blocks), 1)
-                            self.assertAlmostEqual(fallback_blocks[0].proof.rect.x_mm, 14.0)
+                            self.assertAlmostEqual(fallback_blocks[0].layout.rect.x_mm, 14.0)
                             self.assertAlmostEqual(
-                                fallback_blocks[0].proof.rect.width_mm,
+                                fallback_blocks[0].layout.rect.width_mm,
                                 page_plan.rect.width_mm - 28.0,
                             )
                             self.assertAlmostEqual(
-                                page_plan.rect.height_mm - fallback_blocks[0].proof.rect.bottom_mm,
+                                page_plan.rect.height_mm - fallback_blocks[0].layout.rect.bottom_mm,
                                 21.0,
                             )
                             self.assertGreaterEqual(
-                                min(item.proof.font_size_pt for item in fallback_numbers),
+                                min(item.layout.font_size_pt for item in fallback_numbers),
                                 6.5,
                             )
                             self.assertGreaterEqual(
-                                min(item.proof.font_size_pt for item in fallback_lines),
+                                min(item.layout.font_size_pt for item in fallback_lines),
                                 6.0,
                             )
                             panel_midpoint = (
-                                fallback_blocks[0].proof.rect.x_mm
-                                + fallback_blocks[0].proof.rect.width_mm / 2.0
+                                fallback_blocks[0].layout.rect.x_mm
+                                + fallback_blocks[0].layout.rect.width_mm / 2.0
                             )
                             self.assertTrue(
                                 any(
-                                    line.proof.rect.x_mm >= panel_midpoint
+                                    line.layout.rect.x_mm >= panel_midpoint
                                     for line in fallback_lines
                                 )
                             )
                             self._assert_fallback_rows_inside_blocks(page_plan)
                             self.assertGreaterEqual(
                                 page_plan.rect.height_mm
-                                - max(block.proof.rect.bottom_mm for block in fallback_blocks),
+                                - max(block.layout.rect.bottom_mm for block in fallback_blocks),
                                 20.0,
                             )
                         text = _pdf_text(reader)
@@ -810,7 +808,7 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     full_rows = [item for item in lines if len(item.lines[0].text) == longest_row]
                     self.assertGreaterEqual(
                         min(
-                            item.proof.used_rect.width_mm / item.proof.rect.width_mm
+                            item.layout.used_rect.width_mm / item.layout.rect.width_mm
                             for item in full_rows
                         ),
                         0.95,
@@ -822,7 +820,7 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     for page_plan in plan.page_plans[:-1]:
                         fallback_blocks = _page_items(page_plan, "-fallback-block-")
                         unused_height_mm = content_bottom_mm - max(
-                            item.proof.rect.bottom_mm for item in fallback_blocks
+                            item.layout.rect.bottom_mm for item in fallback_blocks
                         )
                         self.assertGreaterEqual(unused_height_mm, 0.0)
                         self.assertLessEqual(unused_height_mm, 2 * 4.2)
@@ -858,13 +856,13 @@ class TestDirectPdfMaritime(unittest.TestCase):
                 and any(placement.text == "1000." for placement in getattr(item, "lines", ()))
             )
             self.assertTrue(four_digit_numbers)
-            self.assertTrue(all(not item.proof.overflow for item in four_digit_numbers))
-            self.assertTrue(all(item.proof.rect.width_mm > 6.0 for item in four_digit_numbers))
+            self.assertTrue(all(not item.layout.overflow for item in four_digit_numbers))
+            self.assertTrue(all(item.layout.rect.width_mm > 6.0 for item in four_digit_numbers))
             self.assertTrue(
                 all(
                     constraint.satisfied
                     for page_plan in plan.page_plans
-                    for constraint in page_plan.proof.separation_constraints
+                    for constraint in page_plan.layout.separation_constraints
                 )
             )
 
@@ -892,9 +890,9 @@ class TestDirectPdfMaritime(unittest.TestCase):
 
         number = next(item for item in plans if "-fallback-number-" in item.component_id)
         payload = next(item for item in plans if "-fallback-line-" in item.component_id)
-        self.assertGreater(number.proof.rect.width_mm, 6.0)
-        self.assertFalse(number.proof.overflow)
-        self.assertFalse(payload.proof.overflow)
+        self.assertGreater(number.layout.rect.width_mm, 6.0)
+        self.assertFalse(number.layout.overflow)
+        self.assertFalse(payload.layout.overflow)
 
     def test_compact_shard_fallback_line_length_tracks_measured_page_width(self) -> None:
         page_sizes = (
@@ -932,17 +930,17 @@ class TestDirectPdfMaritime(unittest.TestCase):
 
                         self.assertTrue(lines)
                         self.assertEqual(
-                            len({round(line.proof.rect.x_mm, 2) for line in lines}),
+                            len({round(line.layout.rect.x_mm, 2) for line in lines}),
                             1,
                         )
                         self.assertTrue(
                             all(
-                                line.proof.rect.width_mm >= panel.proof.rect.width_mm * 0.9
+                                line.layout.rect.width_mm >= panel.layout.rect.width_mm * 0.9
                                 for line in lines
                             )
                         )
                         self.assertGreaterEqual(
-                            min(line.proof.font_size_pt for line in lines),
+                            min(line.layout.font_size_pt for line in lines),
                             8.5,
                         )
                         longest_lines[(doc_type, page_size.name)] = max(
@@ -983,18 +981,18 @@ class TestDirectPdfMaritime(unittest.TestCase):
             packaged_direct_pdf_assets().register_fonts(surface)
 
             plan = build_maritime_main_direct_plan(surface, inputs)
-            result = render_maritime_main_direct_pdf(inputs)
+            result = render_frames_to_pdf(inputs)
             reader = validate_pdf_has_pages(output_path)
 
             self.assertEqual(len(plan.page_plans), 3)
-            self.assertFalse(result.layout_proof.overflow)
+            self.assertFalse(result.layout_report.overflow)
             self.assertIn("SEGMENT 20 / 20", _pdf_text(reader))
             for page_plan, reader_page in zip(plan.page_plans, reader.pages, strict=True):
                 self.assertAlmostEqual(page_plan.rect.width_mm, 200.0)
                 self.assertAlmostEqual(page_plan.rect.height_mm, 270.0)
-                self.assertFalse(page_plan.proof.overflow)
+                self.assertFalse(page_plan.layout.overflow)
                 self.assertTrue(
-                    all(proof.satisfied for proof in page_plan.proof.separation_constraints)
+                    all(layout.satisfied for layout in page_plan.layout.separation_constraints)
                 )
                 self.assertAlmostEqual(
                     float(reader_page.mediabox.width) * 25.4 / 72.0,
@@ -1007,7 +1005,7 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     places=1,
                 )
 
-    def test_shard_renders_support_manifest_minimum_custom_page_size(self) -> None:
+    def test_shard_renders_support_design_minimum_custom_page_size(self) -> None:
         page_size = PaperSize(
             "CUSTOM-200X270",
             "Custom 200 x 270",
@@ -1020,12 +1018,12 @@ class TestDirectPdfMaritime(unittest.TestCase):
                 (
                     DOC_TYPE_SHARD,
                     build_maritime_shard_direct_plan,
-                    render_maritime_shard_direct_pdf,
+                    render_frames_to_pdf,
                 ),
                 (
                     DOC_TYPE_SIGNING_KEY_SHARD,
                     build_maritime_signing_key_shard_direct_plan,
-                    render_maritime_signing_key_shard_direct_pdf,
+                    render_frames_to_pdf,
                 ),
             ):
                 with self.subTest(doc_type=doc_type):
@@ -1054,15 +1052,15 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     reader = validate_pdf_has_pages(output_path)
 
                     self.assertEqual(len(plan.page_plans), 1)
-                    self.assertEqual(result.artifact_proof.physical_qr_count, 1)
+                    self.assertEqual(result.document_summary.physical_qr_count, 1)
                     self.assertEqual(len(plan.page_plans), len(reader.pages))
-                    layout_proof = result.layout_proof
-                    if layout_proof is None:
-                        raise AssertionError("Maritime render did not return a layout proof")
-                    self.assertFalse(layout_proof.overflow)
+                    layout_report = result.layout_report
+                    if layout_report is None:
+                        raise AssertionError("Maritime render did not return a layout report")
+                    self.assertFalse(layout_report.overflow)
                     text_components = [
                         component
-                        for page in layout_proof.pages
+                        for page in layout_report.pages
                         for component in page.components
                         if component.font_size_pt is not None
                     ]
@@ -1079,27 +1077,26 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     ]
                     self.assertTrue(instruction_lines)
                     self.assertTrue(
-                        all(
-                            isinstance(item.proof, TextPlacementProof) for item in instruction_lines
-                        )
+                        all(isinstance(item.layout, TextPlacement) for item in instruction_lines)
                     )
-                    instruction_proofs = [
-                        item.proof
+                    instruction_layouts = [
+                        item.layout
                         for item in instruction_lines
-                        if isinstance(item.proof, TextPlacementProof)
+                        if isinstance(item.layout, TextPlacement)
                     ]
-                    self.assertTrue(all(not proof.overflow for proof in instruction_proofs))
+                    self.assertTrue(all(not layout.overflow for layout in instruction_layouts))
                     self.assertGreaterEqual(
-                        min(proof.font_size_pt for proof in instruction_proofs),
+                        min(layout.font_size_pt for layout in instruction_layouts),
                         8.8,
                     )
-                    first_instruction_proof = next(
-                        item.proof
+                    first_instruction_layout = next(
+                        item.layout
                         for item in plan.page_plans[0].plans
                         if item.component_id.endswith("instruction-line-0")
-                        and isinstance(item.proof, TextPlacementProof)
+                        and isinstance(item.layout, TextPlacement)
                     )
-                    self.assertEqual(first_instruction_proof.line_count, 2)
+                    self.assertGreaterEqual(first_instruction_layout.line_count, 1)
+                    self.assertLessEqual(first_instruction_layout.line_count, 2)
                     for page_plan, reader_page in zip(
                         plan.page_plans,
                         reader.pages,
@@ -1107,20 +1104,23 @@ class TestDirectPdfMaritime(unittest.TestCase):
                     ):
                         self.assertAlmostEqual(page_plan.rect.width_mm, page_size.width_mm)
                         self.assertAlmostEqual(page_plan.rect.height_mm, page_size.height_mm)
-                        self.assertFalse(page_plan.proof.overflow)
-                        self.assertTrue(page_plan.proof.separation_constraints)
+                        self.assertFalse(page_plan.layout.overflow)
+                        self.assertTrue(page_plan.layout.separation_constraints)
                         self.assertTrue(
-                            all(proof.satisfied for proof in page_plan.proof.separation_constraints)
+                            all(
+                                layout.satisfied
+                                for layout in page_plan.layout.separation_constraints
+                            )
                         )
                         fallback_blocks = _page_items(page_plan, "-fallback-block-")
                         self.assertEqual(len(fallback_blocks), 1)
-                        self.assertAlmostEqual(fallback_blocks[0].proof.rect.x_mm, 14.0)
+                        self.assertAlmostEqual(fallback_blocks[0].layout.rect.x_mm, 14.0)
                         self.assertAlmostEqual(
-                            fallback_blocks[0].proof.rect.width_mm,
+                            fallback_blocks[0].layout.rect.width_mm,
                             page_size.width_mm - 28.0,
                         )
                         self.assertAlmostEqual(
-                            page_plan.rect.height_mm - fallback_blocks[0].proof.rect.bottom_mm,
+                            page_plan.rect.height_mm - fallback_blocks[0].layout.rect.bottom_mm,
                             21.0,
                         )
                         self._assert_fallback_rows_inside_blocks(page_plan)

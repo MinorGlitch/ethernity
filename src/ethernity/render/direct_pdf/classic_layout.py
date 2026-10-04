@@ -1,4 +1,4 @@
-"""Shared direct-PDF primitives for the Ledger and Maritime designs."""
+"""Layout helpers for the Ledger and Maritime direct-PDF designs."""
 
 from __future__ import annotations
 
@@ -86,7 +86,6 @@ class ClassicShardFallbackLayout:
 
     columns: int
     row_height_mm: float
-    line_length: int
     body_font_size_pt: float
     title_font_size_pt: float
 
@@ -258,23 +257,6 @@ def classic_shard_fallback_capacity(
     return rows_per_column * layout.columns
 
 
-def classic_shard_fallback_column_width(
-    area: PdfRect,
-    *,
-    columns: int,
-    column_gap_mm: float,
-    renderer_label: str,
-) -> float:
-    """Return one usable classic shard fallback column width."""
-
-    if columns <= 0:
-        raise ValueError(f"{renderer_label} shard fallback columns must be positive")
-    column_width_mm = (area.width_mm - (columns - 1) * column_gap_mm) / columns
-    if column_width_mm <= 0:
-        raise ValueError(f"{renderer_label} shard fallback columns have no usable width")
-    return column_width_mm
-
-
 def group_shard_fallback_column_blocks(
     fallback_page: FallbackPage,
     *,
@@ -352,7 +334,7 @@ def build_instruction_steps_section(
             line_height_multiplier=1.24,
         ).plan(surface, PdfRect(rect.x_mm + 8.0, y_mm - 0.3, rect.width_mm - 8.0, 13.0))
         plans.append(text_plan)
-        y_mm += max(9.0, text_plan.proof.used_rect.height_mm + 2.0)
+        y_mm += max(9.0, text_plan.layout.used_rect.height_mm + 2.0)
     return plans
 
 
@@ -393,7 +375,7 @@ def build_instruction_bullets_section(
             line_height_multiplier=1.25,
         ).plan(surface, PdfRect(rect.x_mm + 6.0, y_mm - 0.2, rect.width_mm - 6.0, 12.0))
         plans.append(text_plan)
-        y_mm += max(8.4, text_plan.proof.used_rect.height_mm + 1.8)
+        y_mm += max(8.4, text_plan.layout.used_rect.height_mm + 1.8)
     return plans
 
 
@@ -438,7 +420,7 @@ def build_instruction_checklist(
             line_height_multiplier=1.18,
         ).plan(surface, PdfRect(rect.x_mm + 9.0, y_mm - 0.1, rect.width_mm - 12.0, 10.0))
         plans.append(text_plan)
-        y_mm += max(10.0, text_plan.proof.used_rect.height_mm + 2.0)
+        y_mm += max(10.0, text_plan.layout.used_rect.height_mm + 2.0)
     return plans
 
 
@@ -446,7 +428,7 @@ def title_text_style(
     *,
     size_pt: float,
     color: PdfColor,
-    char_spacing_mm: float,
+    char_spacing_pt: float,
 ) -> TextStyle:
     """Build the serif title style shared by the classic designs."""
 
@@ -455,7 +437,7 @@ def title_text_style(
         size_pt=size_pt,
         style="B",
         color=color,
-        char_spacing_mm=char_spacing_mm,
+        char_spacing_pt=char_spacing_pt,
     )
 
 
@@ -464,7 +446,7 @@ def body_text_style(
     size_pt: float,
     color: PdfColor,
     bold: bool = False,
-    char_spacing_mm: float = 0.0,
+    char_spacing_pt: float = 0.0,
 ) -> TextStyle:
     """Build the sans-serif body style shared by the classic designs."""
 
@@ -473,7 +455,7 @@ def body_text_style(
         size_pt=size_pt,
         style="B" if bold else "",
         color=color,
-        char_spacing_mm=char_spacing_mm,
+        char_spacing_pt=char_spacing_pt,
     )
 
 
@@ -482,7 +464,7 @@ def monospace_text_style(
     size_pt: float,
     color: PdfColor,
     bold: bool = False,
-    char_spacing_mm: float = 0.0,
+    char_spacing_pt: float = 0.0,
 ) -> TextStyle:
     """Build the monospace style shared by the classic designs."""
 
@@ -491,7 +473,7 @@ def monospace_text_style(
         size_pt=size_pt,
         style="B" if bold else "",
         color=color,
-        char_spacing_mm=char_spacing_mm,
+        char_spacing_pt=char_spacing_pt,
     )
 
 
@@ -518,7 +500,7 @@ def _instruction_section_label(
             style=title_text_style(
                 size_pt=8.0,
                 color=style.section_accent,
-                char_spacing_mm=0.28,
+                char_spacing_pt=0.28,
             ),
             policy=TextFitPolicy.SHRINK,
             min_size_pt=6.0,
@@ -548,7 +530,6 @@ __all__ = [
     "build_instruction_steps_section",
     "build_page_background",
     "classic_shard_fallback_capacity",
-    "classic_shard_fallback_column_width",
     "group_fallback_visual_blocks",
     "group_shard_fallback_column_blocks",
     "monospace_text_style",
