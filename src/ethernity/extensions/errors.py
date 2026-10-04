@@ -23,12 +23,12 @@ from typing import Any
 AUTH_DOC_HASH_MISMATCH = "AUTH_DOC_HASH_MISMATCH"
 AUTH_SIGNATURE_INVALID = "AUTH_SIGNATURE_INVALID"
 RECOVERY_HEAD_UNTRUSTED = "RECOVERY_HEAD_UNTRUSTED"
-ROOT_AUTHORITY_MISMATCH = "ROOT_AUTHORITY_MISMATCH"
+ROOT_SIGNING_KEY_MISMATCH = "ROOT_SIGNING_KEY_MISMATCH"
 
 
 @dataclass
 class ExtensionRecoveryError(ValueError):
-    """Structured extension recovery failure independent of CLI/API layers."""
+    """Extension recovery failure with an error code and details."""
 
     code: str
     message: str
@@ -43,5 +43,5 @@ __all__ = [
     "AUTH_SIGNATURE_INVALID",
     "ExtensionRecoveryError",
     "RECOVERY_HEAD_UNTRUSTED",
-    "ROOT_AUTHORITY_MISMATCH",
+    "ROOT_SIGNING_KEY_MISMATCH",
 ]

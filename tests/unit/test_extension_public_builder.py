@@ -13,8 +13,6 @@ import pytest
 
 import ethernity.extensions as extension_api
 import ethernity.extensions.build as build_module
-from ethernity.cli.shared.input_scope import SelectedInputScope
-from ethernity.cli.shared.types import InputFile
 from ethernity.crypto.signing import AuthPayload, derive_public_key, sign_auth
 from ethernity.extensions import (
     AuthenticatedExtensionChainLink,
@@ -22,12 +20,14 @@ from ethernity.extensions import (
     VerifiedExtensionCandidate,
     build_extension,
 )
-from ethernity.extensions.build import _build_extension_document, build_virtual_chunk_source
-from ethernity.extensions.chain import _replay_authenticated_chain_state
-from ethernity.formats.envelope_codec import build_manifest_and_payload
-from ethernity.formats.envelope_types import PayloadPart
-from ethernity.formats.extension_envelope import ExtensionChunkingProfile
-from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.extensions.build import _build_extension_document
+from ethernity.extensions.chain import replay_authenticated_chain
+from ethernity.formats.document_codec import build_manifest_and_payload
+from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.formats.extension_document import ExtensionChunkingProfile
+from ethernity.formats.manifest import BackupFile
+from ethernity.workflows.shared.input_scope import SelectedInputScope
+from ethernity.workflows.shared.operation_types import InputFile
 
 ROOT_DOC_HASH = b"\x10" * 32
 EXTENSION_DOC_HASH = b"\x20" * 32
@@ -37,9 +37,9 @@ SIGNING_SEED = b"\x30" * 32
 def _profile() -> ExtensionChunkingProfile:
     return ExtensionChunkingProfile(
         algorithm_id=CHUNK_ALGORITHM_FASTCDC,
-        target_size=64 * 1024,
-        min_size=16 * 1024,
-        max_size=256 * 1024,
+        target_size=16 * 1024,
+        min_size=4 * 1024,
+        max_size=64 * 1024,
     )
 
 
@@ -93,7 +93,7 @@ def test_builder_replays_candidate_and_resolves_authenticated_historical_referen
     root_bytes = b"root version"
     latest_bytes = b"latest version"
     manifest, payload = build_manifest_and_payload(
-        (PayloadPart(path="state.txt", data=root_bytes, mtime=1),),
+        (BackupFile(path="state.txt", data=root_bytes, mtime=1),),
         sealed=False,
         signing_seed=SIGNING_SEED,
         created_at=1.0,
@@ -109,14 +109,9 @@ def test_builder_replays_candidate_and_resolves_authenticated_historical_referen
         input_files=(InputFile(None, "state.txt", latest_bytes, 2),),
         input_origin="file",
         input_roots=(),
-        chunker=lambda data, _profile: ((0, len(data)),),
         existing_file_sizes={"state.txt": len(root_bytes)},
-        existing_chunks=build_virtual_chunk_source(
-            (root_bytes,),
-            chunking=profile,
-            chunker=lambda data, _profile: ((0, len(data)),),
-        ),
-        existing_logical_bytes=len(root_bytes),
+        existing_chunks={hashlib.sha256(root_bytes).digest(): root_bytes},
+        existing_file_bytes=len(root_bytes),
     ).document
     sign_pub = derive_public_key(SIGNING_SEED)
     link = AuthenticatedExtensionChainLink(
@@ -125,7 +120,7 @@ def test_builder_replays_candidate_and_resolves_authenticated_historical_referen
         auth_payload=_auth(EXTENSION_DOC_HASH),
         expected_sign_pub=sign_pub,
     )
-    chain = _replay_authenticated_chain_state(
+    chain = replay_authenticated_chain(
         manifest,
         payload,
         root_doc_hash=ROOT_DOC_HASH,

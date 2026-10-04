@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Shared root-plus-extension chain resource admission rules."""
+"""Shared root-plus-extension chain size and document-count limits."""
 
 from __future__ import annotations
 
@@ -44,14 +44,14 @@ def require_chain_resource_limits(
     if document_count > MAX_RECOVERY_DOCUMENTS:
         raise ValueError(
             f"{operation} contains {document_count} recovery documents; the maximum is "
-            f"MAX_RECOVERY_DOCUMENTS ({MAX_RECOVERY_DOCUMENTS}). Rebuild the latest logical "
-            "state as a fresh standalone backup before adding more files."
+            f"MAX_RECOVERY_DOCUMENTS ({MAX_RECOVERY_DOCUMENTS}). Rebuild the latest file set "
+            "as a fresh standalone backup before adding more files."
         )
     if total_ciphertext_bytes > MAX_RECOVERY_CIPHERTEXT_BYTES:
         raise ValueError(
             f"{operation} contains {total_ciphertext_bytes} aggregate ciphertext bytes; the "
             "maximum is MAX_RECOVERY_CIPHERTEXT_BYTES "
-            f"({MAX_RECOVERY_CIPHERTEXT_BYTES}). Rebuild the latest logical state as a fresh "
+            f"({MAX_RECOVERY_CIPHERTEXT_BYTES}). Rebuild the latest file set as a fresh "
             "standalone backup before adding more files."
         )
 
@@ -67,7 +67,7 @@ def require_decoded_chunk_resource_limit(*, decoded_chunk_bytes: int, operation:
         raise ValueError(
             f"{operation} contains {decoded_chunk_bytes} decoded inline chunk bytes; the maximum "
             "is MAX_RECOVERY_DECODED_CHUNK_BYTES "
-            f"({MAX_RECOVERY_DECODED_CHUNK_BYTES}). Rebuild the latest logical state as a fresh "
+            f"({MAX_RECOVERY_DECODED_CHUNK_BYTES}). Rebuild the latest file set as a fresh "
             "standalone backup before adding more files."
         )
 

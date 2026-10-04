@@ -28,17 +28,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
-from ethernity.extensions.discovery import (
-    EXTENSIONS_DIR_NAME,
-    is_extension_like_top_level_entry,
-)
-from ethernity.extensions.layout import (
-    ExtensionMainArtifactName,
-    is_canonical_extension_dir_name,
-    parse_extension_dir_name,
-    parse_extension_main_filename,
-    parse_extension_shard_filename,
-)
 from ethernity.security.resource_worker import (
     DisposableWorkerError,
     WorkerLimits,
@@ -101,7 +90,6 @@ __all__ = [
     "QrDecoder",
     "QrScanError",
     "ScannedQrPayload",
-    "is_published_extension_payload_carrier",
     "looks_like_image",
     "looks_like_pdf",
     "scan_qr_payloads",
@@ -172,27 +160,14 @@ def _decode_image_bytes(data: bytes, *, zxing_module, image_module) -> list[byte
 
 def scan_qr_payloads(
     paths: Sequence[str | Path],
-    *,
-    include_extension_carriers: bool = True,
-    extension_carrier_max_index: int | None = None,
 ) -> list[bytes]:
     """Scan one or more paths and return decoded QR payload bytes."""
 
-    return [
-        payload.data
-        for payload in scan_qr_payloads_with_sources(
-            paths,
-            include_extension_carriers=include_extension_carriers,
-            extension_carrier_max_index=extension_carrier_max_index,
-        )
-    ]
+    return [payload.data for payload in scan_qr_payloads_with_sources(paths)]
 
 
 def scan_qr_payloads_with_sources(
     paths: Sequence[str | Path],
-    *,
-    include_extension_carriers: bool = True,
-    extension_carrier_max_index: int | None = None,
 ) -> list[ScannedQrPayload]:
     """Scan one or more paths and return decoded QR payload bytes with source paths."""
 
@@ -200,11 +175,7 @@ def scan_qr_payloads_with_sources(
     payloads: list[ScannedQrPayload] = []
     scan_file_count = 0
     started_at = time.monotonic()
-    for scan_input in _expand_paths(
-        paths,
-        include_extension_carriers=include_extension_carriers,
-        extension_carrier_max_index=extension_carrier_max_index,
-    ):
+    for scan_input in _expand_paths(paths):
         path = scan_input.path
         scan_file_count += 1
         if scan_file_count > MAX_SCAN_INPUT_FILES:
@@ -223,12 +194,6 @@ def scan_qr_payloads_with_sources(
             if decoder.name == "zxingcpp"
             else _scan_one_path(path, decoder)
         )
-        if (
-            include_extension_carriers
-            and is_published_extension_payload_carrier(path)
-            and not source_payloads
-        ):
-            raise QrScanError(f"published extension carrier contains no QR codes: {path}")
         if scan_input.explicit and not source_payloads:
             raise NoQrPayloadsError(f"explicit scan input contains no QR codes: {path}")
         if len(payloads) + len(source_payloads) > MAX_SCAN_QR_PAYLOADS:
@@ -385,9 +350,6 @@ def _enforce_image_pixel_budget(image) -> None:
 
 def _expand_paths(
     paths: Sequence[str | Path],
-    *,
-    include_extension_carriers: bool = True,
-    extension_carrier_max_index: int | None = None,
 ) -> Iterable[_ScanInput]:
     """Expand path inputs, recursing into directories for supported scan files."""
 
@@ -398,11 +360,7 @@ def _expand_paths(
         if not path.exists():
             raise QrScanError(f"scan path not found: {path}")
         if path.is_dir():
-            scan_files = _iter_scan_files(
-                path,
-                include_extension_carriers=include_extension_carriers,
-                extension_carrier_max_index=extension_carrier_max_index,
-            )
+            scan_files = _iter_scan_files(path)
             if not scan_files:
                 raise QrScanError(f"no scan files found in directory: {path}")
             yield from (_ScanInput(path=scan_file, explicit=False) for scan_file in scan_files)
@@ -412,41 +370,26 @@ def _expand_paths(
 
 def _iter_scan_files(
     directory: Path,
-    *,
-    include_extension_carriers: bool = True,
-    extension_carrier_max_index: int | None = None,
 ) -> list[Path]:
     """Collect supported scan files from a directory tree."""
 
     if directory.is_symlink():
         raise QrScanError(f"scan directory must not be a symlink: {directory}")
-    if _is_under_unpublished_extension_workspace(directory):
+    if any(part.startswith(".staging-") for part in directory.parts):
         return []
     files: list[Path] = []
     for root, dirnames, filenames in os.walk(directory):
         root_path = Path(root)
-        _validate_backup_export_scan_layout(
-            root_path,
-            include_extension_carriers=include_extension_carriers,
-            extension_carrier_max_index=extension_carrier_max_index,
-        )
-        dirnames[:] = sorted(
-            name
-            for name in dirnames
-            if _keep_scan_dir(
-                root_path / name,
-                include_extension_carriers=include_extension_carriers,
-                extension_carrier_max_index=extension_carrier_max_index,
-            )
-        )
+        dirnames[:] = sorted(name for name in dirnames if not name.startswith(".staging-"))
+        for name in dirnames:
+            if (root_path / name).is_symlink():
+                raise QrScanError(
+                    f"scan directory must not contain symlinked directories: {root_path / name}"
+                )
         for filename in filenames:
             path = root_path / filename
             if path.is_symlink():
                 raise QrScanError(f"scan file must not be a symlink: {path}")
-            if _is_published_extension_after_max_index(path, extension_carrier_max_index):
-                continue
-            if _is_non_payload_published_extension_main(path):
-                continue
             suffix = path.suffix.lower()
             if _looks_like_scan_file(path) or suffix == ".pdf" or suffix in _IMAGE_SUFFIXES:
                 if len(files) >= MAX_SCAN_INPUT_FILES:
@@ -456,160 +399,6 @@ def _iter_scan_files(
                 files.append(path)
     files.sort()
     return files
-
-
-def _keep_scan_dir(
-    path: Path,
-    *,
-    include_extension_carriers: bool,
-    extension_carrier_max_index: int | None,
-) -> bool:
-    if path.is_symlink():
-        raise QrScanError(f"scan directory must not contain symlinked directories: {path}")
-    if not include_extension_carriers and path.name == EXTENSIONS_DIR_NAME:
-        return False
-    if _is_published_extension_dir_after_max_index(path, extension_carrier_max_index):
-        return False
-    return not _is_under_unpublished_extension_workspace(path)
-
-
-def _validate_backup_export_scan_layout(
-    directory: Path,
-    *,
-    include_extension_carriers: bool = True,
-    extension_carrier_max_index: int | None = None,
-) -> None:
-    extensions_dir = directory / EXTENSIONS_DIR_NAME
-    if not extensions_dir.exists():
-        return
-    if extensions_dir.is_symlink():
-        raise QrScanError(f"extensions path must not be a symlink: {extensions_dir}")
-    if not extensions_dir.is_dir():
-        raise QrScanError(f"extensions path must be a directory: {extensions_dir}")
-    for entry in extensions_dir.iterdir():
-        if _is_unpublished_extension_workspace_name(entry.name):
-            continue
-        if _entry_after_extension_max_index(entry.name, extension_carrier_max_index):
-            continue
-        if entry.is_symlink():
-            raise QrScanError(f"extensions directory must not contain symlinked entries: {entry}")
-        if is_canonical_extension_dir_name(entry.name):
-            if not entry.is_dir():
-                raise QrScanError(f"canonical extension entry must be a directory: {entry.name}")
-            if include_extension_carriers:
-                _require_published_extension_qr_carrier(entry)
-            continue
-        if entry.name.isdecimal() and not is_canonical_extension_dir_name(entry.name):
-            raise QrScanError(
-                "extensions directory contains unexpected extension-like top-level entry: "
-                f"{entry.name}"
-            )
-        if is_extension_like_top_level_entry(entry.name):
-            raise QrScanError(
-                "extensions directory contains unexpected extension-like top-level entry: "
-                f"{entry.name}"
-            )
-
-
-def _require_published_extension_qr_carrier(extension_dir: Path) -> None:
-    expected_index = parse_extension_dir_name(extension_dir.name)
-    for entry in extension_dir.iterdir():
-        try:
-            parsed = parse_extension_main_filename(entry.name)
-        except ValueError:
-            continue
-        if parsed.doc_type == "qr_document" and parsed.index == expected_index and entry.is_file():
-            return
-    raise QrScanError(
-        f"canonical extension directory is missing its QR document carrier: {extension_dir}"
-    )
-
-
-def _is_under_unpublished_extension_workspace(path: Path) -> bool:
-    parts = path.parts
-    for index, part in enumerate(parts[:-1]):
-        if part == EXTENSIONS_DIR_NAME and _is_unpublished_extension_workspace_name(
-            parts[index + 1]
-        ):
-            return True
-    return False
-
-
-def _is_unpublished_extension_workspace_name(name: str) -> bool:
-    return name.startswith(".staging-")
-
-
-def _is_non_payload_published_extension_main(path: Path) -> bool:
-    parsed = _published_extension_main_name(path)
-    if parsed is None:
-        return False
-    return parsed.doc_type != "qr_document"
-
-
-def _is_published_extension_dir_after_max_index(
-    path: Path,
-    extension_carrier_max_index: int | None,
-) -> bool:
-    if extension_carrier_max_index is None:
-        return False
-    if path.parent.name != EXTENSIONS_DIR_NAME or not is_canonical_extension_dir_name(path.name):
-        return False
-    return parse_extension_dir_name(path.name) > extension_carrier_max_index
-
-
-def _is_published_extension_after_max_index(
-    path: Path,
-    extension_carrier_max_index: int | None,
-) -> bool:
-    if extension_carrier_max_index is None:
-        return False
-    parsed = _published_extension_main_name(path)
-    return parsed is not None and parsed.index > extension_carrier_max_index
-
-
-def _entry_after_extension_max_index(
-    name: str,
-    extension_carrier_max_index: int | None,
-) -> bool:
-    if extension_carrier_max_index is None:
-        return False
-    index = _extension_like_entry_index(name)
-    return index is not None and index > extension_carrier_max_index
-
-
-def _extension_like_entry_index(name: str) -> int | None:
-    if name.isdecimal():
-        return int(name, 10)
-    if name.startswith(("extension-", "extension_")):
-        suffix = name.removeprefix("extension-").removeprefix("extension_")
-        return int(suffix, 10) if suffix.isdecimal() else None
-    try:
-        return parse_extension_main_filename(name).index
-    except ValueError:
-        pass
-    try:
-        return parse_extension_shard_filename(name).index
-    except ValueError:
-        return None
-
-
-def is_published_extension_payload_carrier(path: str | Path) -> bool:
-    """Return whether a path is a canonical published extension QR carrier."""
-
-    parsed = _published_extension_main_name(Path(path))
-    return parsed is not None and parsed.doc_type == "qr_document"
-
-
-def _published_extension_main_name(path: Path) -> ExtensionMainArtifactName | None:
-    parent = path.parent
-    if parent.parent.name != EXTENSIONS_DIR_NAME or not is_canonical_extension_dir_name(
-        parent.name
-    ):
-        return None
-    try:
-        return parse_extension_main_filename(path.name)
-    except ValueError:
-        return None
 
 
 def _looks_like_scan_file(path: Path) -> bool:

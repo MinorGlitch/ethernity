@@ -35,13 +35,13 @@ class TestExtensionResources(unittest.TestCase):
         )
 
     def test_chain_transport_limits_reject_one_past_each_boundary(self) -> None:
-        with self.assertRaisesRegex(ValueError, "Rebuild the latest logical state"):
+        with self.assertRaisesRegex(ValueError, "Rebuild the latest file set"):
             require_chain_resource_limits(
                 document_count=MAX_RECOVERY_DOCUMENTS + 1,
                 total_ciphertext_bytes=0,
                 operation="test chain",
             )
-        with self.assertRaisesRegex(ValueError, "Rebuild the latest logical state"):
+        with self.assertRaisesRegex(ValueError, "Rebuild the latest file set"):
             require_chain_resource_limits(
                 document_count=1,
                 total_ciphertext_bytes=MAX_RECOVERY_CIPHERTEXT_BYTES + 1,
@@ -53,7 +53,7 @@ class TestExtensionResources(unittest.TestCase):
             decoded_chunk_bytes=MAX_RECOVERY_DECODED_CHUNK_BYTES,
             operation="test chain",
         )
-        with self.assertRaisesRegex(ValueError, "Rebuild the latest logical state"):
+        with self.assertRaisesRegex(ValueError, "Rebuild the latest file set"):
             require_decoded_chunk_resource_limit(
                 decoded_chunk_bytes=MAX_RECOVERY_DECODED_CHUNK_BYTES + 1,
                 operation="test chain",
