@@ -6,12 +6,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from ethernity.cli.features.recover.key_recovery import (
-    InsufficientShardError,
-    resolve_auth_payload,
-    validated_shard_payloads_from_frames,
-)
-from ethernity.cli.shared import api_codes
 from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.sharding import (
@@ -29,20 +23,25 @@ from ethernity.crypto.signing import (
 )
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType
-from ethernity.extensions import (
+from ethernity.extensions.chain import (
     AuthenticatedExtensionChainLink,
-    reconstruct_authenticated_latest_logical_state,
-    validate_authenticated_extension_chain,
+    replay_authenticated_chain,
 )
-from ethernity.formats import decode_any_envelope
-from ethernity.formats.envelope_codec import extract_payloads
-from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
-from ethernity.formats.extension_envelope import ExtensionEnvelope
+from ethernity.formats import decode_document
+from ethernity.formats.document_codec import extract_payloads
+from ethernity.formats.extension_document import ExtensionDocument
+from ethernity.formats.manifest import BackupManifest, ManifestFile
 from ethernity.workflows.recovery.frame_inputs import (
     detect_recovery_input_mode,
     frames_from_fallback_text,
     frames_from_payload_text,
 )
+from ethernity.workflows.recovery.keys import (
+    InsufficientShardError,
+    resolve_auth_payload,
+    validated_shard_payloads_from_frames,
+)
+from ethernity.workflows.shared import api_codes
 
 from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
 from .constants import MODE_AUTO, MODE_FALLBACK, MODE_PAYLOADS
@@ -77,13 +76,13 @@ class _DecodedMainDocument:
     ciphertext: bytes | None
     doc_hash: bytes | None
     reassembly_error: str | None
-    envelope_version: int | None = None
+    document_format_version: int | None = None
     document_kind: str | None = None
-    decoded: tuple[EnvelopeManifest, bytes] | ExtensionEnvelope | None = None
+    decoded: tuple[BackupManifest, bytes] | ExtensionDocument | None = None
     decrypt_error: str | None = None
     auth_payload: AuthPayload | None = None
     auth_status: str | None = None
-    root_authority_verified: bool | None = None
+    root_signing_key_verified: bool | None = None
 
 
 def _parse_text_to_frames(text: str, *, selected_mode: str) -> tuple[str, list[Frame]]:
@@ -238,8 +237,8 @@ def _build_frame_record(
     )
 
 
-def _manifest_projection(
-    manifest: EnvelopeManifest,
+def _manifest_details(
+    manifest: BackupManifest,
     extracted: Sequence[tuple[ManifestFile, bytes]],
 ) -> tuple[dict[str, object], list[FileRecord]]:
     manifest_files: list[dict[str, object]] = []
@@ -278,7 +277,7 @@ def _manifest_projection(
     return manifest_dict, file_records
 
 
-def _state_projection(
+def _restored_state_details(
     state: Sequence[tuple[str, int, bytes, int | None, bytes]],
 ) -> tuple[list[dict[str, object]], list[FileRecord]]:
     state_files: list[dict[str, object]] = []
@@ -306,7 +305,7 @@ def _state_projection(
     return state_files, file_records
 
 
-def _document_list_projection(
+def _document_list_details(
     documents: Sequence[_DecodedMainDocument],
 ) -> dict[str, object]:
     items: list[dict[str, object]] = []
@@ -316,13 +315,13 @@ def _document_list_projection(
             "frame_count": document.frame_count,
             "doc_hash": None if document.doc_hash is None else document.doc_hash.hex(),
             "reassembly_error": document.reassembly_error,
-            "envelope_version": document.envelope_version,
+            "document_format_version": document.document_format_version,
             "document_kind": document.document_kind,
             "decrypt_error": document.decrypt_error,
             "auth_status": document.auth_status,
-            "root_authority_verified": _resolved_root_authority_verified(document),
+            "root_signing_key_verified": _resolved_root_signing_key_verified(document),
         }
-        if document.envelope_version == 1 and isinstance(document.decoded, tuple):
+        if document.document_format_version == 1 and isinstance(document.decoded, tuple):
             manifest, _payload = document.decoded
             item["manifest"] = {
                 "format_version": manifest.format_version,
@@ -332,7 +331,9 @@ def _document_list_projection(
                 "payload_codec": manifest.payload_codec,
                 "file_count": len(manifest.files),
             }
-        elif document.envelope_version == 2 and isinstance(document.decoded, ExtensionEnvelope):
+        elif document.document_format_version == 2 and isinstance(
+            document.decoded, ExtensionDocument
+        ):
             item["extension"] = {
                 "index": document.decoded.header.index,
                 "file_count": len(document.decoded.files),
@@ -347,10 +348,10 @@ def _document_list_projection(
     }
 
 
-def _resolved_root_authority_verified(document: _DecodedMainDocument) -> bool | None:
-    if document.root_authority_verified is not None:
-        return document.root_authority_verified
-    if document.envelope_version != 1 or not isinstance(document.decoded, tuple):
+def _resolved_root_signing_key_verified(document: _DecodedMainDocument) -> bool | None:
+    if document.root_signing_key_verified is not None:
+        return document.root_signing_key_verified
+    if document.document_format_version != 1 or not isinstance(document.decoded, tuple):
         return None
 
     manifest, _payload = document.decoded
@@ -376,14 +377,14 @@ def _latest_chain_document(
         for document in sorted(
             extension_documents,
             key=lambda item: (
-                item.decoded.header.index if isinstance(item.decoded, ExtensionEnvelope) else -1
+                item.decoded.header.index if isinstance(item.decoded, ExtensionDocument) else -1
             ),
         )
-        if document.doc_hash is not None and isinstance(document.decoded, ExtensionEnvelope)
+        if document.doc_hash is not None and isinstance(document.decoded, ExtensionDocument)
     ]
     if sorted_extensions:
         latest_document = sorted_extensions[-1]
-        latest_extension = cast(ExtensionEnvelope, latest_document.decoded)
+        latest_extension = cast(ExtensionDocument, latest_document.decoded)
         return latest_extension.header.index, latest_document
     if root_document is not None and root_document.doc_hash is not None:
         return 0, root_document
@@ -396,15 +397,15 @@ def _trusted_root_head_details(
     if root_document is None or root_document.doc_hash is None:
         return None, None, None, None
 
-    root_authority_verified = _resolved_root_authority_verified(root_document)
-    if root_document.auth_status != "verified" or root_authority_verified is not True:
+    root_signing_key_verified = _resolved_root_signing_key_verified(root_document)
+    if root_document.auth_status != "verified" or root_signing_key_verified is not True:
         return None, None, None, None
-    return 0, root_document.doc_hash.hex(), root_document.auth_status, root_authority_verified
+    return 0, root_document.doc_hash.hex(), root_document.auth_status, root_signing_key_verified
 
 
 def _validated_chain_head_details(
     root_document: _DecodedMainDocument,
-    validated_extensions: Sequence[tuple[_DecodedMainDocument, ExtensionEnvelope]],
+    validated_extensions: Sequence[tuple[_DecodedMainDocument, ExtensionDocument]],
 ) -> tuple[int | None, str | None, str | None, bool | None]:
     if validated_extensions:
         latest_document, latest_extension = validated_extensions[-1]
@@ -448,12 +449,12 @@ def _base_trust_details(
         "validated_head_index": validated_head_index,
         "validated_head_doc_hash": validated_head_doc_hash,
         "validated_head_auth_status": validated_head_auth_status,
-        "validated_head_root_authority_verified": validated_head_root,
+        "validated_head_root_signing_key_verified": validated_head_root,
         "explicit_selection": False,
         "root_doc_hash": root_doc_hash,
         "root_auth_status": None if root_document is None else root_document.auth_status,
-        "root_authority_verified": (
-            None if root_document is None else _resolved_root_authority_verified(root_document)
+        "root_signing_key_verified": (
+            None if root_document is None else _resolved_root_signing_key_verified(root_document)
         ),
     }
 
@@ -473,16 +474,16 @@ def _build_trust_diagnostic(
     )
 
 
-def _root_projection_trust_diagnostic(document: _DecodedMainDocument) -> TrustDiagnostic:
+def _root_trust_diagnostic(document: _DecodedMainDocument) -> TrustDiagnostic:
     if document.doc_hash is None:
         raise ValueError("root document is not fully decoded")
-    root_authority_verified = _resolved_root_authority_verified(document)
+    root_signing_key_verified = _resolved_root_signing_key_verified(document)
     return _build_trust_diagnostic(
         status="ok",
         code=None,
-        message="root backup authority verified",
+        message="root backup signing key verified",
         details={
-            "stage": "projection",
+            "stage": "recovery",
             "trust_scope": "standalone_backup",
             "latest_head_index": 0,
             "latest_head_doc_hash": document.doc_hash.hex(),
@@ -491,11 +492,11 @@ def _root_projection_trust_diagnostic(document: _DecodedMainDocument) -> TrustDi
             "validated_head_index": 0,
             "validated_head_doc_hash": document.doc_hash.hex(),
             "validated_head_auth_status": document.auth_status,
-            "validated_head_root_authority_verified": root_authority_verified,
+            "validated_head_root_signing_key_verified": root_signing_key_verified,
             "explicit_selection": False,
             "root_doc_hash": document.doc_hash.hex(),
             "root_auth_status": document.auth_status,
-            "root_authority_verified": root_authority_verified,
+            "root_signing_key_verified": root_signing_key_verified,
         },
     )
 
@@ -503,7 +504,7 @@ def _root_projection_trust_diagnostic(document: _DecodedMainDocument) -> TrustDi
 def _extension_only_refusal_diagnostic(document: _DecodedMainDocument) -> TrustDiagnostic:
     latest_head_index = None
     root_doc_hash = None
-    if isinstance(document.decoded, ExtensionEnvelope):
+    if isinstance(document.decoded, ExtensionDocument):
         latest_head_index = document.decoded.header.index
         root_doc_hash = document.decoded.header.root_doc_hash.hex()
     return _build_trust_diagnostic(
@@ -511,14 +512,14 @@ def _extension_only_refusal_diagnostic(document: _DecodedMainDocument) -> TrustD
         code=api_codes.RECOVERY_HEAD_UNTRUSTED,
         message=(
             "latest supplied recovery head could not be trusted: extension preview requires "
-            "the root backup to validate root authority"
+            "the root backup to validate the root signing key"
         ),
         details={
             "stage": "replay",
             "trust_scope": "extension_only",
-            "failure_stage": "authority_context",
+            "failure_stage": "root_key_context",
             "failure_message": (
-                "extension preview requires the root backup to validate root authority"
+                "extension preview requires the root backup to validate the root signing key"
             ),
             "failure_head_index": latest_head_index,
             "failure_head_doc_hash": (
@@ -534,17 +535,17 @@ def _extension_only_refusal_diagnostic(document: _DecodedMainDocument) -> TrustD
             "validated_head_index": None,
             "validated_head_doc_hash": None,
             "validated_head_auth_status": None,
-            "validated_head_root_authority_verified": None,
+            "validated_head_root_signing_key_verified": None,
             "explicit_selection": False,
             "root_doc_hash": root_doc_hash,
             "root_auth_status": None,
-            "root_authority_verified": None,
+            "root_signing_key_verified": None,
             "auth_status": document.auth_status,
         },
     )
 
 
-def _projection_refusal_diagnostic(
+def _recovery_failure_diagnostic(
     *,
     root_document: _DecodedMainDocument | None,
     extension_documents: Sequence[_DecodedMainDocument],
@@ -552,7 +553,7 @@ def _projection_refusal_diagnostic(
     failure_message: str,
     code: str = api_codes.RECOVERY_HEAD_UNTRUSTED,
     failure_document: _DecodedMainDocument | None = None,
-    validated_extensions: Sequence[tuple[_DecodedMainDocument, ExtensionEnvelope]] = (),
+    validated_extensions: Sequence[tuple[_DecodedMainDocument, ExtensionDocument]] = (),
 ) -> TrustDiagnostic:
     details = _base_trust_details(
         root_document=root_document, extension_documents=extension_documents
@@ -569,7 +570,7 @@ def _projection_refusal_diagnostic(
     )
     details.update(
         {
-            "stage": "authority" if code == api_codes.ROOT_AUTHORITY_MISMATCH else "replay",
+            "stage": "signing_key" if code == api_codes.ROOT_SIGNING_KEY_MISMATCH else "replay",
             "trust_scope": "extension_chain" if extension_documents else "standalone_backup",
             "failure_stage": failure_stage,
             "failure_message": failure_message,
@@ -579,14 +580,14 @@ def _projection_refusal_diagnostic(
             "validated_head_index": validated_head_index,
             "validated_head_doc_hash": validated_head_doc_hash,
             "validated_head_auth_status": validated_head_auth_status,
-            "validated_head_root_authority_verified": validated_head_root,
+            "validated_head_root_signing_key_verified": validated_head_root,
         }
     )
     if failure_document is not None and failure_document.doc_hash is not None:
         details["failure_head_doc_hash"] = failure_document.doc_hash.hex()
-    if failure_document is not None and isinstance(failure_document.decoded, ExtensionEnvelope):
+    if failure_document is not None and isinstance(failure_document.decoded, ExtensionDocument):
         details["failure_head_index"] = failure_document.decoded.header.index
-    if code == api_codes.ROOT_AUTHORITY_MISMATCH:
+    if code == api_codes.ROOT_SIGNING_KEY_MISMATCH:
         message = failure_message
     else:
         message = f"latest supplied recovery head could not be trusted: {failure_message}"
@@ -598,10 +599,10 @@ def _projection_refusal_diagnostic(
     )
 
 
-def _chain_projection_trust_diagnostic(
+def _chain_trust_diagnostic(
     *,
     root_document: _DecodedMainDocument,
-    validated_extensions: Sequence[tuple[_DecodedMainDocument, ExtensionEnvelope]],
+    validated_extensions: Sequence[tuple[_DecodedMainDocument, ExtensionDocument]],
     latest_file_count: int,
 ) -> TrustDiagnostic:
     (
@@ -624,16 +625,16 @@ def _chain_projection_trust_diagnostic(
             "validated_head_index": validated_head_index,
             "validated_head_doc_hash": validated_head_doc_hash,
             "validated_head_auth_status": validated_head_auth_status,
-            "validated_head_root_authority_verified": validated_head_root,
+            "validated_head_root_signing_key_verified": validated_head_root,
             "explicit_selection": False,
             "root_doc_hash": root_document.doc_hash.hex()
             if root_document.doc_hash is not None
             else None,
             "root_auth_status": root_document.auth_status,
-            "root_authority_verified": _resolved_root_authority_verified(root_document),
-            "root_auth_matches_embedded_authority": True,
+            "root_signing_key_verified": _resolved_root_signing_key_verified(root_document),
+            "root_signature_matches_embedded_key": True,
             "extension_count": len(validated_extensions),
-            "latest_logical_file_count": latest_file_count,
+            "latest_file_count": latest_file_count,
         },
     )
 
@@ -651,9 +652,9 @@ def _trust_diagnostic_payload(
     }
 
 
-def _projection_diagnostic_lines(trust_diagnostic: TrustDiagnostic | None) -> list[str]:
+def _trust_diagnostic_lines(trust_diagnostic: TrustDiagnostic | None) -> list[str]:
     if trust_diagnostic is None:
-        return ["No projection diagnostics available."]
+        return ["No trust diagnostics available."]
 
     details = trust_diagnostic.details
     lines = [f"Trust status: {trust_diagnostic.status}"]
@@ -665,17 +666,17 @@ def _projection_diagnostic_lines(trust_diagnostic: TrustDiagnostic | None) -> li
         lines.extend(
             [
                 "Reconstruction scope: full root-plus-extensions chain",
-                "Authority model: root-derived via root backup",
+                "Signing key: derived from the root backup",
                 (
-                    "Root backup AUTH matches embedded authority: "
-                    f"{bool_text(bool(details.get('root_auth_matches_embedded_authority')))}"
+                    "Root signature matches embedded signing key: "
+                    f"{bool_text(bool(details.get('root_signature_matches_embedded_key')))}"
                 ),
                 (
-                    "Extension AUTH: verified against root authority for "
+                    "Extension signatures: verified against the root key for "
                     f"{_details_int(details, 'extension_count')} extension(s)"
                 ),
                 f"Chain extensions: {_details_int(details, 'extension_count')}",
-                f"Latest logical files: {_details_int(details, 'latest_logical_file_count')}",
+                f"Latest files: {_details_int(details, 'latest_file_count')}",
             ]
         )
     else:
@@ -705,17 +706,17 @@ def _projection_diagnostic_lines(trust_diagnostic: TrustDiagnostic | None) -> li
             f"Validated head: index={validated_head_index}, doc_hash={validated_head_doc_hash}"
         )
         lines.append(
-            "Validated head AUTH/root authority: "
+            "Validated head signature/root signing key: "
             f"{details.get('validated_head_auth_status')}/"
-            f"{details.get('validated_head_root_authority_verified')}"
+            f"{details.get('validated_head_root_signing_key_verified')}"
         )
 
     root_auth_status = details.get("root_auth_status")
     if root_auth_status is not None:
         lines.append(f"Root AUTH status: {root_auth_status}")
-    root_authority_verified = details.get("root_authority_verified")
-    if root_authority_verified is not None:
-        lines.append(f"Root authority verified: {bool_text(bool(root_authority_verified))}")
+    root_signing_key_verified = details.get("root_signing_key_verified")
+    if root_signing_key_verified is not None:
+        lines.append(f"Root signing key verified: {bool_text(bool(root_signing_key_verified))}")
     return lines
 
 
@@ -767,9 +768,9 @@ def _inspect_chain_documents(
     manifest, payload = root_document.decoded
     root_sign_pub = derive_public_key(manifest.signing_seed) if manifest.signing_seed else None
     if root_sign_pub is None:
-        raise ValueError("root signing authority is unavailable for extension chain validation")
+        raise ValueError("root signing key is unavailable for extension chain validation")
     if root_document.auth_status != "verified" or root_document.auth_payload is None:
-        trust_diagnostic = _projection_refusal_diagnostic(
+        trust_diagnostic = _recovery_failure_diagnostic(
             root_document=root_document,
             extension_documents=extension_documents,
             failure_stage="auth",
@@ -782,38 +783,38 @@ def _inspect_chain_documents(
         hmac.compare_digest(root_document.auth_payload.sign_pub, root_sign_pub)
     )
     if not root_auth_matches_embedded:
-        trust_diagnostic = _projection_refusal_diagnostic(
+        trust_diagnostic = _recovery_failure_diagnostic(
             root_document=root_document,
             extension_documents=extension_documents,
-            failure_stage="root_authority",
+            failure_stage="root_signing_key",
             failure_message=(
-                "embedded signing seed does not match the verified root AUTH authority"
+                "embedded signing seed does not match the verified root signature key"
             ),
-            code=api_codes.ROOT_AUTHORITY_MISMATCH,
+            code=api_codes.ROOT_SIGNING_KEY_MISMATCH,
         )
         return None, [], trust_diagnostic
 
-    sorted_extensions: list[tuple[_DecodedMainDocument, ExtensionEnvelope]] = []
+    sorted_extensions: list[tuple[_DecodedMainDocument, ExtensionDocument]] = []
     for document in sorted(
         extension_documents,
         key=lambda item: (
-            item.decoded.header.index if isinstance(item.decoded, ExtensionEnvelope) else -1
+            item.decoded.header.index if isinstance(item.decoded, ExtensionDocument) else -1
         ),
     ):
-        if document.doc_hash is None or not isinstance(document.decoded, ExtensionEnvelope):
+        if document.doc_hash is None or not isinstance(document.decoded, ExtensionDocument):
             continue
         sorted_extensions.append((document, document.decoded))
     links: list[AuthenticatedExtensionChainLink] = []
-    validated_extensions: list[tuple[_DecodedMainDocument, ExtensionEnvelope]] = []
-    extension_root_authority_verified: dict[int, bool] = {}
-    for document, envelope in sorted_extensions:
+    validated_extensions: list[tuple[_DecodedMainDocument, ExtensionDocument]] = []
+    extension_root_signing_key_verified: dict[int, bool] = {}
+    for document, extension_document in sorted_extensions:
         if document.auth_status != "verified":
-            trust_diagnostic = _projection_refusal_diagnostic(
+            trust_diagnostic = _recovery_failure_diagnostic(
                 root_document=root_document,
                 extension_documents=extension_documents,
                 failure_stage="auth",
                 failure_message=(
-                    f"extension {envelope.header.index} AUTH validation failed "
+                    f"extension {extension_document.header.index} AUTH validation failed "
                     f"({document.auth_status or 'missing'})"
                 ),
                 failure_document=document,
@@ -824,36 +825,41 @@ def _inspect_chain_documents(
             document.auth_payload.sign_pub,
             root_sign_pub,
         ):
-            trust_diagnostic = _projection_refusal_diagnostic(
+            trust_diagnostic = _recovery_failure_diagnostic(
                 root_document=root_document,
                 extension_documents=extension_documents,
                 failure_stage="auth",
                 failure_message=(
-                    f"extension {envelope.header.index} AUTH does not match root authority"
+                    f"extension {extension_document.header.index} signature "
+                    "does not match the root signing key"
                 ),
                 failure_document=document,
                 validated_extensions=validated_extensions,
             )
             return None, [], trust_diagnostic
-        extension_root_authority_verified[envelope.header.index] = True
+        extension_root_signing_key_verified[extension_document.header.index] = True
         assert document.doc_hash is not None
         links.append(
             AuthenticatedExtensionChainLink(
                 doc_hash=document.doc_hash,
-                document=envelope,
+                document=extension_document,
                 auth_payload=document.auth_payload,
                 expected_sign_pub=root_sign_pub,
             )
         )
-        validated_extensions.append((document, envelope))
+        validated_extensions.append((document, extension_document))
     try:
-        validate_authenticated_extension_chain(
+        validated_chain = replay_authenticated_chain(
+            manifest,
+            payload,
             root_doc_hash=root_document.doc_hash,
+            root_auth_payload=root_document.auth_payload,
             expected_sign_pub=root_sign_pub,
             extensions=links,
+            root_chunking=links[0].document.header.chunking,
         )
     except Exception as exc:
-        trust_diagnostic = _projection_refusal_diagnostic(
+        trust_diagnostic = _recovery_failure_diagnostic(
             root_document=root_document,
             extension_documents=extension_documents,
             failure_stage="validation",
@@ -861,27 +867,11 @@ def _inspect_chain_documents(
             validated_extensions=validated_extensions,
         )
         return None, [], trust_diagnostic
-    try:
-        latest_state = reconstruct_authenticated_latest_logical_state(
-            manifest,
-            payload,
-            root_doc_hash=root_document.doc_hash,
-            expected_sign_pub=root_sign_pub,
-            extensions=links,
-        )
-    except Exception as exc:
-        trust_diagnostic = _projection_refusal_diagnostic(
-            root_document=root_document,
-            extension_documents=extension_documents,
-            failure_stage="reconstruction",
-            failure_message=str(exc),
-            validated_extensions=validated_extensions,
-        )
-        return None, [], trust_diagnostic
-    latest_files, file_records = _state_projection(
+    latest_state = validated_chain.files
+    latest_files, file_records = _restored_state_details(
         [(item.path, item.size, item.sha256, item.mtime, item.data) for item in latest_state]
     )
-    trust_diagnostic = _chain_projection_trust_diagnostic(
+    trust_diagnostic = _chain_trust_diagnostic(
         root_document=root_document,
         validated_extensions=validated_extensions,
         latest_file_count=len(latest_files),
@@ -898,26 +888,26 @@ def _inspect_chain_documents(
                 "input_roots": list(manifest.input_roots),
                 "payload_codec": manifest.payload_codec,
                 "auth_status": root_document.auth_status,
-                "root_authority_verified": root_auth_matches_embedded,
+                "root_signing_key_verified": root_auth_matches_embedded,
                 "file_count": len(manifest.files),
             },
             "extensions": [
                 {
                     "doc_id": document.doc_id.hex(),
                     "doc_hash": document.doc_hash.hex() if document.doc_hash is not None else None,
-                    "index": envelope.header.index,
-                    "parent_doc_hash": envelope.header.parent_doc_hash.hex(),
-                    "root_doc_hash": envelope.header.root_doc_hash.hex(),
-                    "input_origin": envelope.header.input_origin,
-                    "input_roots": list(envelope.header.input_roots),
-                    "file_count": len(envelope.files),
-                    "chunk_count": len(envelope.chunks),
+                    "index": extension_document.header.index,
+                    "parent_doc_hash": extension_document.header.parent_doc_hash.hex(),
+                    "root_doc_hash": extension_document.header.root_doc_hash.hex(),
+                    "input_origin": extension_document.header.input_origin,
+                    "input_roots": list(extension_document.header.input_roots),
+                    "file_count": len(extension_document.files),
+                    "chunk_count": len(extension_document.chunks),
                     "auth_status": document.auth_status,
-                    "root_authority_verified": extension_root_authority_verified[
-                        envelope.header.index
+                    "root_signing_key_verified": extension_root_signing_key_verified[
+                        extension_document.header.index
                     ],
                 }
-                for document, envelope in sorted_extensions
+                for document, extension_document in sorted_extensions
             ],
             "latest_state": {
                 "file_count": len(latest_files),
@@ -944,17 +934,17 @@ def _decode_main_documents(
             continue
         try:
             plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=False)
-            envelope_version, decoded = decode_any_envelope(plaintext)
-            if envelope_version == 1 and isinstance(decoded, tuple):
-                decoded_payload: tuple[EnvelopeManifest, bytes] | ExtensionEnvelope = cast(
-                    tuple[EnvelopeManifest, bytes],
+            document_format_version, decoded = decode_document(plaintext)
+            if document_format_version == 1 and isinstance(decoded, tuple):
+                decoded_payload: tuple[BackupManifest, bytes] | ExtensionDocument = cast(
+                    tuple[BackupManifest, bytes],
                     decoded,
                 )
-            elif envelope_version == 2 and isinstance(decoded, ExtensionEnvelope):
+            elif document_format_version == 2 and isinstance(decoded, ExtensionDocument):
                 decoded_payload = decoded
             else:
                 raise ValueError(
-                    f"unsupported decoded envelope shape for version {envelope_version}"
+                    f"unsupported decoded document structure for version {document_format_version}"
                 )
             decoded_documents.append(
                 _DecodedMainDocument(
@@ -963,13 +953,15 @@ def _decode_main_documents(
                     ciphertext=document.ciphertext,
                     doc_hash=document.doc_hash,
                     reassembly_error=document.reassembly_error,
-                    envelope_version=envelope_version,
-                    document_kind="standalone_backup" if envelope_version == 1 else "extension",
+                    document_format_version=document_format_version,
+                    document_kind="standalone_backup"
+                    if document_format_version == 1
+                    else "extension",
                     decoded=decoded_payload,
                     decrypt_error=None,
                     auth_payload=document.auth_payload,
                     auth_status=document.auth_status,
-                    root_authority_verified=document.root_authority_verified,
+                    root_signing_key_verified=document.root_signing_key_verified,
                 )
             )
         except Exception as exc:
@@ -983,13 +975,13 @@ def _decode_main_documents(
                     decrypt_error=str(exc),
                     auth_payload=document.auth_payload,
                     auth_status=document.auth_status,
-                    root_authority_verified=document.root_authority_verified,
+                    root_signing_key_verified=document.root_signing_key_verified,
                 )
             )
     return tuple(decoded_documents), passphrase
 
 
-def _project_decoded_documents(
+def _inspect_decoded_documents(
     documents: Sequence[_DecodedMainDocument],
 ) -> tuple[dict[str, object] | None, list[FileRecord], TrustDiagnostic | None]:
     successful = [
@@ -1006,22 +998,23 @@ def _project_decoded_documents(
             (
                 document
                 for document in successful
-                if document.envelope_version == 1 and isinstance(document.decoded, tuple)
+                if document.document_format_version == 1 and isinstance(document.decoded, tuple)
             ),
             None,
         )
         extension_documents = [
             document
             for document in successful
-            if document.envelope_version == 2 and isinstance(document.decoded, ExtensionEnvelope)
+            if document.document_format_version == 2
+            and isinstance(document.decoded, ExtensionDocument)
         ]
-        trust_diagnostic = _projection_refusal_diagnostic(
+        trust_diagnostic = _recovery_failure_diagnostic(
             root_document=root_document,
             extension_documents=extension_documents,
             failure_stage="decode",
             failure_message=(
-                "some decoded documents failed reassembly or envelope decoding; "
-                "refusing partial projection"
+                "some decoded documents failed reassembly or document decoding; "
+                "refusing partial recovery"
             ),
         )
         return None, [], trust_diagnostic
@@ -1029,31 +1022,31 @@ def _project_decoded_documents(
     root_documents = [
         document
         for document in successful
-        if document.envelope_version == 1 and isinstance(document.decoded, tuple)
+        if document.document_format_version == 1 and isinstance(document.decoded, tuple)
     ]
     extension_documents = [
         document
         for document in successful
-        if document.envelope_version == 2 and isinstance(document.decoded, ExtensionEnvelope)
+        if document.document_format_version == 2 and isinstance(document.decoded, ExtensionDocument)
     ]
 
     if len(root_documents) == 1 and not extension_documents:
-        return _project_single_root_document(root_documents[0])
+        return _inspect_root_document(root_documents[0])
 
     if not root_documents and len(extension_documents) == 1:
-        return _project_single_extension_document(extension_documents[0])
+        return _inspect_extension_document(extension_documents[0])
 
     if len(root_documents) == 1 and extension_documents:
         return _inspect_chain_documents(root_documents[0], extension_documents)
 
-    return _document_list_projection(documents), [], None
+    return _document_list_details(documents), [], None
 
 
-def _project_single_root_document(
+def _inspect_root_document(
     document: _DecodedMainDocument,
 ) -> tuple[dict[str, object] | None, list[FileRecord], TrustDiagnostic | None]:
     if document.auth_status != "verified":
-        trust_diagnostic = _projection_refusal_diagnostic(
+        trust_diagnostic = _recovery_failure_diagnostic(
             root_document=document,
             extension_documents=(),
             failure_stage="auth",
@@ -1062,35 +1055,35 @@ def _project_single_root_document(
         return None, [], trust_diagnostic
 
     manifest, payload = cast(
-        tuple[EnvelopeManifest, bytes],
+        tuple[BackupManifest, bytes],
         document.decoded,
     )
     if (
         manifest.signing_seed is not None
-        and _resolved_root_authority_verified(document) is not True
+        and _resolved_root_signing_key_verified(document) is not True
     ):
-        trust_diagnostic = _projection_refusal_diagnostic(
+        trust_diagnostic = _recovery_failure_diagnostic(
             root_document=document,
             extension_documents=(),
-            failure_stage="root_authority",
+            failure_stage="root_signing_key",
             failure_message=(
-                "embedded signing seed does not match the verified root AUTH authority"
+                "embedded signing seed does not match the verified root signature key"
             ),
-            code=api_codes.ROOT_AUTHORITY_MISMATCH,
+            code=api_codes.ROOT_SIGNING_KEY_MISMATCH,
         )
         return None, [], trust_diagnostic
 
     extracted = extract_payloads(manifest, payload)
-    projection, file_records = _manifest_projection(manifest, extracted)
-    projection["kind"] = "standalone_backup"
-    return projection, file_records, _root_projection_trust_diagnostic(document)
+    document_details, file_records = _manifest_details(manifest, extracted)
+    document_details["kind"] = "standalone_backup"
+    return document_details, file_records, _root_trust_diagnostic(document)
 
 
-def _project_single_extension_document(
+def _inspect_extension_document(
     document: _DecodedMainDocument,
 ) -> tuple[dict[str, object] | None, list[FileRecord], TrustDiagnostic | None]:
     if document.auth_status != "verified":
-        trust_diagnostic = _projection_refusal_diagnostic(
+        trust_diagnostic = _recovery_failure_diagnostic(
             root_document=None,
             extension_documents=(document,),
             failure_stage="auth",
@@ -1135,7 +1128,6 @@ def _reassemble_main_documents(
                     doc_hash=doc_hash,
                     allow_unsigned=True,
                     require_auth=False,
-                    quiet=True,
                 )
             except Exception as exc:
                 auth_status = f"invalid: {exc}"
@@ -1367,9 +1359,9 @@ def inspect_pasted_text(
         "No document details available. Provide a passphrase after MAIN frames reassemble.\n"
     )
     document_json_text: str | None = None
-    projection_diagnostics_text = "No projection diagnostics available.\n"
+    trust_diagnostics_text = "No trust diagnostics available.\n"
     file_records: list[FileRecord] = []
-    document_projection: dict[str, object] | None = None
+    document_details: dict[str, object] | None = None
     trust_diagnostic: TrustDiagnostic | None = None
     decryption_source: str | None = None
     decryption_passphrase = passphrase
@@ -1384,18 +1376,16 @@ def inspect_pasted_text(
         passphrase=decryption_passphrase,
     )
     if decryption_passphrase:
-        document_projection, file_records, trust_diagnostic = _project_decoded_documents(
+        document_details, file_records, trust_diagnostic = _inspect_decoded_documents(
             decoded_documents
         )
-        if document_projection is not None:
-            document_json_text = json_text(document_projection)
+        if document_details is not None:
+            document_json_text = json_text(document_details)
             document_text = document_json_text
         elif trust_diagnostic is not None:
             document_text = f"Document decode failed:\n{trust_diagnostic.message}\n"
         if trust_diagnostic is not None:
-            projection_diagnostics_text = (
-                "\n".join(_projection_diagnostic_lines(trust_diagnostic)) + "\n"
-            )
+            trust_diagnostics_text = "\n".join(_trust_diagnostic_lines(trust_diagnostic)) + "\n"
     elif successful_main_documents:
         if len(successful_main_documents) == 1:
             document_text = (
@@ -1439,29 +1429,29 @@ def inspect_pasted_text(
         summary_lines.append(f"Reassembled MAIN documents: {len(successful_main_documents)}")
     elif main_documents:
         summary_lines.append("MAIN reassembly: failed")
-    if document_projection is not None:
-        projection_kind = str(document_projection.get("kind"))
-        if projection_kind == "standalone_backup":
+    if document_details is not None:
+        document_kind = str(document_details.get("kind"))
+        if document_kind == "standalone_backup":
             summary_lines.extend(
                 [
-                    f"Manifest format_version: {document_projection['format_version']}",
-                    f"Manifest sealed: {bool_text(bool(document_projection['sealed']))}",
-                    f"Manifest input_origin: {document_projection['input_origin']}",
-                    f"Manifest payload_codec: {document_projection['payload_codec']}",
+                    f"Manifest format_version: {document_details['format_version']}",
+                    f"Manifest sealed: {bool_text(bool(document_details['sealed']))}",
+                    f"Manifest input_origin: {document_details['input_origin']}",
+                    f"Manifest payload_codec: {document_details['payload_codec']}",
                     f"Manifest files: {len(file_records)}",
                 ]
             )
-        elif projection_kind == "extension_chain":
-            chain_extensions = cast(list[object], document_projection.get("extensions", []))
+        elif document_kind == "extension_chain":
+            chain_extensions = cast(list[object], document_details.get("extensions", []))
             summary_lines.extend(
                 [
                     "Decoded document kind: extension_chain",
                     f"Chain extensions: {len(chain_extensions)}",
-                    f"Latest logical files: {len(file_records)}",
+                    f"Latest files: {len(file_records)}",
                 ]
             )
-        elif projection_kind == "documents":
-            document_items = cast(list[object], document_projection.get("documents", []))
+        elif document_kind == "documents":
+            document_items = cast(list[object], document_details.get("documents", []))
             summary_lines.append(f"Decoded documents: {len(document_items)}")
         if decryption_source is not None:
             summary_lines.append(f"Decrypted via: {decryption_source}")
@@ -1510,7 +1500,7 @@ def inspect_pasted_text(
                 file_count=len(file_records),
             )
         )
-    elif document_projection is not None and decryption_source is not None:
+    elif document_details is not None and decryption_source is not None:
         diagnostics_lines.append(f"Document decryption source: {decryption_source}")
 
     report = {
@@ -1530,14 +1520,14 @@ def inspect_pasted_text(
                     None if document.ciphertext is None else len(document.ciphertext)
                 ),
                 "reassembly_error": document.reassembly_error,
-                "envelope_version": document.envelope_version,
+                "document_format_version": document.document_format_version,
                 "document_kind": document.document_kind,
                 "decrypt_error": document.decrypt_error,
             }
             for document in decoded_documents
         ],
         "frames": [record.detail for record in frame_records],
-        "document": document_projection,
+        "document": document_details,
         "trust_diagnostic": _trust_diagnostic_payload(trust_diagnostic),
         "decryption_source": decryption_source,
         "files": [
@@ -1571,7 +1561,7 @@ def inspect_pasted_text(
         combined_fallback_text=fallback_text,
         document_text=document_text,
         document_json_text=document_json_text,
-        projection_diagnostics_text=projection_diagnostics_text,
+        trust_diagnostics_text=trust_diagnostics_text,
         frame_records=frame_records,
         files=tuple(file_records),
         recovered_secrets=recovered_secrets,

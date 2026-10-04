@@ -59,7 +59,7 @@ class InspectionResult:
     combined_fallback_text: str
     document_text: str
     document_json_text: str | None
-    projection_diagnostics_text: str
+    trust_diagnostics_text: str
     frame_records: tuple[FrameRecord, ...]
     files: tuple[FileRecord, ...]
     recovered_secrets: tuple[RecoveredSecretRecord, ...]

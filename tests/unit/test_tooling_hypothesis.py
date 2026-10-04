@@ -17,9 +17,8 @@ from __future__ import annotations
 
 from hypothesis import given, settings, strategies as st
 
-from ethernity.cli.shared.io.fallback_parser import filter_fallback_lines
-from ethernity.encoding.cbor import dumps_canonical, loads_canonical
-from ethernity.encoding.fallback_text import _is_valid_zbase32_line
+from ethernity.encoding.cbor import dumps_deterministic, loads_deterministic
+from ethernity.encoding.fallback_text import _is_valid_zbase32_line, filter_fallback_lines
 from ethernity.encoding.framing import (
     DOC_ID_LEN,
     Frame,
@@ -34,7 +33,7 @@ ZBASE32_CHARS = "ybndrfg8ejkmcpqxot1uwisza345h769"
 VALID_FALLBACK_CHARS = ZBASE32_CHARS + ZBASE32_CHARS.upper() + " \t"
 
 
-def _canonical_cbor_values() -> st.SearchStrategy[object]:
+def _deterministic_cbor_values() -> st.SearchStrategy[object]:
     scalar = st.none() | st.booleans() | st.integers(min_value=-1024, max_value=1024)
     binary = st.binary(max_size=32)
     text = st.text(max_size=32)
@@ -48,10 +47,10 @@ def _canonical_cbor_values() -> st.SearchStrategy[object]:
 
 
 @PROPERTY_SETTINGS
-@given(_canonical_cbor_values())
-def test_canonical_cbor_roundtrips(value: object) -> None:
-    encoded = dumps_canonical(value)
-    assert loads_canonical(encoded, label="property") == value
+@given(_deterministic_cbor_values())
+def test_deterministic_cbor_roundtrips(value: object) -> None:
+    encoded = dumps_deterministic(value)
+    assert loads_deterministic(encoded, label="property") == value
 
 
 @PROPERTY_SETTINGS

@@ -7,7 +7,6 @@ from pathlib import Path
 
 import tooling.document_inspector as inspector
 
-from ethernity.cli.shared.types import InputFile
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
@@ -15,10 +14,11 @@ from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_BASE64, encode_qr_payload
 from ethernity.extensions.build import _build_extension_document
-from ethernity.formats.envelope_codec import build_manifest_and_payload, encode_envelope
-from ethernity.formats.envelope_types import PayloadPart
-from ethernity.formats.extension_envelope import ExtensionChunkingProfile
-from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.formats.document_codec import build_manifest_and_payload, encode_backup_document
+from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.formats.extension_document import ExtensionChunkingProfile
+from ethernity.formats.manifest import BackupFile
+from ethernity.workflows.shared.operation_types import InputFile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _V1_0_FIXTURES_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_0" / "golden" / "base64"
@@ -35,9 +35,9 @@ def _backup_shards(scenario_root: Path) -> list[Path]:
 def _profile() -> ExtensionChunkingProfile:
     return ExtensionChunkingProfile(
         algorithm_id=CHUNK_ALGORITHM_FASTCDC,
-        target_size=64 * 1024,
-        min_size=16 * 1024,
-        max_size=256 * 1024,
+        target_size=16 * 1024,
+        min_size=4 * 1024,
+        max_size=64 * 1024,
     )
 
 
@@ -99,12 +99,12 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertEqual(report_trust["details"], result.trust_diagnostic.details)
         self.assertIn(
             f"Trust message: {result.trust_diagnostic.message}",
-            result.projection_diagnostics_text,
+            result.trust_diagnostics_text,
         )
         if result.trust_diagnostic.code is not None:
             self.assertIn(
                 f"Trust code: {result.trust_diagnostic.code}",
-                result.projection_diagnostics_text,
+                result.trust_diagnostics_text,
             )
         return decoded_report
 
@@ -130,7 +130,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         decoded_report = self._decoded_trust_report(result)
         self.assertIn("document", decoded_report)
         self.assertEqual(result.trust_diagnostic.code, None)
-        self.assertEqual(result.trust_diagnostic.message, "root backup authority verified")
+        self.assertEqual(result.trust_diagnostic.message, "root backup signing key verified")
 
     def test_inspect_shard_payloads_recovers_passphrase(self) -> None:
         payload_text = (
@@ -208,7 +208,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertGreaterEqual(len(result.files), 1)
         self.assertIn("Decrypted via: recovered passphrase shards", result.summary_text)
 
-    def test_inspect_extension_payloads_require_root_backup_authority_context(self) -> None:
+    def test_inspect_extension_payloads_require_root_backup_key(self) -> None:
         extension = _build_extension_document(
             index=1,
             parent_doc_hash=b"\x10" * 32,
@@ -224,7 +224,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
         )
         extension_signing_seed = b"\x41" * 32
@@ -246,13 +245,13 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn(
             (
                 "Document decode failed: latest supplied recovery head could not be trusted: "
-                "extension preview requires the root backup to validate root authority"
+                "extension preview requires the root backup to validate the root signing key"
             ),
             result.diagnostics_text,
         )
-        self.assertIn("Trust status: refused", result.projection_diagnostics_text)
-        self.assertIn("Failure stage: authority_context", result.projection_diagnostics_text)
-        self.assertIn("Validated head: none", result.projection_diagnostics_text)
+        self.assertIn("Trust status: refused", result.trust_diagnostics_text)
+        self.assertIn("Failure stage: root_key_context", result.trust_diagnostics_text)
+        self.assertIn("Validated head: none", result.trust_diagnostics_text)
         self._decoded_trust_report(result)
         self.assertIsNotNone(result.trust_diagnostic)
         self.assertEqual(result.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")
@@ -260,13 +259,13 @@ class TestDocumentInspectorTool(unittest.TestCase):
 
     def test_inspect_root_payloads_rejects_invalid_auth(self) -> None:
         manifest, payload = build_manifest_and_payload(
-            [PayloadPart(path="alpha.txt", data=b"root-alpha\n", mtime=1712666401)],
+            [BackupFile(path="alpha.txt", data=b"root-alpha\n", mtime=1712666401)],
             sealed=False,
             signing_seed=b"\x41" * 32,
             input_origin="directory",
             input_roots=("demo",),
         )
-        root_plaintext = encode_envelope(payload, manifest)
+        root_plaintext = encode_backup_document(payload, manifest)
         root_frames, root_doc_hash = _encrypted_main_frames(
             root_plaintext,
             passphrase=_EXTENSION_TEST_PASSPHRASE,
@@ -301,26 +300,26 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn(
             (
                 "Document decode failed: embedded signing seed does not match "
-                "the verified root AUTH authority"
+                "the verified root signature key"
             ),
             result.diagnostics_text,
         )
-        self.assertIn("Trust code: ROOT_AUTHORITY_MISMATCH", result.projection_diagnostics_text)
-        self.assertIn("Failure stage: root_authority", result.projection_diagnostics_text)
+        self.assertIn("Trust code: ROOT_SIGNING_KEY_MISMATCH", result.trust_diagnostics_text)
+        self.assertIn("Failure stage: root_signing_key", result.trust_diagnostics_text)
         self._decoded_trust_report(result)
         self.assertIsNotNone(result.trust_diagnostic)
-        self.assertEqual(result.trust_diagnostic.code, "ROOT_AUTHORITY_MISMATCH")
+        self.assertEqual(result.trust_diagnostic.code, "ROOT_SIGNING_KEY_MISMATCH")
         self.assertEqual(result.trust_diagnostic.details["validated_head_index"], None)
 
-    def test_chain_projection_requires_verified_root_auth(self) -> None:
+    def test_chain_recovery_requires_verified_root_auth(self) -> None:
         root_manifest, root_payload = build_manifest_and_payload(
-            (PayloadPart(path="docs/root.txt", data=b"root\n", mtime=1712666400),),
+            (BackupFile(path="docs/root.txt", data=b"root\n", mtime=1712666400),),
             sealed=False,
             signing_seed=b"\x41" * 32,
             input_origin="directory",
             input_roots=("demo",),
         )
-        root_plaintext = encode_envelope(root_payload, root_manifest)
+        root_plaintext = encode_backup_document(root_payload, root_manifest)
         root_frames, root_doc_hash = _encrypted_main_frames(
             root_plaintext,
             passphrase=_EXTENSION_TEST_PASSPHRASE,
@@ -340,7 +339,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -364,23 +362,23 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             result.diagnostics_text,
         )
-        self.assertIn("Trust code: RECOVERY_HEAD_UNTRUSTED", result.projection_diagnostics_text)
-        self.assertIn("Failure stage: auth", result.projection_diagnostics_text)
+        self.assertIn("Trust code: RECOVERY_HEAD_UNTRUSTED", result.trust_diagnostics_text)
+        self.assertIn("Failure stage: auth", result.trust_diagnostics_text)
         self._decoded_trust_report(result)
         self.assertIsNotNone(result.trust_diagnostic)
         self.assertEqual(result.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")
         self.assertEqual(result.trust_diagnostic.details["latest_head_index"], 1)
         self.assertEqual(result.trust_diagnostic.details["validated_head_index"], None)
 
-    def test_chain_projection_rejects_root_authority_mismatch(self) -> None:
+    def test_chain_recovery_rejects_root_signing_key_mismatch(self) -> None:
         root_manifest, root_payload = build_manifest_and_payload(
-            (PayloadPart(path="docs/root.txt", data=b"root\n", mtime=1712666400),),
+            (BackupFile(path="docs/root.txt", data=b"root\n", mtime=1712666400),),
             sealed=False,
             signing_seed=b"\x41" * 32,
             input_origin="directory",
             input_roots=("demo",),
         )
-        root_plaintext = encode_envelope(root_payload, root_manifest)
+        root_plaintext = encode_backup_document(root_payload, root_manifest)
         root_frames, root_doc_hash = _encrypted_main_frames(
             root_plaintext,
             passphrase=_EXTENSION_TEST_PASSPHRASE,
@@ -417,7 +415,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -437,15 +434,15 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn(
             (
                 "Document decode failed: embedded signing seed does not match "
-                "the verified root AUTH authority"
+                "the verified root signature key"
             ),
             result.diagnostics_text,
         )
-        self.assertIn("Trust code: ROOT_AUTHORITY_MISMATCH", result.projection_diagnostics_text)
-        self.assertIn("Failure stage: root_authority", result.projection_diagnostics_text)
+        self.assertIn("Trust code: ROOT_SIGNING_KEY_MISMATCH", result.trust_diagnostics_text)
+        self.assertIn("Failure stage: root_signing_key", result.trust_diagnostics_text)
         self._decoded_trust_report(result)
         self.assertIsNotNone(result.trust_diagnostic)
-        self.assertEqual(result.trust_diagnostic.code, "ROOT_AUTHORITY_MISMATCH")
+        self.assertEqual(result.trust_diagnostic.code, "ROOT_SIGNING_KEY_MISMATCH")
         self.assertEqual(result.trust_diagnostic.details["latest_head_index"], 1)
         self.assertEqual(result.trust_diagnostic.details["validated_head_index"], None)
 
@@ -466,7 +463,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
             existing_chunks={hashlib.sha256(root_chunk).digest(): root_chunk},
         )
@@ -488,12 +484,12 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn(
             (
                 "Document decode failed: latest supplied recovery head could not be trusted: "
-                "extension preview requires the root backup to validate root authority"
+                "extension preview requires the root backup to validate the root signing key"
             ),
             result.diagnostics_text,
         )
-        self.assertIn("Trust status: refused", result.projection_diagnostics_text)
-        self.assertIn("Failure stage: authority_context", result.projection_diagnostics_text)
+        self.assertIn("Trust status: refused", result.trust_diagnostics_text)
+        self.assertIn("Failure stage: root_key_context", result.trust_diagnostics_text)
         self._decoded_trust_report(result)
         self.assertIsNotNone(result.trust_diagnostic)
         self.assertEqual(result.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")
@@ -501,7 +497,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
     def test_inspect_root_and_extension_payloads_reconstructs_latest_state(self) -> None:
         manifest, payload = build_manifest_and_payload(
             [
-                PayloadPart(path="alpha.txt", data=b"root-alpha\n", mtime=1712666401),
+                BackupFile(path="alpha.txt", data=b"root-alpha\n", mtime=1712666401),
             ],
             sealed=False,
             signing_seed=b"\x41" * 32,
@@ -510,7 +506,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         )
         root_signing_seed = b"\x41" * 32
         root_frames, root_doc_hash = _encrypted_main_frames(
-            encode_envelope(payload, manifest),
+            encode_backup_document(payload, manifest),
             passphrase=_EXTENSION_TEST_PASSPHRASE,
         )
         root_sign_pub = derive_public_key(root_signing_seed)
@@ -545,7 +541,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -566,7 +561,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         decoded = json.loads(result.document_json_text or "{}")
         self.assertEqual(decoded["kind"], "extension_chain")
         self.assertEqual(decoded["root"]["auth_status"], "verified")
-        self.assertTrue(decoded["root"]["root_authority_verified"])
+        self.assertTrue(decoded["root"]["root_signing_key_verified"])
         self.assertEqual(decoded["latest_state"]["file_count"], 2)
         self._decoded_trust_report(result)
         self.assertIsNotNone(result.trust_diagnostic)
@@ -575,21 +570,21 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertEqual(result.trust_diagnostic.details["validated_head_index"], 1)
         self.assertEqual(result.trust_diagnostic.details["validated_head_auth_status"], "verified")
         self.assertEqual(
-            result.trust_diagnostic.details["validated_head_root_authority_verified"], True
+            result.trust_diagnostic.details["validated_head_root_signing_key_verified"], True
         )
         self.assertIn(
-            "Authority model: root-derived via root backup",
-            result.projection_diagnostics_text,
+            "Signing key: derived from the root backup",
+            result.trust_diagnostics_text,
         )
         self.assertIn(
-            "Extension AUTH: verified against root authority for 1 extension(s)",
-            result.projection_diagnostics_text,
+            "Extension signatures: verified against the root key for 1 extension(s)",
+            result.trust_diagnostics_text,
         )
 
-    def test_chain_projection_extension_authority_mismatch_fails_closed(self) -> None:
+    def test_chain_recovery_extension_signing_key_mismatch_fails_closed(self) -> None:
         manifest, payload = build_manifest_and_payload(
             [
-                PayloadPart(path="alpha.txt", data=b"root-alpha\n", mtime=1712666401),
+                BackupFile(path="alpha.txt", data=b"root-alpha\n", mtime=1712666401),
             ],
             sealed=False,
             signing_seed=b"\x41" * 32,
@@ -598,7 +593,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         )
         root_signing_seed = b"\x41" * 32
         root_frames, root_doc_hash = _encrypted_main_frames(
-            encode_envelope(payload, manifest),
+            encode_backup_document(payload, manifest),
             passphrase=_EXTENSION_TEST_PASSPHRASE,
         )
         root_sign_pub = derive_public_key(root_signing_seed)
@@ -633,7 +628,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: ((0, len(data)),),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -653,30 +647,30 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn(
             (
                 "Document decode failed: latest supplied recovery head could not be trusted: "
-                "extension 1 AUTH does not match root authority"
+                "extension 1 signature does not match the root signing key"
             ),
             result.diagnostics_text,
         )
-        self.assertIn("Trust code: RECOVERY_HEAD_UNTRUSTED", result.projection_diagnostics_text)
-        self.assertIn("Failure stage: auth", result.projection_diagnostics_text)
-        self.assertIn("Validated head: index=0", result.projection_diagnostics_text)
+        self.assertIn("Trust code: RECOVERY_HEAD_UNTRUSTED", result.trust_diagnostics_text)
+        self.assertIn("Failure stage: auth", result.trust_diagnostics_text)
+        self.assertIn("Validated head: index=0", result.trust_diagnostics_text)
         self._decoded_trust_report(result)
         self.assertIsNotNone(result.trust_diagnostic)
         self.assertEqual(result.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")
         self.assertEqual(result.trust_diagnostic.details["latest_head_index"], 1)
         self.assertEqual(result.trust_diagnostic.details["validated_head_index"], 0)
 
-    def test_inspect_valid_root_and_bad_extension_refuses_partial_projection(self) -> None:
+    def test_inspect_valid_root_and_bad_extension_refuses_partial_recovery(self) -> None:
         manifest, payload = build_manifest_and_payload(
             [
-                PayloadPart(path="alpha.txt", data=b"root-alpha\n", mtime=1712666401),
+                BackupFile(path="alpha.txt", data=b"root-alpha\n", mtime=1712666401),
             ],
             sealed=False,
             signing_seed=b"\x41" * 32,
             input_origin="directory",
             input_roots=("demo",),
         )
-        root_plaintext = encode_envelope(payload, manifest)
+        root_plaintext = encode_backup_document(payload, manifest)
         root_frames, root_doc_hash = _encrypted_main_frames(
             root_plaintext,
             passphrase=_EXTENSION_TEST_PASSPHRASE,
@@ -699,7 +693,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
         )
         bad_extension_ciphertext, _ = encrypt_bytes_with_passphrase(
-            b"not-an-extension-envelope",
+            b"not-an-extension-document",
             passphrase=_EXTENSION_TEST_PASSPHRASE,
         )
         bad_extension_doc_id, bad_extension_doc_hash = doc_id_and_hash_from_ciphertext(
@@ -743,14 +737,14 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn(
             (
                 "Document decode failed: latest supplied recovery head could not be trusted: "
-                "some decoded documents failed reassembly or envelope decoding; "
-                "refusing partial projection"
+                "some decoded documents failed reassembly or document decoding; "
+                "refusing partial recovery"
             ),
             result.diagnostics_text,
         )
-        self.assertIn("Trust code: RECOVERY_HEAD_UNTRUSTED", result.projection_diagnostics_text)
-        self.assertIn("Failure stage: decode", result.projection_diagnostics_text)
-        self.assertIn("Validated head: index=0", result.projection_diagnostics_text)
+        self.assertIn("Trust code: RECOVERY_HEAD_UNTRUSTED", result.trust_diagnostics_text)
+        self.assertIn("Failure stage: decode", result.trust_diagnostics_text)
+        self.assertIn("Validated head: index=0", result.trust_diagnostics_text)
         self._decoded_trust_report(result)
         self.assertIsNotNone(result.trust_diagnostic)
         self.assertEqual(result.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")

@@ -271,7 +271,7 @@ class ThemeController:
             relief="solid",
         )
         style.configure(
-            "Surface.TFrame",
+            "Panel.TFrame",
             background=palette.panel,
             bordercolor=palette.border,
             lightcolor=palette.border,

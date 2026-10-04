@@ -82,7 +82,7 @@ class TestDocumentInspectorAppSupport(unittest.TestCase):
             combined_fallback_text="fallback",
             document_text="document",
             document_json_text='{"kind":"documents"}',
-            projection_diagnostics_text="projection",
+            trust_diagnostics_text="trust diagnostics",
             frame_records=(frame_record,),
             files=(file_record,),
             recovered_secrets=(secret_record,),

@@ -142,7 +142,7 @@ class InspectorApp:
         main.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
 
         # Left panel: session notebook (no chrome)
-        left = ttk.Frame(main, style="Surface.TFrame", padding=4)
+        left = ttk.Frame(main, style="Panel.TFrame", padding=4)
         left.columnconfigure(0, weight=1)
         left.rowconfigure(0, weight=1)
         self.session_notebook = ttk.Notebook(left)
@@ -151,7 +151,7 @@ class InspectorApp:
         main.add(left, weight=2)
 
         # Right panel: consolidated output tabs
-        right_shell = ttk.Frame(main, style="Surface.TFrame", padding=4)
+        right_shell = ttk.Frame(main, style="Panel.TFrame", padding=4)
         right_shell.columnconfigure(0, weight=1)
         right_shell.rowconfigure(0, weight=1)
         right = ttk.Notebook(right_shell)
@@ -214,8 +214,8 @@ class InspectorApp:
         document_frame.rowconfigure(1, weight=2)
         self.document_text_widget = self._build_child_text(document_frame)
         self.document_text_widget.grid(row=0, column=0, sticky="nsew")
-        self.projection_diagnostics_text_widget = self._build_child_text(document_frame)
-        self.projection_diagnostics_text_widget.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        self.trust_diagnostics_text_widget = self._build_child_text(document_frame)
+        self.trust_diagnostics_text_widget.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
         data_nb.add(document_frame, text="Document")
 
         files_frame = ttk.Frame(data_nb, padding=6, style="NotebookPage.TFrame")
@@ -360,7 +360,7 @@ class InspectorApp:
         self.theme.refresh()
         self.mono_font.configure(family=self.theme.mono_font_family, size=11)
 
-    # ── Text helpers ──────────────────────────────────────────
+    # ── Text widgets ──────────────────────────────────────────
 
     def _set_text(self, widget: ScrolledText, text: str, *, editable: bool = False) -> None:
         widget.configure(state="normal")
@@ -380,8 +380,8 @@ class InspectorApp:
         self._set_text(self.frame_fallback_text, "Select a frame to inspect fallback text.\n")
         self._set_text(self.document_text_widget, "No decoded document available.\n")
         self._set_text(
-            self.projection_diagnostics_text_widget,
-            "No projection diagnostics available.\n",
+            self.trust_diagnostics_text_widget,
+            "No trust diagnostics available.\n",
         )
         self._set_text(self.file_preview_text, "No file previews available.\n")
         self._set_text(self.payloads_text, "No normalized payloads available.\n")
@@ -706,8 +706,8 @@ class InspectorApp:
         self._set_text(self.diagnostics_text, result.diagnostics_text)
         self._set_text(self.document_text_widget, result.document_text)
         self._set_text(
-            self.projection_diagnostics_text_widget,
-            result.projection_diagnostics_text,
+            self.trust_diagnostics_text_widget,
+            result.trust_diagnostics_text,
         )
         self._set_text(
             self.payloads_text,
