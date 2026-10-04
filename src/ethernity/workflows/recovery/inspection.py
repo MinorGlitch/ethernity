@@ -18,10 +18,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
+from ethernity.crypto.age_policy import RecoveryWorkLimitExceeded
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload
 from ethernity.crypto.signing import AuthPayload, decode_auth_payload, verify_auth
@@ -51,20 +52,9 @@ from ethernity.workflows.recovery.models import (
     RecoveryUnlockStatus,
 )
 from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared.notices import WorkflowNoticeSink, send_notice
 
 RECOVERY_SCAN_LABEL = "Backup PDF or images"
-
-
-@dataclass(frozen=True)
-class RecoveryInspectionNotice:
-    """Non-fatal warning discovered while inspecting recovery material."""
-
-    code: str
-    message: str
-    details: dict[str, object]
-
-
-RecoveryInspectionNoticeSink = Callable[[RecoveryInspectionNotice], None]
 
 
 def inspect_recovery_inputs(
@@ -79,12 +69,10 @@ def inspect_recovery_inputs(
     shard_fallback_files: list[str],
     shard_payloads_file: list[str],
     shard_scan: list[str],
-    quiet: bool,
-    _notice_sink: RecoveryInspectionNoticeSink | None = None,
+    _notice_sink: WorkflowNoticeSink | None = None,
 ) -> RecoveryInspection:
     """Assemble best-effort recovery inspection state from decoded frames."""
 
-    _ = quiet
     if not frames:
         hint = "Check the input path and try again."
         if input_label == RECOVERY_SCAN_LABEL:
@@ -142,12 +130,10 @@ def select_root_import_document_from_passphrase_shards(
     *,
     shard_frames: list[Frame],
     allow_unsigned: bool,
-    quiet: bool,
-    _notice_sink: RecoveryInspectionNoticeSink | None = None,
+    _notice_sink: WorkflowNoticeSink | None = None,
 ) -> PassphraseShardRootSelection:
     """Select and authenticate an imported root using document-bound passphrase shards."""
 
-    _ = quiet
     candidates = _select_import_documents_bound_to_passphrase_shards(
         documents,
         shard_frames=shard_frames,
@@ -160,7 +146,7 @@ def select_root_import_document_from_passphrase_shards(
             doc_hash=target_document.doc_hash,
             allow_unsigned=allow_unsigned,
             require_auth=not allow_unsigned,
-            _notice_sink=lambda notice: _notice(
+            _notice_sink=lambda notice: send_notice(
                 _notice_sink,
                 notice.code,
                 notice.message,
@@ -190,7 +176,7 @@ def select_root_import_document_from_passphrase_shards(
             doc_hash=root_document.doc_hash,
             allow_unsigned=allow_unsigned,
             require_auth=not allow_unsigned,
-            _notice_sink=lambda notice: _notice(
+            _notice_sink=lambda notice: send_notice(
                 _notice_sink,
                 notice.code,
                 notice.message,
@@ -204,7 +190,6 @@ def select_root_import_document_from_passphrase_shards(
             root_auth_payload=root_auth_payload,
             decoded_import_session=decoded_import_session,
             allow_unsigned=allow_unsigned,
-            quiet=quiet,
         )
         return PassphraseShardRootSelection(
             root_document=root_document,
@@ -256,7 +241,6 @@ def _verify_shard_target_belongs_to_selected_root(
     root_auth_payload: AuthPayload | None,
     decoded_import_session: DecodedImportSession,
     allow_unsigned: bool,
-    quiet: bool,
 ) -> None:
     if (
         target_document.doc_id == root_document.doc_id
@@ -266,16 +250,17 @@ def _verify_shard_target_belongs_to_selected_root(
     if root_auth_payload is None:
         if allow_unsigned:
             return
-        raise ValueError("extension-local shard target requires verified root AUTH")
+        raise ValueError("recovery-sheet target requires verified root AUTH")
     try:
         decoded = decode_imported_extension_link(
             target_document,
             passphrase=passphrase,
             expected_sign_pub=root_auth_payload.sign_pub,
-            quiet=quiet,
             debug=False,
             decoded_import_session=decoded_import_session,
         )
+    except RecoveryWorkLimitExceeded:
+        raise
     except ValueError as exc:
         raise ValueError(
             "shard payloads target a document that is not an authenticated extension "
@@ -309,7 +294,7 @@ def _inspect_auth_payload(
     doc_hash: bytes,
     allow_unsigned: bool,
     require_auth: bool,
-    notice_sink: RecoveryInspectionNoticeSink | None,
+    notice_sink: WorkflowNoticeSink | None,
 ) -> tuple[AuthPayload | None, str, tuple[dict[str, Any], ...]]:
     if not auth_frames:
         if require_auth:
@@ -324,7 +309,7 @@ def _inspect_auth_payload(
                 ),
             )
         if allow_unsigned:
-            _notice(
+            send_notice(
                 notice_sink,
                 api_codes.AUTH_PAYLOAD_MISSING,
                 "no auth payload provided; skipping auth verification",
@@ -341,7 +326,7 @@ def _inspect_auth_payload(
     frame = auth_frames[0]
     if frame.doc_id != doc_id:
         if allow_unsigned:
-            _notice(
+            send_notice(
                 notice_sink,
                 api_codes.AUTH_PAYLOAD_INVALID,
                 "auth payload doc_id mismatch; verification skipped",
@@ -374,7 +359,7 @@ def _inspect_auth_payload(
         payload = decode_auth_payload(frame.data)
     except ValueError as exc:
         if allow_unsigned:
-            _notice(
+            send_notice(
                 notice_sink,
                 api_codes.AUTH_PAYLOAD_INVALID,
                 f"invalid auth payload; verification skipped: {exc}",
@@ -394,7 +379,7 @@ def _inspect_auth_payload(
         )
     if payload.doc_hash != doc_hash:
         if allow_unsigned:
-            _notice(
+            send_notice(
                 notice_sink,
                 api_codes.AUTH_DOC_HASH_MISMATCH,
                 "auth doc_hash mismatch; verification skipped",
@@ -412,7 +397,7 @@ def _inspect_auth_payload(
         )
     if not verify_auth(doc_hash, sign_pub=payload.sign_pub, signature=payload.signature):
         if allow_unsigned:
-            _notice(
+            send_notice(
                 notice_sink,
                 api_codes.AUTH_SIGNATURE_INVALID,
                 "auth signature verification failed; verification skipped",
@@ -530,20 +515,7 @@ def _blocking_issue(
     return {"code": code, "message": message, "details": dict(details or {})}
 
 
-def _notice(
-    sink: RecoveryInspectionNoticeSink | None,
-    code: str,
-    message: str,
-    *,
-    details: Mapping[str, object] | None = None,
-) -> None:
-    if sink is not None:
-        sink(RecoveryInspectionNotice(code=code, message=message, details=dict(details or {})))
-
-
 __all__ = [
-    "RecoveryInspectionNotice",
-    "RecoveryInspectionNoticeSink",
     "inspect_recovery_inputs",
     "select_root_import_document_from_passphrase_shards",
 ]

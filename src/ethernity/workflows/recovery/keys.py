@@ -19,8 +19,7 @@
 from __future__ import annotations
 
 import hmac
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
 
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
@@ -33,21 +32,10 @@ from ethernity.crypto.sharding import (
 )
 from ethernity.crypto.signing import AuthPayload, decode_auth_payload, verify_auth, verify_shard
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.workflows.shared.notices import WorkflowNoticeSink, send_notice
 
 ShardPayloadDecoder = Callable[[bytes], ShardPayload]
 ShardVerifier = Callable[..., bool]
-
-
-@dataclass(frozen=True)
-class RecoveryKeyNotice:
-    """Non-fatal warning produced while resolving recovery keys."""
-
-    code: str
-    message: str
-    details: dict[str, object]
-
-
-RecoveryKeyNoticeSink = Callable[[RecoveryKeyNotice], None]
 
 
 def resolve_auth_payload(
@@ -57,7 +45,7 @@ def resolve_auth_payload(
     doc_hash: bytes,
     allow_unsigned: bool,
     require_auth: bool,
-    _notice_sink: RecoveryKeyNoticeSink | None = None,
+    _notice_sink: WorkflowNoticeSink | None = None,
 ) -> tuple[AuthPayload | None, str]:
     """Validate one AUTH frame without depending on a presentation or logging adapter."""
 
@@ -65,7 +53,7 @@ def resolve_auth_payload(
         if require_auth:
             raise ValueError("missing auth payload; provide AUTH input to verify recovery")
         if allow_unsigned:
-            _notice(
+            send_notice(
                 _notice_sink,
                 "AUTH_PAYLOAD_MISSING",
                 "no auth payload provided; skipping auth verification",
@@ -77,7 +65,7 @@ def resolve_auth_payload(
     frame = auth_frames[0]
     if frame.doc_id != doc_id:
         if allow_unsigned:
-            _notice(
+            send_notice(
                 _notice_sink,
                 "AUTH_PAYLOAD_INVALID",
                 "auth payload doc_id mismatch; verification skipped",
@@ -91,7 +79,7 @@ def resolve_auth_payload(
         payload = decode_auth_payload(frame.data)
     except ValueError as exc:
         if allow_unsigned:
-            _notice(
+            send_notice(
                 _notice_sink,
                 "AUTH_PAYLOAD_INVALID",
                 f"invalid auth payload; verification skipped: {exc}",
@@ -101,7 +89,7 @@ def resolve_auth_payload(
         raise
     if not hmac.compare_digest(payload.doc_hash, doc_hash):
         if allow_unsigned:
-            _notice(
+            send_notice(
                 _notice_sink,
                 "AUTH_DOC_HASH_MISMATCH",
                 "auth doc_hash mismatch; verification skipped",
@@ -110,7 +98,7 @@ def resolve_auth_payload(
         raise ValueError("auth doc_hash does not match ciphertext")
     if not verify_auth(doc_hash, sign_pub=payload.sign_pub, signature=payload.signature):
         if allow_unsigned:
-            _notice(
+            send_notice(
                 _notice_sink,
                 "AUTH_SIGNATURE_INVALID",
                 "auth signature verification failed; verification skipped",
@@ -118,17 +106,6 @@ def resolve_auth_payload(
             return None, "ignored"
         raise ValueError("invalid auth signature")
     return payload, "verified"
-
-
-def _notice(
-    sink: RecoveryKeyNoticeSink | None,
-    code: str,
-    message: str,
-    *,
-    details: Mapping[str, object] | None = None,
-) -> None:
-    if sink is not None:
-        sink(RecoveryKeyNotice(code=code, message=message, details=dict(details or {})))
 
 
 class InsufficientShardError(ValueError):
@@ -232,7 +209,7 @@ def _validated_shard_payloads_from_frames(
     payload_decoder: ShardPayloadDecoder,
     shard_verifier: ShardVerifier,
 ) -> list[ShardPayload]:
-    """Dependency-injected implementation used by compatibility adapters."""
+    """Dependency-injected core used by the public validator and focused tests."""
 
     shares: dict[int, ShardPayload] = {}
     doc_hash: bytes | None = expected_doc_hash
@@ -302,8 +279,6 @@ def _validated_shard_payloads_from_frames(
 
 __all__ = [
     "InsufficientShardError",
-    "RecoveryKeyNotice",
-    "RecoveryKeyNoticeSink",
     "passphrase_from_shard_frames",
     "resolve_auth_payload",
     "signing_seed_from_shard_frames",

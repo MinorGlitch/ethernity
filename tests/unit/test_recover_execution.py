@@ -15,27 +15,27 @@
 
 import unittest
 
-from ethernity.cli.features.recover.execution import decrypt_manifest_and_extract
-from ethernity.cli.features.recover.planning import RecoveryPlan
-from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import AuthPayload, derive_public_key, sign_auth
-from ethernity.formats.envelope_codec import build_manifest_and_payload, encode_envelope
-from ethernity.formats.envelope_types import PayloadPart
+from ethernity.formats.document_codec import build_manifest_and_payload, encode_backup_document
+from ethernity.formats.manifest import BackupFile
+from ethernity.workflows.recovery.execution import decrypt_manifest_and_extract
+from ethernity.workflows.recovery.planning import RecoveryPlan
+from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared.events import CommandError as ApiCommandError
 
 
 class TestRecoverExecution(unittest.TestCase):
-    def test_decrypt_manifest_and_extract_rejects_root_authority_mismatch(self) -> None:
+    def test_decrypt_manifest_and_extract_rejects_root_signing_key_mismatch(self) -> None:
         manifest, payload = build_manifest_and_payload(
-            (PayloadPart(path="a.txt", data=b"root", mtime=1),),
+            (BackupFile(path="a.txt", data=b"root", mtime=1),),
             sealed=False,
             signing_seed=b"\x33" * 32,
             input_origin="file",
             input_roots=(),
         )
-        plaintext = encode_envelope(payload, manifest)
+        plaintext = encode_backup_document(payload, manifest)
         ciphertext, _resolved_passphrase = encrypt_bytes_with_passphrase(
             plaintext,
             passphrase="secret",
@@ -69,20 +69,20 @@ class TestRecoverExecution(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            "embedded signing seed does not match the verified root AUTH authority",
+            "embedded signing seed does not match the verified root AUTH signing key",
         ):
             decrypt_manifest_and_extract(plan, quiet=True, debug=False)
 
     def test_decrypt_manifest_and_extract_rejects_unexpected_root_head(self) -> None:
         signing_seed = b"\x33" * 32
         manifest, payload = build_manifest_and_payload(
-            (PayloadPart(path="a.txt", data=b"root", mtime=1),),
+            (BackupFile(path="a.txt", data=b"root", mtime=1),),
             sealed=False,
             signing_seed=signing_seed,
             input_origin="file",
             input_roots=(),
         )
-        plaintext = encode_envelope(payload, manifest)
+        plaintext = encode_backup_document(payload, manifest)
         ciphertext, _resolved_passphrase = encrypt_bytes_with_passphrase(
             plaintext,
             passphrase="secret",

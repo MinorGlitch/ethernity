@@ -28,7 +28,7 @@ from ethernity.crypto.sharding import (
 )
 from ethernity.crypto.signing import SHARD_SET_ID_LEN, generate_signing_keypair, sign_shard
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
-from ethernity.workflows.recovery.key_recovery import (
+from ethernity.workflows.recovery.keys import (
     passphrase_from_shard_frames,
     resolve_auth_payload,
     signing_seed_from_shard_frames,
@@ -57,22 +57,21 @@ class TestResolveAuthPayload(unittest.TestCase):
                 doc_hash=b"\x20" * 32,
                 allow_unsigned=False,
                 require_auth=True,
-                quiet=True,
             )
 
     def test_missing_auth_returns_skipped_when_allow_unsigned(self) -> None:
-        with mock.patch("ethernity.workflows.recovery.key_recovery.warn") as warn_mock:
-            payload, status = resolve_auth_payload(
-                [],
-                doc_id=b"\x10" * DOC_ID_LEN,
-                doc_hash=b"\x20" * 32,
-                allow_unsigned=True,
-                require_auth=False,
-                quiet=True,
-            )
+        notices = []
+        payload, status = resolve_auth_payload(
+            [],
+            doc_id=b"\x10" * DOC_ID_LEN,
+            doc_hash=b"\x20" * 32,
+            allow_unsigned=True,
+            require_auth=False,
+            _notice_sink=notices.append,
+        )
         self.assertIsNone(payload)
         self.assertEqual(status, "skipped")
-        warn_mock.assert_called_once()
+        self.assertEqual(len(notices), 1)
 
     def test_missing_auth_returns_missing_when_strict_optional(self) -> None:
         payload, status = resolve_auth_payload(
@@ -81,7 +80,6 @@ class TestResolveAuthPayload(unittest.TestCase):
             doc_hash=b"\x20" * 32,
             allow_unsigned=False,
             require_auth=False,
-            quiet=True,
         )
         self.assertIsNone(payload)
         self.assertEqual(status, "missing")
@@ -95,7 +93,6 @@ class TestResolveAuthPayload(unittest.TestCase):
                 doc_hash=b"\x20" * 32,
                 allow_unsigned=False,
                 require_auth=True,
-                quiet=True,
             )
 
     def test_auth_doc_id_mismatch_rejected(self) -> None:
@@ -107,23 +104,22 @@ class TestResolveAuthPayload(unittest.TestCase):
                 doc_hash=b"\x20" * 32,
                 allow_unsigned=False,
                 require_auth=True,
-                quiet=True,
             )
 
     def test_auth_doc_id_mismatch_ignored_in_allow_unsigned_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x11" * DOC_ID_LEN)
-        with mock.patch("ethernity.workflows.recovery.key_recovery.warn") as warn_mock:
-            payload, status = resolve_auth_payload(
-                [frame],
-                doc_id=b"\x12" * DOC_ID_LEN,
-                doc_hash=b"\x20" * 32,
-                allow_unsigned=True,
-                require_auth=False,
-                quiet=True,
-            )
+        notices = []
+        payload, status = resolve_auth_payload(
+            [frame],
+            doc_id=b"\x12" * DOC_ID_LEN,
+            doc_hash=b"\x20" * 32,
+            allow_unsigned=True,
+            require_auth=False,
+            _notice_sink=notices.append,
+        )
         self.assertIsNone(payload)
         self.assertEqual(status, "ignored")
-        warn_mock.assert_called_once()
+        self.assertEqual(len(notices), 1)
 
     def test_auth_multiframe_metadata_rejected(self) -> None:
         frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN, index=1, total=2)
@@ -134,27 +130,26 @@ class TestResolveAuthPayload(unittest.TestCase):
                 doc_hash=b"\x20" * 32,
                 allow_unsigned=False,
                 require_auth=True,
-                quiet=True,
             )
 
     def test_invalid_auth_payload_can_be_ignored_in_allow_unsigned_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN)
+        notices = []
         with mock.patch(
             "ethernity.workflows.recovery.keys.decode_auth_payload",
             side_effect=ValueError("invalid cbor"),
         ):
-            with mock.patch("ethernity.workflows.recovery.key_recovery.warn") as warn_mock:
-                payload, status = resolve_auth_payload(
-                    [frame],
-                    doc_id=b"\x10" * DOC_ID_LEN,
-                    doc_hash=b"\x20" * 32,
-                    allow_unsigned=True,
-                    require_auth=False,
-                    quiet=True,
-                )
+            payload, status = resolve_auth_payload(
+                [frame],
+                doc_id=b"\x10" * DOC_ID_LEN,
+                doc_hash=b"\x20" * 32,
+                allow_unsigned=True,
+                require_auth=False,
+                _notice_sink=notices.append,
+            )
         self.assertIsNone(payload)
         self.assertEqual(status, "invalid")
-        warn_mock.assert_called_once()
+        self.assertEqual(len(notices), 1)
 
     def test_invalid_auth_payload_raises_in_strict_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN)
@@ -169,11 +164,11 @@ class TestResolveAuthPayload(unittest.TestCase):
                     doc_hash=b"\x20" * 32,
                     allow_unsigned=False,
                     require_auth=True,
-                    quiet=True,
                 )
 
     def test_doc_hash_mismatch_can_be_ignored_in_allow_unsigned_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN)
+        notices = []
         payload_obj = SimpleNamespace(
             doc_hash=b"\x99" * 32, sign_pub=b"p" * 32, signature=b"s" * 64
         )
@@ -181,18 +176,17 @@ class TestResolveAuthPayload(unittest.TestCase):
             "ethernity.workflows.recovery.keys.decode_auth_payload",
             return_value=payload_obj,
         ):
-            with mock.patch("ethernity.workflows.recovery.key_recovery.warn") as warn_mock:
-                payload, status = resolve_auth_payload(
-                    [frame],
-                    doc_id=b"\x10" * DOC_ID_LEN,
-                    doc_hash=b"\x20" * 32,
-                    allow_unsigned=True,
-                    require_auth=False,
-                    quiet=True,
-                )
+            payload, status = resolve_auth_payload(
+                [frame],
+                doc_id=b"\x10" * DOC_ID_LEN,
+                doc_hash=b"\x20" * 32,
+                allow_unsigned=True,
+                require_auth=False,
+                _notice_sink=notices.append,
+            )
         self.assertIsNone(payload)
         self.assertEqual(status, "ignored")
-        warn_mock.assert_called_once()
+        self.assertEqual(len(notices), 1)
 
     def test_doc_hash_mismatch_raises_in_strict_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN)
@@ -210,7 +204,6 @@ class TestResolveAuthPayload(unittest.TestCase):
                     doc_hash=b"\x20" * 32,
                     allow_unsigned=False,
                     require_auth=True,
-                    quiet=True,
                 )
 
     @mock.patch("ethernity.workflows.recovery.keys.hmac.compare_digest", return_value=False)
@@ -234,12 +227,12 @@ class TestResolveAuthPayload(unittest.TestCase):
                     doc_hash=expected,
                     allow_unsigned=False,
                     require_auth=True,
-                    quiet=True,
                 )
         compare_digest.assert_called_once_with(payload_obj.doc_hash, expected)
 
     def test_invalid_signature_can_be_ignored_in_allow_unsigned_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN)
+        notices = []
         payload_obj = SimpleNamespace(
             doc_hash=b"\x20" * 32, sign_pub=b"p" * 32, signature=b"s" * 64
         )
@@ -248,18 +241,17 @@ class TestResolveAuthPayload(unittest.TestCase):
             return_value=payload_obj,
         ):
             with mock.patch("ethernity.workflows.recovery.keys.verify_auth", return_value=False):
-                with mock.patch("ethernity.workflows.recovery.key_recovery.warn") as warn_mock:
-                    payload, status = resolve_auth_payload(
-                        [frame],
-                        doc_id=b"\x10" * DOC_ID_LEN,
-                        doc_hash=b"\x20" * 32,
-                        allow_unsigned=True,
-                        require_auth=False,
-                        quiet=True,
-                    )
+                payload, status = resolve_auth_payload(
+                    [frame],
+                    doc_id=b"\x10" * DOC_ID_LEN,
+                    doc_hash=b"\x20" * 32,
+                    allow_unsigned=True,
+                    require_auth=False,
+                    _notice_sink=notices.append,
+                )
         self.assertIsNone(payload)
         self.assertEqual(status, "ignored")
-        warn_mock.assert_called_once()
+        self.assertEqual(len(notices), 1)
 
     def test_invalid_signature_raises_in_strict_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN)
@@ -278,7 +270,6 @@ class TestResolveAuthPayload(unittest.TestCase):
                         doc_hash=b"\x20" * 32,
                         allow_unsigned=False,
                         require_auth=True,
-                        quiet=True,
                     )
 
     def test_verified_auth_payload_returns_payload(self) -> None:
@@ -297,7 +288,6 @@ class TestResolveAuthPayload(unittest.TestCase):
                     doc_hash=b"\x20" * 32,
                     allow_unsigned=False,
                     require_auth=True,
-                    quiet=True,
                 )
         self.assertIs(payload, payload_obj)
         self.assertEqual(status, "verified")
@@ -388,7 +378,7 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
             self._payload(share_index=2, doc_hash=b"\x21" * 32),
         ]
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", side_effect=payloads
+            "ethernity.workflows.recovery.keys.decode_shard_payload", side_effect=payloads
         ):
             with self.assertRaisesRegex(ValueError, "doc_hash does not match"):
                 passphrase_from_shard_frames(
@@ -409,7 +399,7 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
             self._payload(share_index=2, sign_pub=b"q" * 32),
         ]
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", side_effect=payloads
+            "ethernity.workflows.recovery.keys.decode_shard_payload", side_effect=payloads
         ):
             with self.assertRaisesRegex(ValueError, "signing key does not match"):
                 passphrase_from_shard_frames(
@@ -424,11 +414,9 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
         frame = self._shard_frame(doc_id=b"\x36" * DOC_ID_LEN)
         payload = self._payload(share_index=1)
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", return_value=payload
+            "ethernity.workflows.recovery.keys.decode_shard_payload", return_value=payload
         ):
-            with mock.patch(
-                "ethernity.workflows.recovery.key_recovery.verify_shard", return_value=False
-            ):
+            with mock.patch("ethernity.workflows.recovery.keys.verify_shard", return_value=False):
                 with self.assertRaisesRegex(ValueError, "invalid shard signature"):
                     passphrase_from_shard_frames(
                         [frame],
@@ -448,7 +436,7 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
             self._payload(share_index=1, share=b"B" * 16),
         ]
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", side_effect=payloads
+            "ethernity.workflows.recovery.keys.decode_shard_payload", side_effect=payloads
         ):
             with self.assertRaisesRegex(ValueError, "duplicate shard index with mismatched data"):
                 passphrase_from_shard_frames(
@@ -480,7 +468,7 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
             ),
         ]
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", side_effect=payloads
+            "ethernity.workflows.recovery.keys.decode_shard_payload", side_effect=payloads
         ):
             with self.assertRaisesRegex(ValueError, "duplicate shard index with mismatched data"):
                 passphrase_from_shard_frames(
@@ -501,7 +489,7 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
             self._payload(share_index=2, threshold=3),
         ]
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", side_effect=payloads
+            "ethernity.workflows.recovery.keys.decode_shard_payload", side_effect=payloads
         ):
             with self.assertRaisesRegex(ValueError, "thresholds do not match"):
                 passphrase_from_shard_frames(
@@ -522,7 +510,7 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
             self._payload(share_index=2, share_count=4),
         ]
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", side_effect=payloads
+            "ethernity.workflows.recovery.keys.decode_shard_payload", side_effect=payloads
         ):
             with self.assertRaisesRegex(ValueError, "share counts do not match"):
                 passphrase_from_shard_frames(
@@ -537,7 +525,7 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
         frame = self._shard_frame(doc_id=b"\x3a" * DOC_ID_LEN)
         payload = self._payload(share_index=1, threshold=2)
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", return_value=payload
+            "ethernity.workflows.recovery.keys.decode_shard_payload", return_value=payload
         ):
             with self.assertRaisesRegex(ValueError, "need at least 2 shard"):
                 passphrase_from_shard_frames(
@@ -757,10 +745,10 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
             self._payload(share_index=2, share=b"B" * 16),
         ]
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", side_effect=payloads
+            "ethernity.workflows.recovery.keys.decode_shard_payload", side_effect=payloads
         ):
             with mock.patch(
-                "ethernity.workflows.recovery.key_recovery.recover_passphrase", return_value="ok"
+                "ethernity.workflows.recovery.keys.recover_passphrase", return_value="ok"
             ) as rec:
                 result = passphrase_from_shard_frames(
                     frames,
@@ -812,7 +800,7 @@ class TestSigningSeedFromShardFrames(unittest.TestCase):
             shard_set_id=TEST_SHARD_SET_ID,
         )
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", return_value=payload
+            "ethernity.workflows.recovery.keys.decode_shard_payload", return_value=payload
         ):
             with self.assertRaisesRegex(ValueError, "signing key shards"):
                 signing_seed_from_shard_frames(
@@ -837,13 +825,11 @@ class TestSigningSeedFromShardFrames(unittest.TestCase):
             shard_set_id=TEST_SHARD_SET_ID,
         )
         with mock.patch(
-            "ethernity.workflows.recovery.key_recovery.decode_shard_payload", return_value=payload
+            "ethernity.workflows.recovery.keys.decode_shard_payload", return_value=payload
         ):
-            with mock.patch(
-                "ethernity.workflows.recovery.key_recovery.verify_shard", return_value=True
-            ):
+            with mock.patch("ethernity.workflows.recovery.keys.verify_shard", return_value=True):
                 with mock.patch(
-                    "ethernity.workflows.recovery.key_recovery.recover_signing_seed",
+                    "ethernity.workflows.recovery.keys.recover_signing_seed",
                     return_value=b"z" * 32,
                 ) as recover:
                     result = signing_seed_from_shard_frames(

@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from ethernity.crypto import decrypt_bytes
@@ -26,56 +25,20 @@ from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
     recover_chain_entries,
     validate_expected_recovery_head,
-    validate_root_manifest_authority,
+    validate_root_signing_key_binding,
 )
-from ethernity.formats.envelope_codec import decode_envelope, extract_payloads
-from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
+from ethernity.formats.document_codec import decode_backup_document, extract_payloads
+from ethernity.formats.manifest import BackupManifest, ManifestFile
 from ethernity.workflows.recovery.planning import RecoveryPlan
-from ethernity.workflows.shared import outputs
 from ethernity.workflows.shared.events import CommandError
 from ethernity.workflows.shared.status import plain_status
 
 _CONSOLE: object | None = None
 
 
-def format_auth_status(status_value: str, *, allow_unsigned: bool) -> str:
-    if status_value == "verified":
-        return "verified"
-    if status_value == "skipped":
-        return "skipped (unsigned recovery)"
-    if status_value == "ignored":
-        return "failed (ignored during unsigned recovery)"
-    if status_value == "invalid":
-        return "invalid (ignored during unsigned recovery)" if allow_unsigned else "invalid"
-    if status_value == "missing":
-        return "skipped (unsigned recovery)" if allow_unsigned else "missing"
-    return status_value
-
-
-def print_recover_summary(
-    entries: list[tuple[ManifestFile, bytes]],
-    output_path: str | None,
-    *,
-    auth_status: str | None,
-    quiet: bool,
-    **extras: object,
-) -> None:
-    _ = entries, output_path, auth_status, quiet, extras
-
-
-def print_completion_panel(
-    title: str,
-    actions: list[str],
-    *,
-    quiet: bool,
-    use_err: bool = False,
-) -> None:
-    _ = title, actions, quiet, use_err
-
-
 @dataclass(frozen=True)
 class RecoverDecryptResult:
-    manifest: EnvelopeManifest
+    manifest: BackupManifest
     extracted: list[tuple[ManifestFile, bytes]]
     selected_extension_index: int | None = None
     selected_extension_doc_hash: str | None = None
@@ -91,7 +54,7 @@ def decrypt_manifest_extract_selection(
 
     try:
         if plan.import_documents:
-            chain = recover_chain_entries(plan, quiet=quiet, debug=debug)
+            chain = recover_chain_entries(plan, debug=debug)
             return RecoverDecryptResult(
                 manifest=chain.manifest,
                 extracted=list(chain.extracted),
@@ -105,9 +68,9 @@ def decrypt_manifest_extract_selection(
             console=_CONSOLE,
         ):
             plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
-            manifest, payload = decode_envelope(plaintext)
+            manifest, payload = decode_backup_document(plaintext)
             extracted = extract_payloads(manifest, payload)
-        validate_root_manifest_authority(manifest, plan.auth_payload, doc_hash=plan.doc_hash)
+        validate_root_signing_key_binding(manifest, plan.auth_payload, doc_hash=plan.doc_hash)
         validate_expected_recovery_head(
             plan,
             selected_extension_index=None,
@@ -123,7 +86,7 @@ def decrypt_manifest_and_extract(
     *,
     quiet: bool,
     debug: bool = False,
-) -> tuple[EnvelopeManifest, list[tuple[ManifestFile, bytes]]]:
+) -> tuple[BackupManifest, list[tuple[ManifestFile, bytes]]]:
     """Decrypt a recovery plan ciphertext and extract manifest payload entries."""
 
     result = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
@@ -140,50 +103,3 @@ def decrypt_and_extract(
 
     _manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
     return extracted
-
-
-def write_recovered_outputs(
-    extracted: list[tuple[ManifestFile, bytes]],
-    *,
-    output_path: str | None,
-    auth_status: str,
-    allow_unsigned: bool,
-    quiet: bool,
-    single_entry_output_is_directory: bool = False,
-    requested_extension_index: int | None = None,
-    requested_extension_doc_hash: str | None = None,
-    expected_head_doc_hash: str | None = None,
-    selected_extension_index: int | None = None,
-    selected_extension_doc_hash: str | None = None,
-    on_file_written: Callable[[object, bytes, str, int, int], None] | None = None,
-) -> list[str]:
-    """Write recovered outputs and print the post-recovery summary."""
-
-    written_paths = outputs.write_recovered_outputs(
-        output_path,
-        extracted,
-        single_entry_output_is_directory=single_entry_output_is_directory,
-        on_entry_written=on_file_written,
-    )
-    auth_label = format_auth_status(auth_status, allow_unsigned=allow_unsigned)
-    print_recover_summary(
-        extracted,
-        output_path,
-        auth_status=auth_label,
-        quiet=quiet,
-        single_entry_output_is_directory=single_entry_output_is_directory,
-        requested_extension_index=requested_extension_index,
-        requested_extension_doc_hash=requested_extension_doc_hash,
-        expected_head_doc_hash=expected_head_doc_hash,
-        selected_extension_index=selected_extension_index,
-        selected_extension_doc_hash=selected_extension_doc_hash,
-    )
-    if not quiet:
-        actions = [f"Saved to {output_path}" if output_path else "Wrote recovered data to stdout."]
-        actions.append("Verify recovered files match your originals.")
-        if output_path:
-            actions.append("Store the recovered files somewhere secure.")
-        else:
-            actions.append("Save stdout output if you need to keep the recovered data.")
-        print_completion_panel("Recovery complete", actions, quiet=quiet, use_err=True)
-    return written_paths

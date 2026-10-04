@@ -1,1 +1,1 @@
-"""Mint CLI feature."""
+"""Replacement recovery-document workflow."""

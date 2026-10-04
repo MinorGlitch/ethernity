@@ -22,14 +22,12 @@ import errno
 import os
 import stat as stat_module
 import sys
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS, MAX_RECOVERY_TEXT_BYTES
 from ethernity.core.paths import expand_user_path, expand_user_paths
-from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.fallback_text import (
     contains_fallback_markers as _contains_fallback_markers,
     filter_fallback_lines as _filter_fallback_lines,
@@ -41,22 +39,10 @@ from ethernity.encoding.qr_payloads import decode_qr_payload
 from ethernity.qr.scan import (
     NoQrPayloadsError,
     QrScanError,
-    is_published_extension_payload_carrier,
     scan_qr_payloads_with_sources,
 )
 from ethernity.workflows.shared import api_codes
-
-
-@dataclass(frozen=True)
-class FrameInputNotice:
-    """Adapter-neutral warning produced while accepting recovery input."""
-
-    code: str
-    message: str
-    details: dict[str, object]
-
-
-FrameInputNoticeSink = Callable[[FrameInputNotice], None]
+from ethernity.workflows.shared.notices import WorkflowNotice, WorkflowNoticeSink
 
 
 @dataclass(frozen=True)
@@ -64,13 +50,13 @@ class FrameInputResult:
     """Decoded frames plus non-fatal input notices."""
 
     frames: tuple[Frame, ...]
-    notices: tuple[FrameInputNotice, ...] = ()
+    notices: tuple[WorkflowNotice, ...] = ()
 
 
 def _result(
     frames: list[Frame],
-    notices: list[FrameInputNotice],
-    notice_sink: FrameInputNoticeSink | None,
+    notices: list[WorkflowNotice],
+    notice_sink: WorkflowNoticeSink | None,
 ) -> FrameInputResult:
     result = FrameInputResult(frames=tuple(frames), notices=tuple(notices))
     if notice_sink is not None:
@@ -86,8 +72,6 @@ class NoQrFramesError(ValueError):
 
 
 __all__ = [
-    "FrameInputNotice",
-    "FrameInputNoticeSink",
     "FrameInputResult",
     "NoQrFramesError",
     "auth_frames_from_fallback",
@@ -326,7 +310,7 @@ def _parse_fallback_section(
     section_key: str,
     *,
     allow_invalid: bool,
-    notices: list[FrameInputNotice],
+    notices: list[WorkflowNotice],
     missing_error: str,
 ) -> Frame | None:
     """Parse a specific section from fallback lines, returning None if invalid and allowed."""
@@ -344,7 +328,7 @@ def _parse_fallback_section(
     except ValueError as exc:
         if allow_invalid:
             notices.append(
-                FrameInputNotice(
+                WorkflowNotice(
                     code=api_codes.FALLBACK_SECTION_INVALID,
                     message=f"invalid {section_key} fallback ignored: {exc}",
                     details={"section": section_key, "reason": str(exc)},
@@ -358,7 +342,7 @@ def _frames_from_fallback_lines(
     lines: list[str],
     *,
     allow_invalid_auth: bool,
-    notice_sink: FrameInputNoticeSink | None = None,
+    notice_sink: WorkflowNoticeSink | None = None,
 ) -> FrameInputResult:
     """Decode fallback lines into MAIN and optional AUTH frames."""
 
@@ -374,14 +358,14 @@ def _frames_from_fallback_lines(
         raise ValueError("missing MAIN fallback section; include the MAIN section from recovery")
 
     frames: list[Frame] = [_frame_from_fallback_lines(sections["main"], label="main")]
-    notices: list[FrameInputNotice] = []
+    notices: list[WorkflowNotice] = []
     if sections["auth"]:
         try:
             frames.append(_frame_from_fallback_lines(sections["auth"], label="auth"))
         except ValueError as exc:
             if allow_invalid_auth:
                 notices.append(
-                    FrameInputNotice(
+                    WorkflowNotice(
                         code=api_codes.AUTH_FALLBACK_INVALID,
                         message=f"invalid auth fallback ignored: {exc}",
                         details={"reason": str(exc)},
@@ -396,7 +380,7 @@ def frames_from_fallback(
     path: str,
     *,
     allow_invalid_auth: bool,
-    notice_sink: FrameInputNoticeSink | None = None,
+    notice_sink: WorkflowNoticeSink | None = None,
 ) -> FrameInputResult:
     """Read fallback text from a path and decode frames."""
 
@@ -412,7 +396,7 @@ def frames_from_fallback_text(
     text: str,
     *,
     allow_invalid_auth: bool = False,
-    notice_sink: FrameInputNoticeSink | None = None,
+    notice_sink: WorkflowNoticeSink | None = None,
 ) -> FrameInputResult:
     """Decode pasted recovery text into MAIN and optional AUTH frames."""
 
@@ -481,11 +465,11 @@ def _auth_frames_from_fallback_lines(
     lines: list[str],
     *,
     allow_invalid_auth: bool,
-    notice_sink: FrameInputNoticeSink | None = None,
+    notice_sink: WorkflowNoticeSink | None = None,
 ) -> FrameInputResult:
     """Decode only the AUTH fallback section from recovery text."""
 
-    notices: list[FrameInputNotice] = []
+    notices: list[WorkflowNotice] = []
     frame = _parse_fallback_section(
         lines,
         "auth",
@@ -502,7 +486,7 @@ def auth_frames_from_fallback(
     path: str,
     *,
     allow_invalid_auth: bool,
-    notice_sink: FrameInputNoticeSink | None = None,
+    notice_sink: WorkflowNoticeSink | None = None,
 ) -> FrameInputResult:
     """Read and decode AUTH fallback frames from a file."""
 
@@ -548,7 +532,7 @@ def frames_from_payload_text(
     label: str = "QR payloads",
     source: str = "pasted input",
 ) -> FrameInputResult:
-    """Decode pasted QR payload lines through the workflow result contract."""
+    """Decode pasted QR payload lines into a frame-input result."""
 
     frames = _frames_from_payload_lines(text.splitlines(), label=label, source=source)
     return FrameInputResult(frames=tuple(frames))
@@ -587,18 +571,11 @@ def _frames_from_shard_inputs(
 
 def frames_from_scan(
     paths: list[str],
-    *,
-    include_extension_carriers: bool = True,
-    extension_carrier_max_index: int | None = None,
 ) -> list[Frame]:
     """Scan PDFs/images for QR payloads and decode valid frames."""
 
     try:
-        payloads = scan_qr_payloads_with_sources(
-            expand_user_paths(paths),
-            include_extension_carriers=include_extension_carriers,
-            extension_carrier_max_index=extension_carrier_max_index,
-        )
+        payloads = scan_qr_payloads_with_sources(expand_user_paths(paths))
     except NoQrPayloadsError as exc:
         raise NoQrFramesError(f"scan failed: {exc}") from exc
     except QrScanError as exc:
@@ -610,41 +587,29 @@ def frames_from_scan(
     explicit_sources: set[Path] = set()
     explicit_frames_by_source: dict[Path, list[Frame]] = {}
     explicit_errors_by_source: dict[Path, list[str]] = {}
-    extension_carrier_sources: set[Path] = set()
-    extension_frames_by_source: dict[Path, list[Frame]] = {}
-    extension_errors_by_source: dict[Path, list[str]] = {}
+    auxiliary_sources: set[Path] = set()
     for idx, payload in enumerate(payloads, start=1):
         source_path = payload.source_path
         if payload.source_is_explicit:
             explicit_sources.add(source_path)
-        is_extension_carrier = is_published_extension_payload_carrier(source_path) and (
-            include_extension_carriers or payload.source_is_explicit
-        )
-        if is_extension_carrier:
-            extension_carrier_sources.add(source_path)
+        if _is_auxiliary_document_payload(payload.data):
+            auxiliary_sources.add(source_path)
+            continue
         try:
             frame = _frame_from_scanned_payload(payload.data)
         except ValueError as exc:
             errors.append(f"#{idx}: {exc}")
             if payload.source_is_explicit:
                 explicit_errors_by_source.setdefault(source_path, []).append(str(exc))
-            if is_extension_carrier:
-                extension_errors_by_source.setdefault(source_path, []).append(str(exc))
             continue
         frames.append(frame)
         if payload.source_is_explicit:
             explicit_frames_by_source.setdefault(source_path, []).append(frame)
-        if is_extension_carrier:
-            extension_frames_by_source.setdefault(source_path, []).append(frame)
-    _require_valid_published_extension_carriers(
-        carrier_sources=extension_carrier_sources,
-        frames_by_source=extension_frames_by_source,
-        errors_by_source=extension_errors_by_source,
-    )
     _require_valid_explicit_scan_sources(
         explicit_sources=explicit_sources,
         frames_by_source=explicit_frames_by_source,
         errors_by_source=explicit_errors_by_source,
+        auxiliary_sources=auxiliary_sources,
     )
     if not frames:
         if errors:
@@ -659,70 +624,33 @@ def _require_valid_explicit_scan_sources(
     explicit_sources: set[Path],
     frames_by_source: dict[Path, list[Frame]],
     errors_by_source: dict[Path, list[str]],
+    auxiliary_sources: set[Path],
 ) -> None:
-    """Fail closed when an explicit scan file yields no valid frame or any invalid payload."""
+    """Reject invalid explicit inputs while allowing companion-only QR documents."""
 
     for source_path in sorted(explicit_sources, key=str):
         frames = frames_by_source.get(source_path, [])
         errors = errors_by_source.get(source_path, [])
         if errors:
-            details = _extension_carrier_error_details(errors)
+            details = _scan_payload_error_details(errors)
             raise ValueError(
                 f"explicit scan input yielded invalid QR payloads: {source_path}{details}"
             )
-        if not frames:
+        if not frames and source_path not in auxiliary_sources:
             raise NoQrFramesError(f"explicit scan input yielded no valid QR frames: {source_path}")
 
 
-def _require_valid_published_extension_carriers(
-    *,
-    carrier_sources: set[Path],
-    frames_by_source: dict[Path, list[Frame]],
-    errors_by_source: dict[Path, list[str]],
-) -> None:
-    """Fail closed when a published extension QR carrier does not produce its document."""
+def _is_auxiliary_document_payload(payload: bytes) -> bool:
+    """Recognize companion QR content without using it to restore files or establish trust."""
 
-    for source_path in sorted(carrier_sources, key=str):
-        frames = frames_by_source.get(source_path, [])
-        main_doc_ids = {
-            frame.doc_id for frame in frames if frame.frame_type == FrameType.MAIN_DOCUMENT
-        }
-        if len(main_doc_ids) != 1:
-            details = _extension_carrier_error_details(errors_by_source.get(source_path, []))
-            raise ValueError(
-                "published extension carrier did not yield a valid extension MAIN/AUTH "
-                f"document: {source_path}{details}"
-            )
-        doc_id = next(iter(main_doc_ids))
-        matching_main_frames = [
-            frame
-            for frame in frames
-            if frame.frame_type == FrameType.MAIN_DOCUMENT and frame.doc_id == doc_id
-        ]
-        matching_auth_frames = [
-            frame
-            for frame in frames
-            if frame.frame_type == FrameType.AUTH and frame.doc_id == doc_id
-        ]
-        if not matching_main_frames or not matching_auth_frames:
-            details = _extension_carrier_error_details(errors_by_source.get(source_path, []))
-            raise ValueError(
-                "published extension carrier did not yield a valid extension MAIN/AUTH "
-                f"document: {source_path}{details}"
-            )
-        try:
-            reassemble_payload(
-                matching_main_frames,
-                expected_frame_type=FrameType.MAIN_DOCUMENT,
-            )
-        except ValueError as exc:
-            raise ValueError(
-                "published extension carrier did not yield a complete extension MAIN "
-                f"document: {source_path}: {exc}"
-            ) from exc
+    stripped = payload.lstrip()
+    return (
+        stripped.startswith(b"<!doctype html>")
+        and b"<title>Ethernity Recovery Kit</title>" in stripped
+    ) or stripped.startswith(b"<script>(globalThis._k||(globalThis._k=[])).push(")
 
 
-def _extension_carrier_error_details(errors: list[str]) -> str:
+def _scan_payload_error_details(errors: list[str]) -> str:
     if not errors:
         return ""
     preview = "; ".join(errors[:3])
@@ -731,18 +659,11 @@ def _extension_carrier_error_details(errors: list[str]) -> str:
 
 def recovery_frames_from_scan(
     paths: list[str],
-    *,
-    include_extension_carriers: bool = True,
-    extension_carrier_max_index: int | None = None,
-    notice_sink: FrameInputNoticeSink | None = None,
+    notice_sink: WorkflowNoticeSink | None = None,
 ) -> FrameInputResult:
     """Scan recovery input and keep only MAIN/AUTH frames."""
 
-    frames = frames_from_scan(
-        paths,
-        include_extension_carriers=include_extension_carriers,
-        extension_carrier_max_index=extension_carrier_max_index,
-    )
+    frames = frames_from_scan(paths)
     recovery_frames = [
         frame for frame in frames if frame.frame_type in (FrameType.MAIN_DOCUMENT, FrameType.AUTH)
     ]
@@ -752,10 +673,10 @@ def recovery_frames_from_scan(
             "scan input did not contain recovery QR payloads; provide qr/recovery documents "
             "for recovery input and shard documents separately"
         )
-    notices: list[FrameInputNotice] = []
+    notices: list[WorkflowNotice] = []
     if ignored_shards:
         notices.append(
-            FrameInputNotice(
+            WorkflowNotice(
                 code=api_codes.RECOVERY_SHARD_PAYLOADS_IGNORED,
                 message=(
                     f"ignored {ignored_shards} shard QR payload(s) while reading recovery input; "
@@ -770,7 +691,7 @@ def recovery_frames_from_scan(
 def shard_frames_from_scan(
     paths: list[str],
     *,
-    notice_sink: FrameInputNoticeSink | None = None,
+    notice_sink: WorkflowNoticeSink | None = None,
 ) -> FrameInputResult:
     """Scan shard input and keep only KEY_DOCUMENT frames."""
 
@@ -782,10 +703,10 @@ def shard_frames_from_scan(
             "scan input did not contain shard QR payloads; provide shard documents, "
             "shard payload files, or shard recovery text"
         )
-    notices: list[FrameInputNotice] = []
+    notices: list[WorkflowNotice] = []
     if ignored_non_shards:
         notices.append(
-            FrameInputNotice(
+            WorkflowNotice(
                 code=api_codes.WARNING,
                 message=(
                     f"ignored {ignored_non_shards} non-shard QR payload(s) "

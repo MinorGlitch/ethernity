@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Latest-state compaction helpers for root-plus-extension chains."""
+"""Rebuild the latest state of root-plus-extension chains."""
 
 from __future__ import annotations
 
@@ -27,23 +27,20 @@ from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.document_identity import doc_id_from_doc_hash
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
-from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import recover_chain_entries
-from ethernity.extensions.staging import EXTENSION_CHAIN_LOCK_FILE_NAME
-from ethernity.render.types import RenderLineage
+from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.backup.execution import run_backup
 from ethernity.workflows.backup.planning import plan_from_args as plan_backup_from_args
 from ethernity.workflows.backup.service import apply_qr_chunk_size_override
 from ethernity.workflows.recovery.frame_inputs import frames_from_scan
-from ethernity.workflows.recovery.key_recovery import (
+from ethernity.workflows.recovery.keys import (
     InsufficientShardError,
     validated_shard_payloads_from_frames,
 )
 from ethernity.workflows.recovery.planning import plan_from_args as plan_recover_from_args
 from ethernity.workflows.recovery.root_shard_policy import (
     has_potential_root_shard_frames,
-    root_level_key_frames_from_scan,
     root_shard_quorum_from_frames,
 )
 from ethernity.workflows.shared import api_codes
@@ -51,14 +48,14 @@ from ethernity.workflows.shared.events import CommandError as ApiCommandError
 from ethernity.workflows.shared.operation_types import (
     BackupArgs,
     BackupResult,
-    CompactArgs,
     InputFile,
+    RebuildOperationRequest,
     RecoverArgs,
 )
 
 
 @dataclass(frozen=True)
-class _RootPublishPolicy:
+class _RecoverySheetSettings:
     passphrase_shard_threshold: int | None
     passphrase_shard_count: int
     signing_key_shard_threshold: int | None
@@ -66,56 +63,56 @@ class _RootPublishPolicy:
 
 
 @dataclass(frozen=True)
-class _CompactSourceHead:
+class _RebuildSourceHead:
     root_doc_id: bytes
     root_doc_hash: bytes
     selected_extension_index: int | None
     selected_extension_doc_hash: str | None
 
 
-def _validated_compact_root_dir(root_dir_value: str | None) -> Path:
+def _validated_rebuild_root_dir(root_dir_value: str | None) -> Path:
     if not root_dir_value:
-        raise ValueError("compact requires --scan or root_dir")
+        raise ValueError("rebuild requires --scan or root_dir")
     root_dir = Path(root_dir_value).expanduser()
     if root_dir.is_symlink():
-        raise ValueError(f"generated backup folder must not be a symlink: {root_dir_value}")
+        raise ValueError(f"backup source folder must not be a symlink: {root_dir_value}")
     if not root_dir.exists():
         raise ValueError(
-            f"generated backup folder not found: {root_dir_value}. Check --root-dir or use --scan."
+            f"backup source folder not found: {root_dir_value}. Check --root-dir or use --scan."
         )
     if not root_dir.is_dir():
         raise ValueError(f"--root-dir must be a directory: {root_dir_value}")
     return root_dir
 
 
-def validate_compact_source_selection(args: CompactArgs) -> None:
-    """Validate that compact has exactly one source mode."""
+def validate_rebuild_source_selection(args: RebuildOperationRequest) -> None:
+    """Validate that rebuild has exactly one source mode."""
 
     has_root_dir = bool(args.root_dir)
     has_scan = bool(args.scan)
     if has_root_dir and has_scan:
-        raise ValueError("use either --root-dir or --scan for compact, not both")
+        raise ValueError("use either --root-dir or --scan for rebuild, not both")
     if not has_root_dir and not has_scan:
-        raise ValueError("compact requires --scan or root_dir")
-    if has_scan and args.expected_head_doc_hash is None and not args.allow_stale_head:
+        raise ValueError("rebuild requires --scan or root_dir")
+    if args.expected_head_doc_hash is None and not args.allow_stale_head:
         raise ValueError(
-            "scan-mode compact cannot prove the supplied recovery set is the latest chain state; "
+            "rebuild cannot prove the supplied documents are the latest chain state; "
             "provide --expected-head-doc-hash or pass --allow-stale-head to acknowledge this risk"
         )
 
 
-def _reject_compact_output_inside_root(root_dir: Path, output_dir_value: str) -> None:
+def _reject_rebuild_output_inside_root(root_dir: Path, output_dir_value: str) -> None:
     output_dir = Path(output_dir_value).expanduser()
     root_resolved = root_dir.resolve(strict=False)
     output_resolved = output_dir.resolve(strict=False)
     if output_resolved == root_resolved or output_resolved.is_relative_to(root_resolved):
         raise ValueError(
-            "compact output directory must not be the source generated folder or inside it: "
+            "rebuild output directory must not be the source folder or inside it: "
             f"{output_dir_value}"
         )
 
 
-def _reject_compact_layout_debug_inside_root(
+def _reject_rebuild_layout_debug_inside_root(
     root_dir: Path, layout_debug_dir_value: str | None
 ) -> None:
     if layout_debug_dir_value is None or not layout_debug_dir_value.strip():
@@ -125,25 +122,25 @@ def _reject_compact_layout_debug_inside_root(
     debug_resolved = debug_dir.resolve(strict=False)
     if debug_resolved == root_resolved or debug_resolved.is_relative_to(root_resolved):
         raise ValueError(
-            "compact layout debug directory must not be the source generated folder "
+            "rebuild layout debug directory must not be the source folder "
             f"or inside it: {layout_debug_dir_value}"
         )
 
 
-def _translate_compact_head_untrusted(
+def _translate_rebuild_head_untrusted(
     exc: ApiCommandError | ExtensionRecoveryError,
 ) -> ApiCommandError:
     head_label = "requested" if exc.details.get("explicit_selection") else "latest supplied"
-    message = f"{head_label} compact head could not be trusted; no checkpoint was created"
+    message = f"{head_label} rebuild head could not be trusted; no rebuilt backup was created"
     failure_message = exc.details.get("failure_message")
     if isinstance(failure_message, str) and failure_message:
         message = f"{message}: {failure_message}"
     details = dict(exc.details)
-    details["checkpoint_created"] = False
+    details["backup_created"] = False
     return ApiCommandError(code=exc.code, message=message, details=details)
 
 
-def _compact_recover_args(args: CompactArgs, root_dir: Path | None) -> RecoverArgs:
+def _rebuild_recover_args(args: RebuildOperationRequest, root_dir: Path | None) -> RecoverArgs:
     scan = list(args.scan or [])
     if not scan and root_dir is not None:
         scan = [str(root_dir)]
@@ -163,17 +160,17 @@ def _compact_recover_args(args: CompactArgs, root_dir: Path | None) -> RecoverAr
     )
 
 
-def _recover_compact_chain(recover_plan, *, quiet: bool):
+def _recover_rebuild_chain(recover_plan):
     try:
-        return recover_chain_entries(recover_plan, quiet=quiet, debug=False)
+        return recover_chain_entries(recover_plan, debug=False)
     except (ApiCommandError, ExtensionRecoveryError) as exc:
         if exc.code != api_codes.RECOVERY_HEAD_UNTRUSTED:
             raise
-        raise _translate_compact_head_untrusted(exc) from exc
+        raise _translate_rebuild_head_untrusted(exc) from exc
 
 
-def _compact_source_head(recover_plan, chain) -> _CompactSourceHead:
-    return _CompactSourceHead(
+def _rebuild_source_head(recover_plan, chain) -> _RebuildSourceHead:
+    return _RebuildSourceHead(
         root_doc_id=recover_plan.doc_id,
         root_doc_hash=recover_plan.doc_hash,
         selected_extension_index=getattr(chain, "selected_extension_index", None),
@@ -181,74 +178,7 @@ def _compact_source_head(recover_plan, chain) -> _CompactSourceHead:
     )
 
 
-def _validate_compact_source_head_for_promotion(
-    *,
-    args: CompactArgs,
-    root_dir: Path | None,
-    expected: _CompactSourceHead,
-) -> None:
-    current_plan = plan_recover_from_args(_compact_recover_args(args, root_dir))
-    current_chain = _recover_compact_chain(current_plan, quiet=args.quiet)
-    current = _compact_source_head(current_plan, current_chain)
-    mismatches: dict[str, object] = {}
-    for field in (
-        "root_doc_id",
-        "root_doc_hash",
-        "selected_extension_index",
-        "selected_extension_doc_hash",
-    ):
-        expected_value = getattr(expected, field)
-        current_value = getattr(current, field)
-        if expected_value != current_value:
-            mismatches[field] = {
-                "expected": _compact_head_value(expected_value),
-                "actual": _compact_head_value(current_value),
-            }
-    if mismatches:
-        raise ApiCommandError(
-            code=api_codes.CHAIN_INVALID,
-            message=(
-                "source extension chain changed before compact checkpoint promotion; "
-                "no checkpoint was created"
-            ),
-            details={
-                "stage": "publish_head",
-                "checkpoint_created": False,
-                "mismatches": mismatches,
-            },
-        )
-
-
-def _compact_head_value(value: object) -> object:
-    return value.hex() if isinstance(value, bytes) else value
-
-
-def _compact_source_chain_lock_path(root_dir: Path | None) -> Path | None:
-    if root_dir is None:
-        return None
-    return root_dir / EXTENSIONS_DIR_NAME / EXTENSION_CHAIN_LOCK_FILE_NAME
-
-
-def _prepare_compact_source_chain_lock(root_dir: Path | None) -> None:
-    if root_dir is None:
-        return
-    extensions_dir = root_dir / EXTENSIONS_DIR_NAME
-    if extensions_dir.is_symlink():
-        raise ApiCommandError(
-            code=api_codes.INVALID_INPUT,
-            message="extensions path must not be a symlink",
-            details={"stage": "publish_head", "root_dir": str(root_dir)},
-        )
-    if extensions_dir.exists() and not extensions_dir.is_dir():
-        raise ApiCommandError(
-            code=api_codes.INVALID_INPUT,
-            message="extensions path must be a directory",
-            details={"stage": "publish_head", "root_dir": str(root_dir)},
-        )
-    extensions_dir.mkdir(mode=0o700, exist_ok=True)
-
-
-def _infer_root_publish_policy(
+def _infer_recovery_sheet_settings(
     *,
     root_dir: str | None,
     source_scan: Sequence[str] = (),
@@ -258,30 +188,12 @@ def _infer_root_publish_policy(
     passphrase_shard_frames: Sequence[Frame] = (),
     signing_key_shard_frames: Sequence[Frame] = (),
     require_quorum: bool = True,
-    quiet: bool,
-) -> _RootPublishPolicy:
-    root_level_frames: tuple[Frame, ...] = ()
-    if root_dir:
-        root_path = Path(root_dir).expanduser()
-        if root_path.is_symlink():
-            raise ApiCommandError(
-                code="RUNTIME_ERROR",
-                message="root backup directory must not be a symlink",
-            )
-        if root_path.exists() and not root_path.is_dir():
-            raise ApiCommandError(
-                code="RUNTIME_ERROR",
-                message=f"root backup directory must be a directory: {root_dir}",
-            )
-        root_level_frames = _root_level_key_frames_for_policy(root_path, quiet=quiet)
-    if source_scan:
-        root_level_frames = (
-            *root_level_frames,
-            *_root_level_key_frames_from_source_scan(source_scan, quiet=quiet),
-        )
+) -> _RecoverySheetSettings:
+    scan_inputs = tuple(source_scan) or ((root_dir,) if root_dir else ())
+    source_key_frames = _key_frames_from_source_scan(scan_inputs) if scan_inputs else ()
     root_doc_id = bytes.fromhex(root_doc_id_hex) if root_doc_id_hex else None
     policy_frames = (
-        *root_level_frames,
+        *source_key_frames,
         *tuple(passphrase_shard_frames),
         *tuple(signing_key_shard_frames),
     )
@@ -292,14 +204,13 @@ def _infer_root_publish_policy(
             expected_doc_hash=root_doc_hash,
         ):
             raise ApiCommandError(
-                code=api_codes.COMPACT_INVALID_POLICY,
+                code=api_codes.REBUILD_INVALID_POLICY,
                 message=(
-                    "compact cannot inherit root shard policy without a verified "
-                    "root signing authority"
+                    "rebuild cannot inherit root shard policy without a verified root signing key"
                 ),
                 details={"stage": "root_shard_policy"},
             )
-        return _RootPublishPolicy(
+        return _RecoverySheetSettings(
             passphrase_shard_threshold=None,
             passphrase_shard_count=0,
             signing_key_shard_threshold=None,
@@ -307,8 +218,8 @@ def _infer_root_publish_policy(
         )
     if root_doc_id is None:
         raise ApiCommandError(
-            code=api_codes.COMPACT_INVALID_POLICY,
-            message="compact cannot inherit root shard policy without a root document id",
+            code=api_codes.REBUILD_INVALID_POLICY,
+            message="rebuild cannot inherit root shard policy without a root document id",
             details={"stage": "root_shard_policy"},
         )
     passphrase_threshold, passphrase_count = _infer_root_quorum(
@@ -329,7 +240,7 @@ def _infer_root_publish_policy(
         key_type=sharding_module.KEY_TYPE_SIGNING_SEED,
         secret_label="signing key",
     )
-    return _RootPublishPolicy(
+    return _RecoverySheetSettings(
         passphrase_shard_threshold=passphrase_threshold,
         passphrase_shard_count=passphrase_count,
         signing_key_shard_threshold=signing_key_threshold,
@@ -361,7 +272,7 @@ def _infer_root_quorum(
         )
     except InsufficientShardError as exc:
         raise ApiCommandError(
-            code=api_codes.COMPACT_INVALID_POLICY,
+            code=api_codes.REBUILD_INVALID_POLICY,
             message=(
                 f"root {secret_label} shards are under quorum; "
                 f"need at least {exc.threshold}, found {exc.provided_count}"
@@ -369,52 +280,38 @@ def _infer_root_quorum(
         ) from exc
     except ValueError as exc:
         raise ApiCommandError(
-            code=api_codes.COMPACT_INVALID_POLICY,
+            code=api_codes.REBUILD_INVALID_POLICY,
             message=str(exc),
             details={"stage": "root_shard_policy"},
         ) from exc
 
 
-def _root_level_key_frames_for_policy(root_path: Path, *, quiet: bool) -> tuple[Frame, ...]:
-    try:
-        return root_level_key_frames_from_scan(root_path, quiet=quiet)
-    except ValueError as exc:
-        raise ApiCommandError(
-            code=api_codes.COMPACT_INVALID_POLICY,
-            message=str(exc),
-            details={"stage": "root_shard_policy"},
-        ) from exc
-
-
-def _root_level_key_frames_from_source_scan(
+def _key_frames_from_source_scan(
     source_scan: Sequence[str],
-    *,
-    quiet: bool,
 ) -> tuple[Frame, ...]:
-    _ = quiet
     try:
         frames = frames_from_scan(list(source_scan))
     except ValueError as exc:
         raise ApiCommandError(
-            code=api_codes.COMPACT_INVALID_POLICY,
+            code=api_codes.REBUILD_INVALID_POLICY,
             message=f"root shard policy scan failed: {exc}",
             details={"stage": "root_shard_policy"},
         ) from exc
     return tuple(frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT)
 
 
-def run_compact(args: CompactArgs) -> BackupResult:
-    validate_compact_source_selection(args)
-    root_dir = None if args.scan else _validated_compact_root_dir(args.root_dir)
+def execute_rebuild_operation(args: RebuildOperationRequest) -> BackupResult:
+    validate_rebuild_source_selection(args)
+    root_dir = None if args.scan else _validated_rebuild_root_dir(args.root_dir)
     if not args.output_dir:
-        raise ValueError("compact requires output_dir")
+        raise ValueError("rebuild requires output_dir")
     if root_dir is not None:
-        _reject_compact_output_inside_root(root_dir, args.output_dir)
-        _reject_compact_layout_debug_inside_root(root_dir, args.layout_debug_dir)
+        _reject_rebuild_output_inside_root(root_dir, args.output_dir)
+        _reject_rebuild_layout_debug_inside_root(root_dir, args.layout_debug_dir)
 
-    recover_plan = plan_recover_from_args(_compact_recover_args(args, root_dir))
-    chain = _recover_compact_chain(recover_plan, quiet=args.quiet)
-    source_head = _compact_source_head(recover_plan, chain)
+    recover_plan = plan_recover_from_args(_rebuild_recover_args(args, root_dir))
+    chain = _recover_rebuild_chain(recover_plan)
+    source_head = _rebuild_source_head(recover_plan, chain)
     manifest = chain.manifest
 
     sign_pub = (
@@ -446,7 +343,7 @@ def run_compact(args: CompactArgs) -> BackupResult:
         expected_doc_hash=unlock_doc_hash,
     )
 
-    inherited = _infer_root_publish_policy(
+    inherited = _infer_recovery_sheet_settings(
         root_dir=str(root_dir) if root_dir is not None else None,
         source_scan=tuple(args.scan or ()),
         root_doc_id_hex=recover_plan.doc_id.hex(),
@@ -457,10 +354,9 @@ def run_compact(args: CompactArgs) -> BackupResult:
             expected_doc_id=recover_plan.doc_id,
             expected_doc_hash=recover_plan.doc_hash,
         ),
-        quiet=args.quiet,
     )
     if unlock_passphrase_policy is not None:
-        inherited = _RootPublishPolicy(
+        inherited = _RecoverySheetSettings(
             passphrase_shard_threshold=unlock_passphrase_policy[0],
             passphrase_shard_count=unlock_passphrase_policy[1],
             signing_key_shard_threshold=inherited.signing_key_shard_threshold,
@@ -473,7 +369,7 @@ def run_compact(args: CompactArgs) -> BackupResult:
     ):
         raise ValueError(
             "root backup signing-key shards require passphrase shards; "
-            "compact cannot preserve an invalid shard policy"
+            "rebuild cannot preserve an invalid shard policy"
         )
     backup_args = BackupArgs(
         config=args.config,
@@ -511,10 +407,6 @@ def run_compact(args: CompactArgs) -> BackupResult:
         )
         for entry, data in chain.extracted
     ]
-    promote_lock_path = _compact_source_chain_lock_path(root_dir)
-    prepare_promotion = (
-        (lambda: _prepare_compact_source_chain_lock(root_dir)) if root_dir is not None else None
-    )
     result = run_backup(
         input_files=input_files,
         base_dir=None,
@@ -527,19 +419,14 @@ def run_compact(args: CompactArgs) -> BackupResult:
         passphrase=backup_args.passphrase,
         config=config,
         signing_seed_override=None if manifest.sealed else manifest.signing_seed,
-        render_lineage=RenderLineage(kind="compaction_checkpoint"),
-        promote_lock_path=promote_lock_path,
-        prepare_promotion=prepare_promotion,
-        validate_promotion=lambda: _validate_compact_source_head_for_promotion(
-            args=args,
-            root_dir=root_dir,
-            expected=source_head,
-        ),
+        payload_codec_override="auto",
+        render_origin=DocumentOrigin(kind="rebuilt_backup"),
         publication_durability="required",
         quiet=args.quiet,
     )
     return replace(
         result,
+        signing_key_preserved=not manifest.sealed,
         source_head_index=source_head.selected_extension_index or 0,
         source_head_doc_hash=source_head.selected_extension_doc_hash or recover_plan.doc_hash.hex(),
         expected_head_doc_hash=args.expected_head_doc_hash,
@@ -609,7 +496,7 @@ def _passphrase_shard_frames_for_document(
         if expected_doc_id is not None and frame.doc_id != expected_doc_id:
             if strict_doc_id:
                 raise ApiCommandError(
-                    code=api_codes.COMPACT_INVALID_POLICY,
+                    code=api_codes.REBUILD_INVALID_POLICY,
                     message="source passphrase shard frame doc_id does not match selected document",
                     details={"stage": "source_shard_policy"},
                 )
@@ -639,10 +526,10 @@ def _infer_passphrase_shard_policy_from_frames(
         return None
     if sign_pub is None:
         raise ApiCommandError(
-            code=api_codes.COMPACT_INVALID_POLICY,
+            code=api_codes.REBUILD_INVALID_POLICY,
             message=(
-                "compact cannot inherit source passphrase shard policy without a verified "
-                "root signing authority"
+                "rebuild cannot inherit source passphrase shard policy without a verified "
+                "root signing key"
             ),
             details={"stage": "source_shard_policy"},
         )
@@ -661,7 +548,7 @@ def _infer_passphrase_shard_policy_from_frames(
         if exc.share_count is not None:
             return exc.threshold, exc.share_count
         raise ApiCommandError(
-            code=api_codes.COMPACT_INVALID_POLICY,
+            code=api_codes.REBUILD_INVALID_POLICY,
             message=(
                 "source passphrase shards are under quorum; "
                 f"need at least {exc.threshold}, found {exc.provided_count}"

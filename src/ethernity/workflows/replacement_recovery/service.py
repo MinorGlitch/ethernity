@@ -14,54 +14,45 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Mint fresh shard documents for an existing backup."""
+"""Create replacement recovery documents for an existing backup."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
-from ethernity.artifacts.publish import create_sibling_staging_dir
 from ethernity.config import apply_render_style, load_app_config
 from ethernity.core.models import ShardingConfig
 from ethernity.crypto import decrypt_bytes
-from ethernity.crypto.document_identity import parse_doc_hash_hex
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     KEY_TYPE_SIGNING_SEED,
     LEGACY_SHARD_VERSION,
+    MAX_SHARES,
     ShardPayload,
+    create_replacement_shards,
     decode_shard_payload,
-    mint_replacement_shards,
     split_passphrase,
     split_signing_seed,
 )
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame
-from ethernity.extensions.chain import (
-    reconstruct_authenticated_latest_logical_state,
-    validate_authenticated_extension_chain,
-)
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
-    decode_imported_extension_link,
-    decode_root_manifest,
+    ChainRecoveryResult,
     recover_chain_entries,
-    validate_expected_recovery_head,
-    validate_root_manifest_authority,
 )
-from ethernity.formats.envelope_codec import decode_any_envelope, decode_envelope
-from ethernity.formats.envelope_types import EnvelopeManifest
-from ethernity.formats.extension_envelope import ExtensionEnvelope
+from ethernity.formats.document_codec import decode_backup_document
+from ethernity.formats.manifest import BackupManifest
+from ethernity.publication import create_sibling_staging_dir
 from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
 from ethernity.render.layout_debug import layout_debug_json_path, resolve_layout_debug_dir
 from ethernity.render.service import RenderService
-from ethernity.render.types import RenderLineage
+from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.recovery import inputs as recover_inputs
-from ethernity.workflows.recovery.key_recovery import (
+from ethernity.workflows.recovery.keys import (
     InsufficientShardError,
-    resolve_auth_payload,
     signing_seed_from_shard_frames,
     validated_shard_payloads_from_frames,
 )
@@ -85,7 +76,11 @@ from ethernity.workflows.shared.inspection import (
     blocking_issue_from_exception,
     manifest_summary_payload,
 )
-from ethernity.workflows.shared.operation_types import MintArgs, MintResult, RecoverArgs
+from ethernity.workflows.shared.operation_types import (
+    RecoverArgs,
+    ReplacementRecoveryOperationRequest,
+    ReplacementRecoveryOperationResult,
+)
 from ethernity.workflows.shared.outputs import (
     commit_prepared_output_dir,
     discard_prepared_output_dir,
@@ -93,7 +88,6 @@ from ethernity.workflows.shared.outputs import (
 )
 from ethernity.workflows.shared.shard_rendering import render_shard_document
 
-MAX_SHARDS = 255
 _UNSET = object()
 
 
@@ -114,13 +108,7 @@ class _ReplacementShardResolution:
 
 
 @dataclass(frozen=True)
-class _MintExtensionCandidate:
-    document: Any
-    envelope: ExtensionEnvelope
-
-
-@dataclass(frozen=True)
-class _MintInputState:
+class _ReplacementInputState:
     config: Any
     recover_args: RecoverArgs
     frames: tuple[Frame, ...]
@@ -132,13 +120,12 @@ class _MintInputState:
     signing_key_frames: tuple[Frame, ...]
     input_label: str | None
     input_detail: str | None
-    root_dir: str | None
 
 
 @dataclass(frozen=True)
-class MintInspectionState:
+class ReplacementRecoveryInspection:
     recovery: RecoveryInspection
-    manifest: EnvelopeManifest | None
+    manifest: BackupManifest | None
     source_summary: dict[str, object] | None
     selected_extension_index: int | None
     selected_extension_doc_hash: str | None
@@ -147,31 +134,34 @@ class MintInspectionState:
     signing_key_required_threshold: int | None
     signing_key_satisfied: bool
     signing_key_source: str | None
-    mint_capabilities: dict[str, bool]
+    replacement_capabilities: dict[str, bool]
     blocking_issues: tuple[dict[str, Any], ...]
 
 
-_PASSPHRASE_MINT_BLOCKER_CODES = frozenset({"PASSPHRASE_REPLACEMENT_NOT_READY"})
-_SIGNING_KEY_MINT_BLOCKER_CODES = frozenset({"SIGNING_KEY_REPLACEMENT_NOT_READY"})
+_PASSPHRASE_REPLACEMENT_BLOCKER_CODES = frozenset({"PASSPHRASE_REPLACEMENT_NOT_READY"})
+_SIGNING_KEY_REPLACEMENT_BLOCKER_CODES = frozenset({"SIGNING_KEY_REPLACEMENT_NOT_READY"})
 
 
-def execute_mint(
-    args: MintArgs,
+def execute_replacement_recovery_operation(
+    args: ReplacementRecoveryOperationRequest,
     *,
     debug: bool = False,
     event_sink: EventSink | None = None,
-) -> MintResult:
-    """Mint fresh shard documents from an existing backup and return the result."""
+) -> ReplacementRecoveryOperationResult:
+    """Create replacement recovery documents and return the result."""
 
     with event_session(event_sink):
-        emit_phase(phase="plan", label="Resolving mint inputs")
-        state = _load_mint_input_state(args)
+        emit_phase(phase="plan", label="Resolving replacement recovery inputs")
+        state = _load_replacement_input_state(args)
         shard_frames = list(state.shard_frames)
-        plan = _build_recovery_plan_for_mint(args, state, passphrase_shard_frames=shard_frames)
+        plan = _build_replacement_recovery_plan(args, state, passphrase_shard_frames=shard_frames)
         if plan.auth_payload is None:
             raise ApiCommandError(
                 code=api_codes.AUTH_REQUIRED,
-                message="minting requires an authenticated backup input with an AUTH payload",
+                message=(
+                    "replacement recovery requires an authenticated backup input with an AUTH "
+                    "payload"
+                ),
             )
 
         emit_progress(
@@ -189,8 +179,8 @@ def execute_mint(
             },
         )
 
-        emit_phase(phase="mint", label="Generating minted shard payloads")
-        return _mint_from_plan(
+        emit_phase(phase="generate", label="Generating replacement shard payloads")
+        return _replacement_from_plan(
             plan=plan,
             config=state.config,
             args=args,
@@ -201,8 +191,10 @@ def execute_mint(
         )
 
 
-def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectionState:
-    state = _load_mint_input_state(args, require_output_configuration=False)
+def inspect_replacement_recovery_inputs(
+    args: ReplacementRecoveryOperationRequest, *, debug: bool = False
+) -> ReplacementRecoveryInspection:
+    state = _load_replacement_input_state(args, require_output_configuration=False)
     recovery_shard_frames, recovery_shard_fallback_files, recovery_shard_payloads_file = (
         _recovery_shard_inputs_for_plan(
             passphrase=args.passphrase,
@@ -211,7 +203,7 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
             shard_payloads_file=list(state.shard_payloads_file),
         )
     )
-    plan = _try_build_recovery_plan_for_mint(
+    plan = _try_build_replacement_recovery_plan(
         args,
         state,
         passphrase_shard_frames=list(state.shard_frames),
@@ -245,7 +237,7 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
         quiet=args.quiet,
     )
     if plan is not None and args.passphrase is None and plan.shard_frames:
-        recovery = _mint_recovery_inspection_with_plan_shard_unlock(recovery, plan)
+        recovery = _replacement_recovery_inspection_with_plan_shard_unlock(recovery, plan)
 
     blocking_issues = [dict(item) for item in recovery.blocking_issues]
     if recovery.auth_payload is None:
@@ -253,29 +245,28 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
             blocking_issues,
             blocking_issue(
                 "AUTH_REQUIRED",
-                "minting requires an authenticated backup input with an AUTH payload",
+                "replacement recovery requires an authenticated backup input with an AUTH payload",
             ),
         )
 
     if plan is None and recovery.auth_payload is not None and recovery.unlock.satisfied:
-        plan = _try_build_recovery_plan_for_mint(
+        plan = _try_build_replacement_recovery_plan(
             args,
             state,
             passphrase_shard_frames=list(state.shard_frames),
         )
-    target_plan = plan
+    chain = None
     selected_extension_index: int | None = None
     selected_extension_doc_hash: str | None = None
     chain_target_trusted = True
     if plan is not None:
         try:
-            target_plan = _resolve_mint_chain_target(
+            chain = _recover_replacement_chain(
                 plan,
-                quiet=args.quiet,
                 debug=debug,
                 allow_stale_head=args.allow_stale_head,
             )
-            recovery = _mint_recovery_inspection_with_target(recovery, target_plan)
+            recovery = _replacement_recovery_inspection_with_root(recovery, plan)
         except Exception as exc:
             chain_target_trusted = False
             _append_unique_blocking_issue(
@@ -289,44 +280,28 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
                 ),
             )
 
-    manifest: EnvelopeManifest | None = None
+    manifest: BackupManifest | None = None
     source_summary: dict[str, object] | None = None
     if (
         chain_target_trusted
         and recovery.unlock.satisfied
         and recovery.unlock.resolved_passphrase is not None
     ):
-        if plan is not None and plan.import_documents:
-            try:
-                chain = recover_chain_entries(plan, quiet=True, debug=debug)
-                manifest = chain.manifest
-                selected_extension_index = chain.selected_extension_index
-                selected_extension_doc_hash = chain.selected_extension_doc_hash
-                source_summary = manifest_summary_payload(manifest)
-            except Exception as exc:
-                _append_unique_blocking_issue(
-                    blocking_issues,
-                    dict(
-                        blocking_issue_from_exception(
-                            exc,
-                            fallback_code=api_codes.RECOVERY_HEAD_UNTRUSTED,
-                            fallback_details={"stage": "replay"},
-                        )
-                    ),
-                )
+        if chain is not None:
+            manifest = chain.manifest
+            selected_extension_index = chain.selected_extension_index
+            selected_extension_doc_hash = chain.selected_extension_doc_hash
+            source_summary = manifest_summary_payload(manifest)
         else:
             try:
                 ciphertext = recovery.ciphertext
                 passphrase = recovery.unlock.resolved_passphrase
-                if target_plan is not None:
-                    ciphertext = target_plan.ciphertext
-                    passphrase = target_plan.passphrase
                 plaintext = decrypt_bytes(
                     ciphertext,
                     passphrase=passphrase,
                     debug=debug,
                 )
-                manifest, _payload = decode_envelope(plaintext)
+                manifest, _payload = decode_backup_document(plaintext)
                 source_summary = manifest_summary_payload(manifest)
             except Exception as exc:
                 _append_unique_blocking_issue(
@@ -340,15 +315,15 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
         signing_key_satisfied,
         signing_key_source,
         signing_key_issues,
-    ) = _inspect_mint_signing_key_state(
+    ) = _inspect_replacement_signing_key_state(
         manifest=manifest,
         recovery=recovery,
         signing_key_frames=list(state.signing_key_frames),
     )
-    _extend_unique_blocking_issues(blocking_issues, signing_key_issues)
-    _extend_unique_blocking_issues(
+    _append_unique_blocking_issues(blocking_issues, signing_key_issues)
+    _append_unique_blocking_issues(
         blocking_issues,
-        _inspect_mint_replacement_blockers(
+        _inspect_replacement_replacement_blockers(
             args=args,
             recovery=recovery,
             passphrase_shard_frames=list(state.shard_frames),
@@ -356,14 +331,14 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
         ),
     )
 
-    mint_capabilities = _inspect_mint_capabilities(
+    replacement_capabilities = _inspect_replacement_capabilities(
         args=args,
         recovery=recovery,
         manifest=manifest,
         signing_key_satisfied=signing_key_satisfied,
         blocking_issues=blocking_issues,
     )
-    return MintInspectionState(
+    return ReplacementRecoveryInspection(
         recovery=recovery,
         manifest=manifest,
         source_summary=source_summary,
@@ -374,14 +349,14 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
         signing_key_required_threshold=signing_key_required_threshold,
         signing_key_satisfied=signing_key_satisfied,
         signing_key_source=signing_key_source,
-        mint_capabilities=mint_capabilities,
+        replacement_capabilities=replacement_capabilities,
         blocking_issues=tuple(blocking_issues),
     )
 
 
-def _build_recovery_plan_for_mint(
-    args: MintArgs,
-    state: _MintInputState,
+def _build_replacement_recovery_plan(
+    args: ReplacementRecoveryOperationRequest,
+    state: _ReplacementInputState,
     *,
     passphrase_shard_frames: list[Frame],
 ) -> RecoveryPlan:
@@ -405,7 +380,6 @@ def _build_recovery_plan_for_mint(
         shard_payloads_file=recovery_shard_payloads_file,
         shard_scan=list(state.shard_scan),
         output_path=None,
-        root_dir=None,
         extension_index=args.extension_index,
         extension_doc_hash=args.extension_doc_hash,
         expected_head_doc_hash=args.expected_head_doc_hash,
@@ -414,16 +388,16 @@ def _build_recovery_plan_for_mint(
     )
 
 
-def _try_build_recovery_plan_for_mint(
-    args: MintArgs,
-    state: _MintInputState,
+def _try_build_replacement_recovery_plan(
+    args: ReplacementRecoveryOperationRequest,
+    state: _ReplacementInputState,
     *,
     passphrase_shard_frames: list[Frame],
 ) -> RecoveryPlan | None:
     if not (args.passphrase or passphrase_shard_frames):
         return None
     try:
-        return _build_recovery_plan_for_mint(
+        return _build_replacement_recovery_plan(
             args,
             state,
             passphrase_shard_frames=passphrase_shard_frames,
@@ -432,25 +406,25 @@ def _try_build_recovery_plan_for_mint(
         return None
 
 
-def _mint_recovery_inspection_with_target(
-    recovery: RecoveryInspection,
-    target_plan: Any,
-) -> RecoveryInspection:
-    return replace(
-        recovery,
-        ciphertext=target_plan.ciphertext,
-        doc_id=target_plan.doc_id,
-        doc_hash=target_plan.doc_hash,
-        auth_payload=target_plan.auth_payload,
-        auth_status=target_plan.auth_status,
-    )
-
-
-def _mint_recovery_inspection_with_plan_shard_unlock(
+def _replacement_recovery_inspection_with_root(
     recovery: RecoveryInspection,
     plan: RecoveryPlan,
 ) -> RecoveryInspection:
-    shard_payloads = _mint_passphrase_shard_payloads_for_inspection(plan.shard_frames)
+    return replace(
+        recovery,
+        ciphertext=plan.ciphertext,
+        doc_id=plan.doc_id,
+        doc_hash=plan.doc_hash,
+        auth_payload=plan.auth_payload,
+        auth_status=plan.auth_status,
+    )
+
+
+def _replacement_recovery_inspection_with_plan_shard_unlock(
+    recovery: RecoveryInspection,
+    plan: RecoveryPlan,
+) -> RecoveryInspection:
+    shard_payloads = _replacement_passphrase_shard_payloads_for_inspection(plan.shard_frames)
     if not shard_payloads:
         return recovery
     unique_share_indexes = {payload.share_index for payload in shard_payloads}
@@ -474,7 +448,7 @@ def _mint_recovery_inspection_with_plan_shard_unlock(
     )
 
 
-def _mint_passphrase_shard_payloads_for_inspection(
+def _replacement_passphrase_shard_payloads_for_inspection(
     shard_frames: tuple[Frame, ...],
 ) -> tuple[ShardPayload, ...]:
     payloads: list[ShardPayload] = []
@@ -502,7 +476,7 @@ def _append_unique_blocking_issue(
     blocking_issues.append(issue)
 
 
-def _extend_unique_blocking_issues(
+def _append_unique_blocking_issues(
     blocking_issues: list[dict[str, Any]],
     issues: list[dict[str, Any]],
 ) -> None:
@@ -510,34 +484,29 @@ def _extend_unique_blocking_issues(
         _append_unique_blocking_issue(blocking_issues, issue)
 
 
-def _load_mint_input_state(
-    args: MintArgs,
+def _load_replacement_input_state(
+    args: ReplacementRecoveryOperationRequest,
     *,
     require_output_configuration: bool = True,
-) -> _MintInputState:
-    _validate_mint_args(args, require_output_configuration=require_output_configuration)
+) -> _ReplacementInputState:
+    _validate_replacement_args(args, require_output_configuration=require_output_configuration)
     config = load_app_config(args.config, paper_size=args.paper)
     config = apply_render_style(config, args.design)
-    recover_args = _recover_args_from_mint_args(args)
+    recover_args = _recover_args_from_replacement_args(args)
     frames: list[Frame]
     input_label: str | None
     input_detail: str | None
-    root_dir: str | None = None
     if args.frames:
         frames = list(args.frames)
         input_label = args.input_label or "Backup recovery input"
         input_detail = args.input_detail
     else:
-        frames_result = recover_inputs.load_recovery_frames(
+        frames, input_label, input_detail = recover_inputs.load_recovery_frames(
             recover_args,
             allow_unsigned=False,
             quiet=args.quiet,
+            include_recovery_sheets=True,
         )
-        if len(frames_result) == 3:
-            frames, input_label, input_detail = frames_result
-        else:
-            frames, input_label, input_detail, detected_root_dir = frames_result
-            root_dir = None if detected_root_dir is None else str(detected_root_dir)
     extra_auth_frames = recover_inputs.load_extra_auth_frames(
         recover_args,
         allow_unsigned=False,
@@ -549,8 +518,17 @@ def _load_mint_input_state(
             quiet=args.quiet,
         )
     )
-    signing_key_frames = _signing_key_shard_frames_from_args(args, quiet=args.quiet)
-    return _MintInputState(
+    detected_signing_key_frames = recover_inputs.document_sheet_frames(
+        frames, key_type=KEY_TYPE_SIGNING_SEED
+    )
+    frames, shard_frames = recover_inputs.route_document_frames(
+        frames, shard_frames, passphrase=args.passphrase
+    )
+    signing_key_frames = [
+        *detected_signing_key_frames,
+        *_signing_key_shard_frames_from_args(args, quiet=args.quiet),
+    ]
+    return _ReplacementInputState(
         config=config,
         recover_args=recover_args,
         frames=tuple(frames),
@@ -562,13 +540,12 @@ def _load_mint_input_state(
         signing_key_frames=tuple(signing_key_frames),
         input_label=input_label,
         input_detail=input_detail,
-        root_dir=root_dir,
     )
 
 
-def _inspect_mint_signing_key_state(
+def _inspect_replacement_signing_key_state(
     *,
-    manifest: EnvelopeManifest | None,
+    manifest: BackupManifest | None,
     recovery: RecoveryInspection,
     signing_key_frames: list[Frame],
 ) -> tuple[int, int | None, bool, str | None, list[dict[str, Any]]]:
@@ -577,7 +554,7 @@ def _inspect_mint_signing_key_state(
     if manifest.signing_seed is not None:
         return 0, None, True, "embedded signing seed", []
 
-    source = "signing authority shards"
+    source = "signing-key shards"
     if recovery.auth_payload is None:
         return (
             0,
@@ -587,7 +564,8 @@ def _inspect_mint_signing_key_state(
             [
                 blocking_issue(
                     "AUTH_REQUIRED",
-                    "minting requires an authenticated backup input with an AUTH payload",
+                    "replacement recovery requires an authenticated backup input with an AUTH "
+                    "payload",
                 )
             ],
         )
@@ -601,8 +579,8 @@ def _inspect_mint_signing_key_state(
                 blocking_issue(
                     "SIGNING_KEY_SHARDS_REQUIRED",
                     (
-                        "backup is sealed; provide signing authority shard inputs "
-                        "to mint new shard documents"
+                        "backup is sealed; provide signing-key shard inputs "
+                        "to create replacement shard documents"
                     ),
                 )
             ],
@@ -651,9 +629,9 @@ def _inspect_mint_signing_key_state(
     )
 
 
-def _inspect_mint_replacement_blockers(
+def _inspect_replacement_replacement_blockers(
     *,
-    args: MintArgs,
+    args: ReplacementRecoveryOperationRequest,
     recovery: RecoveryInspection,
     passphrase_shard_frames: list[Frame],
     signing_key_frames: list[Frame],
@@ -691,11 +669,11 @@ def _inspect_mint_replacement_blockers(
     return blockers
 
 
-def _inspect_mint_capabilities(
+def _inspect_replacement_capabilities(
     *,
-    args: MintArgs,
+    args: ReplacementRecoveryOperationRequest,
     recovery: RecoveryInspection,
-    manifest: EnvelopeManifest | None,
+    manifest: BackupManifest | None,
     signing_key_satisfied: bool,
     blocking_issues: list[dict[str, Any]],
 ) -> dict[str, bool]:
@@ -709,210 +687,40 @@ def _inspect_mint_capabilities(
     )
     signing_key_ready = passphrase_ready and signing_key_satisfied
     return {
-        "can_mint_passphrase_shards": passphrase_ready
-        and args.mint_passphrase_shards
-        and not bool(blocker_codes & _PASSPHRASE_MINT_BLOCKER_CODES),
-        "can_mint_signing_key_shards": signing_key_ready
-        and args.mint_signing_key_shards
-        and not bool(blocker_codes & _SIGNING_KEY_MINT_BLOCKER_CODES),
+        "can_replacement_passphrase_shards": passphrase_ready
+        and args.create_passphrase_shards
+        and not bool(blocker_codes & _PASSPHRASE_REPLACEMENT_BLOCKER_CODES),
+        "can_replacement_signing_key_shards": signing_key_ready
+        and args.create_signing_key_shards
+        and not bool(blocker_codes & _SIGNING_KEY_REPLACEMENT_BLOCKER_CODES),
     }
 
 
-def _raise_extension_recovery_api_error(exc: ExtensionRecoveryError) -> None:
+def _raise_extension_recovery_api_error(exc: ExtensionRecoveryError) -> NoReturn:
     raise ApiCommandError(code=exc.code, message=str(exc), details=exc.details) from exc
 
 
-def _validate_expected_mint_recovery_head(
-    plan: Any,
+def _recover_replacement_chain(
+    plan: RecoveryPlan,
     *,
-    selected_extension_index: int | None,
-    selected_extension_doc_hash: str | None,
-) -> None:
-    try:
-        validate_expected_recovery_head(
-            plan,
-            selected_extension_index=selected_extension_index,
-            selected_extension_doc_hash=selected_extension_doc_hash,
-        )
-    except ExtensionRecoveryError as exc:
-        _raise_extension_recovery_api_error(exc)
-
-
-def _resolve_mint_chain_target(
-    plan: Any,
-    *,
-    quiet: bool,
     debug: bool,
     allow_stale_head: bool = False,
-    root_decoded: tuple[EnvelopeManifest, bytes] | None = None,
-) -> Any:
-    auth_payload = getattr(plan, "auth_payload", None)
-    passphrase = getattr(plan, "passphrase", None)
-    import_documents = getattr(plan, "import_documents", ())
-    requested_index = getattr(plan, "extension_index", None)
-    requested_doc_hash = getattr(plan, "extension_doc_hash", None)
-    _validate_mint_extension_selector(requested_index, requested_doc_hash)
-    requested_doc_hash_bytes = (
-        parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
-        if requested_doc_hash is not None
-        else None
-    )
-    if requested_index == 0:
-        _validate_expected_mint_recovery_head(
-            plan,
-            selected_extension_index=None,
-            selected_extension_doc_hash=None,
-        )
-        _require_mint_head_acknowledgement(
-            plan,
-            allow_stale_head=allow_stale_head,
-            selected_extension_index=None,
-            selected_extension_doc_hash=None,
-            has_imported_extensions=len(import_documents) > 1,
-        )
-        return replace(plan, extension_index=None, extension_doc_hash=None, import_documents=())
-
-    explicit_extension_selection = requested_index is not None or requested_doc_hash is not None
-    if len(import_documents) <= 1 or auth_payload is None or passphrase is None:
-        if explicit_extension_selection:
-            _raise_missing_mint_extension_target(requested_index, requested_doc_hash)
-        _validate_expected_mint_recovery_head(
-            plan,
-            selected_extension_index=None,
-            selected_extension_doc_hash=None,
-        )
-        return plan
-
-    documents_by_doc_hash = {document.doc_hash: document for document in import_documents}
-    root_manifest: EnvelopeManifest | None = None
-    root_payload: bytes | None = None
-    root_sign_pub: bytes | None = None
+) -> ChainRecoveryResult:
     try:
-        if root_decoded is None:
-            root_manifest, root_payload = decode_root_manifest(
-                ciphertext=plan.ciphertext,
-                passphrase=passphrase,
-                debug=debug,
-            )
-        else:
-            root_manifest, root_payload = root_decoded
-        root_sign_pub = validate_root_manifest_authority(
-            root_manifest,
-            auth_payload,
-            doc_hash=plan.doc_hash,
-        )
-    except ApiCommandError:
-        raise
+        chain = recover_chain_entries(plan, debug=debug)
     except ExtensionRecoveryError as exc:
         _raise_extension_recovery_api_error(exc)
-    except ValueError as exc:
-        raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
-
-    if root_manifest is None or root_payload is None:
-        raise AssertionError("root manifest decoding did not return manifest data")
-
-    if root_sign_pub is None:
-        if _mint_documents_include_extension_for_root(
-            plan,
-            import_documents=import_documents,
-            passphrase=passphrase,
-            debug=debug,
-        ):
-            raise ValueError(
-                "imported extension chain could not be trusted: "
-                "extension minting requires an unsealed root signing authority"
-            )
-        if explicit_extension_selection:
-            _raise_missing_mint_extension_target(requested_index, requested_doc_hash)
-        _validate_expected_mint_recovery_head(
-            plan,
-            selected_extension_index=None,
-            selected_extension_doc_hash=None,
-        )
-        return plan
-
-    candidates = _decode_mint_extension_candidates(
-        plan,
-        import_documents=tuple(import_documents),
-        passphrase=passphrase,
-        root_sign_pub=root_sign_pub,
-        requested_doc_hash=requested_doc_hash_bytes,
-        fail_on_root_authority_errors=not explicit_extension_selection,
-        quiet=quiet,
-        debug=debug,
-    )
-    _reject_conflicting_mint_extension_indices(candidates)
-    candidates = _select_mint_extension_candidates(
-        candidates,
-        requested_index=requested_index,
-        requested_doc_hash=requested_doc_hash,
-    )
-    decoded_links = []
-    for candidate in candidates:
-        try:
-            decoded_links.append(
-                decode_imported_extension_link(
-                    candidate.document,
-                    passphrase=passphrase,
-                    expected_sign_pub=root_sign_pub,
-                    quiet=quiet,
-                    debug=debug,
-                )
-            )
-        except ValueError as exc:
-            raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
-    if not decoded_links:
-        _validate_expected_mint_recovery_head(
-            plan,
-            selected_extension_index=None,
-            selected_extension_doc_hash=None,
-        )
-        return replace(plan, extension_index=None, extension_doc_hash=None, import_documents=())
-    decoded_links.sort(key=lambda item: item.link.document.header.index)
-    try:
-        validate_authenticated_extension_chain(
-            root_doc_hash=plan.doc_hash,
-            expected_sign_pub=root_sign_pub,
-            extensions=tuple(item.link for item in decoded_links),
-        )
-        reconstruct_authenticated_latest_logical_state(
-            root_manifest,
-            root_payload,
-            root_doc_hash=plan.doc_hash,
-            expected_sign_pub=root_sign_pub,
-            extensions=tuple(item.link for item in decoded_links),
-        )
-    except ValueError as exc:
-        raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
-    latest_decoded = decoded_links[-1]
-    latest = documents_by_doc_hash[latest_decoded.link.doc_hash]
-    _validate_expected_mint_recovery_head(
-        plan,
-        selected_extension_index=latest_decoded.link.document.header.index,
-        selected_extension_doc_hash=latest.doc_hash.hex(),
-    )
-    _require_mint_head_acknowledgement(
+    _require_replacement_head_acknowledgement(
         plan,
         allow_stale_head=allow_stale_head,
-        selected_extension_index=latest_decoded.link.document.header.index,
-        selected_extension_doc_hash=latest.doc_hash.hex(),
-        has_imported_extensions=True,
+        selected_extension_index=chain.selected_extension_index,
+        selected_extension_doc_hash=chain.selected_extension_doc_hash,
+        has_imported_extensions=len(plan.import_documents) > 1,
     )
-
-    return replace(
-        plan,
-        ciphertext=latest.ciphertext,
-        doc_id=latest.doc_id,
-        doc_hash=latest.doc_hash,
-        auth_payload=latest_decoded.auth_payload,
-        auth_status=latest_decoded.auth_status,
-        extension_index=latest_decoded.link.document.header.index,
-        extension_doc_hash=latest.doc_hash.hex(),
-        import_documents=(),
-    )
+    return chain
 
 
-def _require_mint_head_acknowledgement(
+def _require_replacement_head_acknowledgement(
     plan: Any,
     *,
     allow_stale_head: bool,
@@ -929,7 +737,7 @@ def _require_mint_head_acknowledgement(
     raise ApiCommandError(
         code=api_codes.RECOVERY_HEAD_UNTRUSTED,
         message=(
-            "mint cannot prove the supplied recovery set is the latest chain state; "
+            "replacement recovery cannot prove the supplied set is the latest chain state; "
             "provide --expected-head-doc-hash or pass --allow-stale-head to acknowledge this risk"
         ),
         details={
@@ -942,231 +750,7 @@ def _require_mint_head_acknowledgement(
     )
 
 
-def _validate_mint_extension_selector(
-    requested_index: int | None,
-    requested_doc_hash: str | None,
-) -> None:
-    if requested_index is not None and requested_doc_hash is not None:
-        raise ValueError("use either --extension-index or --extension-doc-hash, not both")
-    if requested_index is not None and (isinstance(requested_index, bool) or requested_index < 0):
-        raise ValueError("--extension-index must be >= 0")
-    if requested_doc_hash is not None:
-        parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
-
-
-def _raise_missing_mint_extension_target(
-    requested_index: int | None,
-    requested_doc_hash: str | None,
-) -> None:
-    if requested_index is not None:
-        raise ValueError(f"extension index {requested_index} was not found")
-    if requested_doc_hash is not None:
-        parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
-        raise ValueError(f"extension doc_hash {requested_doc_hash.strip().lower()} was not found")
-
-
-def _decode_mint_extension_candidates(
-    plan: Any,
-    *,
-    import_documents: tuple[Any, ...],
-    passphrase: str,
-    root_sign_pub: bytes,
-    fail_on_root_authority_errors: bool,
-    quiet: bool,
-    debug: bool,
-    requested_doc_hash: bytes | None = None,
-) -> tuple[_MintExtensionCandidate, ...]:
-    candidates: list[_MintExtensionCandidate] = []
-    seen_doc_hashes = {plan.doc_hash}
-    for document in import_documents:
-        if document.doc_hash in seen_doc_hashes:
-            continue
-        _raise_if_mint_doc_id_collision(document, plan)
-        selected_doc_hash = (
-            requested_doc_hash is not None and document.doc_hash == requested_doc_hash
-        )
-        fail_on_document_errors = fail_on_root_authority_errors or selected_doc_hash
-        try:
-            auth_payload, _auth_status = resolve_auth_payload(
-                list(document.auth_frames),
-                doc_id=document.doc_id,
-                doc_hash=document.doc_hash,
-                allow_unsigned=False,
-                require_auth=True,
-                quiet=quiet,
-            )
-        except ValueError as exc:
-            if fail_on_document_errors:
-                raise ValueError(
-                    _mint_extension_trust_error(
-                        document,
-                        f"imported extension AUTH could not be trusted: {exc}",
-                        selected=selected_doc_hash,
-                    )
-                ) from exc
-            continue
-        if auth_payload is None or auth_payload.sign_pub != root_sign_pub:
-            if selected_doc_hash:
-                raise ValueError(
-                    _mint_extension_trust_error(
-                        document,
-                        "imported extension AUTH signing key does not match root authority",
-                        selected=True,
-                    )
-                )
-            continue
-        try:
-            plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
-            version, decoded = decode_any_envelope(plaintext)
-        except Exception as exc:
-            if fail_on_document_errors:
-                raise ValueError(
-                    _mint_extension_trust_error(
-                        document,
-                        f"imported root-authority document could not be trusted: {exc}",
-                        selected=selected_doc_hash,
-                    )
-                ) from exc
-            continue
-        if version != 2 or not isinstance(decoded, ExtensionEnvelope):
-            if fail_on_document_errors:
-                raise ValueError(
-                    _mint_extension_trust_error(
-                        document,
-                        (
-                            "imported root-authority document could not be trusted: "
-                            "imported document did not decode as an extension envelope"
-                        ),
-                        selected=selected_doc_hash,
-                    )
-                )
-            continue
-        if decoded.header.root_doc_hash != plan.doc_hash:
-            if fail_on_document_errors:
-                raise ValueError(
-                    _mint_extension_trust_error(
-                        document,
-                        "imported root-authority extension targets a different root backup",
-                        selected=selected_doc_hash,
-                    )
-                )
-            continue
-        seen_doc_hashes.add(document.doc_hash)
-        candidates.append(_MintExtensionCandidate(document=document, envelope=decoded))
-    return tuple(sorted(candidates, key=lambda item: item.envelope.header.index))
-
-
-def _mint_extension_trust_error(
-    document: Any,
-    message: str,
-    *,
-    selected: bool,
-) -> str:
-    if not selected:
-        return message
-    return f"selected extension doc_hash {document.doc_hash.hex()} could not be trusted: {message}"
-
-
-def _reject_conflicting_mint_extension_indices(
-    candidates: tuple[_MintExtensionCandidate, ...],
-) -> None:
-    by_index: dict[int, _MintExtensionCandidate] = {}
-    for candidate in candidates:
-        index = candidate.envelope.header.index
-        existing = by_index.get(index)
-        if existing is not None and existing.document.doc_hash != candidate.document.doc_hash:
-            raise ValueError(
-                f"content import contains multiple authenticated extensions for index {index}"
-            )
-        by_index[index] = candidate
-
-
-def _select_mint_extension_candidates(
-    candidates: tuple[_MintExtensionCandidate, ...],
-    *,
-    requested_index: int | None,
-    requested_doc_hash: str | None,
-) -> tuple[_MintExtensionCandidate, ...]:
-    if requested_index is not None:
-        if requested_index == 0:
-            return ()
-        if not any(candidate.envelope.header.index == requested_index for candidate in candidates):
-            raise ValueError(f"extension index {requested_index} was not found")
-        return tuple(
-            candidate
-            for candidate in candidates
-            if candidate.envelope.header.index <= requested_index
-        )
-    if requested_doc_hash is not None:
-        requested = parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
-        target_index = next(
-            (
-                candidate.envelope.header.index
-                for candidate in candidates
-                if candidate.document.doc_hash == requested
-            ),
-            None,
-        )
-        if target_index is None:
-            raise ValueError(
-                f"extension doc_hash {requested_doc_hash.strip().lower()} was not found"
-            )
-        return tuple(
-            candidate for candidate in candidates if candidate.envelope.header.index <= target_index
-        )
-    return candidates
-
-
-def _raise_if_mint_doc_id_collision(document: Any, plan: Any) -> None:
-    if document.doc_id != plan.doc_id:
-        return
-    raise ValueError(
-        "imported extension chain could not be trusted: "
-        "content import contains a document whose doc_id collides with the selected root backup"
-    )
-
-
-def _mint_documents_include_extension_for_root(
-    plan: Any,
-    *,
-    import_documents: tuple[Any, ...],
-    passphrase: str,
-    debug: bool,
-) -> bool:
-    for document in import_documents:
-        if document.doc_hash == plan.doc_hash:
-            continue
-        _raise_if_mint_doc_id_collision(document, plan)
-        if _mint_document_targets_current_root(
-            document,
-            passphrase=passphrase,
-            root_doc_hash=plan.doc_hash,
-            debug=debug,
-        ):
-            return True
-    return False
-
-
-def _mint_document_targets_current_root(
-    document: Any,
-    *,
-    passphrase: str,
-    root_doc_hash: bytes,
-    debug: bool,
-) -> bool:
-    try:
-        plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
-        version, decoded = decode_any_envelope(plaintext)
-    except Exception:
-        return False
-    return (
-        version == 2
-        and isinstance(decoded, ExtensionEnvelope)
-        and decoded.header.root_doc_hash == root_doc_hash
-    )
-
-
-def _recover_args_from_mint_args(args: MintArgs) -> RecoverArgs:
+def _recover_args_from_replacement_args(args: ReplacementRecoveryOperationRequest) -> RecoverArgs:
     recover_args = RecoverArgs(
         config=args.config,
         paper=args.paper,
@@ -1192,17 +776,19 @@ def _recover_args_from_mint_args(args: MintArgs) -> RecoverArgs:
     return recover_args
 
 
-def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = True) -> None:
+def _validate_replacement_args(
+    args: ReplacementRecoveryOperationRequest, *, require_output_configuration: bool = True
+) -> None:
     if (
         require_output_configuration
-        and not args.mint_passphrase_shards
-        and not args.mint_signing_key_shards
+        and not args.create_passphrase_shards
+        and not args.create_signing_key_shards
     ):
-        raise ValueError("mint must create at least one shard document type")
+        raise ValueError("replacement recovery must create at least one shard document type")
     if (
         require_output_configuration
         and args.passphrase_replacement_count is not None
-        and not args.mint_passphrase_shards
+        and not args.create_passphrase_shards
     ):
         raise ValueError(
             "cannot request passphrase replacement shards when passphrase output is off"
@@ -1210,11 +796,10 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
     if (
         require_output_configuration
         and args.signing_key_replacement_count is not None
-        and not args.mint_signing_key_shards
+        and not args.create_signing_key_shards
     ):
         raise ValueError(
-            "cannot request signing authority replacement shards when signing authority output "
-            "is off"
+            "cannot request replacement signing-key shards when signing-key output is off"
         )
     if args.passphrase_replacement_count is not None and args.passphrase_replacement_count < 1:
         raise ValueError("passphrase replacement count must be >= 1")
@@ -1229,7 +814,7 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
             args.shard_scan,
         )
     ):
-        raise ValueError("passphrase replacement minting requires existing passphrase shard inputs")
+        raise ValueError("passphrase shard replacement requires existing passphrase shard inputs")
     if (
         require_output_configuration
         and args.signing_key_replacement_count is not None
@@ -1239,10 +824,8 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
             args.signing_key_shard_scan,
         )
     ):
-        raise ValueError(
-            "signing authority replacement minting requires existing signing authority shard inputs"
-        )
-    _recover_args_from_mint_args(args)
+        raise ValueError("signing-key shard replacement requires existing signing-key shard inputs")
+    _recover_args_from_replacement_args(args)
     _validate_quorum_pair(
         args.shard_threshold,
         args.shard_count,
@@ -1251,19 +834,19 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
         pair_label="--shard-threshold and --shard-count",
         required=(
             require_output_configuration
-            and args.mint_passphrase_shards
+            and args.create_passphrase_shards
             and args.passphrase_replacement_count is None
         ),
     )
     _validate_quorum_pair(
         args.signing_key_shard_threshold,
         args.signing_key_shard_count,
-        threshold_label="signing authority shard threshold",
-        count_label="signing authority shard count",
+        threshold_label="signing-key shard threshold",
+        count_label="signing-key shard count",
         pair_label=("--signing-key-shard-threshold and --signing-key-shard-count"),
         required=False,
     )
-    if require_output_configuration and args.mint_signing_key_shards:
+    if require_output_configuration and args.create_signing_key_shards:
         if args.signing_key_replacement_count is not None:
             return
         has_explicit_signing_quorum = (
@@ -1273,8 +856,8 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
         has_passphrase_quorum = args.shard_threshold is not None and args.shard_count is not None
         if not has_explicit_signing_quorum and not has_passphrase_quorum:
             raise ValueError(
-                "minting signing authority shards requires a shard quorum or an explicit "
-                "signing authority shard quorum"
+                "creating signing-key shards requires a shard quorum or an explicit "
+                "signing-key shard quorum"
             )
 
 
@@ -1295,12 +878,12 @@ def _validate_quorum_pair(
         raise ValueError(f"both {pair_label} are required")
     if threshold < 1:
         raise ValueError(f"{threshold_label} must be >= 1")
-    if threshold > MAX_SHARDS:
-        raise ValueError(f"{threshold_label} must be <= {MAX_SHARDS}")
+    if threshold > MAX_SHARES:
+        raise ValueError(f"{threshold_label} must be <= {MAX_SHARES}")
     if count < threshold:
         raise ValueError(f"{count_label} must be >= {threshold_label}")
-    if count > MAX_SHARDS:
-        raise ValueError(f"{count_label} must be <= {MAX_SHARDS}")
+    if count > MAX_SHARES:
+        raise ValueError(f"{count_label} must be <= {MAX_SHARES}")
 
 
 def _has_existing_shard_inputs(
@@ -1323,50 +906,49 @@ def _recovery_shard_inputs_for_plan(
     return shard_frames, shard_fallback_files, shard_payloads_file
 
 
-def _mint_from_plan(
+def _replacement_from_plan(
     *,
     plan,
     config,
-    args: MintArgs,
+    args: ReplacementRecoveryOperationRequest,
     passphrase_shard_frames: list[Frame],
     signing_key_frames: list[Frame],
     manifest_signing_seed: object,
     debug: bool,
-) -> MintResult:
-    target_plan = _resolve_mint_chain_target(
+) -> ReplacementRecoveryOperationResult:
+    chain = _recover_replacement_chain(
         plan,
-        quiet=args.quiet,
         debug=debug,
         allow_stale_head=args.allow_stale_head,
     )
+    if plan.auth_payload is None:
+        raise ValueError("replacement recovery requires a verified root AUTH payload")
     if manifest_signing_seed is _UNSET:
-        plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
-        manifest, _payload = decode_envelope(plaintext)
-        resolved_manifest_signing_seed = manifest.signing_seed
+        resolved_manifest_signing_seed = chain.manifest.signing_seed
     else:
         resolved_manifest_signing_seed = cast(bytes | None, manifest_signing_seed)
-    sign_priv, signing_key_source = _resolve_signing_authority(
+    sign_priv, signing_key_source = _recover_signing_seed(
         manifest_signing_seed=resolved_manifest_signing_seed,
         signing_key_frames=signing_key_frames,
-        doc_id=target_plan.doc_id,
-        doc_hash=target_plan.doc_hash,
-        expected_sign_pub=target_plan.auth_payload.sign_pub,
+        doc_id=plan.doc_id,
+        doc_hash=plan.doc_hash,
+        expected_sign_pub=plan.auth_payload.sign_pub,
     )
     sign_pub = derive_public_key(sign_priv)
-    if sign_pub != target_plan.auth_payload.sign_pub:
-        raise ValueError("signing authority does not match the authenticated backup")
+    if sign_pub != plan.auth_payload.sign_pub:
+        raise ValueError("signing key does not match the authenticated backup")
 
     passphrase_resolution = _ReplacementShardResolution()
     signing_resolution = _ReplacementShardResolution()
 
     shard_payloads: list[ShardPayload] = []
-    if args.mint_passphrase_shards:
+    if args.create_passphrase_shards:
         if args.passphrase_replacement_count is not None:
             passphrase_resolution = _replacement_payloads_from_frames(
                 passphrase_shard_frames,
-                doc_id=target_plan.doc_id,
-                doc_hash=target_plan.doc_hash,
-                sign_pub=target_plan.auth_payload.sign_pub,
+                doc_id=plan.doc_id,
+                doc_hash=plan.doc_hash,
+                sign_pub=plan.auth_payload.sign_pub,
                 key_type=KEY_TYPE_PASSPHRASE,
                 secret_label="passphrase",
             )
@@ -1374,7 +956,7 @@ def _mint_from_plan(
                 passphrase_resolution,
                 secret_label="passphrase",
             )
-            shard_payloads = mint_replacement_shards(
+            shard_payloads = create_replacement_shards(
                 list(passphrase_resolution.payloads),
                 count=args.passphrase_replacement_count,
                 sign_priv=sign_priv,
@@ -1385,22 +967,22 @@ def _mint_from_plan(
                 shares=_required_int(args.shard_count, label="shard count"),
             )
             shard_payloads = split_passphrase(
-                target_plan.passphrase,
+                plan.passphrase,
                 threshold=passphrase_sharding.threshold,
                 shares=passphrase_sharding.shares,
-                doc_hash=target_plan.doc_hash,
+                doc_hash=plan.doc_hash,
                 sign_priv=sign_priv,
                 sign_pub=sign_pub,
             )
 
     signing_key_payloads: list[ShardPayload] = []
-    if args.mint_signing_key_shards:
+    if args.create_signing_key_shards:
         if args.signing_key_replacement_count is not None:
             signing_resolution = _replacement_payloads_from_frames(
                 signing_key_frames,
-                doc_id=target_plan.doc_id,
-                doc_hash=target_plan.doc_hash,
-                sign_pub=target_plan.auth_payload.sign_pub,
+                doc_id=plan.doc_id,
+                doc_hash=plan.doc_hash,
+                sign_pub=plan.auth_payload.sign_pub,
                 key_type=KEY_TYPE_SIGNING_SEED,
                 secret_label="signing key",
             )
@@ -1408,7 +990,7 @@ def _mint_from_plan(
                 signing_resolution,
                 secret_label="signing key",
             )
-            signing_key_payloads = mint_replacement_shards(
+            signing_key_payloads = create_replacement_shards(
                 list(signing_resolution.payloads),
                 count=args.signing_key_replacement_count,
                 sign_priv=sign_priv,
@@ -1419,17 +1001,17 @@ def _mint_from_plan(
                 sign_priv,
                 threshold=signing_key_sharding.threshold,
                 shares=signing_key_sharding.shares,
-                doc_hash=target_plan.doc_hash,
+                doc_hash=plan.doc_hash,
                 sign_priv=sign_priv,
                 sign_pub=sign_pub,
             )
 
-    output_dir = _ensure_mint_output_dir(
+    output_dir = _ensure_replacement_output_dir(
         args.output_dir,
-        target_plan.doc_id.hex(),
+        plan.doc_id.hex(),
         existing_directory_is_parent=args.output_dir_existing_parent,
     )
-    staging_output_dir = _prepare_mint_staging_dir(output_dir)
+    staging_output_dir = _prepare_replacement_staging_dir(output_dir)
     layout_debug_dir = resolve_layout_debug_dir(
         args.layout_debug_dir,
         forbidden_dirs={
@@ -1439,12 +1021,12 @@ def _mint_from_plan(
     )
     render_service = RenderService(config)
     qr_payload_codec = config.cli_defaults.backup.qr_payload_codec
-    lineage = RenderLineage(kind="minted_shard_set")
+    origin = DocumentOrigin(kind="replacement_recovery")
     total_documents = len(shard_payloads) + len(signing_key_payloads)
     rendered_documents = 0
 
     emit_progress(
-        phase="mint",
+        phase="generate",
         current=1,
         total=1,
         unit="step",
@@ -1454,7 +1036,7 @@ def _mint_from_plan(
             "signing_key_source": signing_key_source,
         },
     )
-    emit_phase(phase="render", label="Rendering minted shard documents")
+    emit_phase(phase="render", label="Rendering replacement shard documents")
 
     shard_paths: list[str] = []
     signing_key_shard_paths: list[str] = []
@@ -1463,7 +1045,7 @@ def _mint_from_plan(
             shard_paths.append(
                 render_shard_document(
                     shard,
-                    doc_id=target_plan.doc_id,
+                    doc_id=plan.doc_id,
                     output_dir=staging_output_dir,
                     render_service=render_service,
                     filename_prefix="shard",
@@ -1472,7 +1054,7 @@ def _mint_from_plan(
                         f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
                     qr_payload_codec=qr_payload_codec,
-                    lineage=lineage,
+                    origin=origin,
                 )
             )
             rendered_documents += 1
@@ -1489,7 +1071,7 @@ def _mint_from_plan(
             signing_key_shard_paths.append(
                 render_shard_document(
                     shard,
-                    doc_id=target_plan.doc_id,
+                    doc_id=plan.doc_id,
                     output_dir=staging_output_dir,
                     render_service=render_service,
                     filename_prefix="signing-key-shard",
@@ -1499,7 +1081,7 @@ def _mint_from_plan(
                         f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
                     qr_payload_codec=qr_payload_codec,
-                    lineage=lineage,
+                    origin=origin,
                 )
             )
             rendered_documents += 1
@@ -1531,20 +1113,22 @@ def _mint_from_plan(
         str(final_output_dir / Path(path).name) for path in signing_key_shard_paths
     )
 
-    return MintResult(
-        doc_id=target_plan.doc_id,
-        doc_hash=target_plan.doc_hash,
+    return ReplacementRecoveryOperationResult(
+        doc_id=plan.doc_id,
+        doc_hash=plan.doc_hash,
         output_dir=output_dir,
         shard_paths=final_shard_paths,
         signing_key_shard_paths=final_signing_key_shard_paths,
         signing_key_source=signing_key_source,
         notes=notes,
-        selected_extension_index=getattr(target_plan, "extension_index", None),
-        selected_extension_doc_hash=getattr(target_plan, "extension_doc_hash", None),
+        selected_extension_index=chain.selected_extension_index,
+        selected_extension_doc_hash=chain.selected_extension_doc_hash,
     )
 
 
-def _signing_key_shard_frames_from_args(args: MintArgs, *, quiet: bool) -> list[Frame]:
+def _signing_key_shard_frames_from_args(
+    args: ReplacementRecoveryOperationRequest, *, quiet: bool
+) -> list[Frame]:
     signing_key_frames = list(args.signing_key_shard_frames or [])
     fallback_files = list(args.signing_key_shard_fallback_file or [])
     payload_files = list(args.signing_key_shard_payloads_file or [])
@@ -1565,7 +1149,7 @@ def _signing_key_shard_frames_from_args(args: MintArgs, *, quiet: bool) -> list[
     return frames
 
 
-def _resolve_signing_authority(
+def _recover_signing_seed(
     *,
     manifest_signing_seed: bytes | None,
     signing_key_frames: list[Frame],
@@ -1579,8 +1163,7 @@ def _resolve_signing_authority(
         raise ApiCommandError(
             code=api_codes.SIGNING_KEY_SHARDS_REQUIRED,
             message=(
-                "backup is sealed; provide signing authority shard inputs to mint "
-                "new shard documents"
+                "backup is sealed; provide signing-key shard inputs to create new shard documents"
             ),
         )
     signing_seed = signing_seed_from_shard_frames(
@@ -1590,7 +1173,7 @@ def _resolve_signing_authority(
         expected_sign_pub=expected_sign_pub,
         allow_unsigned=False,
     )
-    return signing_seed, "signing authority shards"
+    return signing_seed, "signing-key shards"
 
 
 def _replacement_payloads_from_frames(
@@ -1630,24 +1213,20 @@ def _legacy_replacement_notes(
     *,
     passphrase_resolution: _ReplacementShardResolution,
     signing_resolution: _ReplacementShardResolution,
-    args: MintArgs,
+    args: ReplacementRecoveryOperationRequest,
 ) -> tuple[str, ...]:
     notes: list[str] = []
     if args.passphrase_replacement_count is not None and passphrase_resolution.uses_legacy_shards:
         notes.append(
             "Legacy v1 passphrase shards detected. Compatible replacements stay on v1; "
-            "prefer minting a full new passphrase shard set to migrate to shard payload v2."
+            "prefer creating a full new passphrase shard set to migrate to shard payload v2."
         )
     if args.signing_key_replacement_count is not None and signing_resolution.uses_legacy_shards:
         notes.append(
-            "Legacy v1 signing authority shards detected. Compatible replacements stay on v1; "
-            "prefer minting a full new signing authority shard set to migrate to shard payload v2."
+            "Legacy v1 signing-key shards detected. Compatible replacements stay on v1; "
+            "prefer creating a full new signing-key shard set to migrate to shard payload v2."
         )
     return tuple(notes)
-
-
-def _print_legacy_replacement_warning(notes: tuple[str, ...], *, quiet: bool) -> None:
-    _ = notes, quiet
 
 
 def _require_replacement_payloads(
@@ -1660,12 +1239,12 @@ def _require_replacement_payloads(
     if resolution.under_quorum:
         threshold = cast(int, resolution.threshold)
         raise ValueError(
-            f"cannot mint compatible replacement {secret_label} shards: "
+            f"cannot create compatible replacement {secret_label} shards: "
             f"need at least {threshold} validated shard(s), got {resolution.provided_count}"
             f"{_legacy_replacement_resolution_hint(resolution, secret_label=secret_label)}"
         )
     raise ValueError(
-        f"cannot mint compatible replacement {secret_label} shards: "
+        f"cannot create compatible replacement {secret_label} shards: "
         f"provide existing {secret_label} shard inputs"
     )
 
@@ -1681,7 +1260,8 @@ def _raise_if_under_quorum_replacement_inputs(
     raise ValueError(
         f"cannot evaluate compatible replacement {secret_label} shards: "
         f"need at least {threshold} validated shard(s), got {resolution.provided_count}; "
-        f"provide a full quorum or remove existing {secret_label} shard inputs to mint a fresh set"
+        f"provide a full quorum or remove existing {secret_label} shard inputs to create a "
+        "fresh set"
         f"{_legacy_replacement_resolution_hint(resolution, secret_label=secret_label)}"
     )
 
@@ -1695,11 +1275,13 @@ def _legacy_replacement_resolution_hint(
         return ""
     return (
         f". Existing {secret_label} shards are legacy v1; compatible replacements stay on v1, "
-        f"so mint a fresh {secret_label} shard set to migrate to shard payload v2"
+        f"so create a fresh {secret_label} shard set to migrate to shard payload v2"
     )
 
 
-def _resolve_signing_key_output_sharding(args: MintArgs) -> ShardingConfig:
+def _resolve_signing_key_output_sharding(
+    args: ReplacementRecoveryOperationRequest,
+) -> ShardingConfig:
     if args.signing_key_shard_threshold is not None and args.signing_key_shard_count is not None:
         return ShardingConfig(
             threshold=args.signing_key_shard_threshold,
@@ -1717,24 +1299,40 @@ def _required_int(value: int | None, *, label: str) -> int:
     return value
 
 
-def _ensure_mint_output_dir(
+def replacement_recovery_directory_name(doc_id: bytes | str) -> str:
+    """Return the output directory name for one document-bound replacement sheet set."""
+
+    doc_id_hex = doc_id.hex() if isinstance(doc_id, bytes) else doc_id
+    return f"replacement-recovery-{doc_id_hex}"
+
+
+def require_replacement_recovery_output_available(path: str | Path) -> Path:
+    """Return an unused replacement-recovery output path or raise."""
+
+    resolved = Path(path).expanduser()
+    if resolved.exists() or resolved.is_symlink():
+        raise ValueError(
+            f"output directory already exists: {resolved}; "
+            "use a different --output-dir path or remove the existing directory"
+        )
+    return resolved
+
+
+def _ensure_replacement_output_dir(
     output_dir: str | None,
     doc_id_hex: str,
     *,
     existing_directory_is_parent: bool = False,
 ) -> str:
-    directory = output_dir or f"mint-{doc_id_hex}"
+    directory_name = replacement_recovery_directory_name(doc_id_hex)
+    directory = output_dir or directory_name
     resolved = Path(directory).expanduser()
     if existing_directory_is_parent and resolved.is_dir():
-        resolved = resolved / f"mint-{doc_id_hex}"
-    if resolved.exists():
-        raise ValueError(
-            f"output directory already exists: {resolved}; "
-            "use a different --output-dir path or remove the existing directory"
-        )
+        resolved = resolved / directory_name
+    resolved = require_replacement_recovery_output_available(resolved)
     ensure_directory(resolved.parent, exist_ok=True)
     return str(resolved)
 
 
-def _prepare_mint_staging_dir(output_dir: str) -> str:
+def _prepare_replacement_staging_dir(output_dir: str) -> str:
     return str(create_sibling_staging_dir(output_dir))

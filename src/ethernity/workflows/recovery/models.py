@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Adapter-neutral recovery inspection contracts."""
+"""Adapter-neutral recovery inspection models."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from ethernity.extensions.recovery import DecodedImportSession, ImportedRecovery
 
 @dataclass(frozen=True)
 class RecoveryUnlockStatus:
-    """Unlock readiness for structured recovery inspection flows."""
+    """Unlock readiness for recovery inspection."""
 
     mode: Literal["missing", "passphrase", "shards"]
     passphrase_provided: bool
@@ -62,6 +62,7 @@ class RecoveryInspection:
     blocking_issues: tuple[dict[str, Any], ...]
     source_frames: tuple[Frame, ...] = ()
     source_extra_auth_frames: tuple[Frame, ...] = ()
+    decoded_import_session: DecodedImportSession | None = None
 
 
 @dataclass(frozen=True)

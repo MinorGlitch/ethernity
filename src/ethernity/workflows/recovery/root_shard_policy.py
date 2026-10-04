@@ -14,86 +14,18 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Content-first root shard policy discovery helpers."""
+"""Discover root-shard policy from carrier content."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from pathlib import Path
+from collections.abc import Sequence
 
 from ethernity.crypto import sharding as sharding_module
 from ethernity.encoding.framing import Frame, FrameType
-from ethernity.qr.scan import looks_like_image, looks_like_pdf
-from ethernity.workflows.recovery.frame_inputs import NoQrFramesError, frames_from_scan
 from ethernity.workflows.recovery.keys import (
     InsufficientShardError,
     validated_shard_payloads_from_frames,
 )
-
-FrameScanner = Callable[[list[str]], list[Frame]]
-
-_SCAN_FILE_SUFFIXES = {
-    ".pdf",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".bmp",
-    ".gif",
-    ".tif",
-    ".tiff",
-    ".webp",
-}
-
-
-def root_level_key_frames_from_scan(
-    root_dir: Path,
-    *,
-    quiet: bool,
-    _frame_scanner: FrameScanner | None = None,
-    _no_qr_frames_error: type[ValueError] | None = None,
-) -> tuple[Frame, ...]:
-    """Return KEY frames from immediate root-level scan carriers only."""
-
-    return tuple(
-        frame
-        for _path, carrier_frames in root_level_key_frame_carriers_from_scan(
-            root_dir,
-            quiet=quiet,
-            _frame_scanner=_frame_scanner,
-            _no_qr_frames_error=_no_qr_frames_error,
-        )
-        for frame in carrier_frames
-    )
-
-
-def root_level_key_frame_carriers_from_scan(
-    root_dir: Path,
-    *,
-    quiet: bool,
-    _frame_scanner: FrameScanner | None = None,
-    _no_qr_frames_error: type[ValueError] | None = None,
-) -> tuple[tuple[Path, tuple[Frame, ...]], ...]:
-    """Return each immediate root-level carrier together with its KEY frames."""
-
-    _ = quiet
-    scanner = frames_from_scan if _frame_scanner is None else _frame_scanner
-    no_frames_error = NoQrFramesError if _no_qr_frames_error is None else _no_qr_frames_error
-    candidates = _root_level_scan_candidates(root_dir)
-    carriers: list[tuple[Path, tuple[Frame, ...]]] = []
-    for path in candidates:
-        try:
-            frames = tuple(
-                frame
-                for frame in scanner([str(path)])
-                if frame.frame_type == FrameType.KEY_DOCUMENT
-            )
-        except no_frames_error:
-            continue
-        except ValueError as exc:
-            raise ValueError(f"root shard policy scan failed: {exc}") from exc
-        if frames:
-            carriers.append((path, frames))
-    return tuple(carriers)
 
 
 def root_shard_quorum_from_frames(
@@ -106,7 +38,7 @@ def root_shard_quorum_from_frames(
     secret_label: str,
     require_quorum: bool = True,
 ) -> tuple[int | None, int]:
-    """Infer a root shard quorum from frames signed by the trusted root authority."""
+    """Infer a root shard quorum from frames signed by the trusted root signing key."""
 
     selected = _select_root_shard_frames(
         frames,
@@ -158,23 +90,6 @@ def has_potential_root_shard_frames(
     return False
 
 
-def _root_level_scan_candidates(root_dir: Path) -> tuple[Path, ...]:
-    if not root_dir.exists() or not root_dir.is_dir():
-        return ()
-    candidates: list[Path] = []
-    for path in sorted(root_dir.iterdir()):
-        if path.is_symlink():
-            if path.suffix.lower() in _SCAN_FILE_SUFFIXES:
-                raise ValueError(f"root shard policy candidate must not be a symlink: {path}")
-            continue
-        if not path.is_file():
-            continue
-        suffix = path.suffix.lower()
-        if suffix in _SCAN_FILE_SUFFIXES or looks_like_pdf(path) or looks_like_image(path):
-            candidates.append(path)
-    return tuple(candidates)
-
-
 def _select_root_shard_frames(
     frames: Sequence[Frame],
     *,
@@ -197,14 +112,14 @@ def _select_root_shard_frames(
         if payload.key_type != key_type or payload.doc_hash != expected_doc_hash:
             continue
         if payload.sign_pub != sign_pub:
-            raise ValueError(f"root {secret_label} shard signing key does not match root authority")
+            raise ValueError(
+                f"root {secret_label} shard signing key does not match root signing key"
+            )
         selected.append(frame)
     return selected
 
 
 __all__ = [
     "has_potential_root_shard_frames",
-    "root_level_key_frame_carriers_from_scan",
-    "root_level_key_frames_from_scan",
     "root_shard_quorum_from_frames",
 ]

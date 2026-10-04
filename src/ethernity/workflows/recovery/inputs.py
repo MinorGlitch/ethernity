@@ -18,22 +18,21 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
+from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload
 from ethernity.encoding.fallback_text import format_fallback_error
-from ethernity.encoding.framing import Frame
+from ethernity.encoding.framing import Frame, FrameType
 from ethernity.workflows.recovery import frame_inputs
 from ethernity.workflows.recovery.constants import (
     RECOVERY_QR_TEXT_LABEL,
     RECOVERY_SCAN_LABEL,
 )
-from ethernity.workflows.shared.notices import warn
+from ethernity.workflows.shared.notices import WorkflowNotice, WorkflowNoticeSink, warn
 from ethernity.workflows.shared.operation_types import RecoverArgs
 from ethernity.workflows.shared.paths import expanduser_cli_path, expanduser_cli_paths
 
 
-def _notice_sink(quiet: bool) -> frame_inputs.FrameInputNoticeSink:
-    def emit(notice: frame_inputs.FrameInputNotice) -> None:
+def _notice_sink(quiet: bool) -> WorkflowNoticeSink:
+    def emit(notice: WorkflowNotice) -> None:
         warn(
             notice.message,
             quiet=quiet,
@@ -49,7 +48,8 @@ def load_recovery_frames(
     *,
     allow_unsigned: bool,
     quiet: bool,
-) -> tuple[list[Frame], str | None, str | None, Path | None]:
+    include_recovery_sheets: bool = False,
+) -> tuple[list[Frame], str | None, str | None]:
     """Load primary recovery frames from fallback text, payload lists, scans, or mixed inputs."""
 
     fallback_file = expanduser_cli_path(args.fallback_file)
@@ -102,24 +102,14 @@ def load_recovery_frames(
     if scan:
         scan_detail = ", ".join(scan)
         try:
-            if args.extension_index == 0:
-                scan_result = frame_inputs.recovery_frames_from_scan(
-                    scan,
-                    include_extension_carriers=False,
-                    notice_sink=_notice_sink(quiet),
-                )
-            elif args.extension_index is not None:
-                scan_result = frame_inputs.recovery_frames_from_scan(
-                    scan,
-                    extension_carrier_max_index=args.extension_index,
-                    notice_sink=_notice_sink(quiet),
-                )
+            if include_recovery_sheets:
+                scan_frames = frame_inputs.frames_from_scan(scan)
             else:
                 scan_result = frame_inputs.recovery_frames_from_scan(
                     scan,
                     notice_sink=_notice_sink(quiet),
                 )
-            scan_frames = list(scan_result.frames)
+                scan_frames = list(scan_result.frames)
             sources.append(
                 (
                     RECOVERY_SCAN_LABEL,
@@ -137,7 +127,38 @@ def load_recovery_frames(
         input_label = "Recovery inputs"
         input_detail = "; ".join(f"{label}: {detail}" for label, detail, _frames in sources)
         frames = [frame for _label, _detail, source_frames in sources for frame in source_frames]
-    return frames, input_label, input_detail, None
+    return frames, input_label, input_detail
+
+
+def route_document_frames(
+    frames: list[Frame],
+    shard_frames: list[Frame],
+    *,
+    passphrase: str | None,
+) -> tuple[list[Frame], list[Frame]]:
+    """Route decoded document roles while retaining normal shard binding validation.
+
+    An explicit passphrase remains the chosen unlock method. Sheets discovered in a
+    collection are used when no passphrase was supplied; explicit conflicting unlock
+    inputs still reach the existing mutual-exclusion checks.
+    """
+
+    recovery_frames = [frame for frame in frames if frame.frame_type != FrameType.KEY_DOCUMENT]
+    detected_shards = (
+        document_sheet_frames(frames, key_type=KEY_TYPE_PASSPHRASE) if not passphrase else []
+    )
+    return recovery_frames, [*shard_frames, *detected_shards]
+
+
+def document_sheet_frames(frames: list[Frame], *, key_type: str) -> list[Frame]:
+    """Identify decoded sheet roles without treating their contents as authenticated."""
+
+    return [
+        frame
+        for frame in frames
+        if frame.frame_type == FrameType.KEY_DOCUMENT
+        and decode_shard_payload(frame.data).key_type == key_type
+    ]
 
 
 def load_extra_auth_frames(
@@ -211,4 +232,6 @@ __all__ = [
     "load_extra_auth_frames",
     "load_recovery_frames",
     "load_shard_frames",
+    "route_document_frames",
+    "document_sheet_frames",
 ]

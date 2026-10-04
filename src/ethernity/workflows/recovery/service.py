@@ -21,22 +21,24 @@ from hashlib import sha256
 from typing import Literal
 
 from ethernity.crypto.age_policy import recovery_kdf_budget
-from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
+from ethernity.formats.manifest import BackupManifest, ManifestFile
 from ethernity.workflows.recovery.execution import (
     decrypt_manifest_extract_selection,
-    write_recovered_outputs,
 )
 from ethernity.workflows.recovery.planning import RecoveryPlan, plan_from_args
 from ethernity.workflows.shared.events import (
     EventSink,
     active_event_sink,
-    emit_artifact,
     emit_phase,
     emit_progress,
+    emit_written_file,
     event_session,
 )
 from ethernity.workflows.shared.operation_types import RecoverArgs
-from ethernity.workflows.shared.outputs import single_entry_uses_directory_output
+from ethernity.workflows.shared.outputs import (
+    single_entry_uses_directory_output,
+    write_recovered_outputs,
+)
 from ethernity.workflows.shared.paths import display_parent_path
 
 
@@ -47,7 +49,7 @@ def print_recover_debug(**_: object) -> None:
 @dataclass(frozen=True)
 class RecoverExecutionResult:
     plan: RecoveryPlan
-    manifest: EnvelopeManifest
+    manifest: BackupManifest
     extracted: tuple[tuple[ManifestFile, bytes], ...]
     written_paths: tuple[str, ...]
     file_payloads: tuple[dict[str, object], ...]
@@ -59,6 +61,10 @@ class RecoverExecutionResult:
     expected_head_doc_hash: str | None = None
     selected_extension_index: int | None = None
     selected_extension_doc_hash: str | None = None
+    trust_basis: Literal["matched_expected_head", "internally_consistent", "unauthenticated"] = (
+        "internally_consistent"
+    )
+    signing_key_verified: bool = False
 
 
 def prepare_recover_plan(
@@ -95,7 +101,7 @@ def execute_recover_plan(
     debug: bool = False,
     debug_max_bytes: int = 0,
     debug_reveal_secrets: bool = False,
-    emit_file_artifacts: bool = True,
+    emit_written_files: bool = True,
     event_sink: EventSink | None = None,
 ) -> RecoverExecutionResult:
     with (
@@ -135,13 +141,22 @@ def execute_recover_plan(
                 label=f"Wrote recovered file {index} of {total}",
                 details={"output_path": written_path, "manifest_path": manifest_path},
             )
-            if emit_file_artifacts:
-                emit_artifact(kind="recovered_file", path=written_path, details=file_payload)
+            if emit_written_files:
+                emit_written_file(kind="recovered_file", path=written_path, details=file_payload)
 
         emit_phase(phase="decrypt", label="Decrypting and extracting payload")
         decrypted = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
         manifest = decrypted.manifest
         extracted = list(decrypted.extracted)
+        authenticated = plan.auth_status == "verified" and plan.auth_payload is not None
+        trusted_head_matched = authenticated and plan.expected_head_doc_hash is not None
+        trust_basis: Literal["matched_expected_head", "internally_consistent", "unauthenticated"]
+        if not authenticated:
+            trust_basis = "unauthenticated"
+        elif trusted_head_matched:
+            trust_basis = "matched_expected_head"
+        else:
+            trust_basis = "internally_consistent"
         emit_progress(
             phase="decrypt",
             current=1,
@@ -174,18 +189,10 @@ def execute_recover_plan(
         )
         emit_phase(phase="write", label="Writing recovered files")
         written_paths = write_recovered_outputs(
+            plan.output_path,
             extracted,
-            output_path=plan.output_path,
-            auth_status=plan.auth_status,
-            allow_unsigned=plan.allow_unsigned,
-            quiet=quiet,
             single_entry_output_is_directory=single_entry_output_is_directory,
-            requested_extension_index=getattr(plan, "extension_index", None),
-            requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
-            expected_head_doc_hash=getattr(plan, "expected_head_doc_hash", None),
-            selected_extension_index=decrypted.selected_extension_index,
-            selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
-            on_file_written=_on_file_written,
+            on_entry_written=_on_file_written,
         )
         if written_paths:
             if len(written_paths) == 1 and not single_entry_output_is_directory:
@@ -211,6 +218,8 @@ def execute_recover_plan(
             expected_head_doc_hash=getattr(plan, "expected_head_doc_hash", None),
             selected_extension_index=decrypted.selected_extension_index,
             selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
+            trust_basis=trust_basis,
+            signing_key_verified=trusted_head_matched and manifest.signing_seed is not None,
         )
 
 
