@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ethernity.config.api.contracts import ConfigPatchError
+from ethernity.config.api.models import ConfigPatchError
 from ethernity.config.api.service import apply_api_config_patch
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from tests.unit.config.api._support import isolated_user_config, temporary_config_path

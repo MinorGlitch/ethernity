@@ -34,9 +34,9 @@ from ethernity.config._toml_support import (
 )
 from ethernity.config.paths import (
     DEFAULT_CONFIG_PATH,
+    DESIGNS_RESOURCE_ROOT,
     RENDER_STYLE_FILENAMES,
     SUPPORTED_RENDER_STYLES,
-    TEMPLATES_RESOURCE_ROOT,
     ConfigPaths,
     build_config_paths,
 )
@@ -93,7 +93,7 @@ class ConfigMigrationStep:
 def list_render_styles() -> dict[str, Path]:
     """List packaged built-in render styles."""
 
-    package_root = TEMPLATES_RESOURCE_ROOT
+    package_root = DESIGNS_RESOURCE_ROOT
     if not package_root.exists():
         return {}
 

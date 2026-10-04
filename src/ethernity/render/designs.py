@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Internal direct-render design manifest loading."""
+"""Internal direct-render design definition loading."""
 
 from __future__ import annotations
 
@@ -28,18 +28,20 @@ from typing import Mapping
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
+from ethernity.config.paths import DESIGNS_RESOURCE_ROOT
 from ethernity.page_sizes import PAPER_SIZES, PaperSize, PaperSizeName, resolve_paper_size
 from ethernity.render.doc_types import DOC_TYPES
 
-DESIGN_MANIFEST_FILENAME = "design.json"
+DESIGN_DEFINITION_FILENAME = "design.json"
 DESIGN_STYLE_FILENAME = "style.json"
-_DESIGN_MANIFEST_KEYS = frozenset({"schema_version", "name", "style", "documents", "page_support"})
+_DESIGN_DEFINITION_KEYS = frozenset(
+    {"schema_version", "name", "style", "documents", "page_support"}
+)
 
 
 @dataclass(frozen=True)
 class PageGeometrySupport:
-    """Minimum portrait geometry proven for one design/document renderer."""
+    """Minimum portrait dimensions supported for one design/document renderer."""
 
     minimum_width_mm: float
     minimum_height_mm: float
@@ -53,7 +55,7 @@ class PageGeometrySupport:
                 raise ValueError(f"{field_name} must be finite and positive")
 
     def supports(self, page_size: PaperSize) -> bool:
-        """Return whether the page meets this renderer's proven physical envelope."""
+        """Return whether the page meets this renderer's minimum page dimensions."""
 
         return (
             page_size.width_mm >= self.minimum_width_mm
@@ -61,12 +63,12 @@ class PageGeometrySupport:
         )
 
     def require(self, page_size: PaperSize, *, design_name: str, doc_type: str) -> None:
-        """Reject page geometry outside the proven renderer envelope."""
+        """Reject page geometry outside the supported page dimensions."""
 
         if self.supports(page_size):
             return
         raise ValueError(
-            "page size is outside the proven responsive envelope: "
+            "page size is outside the supported dimensions: "
             f"design={design_name!r}, doc_type={doc_type!r}, "
             f"page={page_size.name} ({page_size.width_mm:.3f}x"
             f"{page_size.height_mm:.3f} mm), minimum="
@@ -75,8 +77,8 @@ class PageGeometrySupport:
 
 
 @dataclass(frozen=True)
-class DesignManifest:
-    """Parsed direct-render design manifest."""
+class DesignDefinition:
+    """Parsed direct-render design definition."""
 
     name: str
     directory: Path
@@ -90,12 +92,12 @@ class DesignManifest:
         return doc_type.strip().lower() in self.documents
 
     def page_support_for(self, doc_type: str) -> PageGeometrySupport:
-        """Return the proven page envelope for a supported document type."""
+        """Return the minimum page dimensions for a supported document type."""
 
         normalized = doc_type.strip().lower()
         support = self.page_support.get(normalized)
         if support is None:
-            raise ValueError(f"design {self.name!r} has no page support contract for {doc_type!r}")
+            raise ValueError(f"design {self.name!r} has no page support entry for {doc_type!r}")
         return support
 
     def supports_page_size(self, doc_type: str, page_size: PaperSize) -> bool:
@@ -104,7 +106,7 @@ class DesignManifest:
         return self.page_support_for(doc_type).supports(page_size)
 
     def require_page_size(self, doc_type: str, page_size: PaperSize) -> None:
-        """Fail before rendering when page geometry is outside the proven envelope."""
+        """Fail before rendering when page geometry is outside the supported dimensions."""
 
         normalized = doc_type.strip().lower()
         self.page_support_for(normalized).require(
@@ -115,7 +117,7 @@ class DesignManifest:
 
 
 class _PageGeometrySupportData(BaseModel):
-    """Pydantic boundary for one document's physical page support contract."""
+    """Parsed physical page limits for one document type."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -139,8 +141,8 @@ class _PageGeometrySupportData(BaseModel):
         )
 
 
-class _DesignManifestData(BaseModel):
-    """Pydantic boundary model for raw `design.json` content."""
+class _DesignDefinitionData(BaseModel):
+    """Parsed and validated `design.json` content."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -177,38 +179,38 @@ class _DesignManifestData(BaseModel):
         return value
 
 
-def list_design_manifests(root: Path = TEMPLATES_RESOURCE_ROOT) -> dict[str, DesignManifest]:
-    """List packaged direct-render design manifests by design name."""
+def list_design_definitions(root: Path = DESIGNS_RESOURCE_ROOT) -> dict[str, DesignDefinition]:
+    """List packaged direct-render design definitions by design name."""
 
     if not root.exists():
         return {}
 
-    manifests: dict[str, DesignManifest] = {}
+    definitions: dict[str, DesignDefinition] = {}
     for entry in sorted(root.iterdir(), key=lambda item: item.name.lower()):
         if entry.name.startswith(".") or not entry.is_dir() or entry.name == "_shared":
             continue
-        manifest_path = entry / DESIGN_MANIFEST_FILENAME
-        if not manifest_path.is_file():
+        definition_path = entry / DESIGN_DEFINITION_FILENAME
+        if not definition_path.is_file():
             continue
-        manifest = load_design_manifest(entry)
-        manifests[manifest.name] = manifest
-    return manifests
+        definition = load_design_definition(entry)
+        definitions[definition.name] = definition
+    return definitions
 
 
-def load_design_manifest_by_name(name: str) -> DesignManifest:
-    """Load a packaged direct-render design manifest by design name."""
+def load_design_definition_by_name(name: str) -> DesignDefinition:
+    """Load a packaged direct-render design definition by design name."""
 
     normalized = _normalize_design_name(name)
-    manifest = list_design_manifests().get(normalized)
-    if manifest is not None:
-        return manifest
+    definition = list_design_definitions().get(normalized)
+    if definition is not None:
+        return definition
     raise ValueError(f"unknown renderer design: {name}")
 
 
-def design_manifest_path(name: str) -> Path:
-    """Return the packaged manifest path for a design name."""
+def design_definition_path(name: str) -> Path:
+    """Return the packaged definition path for a design name."""
 
-    return load_design_manifest_by_name(name).directory / DESIGN_MANIFEST_FILENAME
+    return load_design_definition_by_name(name).directory / DESIGN_DEFINITION_FILENAME
 
 
 def supported_paper_size_names(
@@ -216,23 +218,23 @@ def supported_paper_size_names(
     *,
     doc_types: frozenset[str] | None = None,
 ) -> tuple[PaperSizeName, ...]:
-    """Return registered sizes proven for every selected document renderer."""
+    """Return registered sizes supported for every selected document renderer."""
 
-    manifest = load_design_manifest_by_name(design_name)
-    selected_doc_types = manifest.documents if doc_types is None else doc_types
+    definition = load_design_definition_by_name(design_name)
+    selected_doc_types = definition.documents if doc_types is None else doc_types
     if not selected_doc_types:
         raise ValueError("doc_types must be non-empty")
     normalized_doc_types = frozenset(doc_type.strip().lower() for doc_type in selected_doc_types)
-    unknown = normalized_doc_types - manifest.documents
+    unknown = normalized_doc_types - definition.documents
     if unknown:
         raise ValueError(
-            f"design {manifest.name!r} does not advertise document type(s): "
+            f"design {definition.name!r} does not advertise document type(s): "
             f"{', '.join(sorted(unknown))}"
         )
     return tuple(
         paper.name
         for paper in PAPER_SIZES.values()
-        if all(manifest.supports_page_size(doc_type, paper) for doc_type in normalized_doc_types)
+        if all(definition.supports_page_size(doc_type, paper) for doc_type in normalized_doc_types)
     )
 
 
@@ -244,23 +246,23 @@ def require_supported_paper_size(
 ) -> PaperSize:
     """Resolve and preflight a registered size for a design/workflow document set."""
 
-    manifest = load_design_manifest_by_name(design_name)
+    definition = load_design_definition_by_name(design_name)
     resolved = resolve_paper_size(paper_size)
-    selected_doc_types = manifest.documents if doc_types is None else doc_types
+    selected_doc_types = definition.documents if doc_types is None else doc_types
     if not selected_doc_types:
         raise ValueError("doc_types must be non-empty")
     for doc_type in selected_doc_types:
-        manifest.require_page_size(doc_type, resolved)
+        definition.require_page_size(doc_type, resolved)
     return resolved
 
 
 def resolve_design_directory(value: str | Path) -> Path:
-    """Resolve a design name, design directory, or design manifest path."""
+    """Resolve a design name, design directory, or design definition path."""
 
     if isinstance(value, str):
         stripped = value.strip()
         if stripped and "/" not in stripped and "\\" not in stripped and "." not in stripped:
-            return load_design_manifest_by_name(stripped).directory
+            return load_design_definition_by_name(stripped).directory
         candidate = Path(stripped)
     else:
         candidate = value
@@ -268,56 +270,56 @@ def resolve_design_directory(value: str | Path) -> Path:
     path = candidate.expanduser()
     if path.is_dir():
         return path.resolve()
-    if path.name == DESIGN_MANIFEST_FILENAME:
+    if path.name == DESIGN_DEFINITION_FILENAME:
         return path.parent.resolve()
     raise ValueError(
         "renderer design must be a supported style name, design directory, "
-        f"or {DESIGN_MANIFEST_FILENAME} path: {value}"
+        f"or {DESIGN_DEFINITION_FILENAME} path: {value}"
     )
 
 
-def load_design_manifest(path: str | Path) -> DesignManifest:
-    """Load a direct-render design manifest from a directory or manifest path."""
+def load_design_definition(path: str | Path) -> DesignDefinition:
+    """Load a direct-render design definition from a directory or definition path."""
 
     directory = resolve_design_directory(path)
-    return _load_design_manifest_for_dir(directory)
+    return _load_design_definition_for_dir(directory)
 
 
 @lru_cache(maxsize=32)
-def _load_design_manifest_for_dir(directory: Path) -> DesignManifest:
-    manifest_path = directory / DESIGN_MANIFEST_FILENAME
-    if not manifest_path.is_file():
-        raise ValueError(f"missing design manifest: {manifest_path}")
+def _load_design_definition_for_dir(directory: Path) -> DesignDefinition:
+    definition_path = directory / DESIGN_DEFINITION_FILENAME
+    if not definition_path.is_file():
+        raise ValueError(f"missing design definition: {definition_path}")
 
     try:
-        raw = manifest_path.read_text(encoding="utf-8")
+        raw = definition_path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ValueError(f"unable to read design manifest: {manifest_path}") from exc
+        raise ValueError(f"unable to read design definition: {definition_path}") from exc
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid JSON in design manifest: {manifest_path}") from exc
+        raise ValueError(f"invalid JSON in design definition: {definition_path}") from exc
 
-    manifest_data = _load_design_manifest_data(data, path=manifest_path)
-    if manifest_data.schema_version != 2:
-        raise ValueError(f"unsupported design manifest schema_version in {manifest_path}")
+    definition_data = _load_design_definition_data(data, path=definition_path)
+    if definition_data.schema_version != 2:
+        raise ValueError(f"unsupported design definition schema_version in {definition_path}")
 
-    documents = frozenset(_normalize_doc_types(manifest_data.documents, path=manifest_path))
+    documents = frozenset(_normalize_doc_types(definition_data.documents, path=definition_path))
     if not documents:
-        raise ValueError(f"design manifest documents cannot be empty: {manifest_path}")
+        raise ValueError(f"design definition documents cannot be empty: {definition_path}")
     page_support = _normalize_page_support(
-        manifest_data.page_support,
+        definition_data.page_support,
         documents=documents,
-        path=manifest_path,
+        path=definition_path,
     )
 
-    style_path = (directory / manifest_data.style).resolve()
+    style_path = (directory / definition_data.style).resolve()
     if not style_path.is_file():
         raise ValueError(f"missing design style file: {style_path}")
 
-    return DesignManifest(
-        name=_normalize_design_name(manifest_data.name),
+    return DesignDefinition(
+        name=_normalize_design_name(definition_data.name),
         directory=directory,
         style_path=style_path,
         documents=documents,
@@ -325,22 +327,22 @@ def _load_design_manifest_for_dir(directory: Path) -> DesignManifest:
     )
 
 
-def _load_design_manifest_data(data: object, *, path: Path) -> _DesignManifestData:
+def _load_design_definition_data(data: object, *, path: Path) -> _DesignDefinitionData:
     if not isinstance(data, dict):
-        raise ValueError(f"design manifest must be a JSON object: {path}")
+        raise ValueError(f"design definition must be a JSON object: {path}")
     _reject_unknown_keys(
         data,
-        allowed_keys=_DESIGN_MANIFEST_KEYS,
-        section="design manifest",
+        allowed_keys=_DESIGN_DEFINITION_KEYS,
+        section="design definition",
         path=path,
     )
     try:
-        return _DesignManifestData.model_validate(data)
+        return _DesignDefinitionData.model_validate(data)
     except ValidationError as exc:
-        raise ValueError(_design_manifest_validation_message(exc, path=path)) from exc
+        raise ValueError(_design_definition_validation_message(exc, path=path)) from exc
 
 
-def _design_manifest_validation_message(exc: ValidationError, *, path: Path) -> str:
+def _design_definition_validation_message(exc: ValidationError, *, path: Path) -> str:
     error = exc.errors()[0]
     context_error = error.get("ctx", {}).get("error")
     if isinstance(context_error, ValueError):
@@ -360,7 +362,7 @@ def _design_manifest_validation_message(exc: ValidationError, *, path: Path) -> 
         return f"missing or invalid 'documents' list in {path}"
     if loc and loc[0] == "page_support":
         return f"missing or invalid 'page_support' object in {path}"
-    return f"unsupported design manifest schema_version in {path}"
+    return f"unsupported design definition schema_version in {path}"
 
 
 def _normalize_doc_types(values: tuple[str, ...], *, path: Path) -> tuple[str, ...]:
@@ -424,14 +426,14 @@ def _reject_unknown_keys(
 
 
 __all__ = [
-    "DESIGN_MANIFEST_FILENAME",
+    "DESIGN_DEFINITION_FILENAME",
     "DESIGN_STYLE_FILENAME",
-    "DesignManifest",
+    "DesignDefinition",
     "PageGeometrySupport",
-    "design_manifest_path",
-    "list_design_manifests",
-    "load_design_manifest",
-    "load_design_manifest_by_name",
+    "design_definition_path",
+    "list_design_definitions",
+    "load_design_definition",
+    "load_design_definition_by_name",
     "require_supported_paper_size",
     "resolve_design_directory",
     "supported_paper_size_names",

@@ -60,40 +60,6 @@ def test_snapshot_reports_invalid_toml_and_defaults() -> None:
     assert page["size"] == "A4"
 
 
-def test_snapshot_repairs_invalid_extension_chunking_order() -> None:
-    with temporary_config_path(
-        DEFAULT_CONFIG_PATH.read_text(encoding="utf-8").replace(
-            "target_size = 16384\nmin_size = 4096\nmax_size = 65536",
-            "target_size = 4096\nmin_size = 16384\nmax_size = 65536",
-            1,
-        )
-    ) as path:
-        snapshot = get_api_config_snapshot(path)
-
-    extension = cast(dict[str, Any], snapshot.values["extension"])
-    chunking = cast(dict[str, Any], extension["chunking"])
-    assert snapshot.status == "invalid_values"
-    assert snapshot.errors
-    assert chunking == {"target_size": 16384, "min_size": 4096, "max_size": 65536}
-
-
-def test_snapshot_repairs_out_of_profile_extension_chunking() -> None:
-    with temporary_config_path(
-        DEFAULT_CONFIG_PATH.read_text(encoding="utf-8").replace(
-            "target_size = 16384\nmin_size = 4096\nmax_size = 65536",
-            "target_size = 1024\nmin_size = 1024\nmax_size = 4096",
-            1,
-        )
-    ) as path:
-        snapshot = get_api_config_snapshot(path)
-
-    extension = cast(dict[str, Any], snapshot.values["extension"])
-    chunking = cast(dict[str, Any], extension["chunking"])
-    assert snapshot.status == "invalid_values"
-    assert snapshot.errors
-    assert chunking == {"target_size": 16384, "min_size": 4096, "max_size": 65536}
-
-
 def test_explicit_config_snapshot_hides_onboarding_state() -> None:
     with temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
         snapshot = get_api_config_snapshot(path)

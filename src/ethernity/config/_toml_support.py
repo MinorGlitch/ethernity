@@ -1,4 +1,4 @@
-"""Shared TOML text update helpers for config modules."""
+"""Update TOML text while preserving unrelated configuration."""
 
 from __future__ import annotations
 

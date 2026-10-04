@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ethernity.config.api.contracts import ConfigPatchError
+from ethernity.config.api.models import ConfigPatchError
 from ethernity.config.api.service import apply_api_config_patch
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from tests.unit.config.api._support import temporary_config_path
@@ -16,47 +16,51 @@ def test_patch_rejects_unknown_field() -> None:
     assert raised.value.code == "CONFIG_UNKNOWN_FIELD"
 
 
-def test_patch_rejects_invalid_extension_chunking_order() -> None:
+def test_patch_accepts_custom_extension_chunking_settings() -> None:
+    with temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
+        snapshot = apply_api_config_patch(
+            path,
+            {
+                "values": {
+                    "extension": {
+                        "chunking": {
+                            "target_size": 32768,
+                            "min_size": 8192,
+                            "max_size": 131072,
+                        }
+                    }
+                }
+            },
+        )
+
+    assert snapshot.values["extension"] == {
+        "chunking": {
+            "target_size": 32768,
+            "min_size": 8192,
+            "max_size": 131072,
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    "chunking",
+    (
+        {"target_size": True},
+        {"min_size": 2048},
+        {"target_size": 131072, "max_size": 65536},
+    ),
+)
+def test_patch_rejects_invalid_extension_chunking_settings(
+    chunking: dict[str, object],
+) -> None:
     with temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
         with pytest.raises(ConfigPatchError) as raised:
             apply_api_config_patch(
                 path,
-                {
-                    "values": {
-                        "extension": {
-                            "chunking": {
-                                "target_size": 4096,
-                                "min_size": 16384,
-                                "max_size": 65536,
-                            }
-                        }
-                    }
-                },
-            )
-
-    assert raised.value.code == "CONFIG_CONFLICT"
-
-
-def test_patch_rejects_out_of_profile_extension_chunking() -> None:
-    with temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
-        with pytest.raises(ConfigPatchError) as raised:
-            apply_api_config_patch(
-                path,
-                {
-                    "values": {
-                        "extension": {
-                            "chunking": {
-                                "target_size": 1024,
-                                "min_size": 1024,
-                                "max_size": 4096,
-                            }
-                        }
-                    }
-                },
+                {"values": {"extension": {"chunking": chunking}}},
             )
 
     assert raised.value.code == "CONFIG_INVALID_VALUE"
-    assert raised.value.details["field"] == "values.extension.chunking.target_size"
 
 
 @pytest.mark.parametrize(
@@ -75,12 +79,12 @@ def test_patch_rejects_out_of_profile_extension_chunking() -> None:
         },
     ),
 )
-def test_patch_rejects_invalid_extend_defaults(patch_values: dict[str, object]) -> None:
+def test_patch_rejects_removed_add_files_policy_fields(patch_values: dict[str, object]) -> None:
     with temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
         with pytest.raises(ConfigPatchError) as raised:
             apply_api_config_patch(
                 path,
-                {"values": {"defaults": {"extend": patch_values}}},
+                {"values": {"defaults": {"add_files": patch_values}}},
             )
 
-    assert raised.value.code in {"CONFIG_CONFLICT", "CONFIG_INVALID_VALUE"}
+    assert raised.value.code == "CONFIG_UNKNOWN_FIELD"

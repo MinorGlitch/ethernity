@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ethernity.config._toml_support import write_text_atomic
-from ethernity.config.api.contracts import ConfigPatchError, ConfigTargetSource
+from ethernity.config.api.models import ConfigPatchError, ConfigTargetSource
 from ethernity.config.install import (
     ONBOARDING_FIELDS,
     clear_first_run_onboarding_marker,

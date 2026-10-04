@@ -24,6 +24,7 @@ from ethernity.config import (
     load_app_config,
     load_cli_defaults,
 )
+from ethernity.config.types import DEFAULT_EXTENSION_CHUNKING_PROFILE
 from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
 from ethernity.page_sizes import paper_size_names
 
@@ -70,9 +71,6 @@ light = [4, 5, 6, 7]
         self.assertEqual(config.qr_config.light, (4, 5, 6, 7))
         self.assertFalse(config.qr_config.boost_error)
         self.assertEqual(config.qr_chunk_size, DEFAULT_CHUNK_SIZE)
-        self.assertEqual(config.extension_chunking.target_size, 16 * 1024)
-        self.assertEqual(config.extension_chunking.min_size, 4 * 1024)
-        self.assertEqual(config.extension_chunking.max_size, 64 * 1024)
 
     def test_load_app_config_with_defaults(self) -> None:
         """Test loading config with minimal content uses defaults."""
@@ -88,6 +86,7 @@ size = "A4"
         self.assertEqual(config.paper_size, "A4")
         self.assertEqual(config.design_name, DEFAULT_RENDER_STYLE)
         self.assertEqual(config.qr_chunk_size, DEFAULT_CHUNK_SIZE)
+        self.assertEqual(config.extension_chunking, DEFAULT_EXTENSION_CHUNKING_PROFILE)
 
     def test_load_app_config_empty_file(self) -> None:
         """Test loading empty config file fails when required backup defaults are missing."""
@@ -147,8 +146,7 @@ size = "{paper_size}"
             with self.assertRaisesRegex(ValueError, expected_error):
                 load_app_config(path=path)
 
-    def test_load_app_config_qr_boundary_values(self) -> None:
-        """Test QR config with boundary values."""
+    def test_load_app_config_qr_minimum_values(self) -> None:
         toml = """
 [qr]
 scale = 1
@@ -201,88 +199,44 @@ chunk_size = 0
                 with self.assertRaisesRegex(ValueError, expected_error):
                     load_app_config(path=path)
 
-    def test_load_app_config_parses_extension_chunking(self) -> None:
+    def test_load_app_config_parses_custom_extension_chunking_profile(self) -> None:
         toml = """
 [extension.chunking]
-target_size = 16384
-min_size = 4096
-max_size = 65536
+target_size = 32768
+min_size = 8192
+max_size = 131072
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
-        self.assertEqual(config.extension_chunking.target_size, 16384)
-        self.assertEqual(config.extension_chunking.min_size, 4096)
-        self.assertEqual(config.extension_chunking.max_size, 65536)
+        self.assertEqual(config.extension_chunking.target_size, 32768)
+        self.assertEqual(config.extension_chunking.min_size, 8192)
+        self.assertEqual(config.extension_chunking.max_size, 131072)
 
-    def test_load_app_config_rejects_invalid_extension_chunking_order(self) -> None:
-        toml = """
-[extension.chunking]
-target_size = 4096
-min_size = 16384
-max_size = 65536
-"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "config.toml"
-            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "min_size <= target_size <= max_size"):
-                load_app_config(path=path)
-
-    def test_load_app_config_rejects_extension_chunking_below_profile_minimum(self) -> None:
-        toml = """
-[extension.chunking]
-target_size = 1024
-min_size = 1024
-max_size = 4096
-"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "config.toml"
-            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
-            with self.assertRaisesRegex(
-                ValueError, "extension.chunking.target_size must be >= 4096"
-            ):
-                load_app_config(path=path)
-
-    def test_load_app_config_rejects_non_integer_extension_chunking_values(self) -> None:
+    def test_load_app_config_rejects_invalid_extension_chunking_profile(self) -> None:
         cases = (
-            ("target_size", "true"),
-            ("target_size", "16384.0"),
-            ("target_size", '"16384"'),
-            ("min_size", "true"),
-            ("min_size", "4096.0"),
-            ("min_size", '"4096"'),
-            ("max_size", "true"),
-            ("max_size", "65536.0"),
-            ("max_size", '"65536"'),
-            ("target_size", "0"),
-            ("min_size", "-1"),
+            ('target_size = "32768"\nmin_size = 8192\nmax_size = 131072', "must be an integer"),
+            ("target_size = 32768\nmin_size = 2048\nmax_size = 131072", ">= 4096"),
+            (
+                "target_size = 32768\nmin_size = 65536\nmax_size = 131072",
+                "min_size <= target_size <= max_size",
+            ),
         )
-        for field, value in cases:
-            with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as tmpdir:
+        for values, expected_error in cases:
+            with self.subTest(values=values), tempfile.TemporaryDirectory() as tmpdir:
                 path = Path(tmpdir) / "config.toml"
-                chunking_values = {
-                    "target_size": "16384",
-                    "min_size": "4096",
-                    "max_size": "65536",
-                }
-                chunking_values[field] = value
                 path.write_text(
                     self._with_required_qr_payload_codec(
                         f"""
 [extension.chunking]
-target_size = {chunking_values["target_size"]}
-min_size = {chunking_values["min_size"]}
-max_size = {chunking_values["max_size"]}
+{values}
 """
                     ),
                     encoding="utf-8",
                 )
-                with self.assertRaisesRegex(
-                    ValueError,
-                    f"extension.chunking.{field} must be a positive integer",
-                ):
+                with self.assertRaisesRegex(ValueError, expected_error):
                     load_app_config(path=path)
 
     def test_load_app_config_ignores_payload_encoding_key(self) -> None:
@@ -491,14 +445,8 @@ qr_payload_codec = "base64"
 [defaults.recover]
 output = "/tmp/recovered"
 
-[defaults.extend]
-base_dir = "/tmp/extend-base"
-unlock_policy = "self-contained"
-shard_threshold = 3
-shard_count = 5
-signing_key_mode = "sharded"
-signing_key_shard_threshold = 2
-signing_key_shard_count = 4
+[defaults.add_files]
+base_dir = "/tmp/add-files-base"
 qr_payload_codec = "base64"
 
 [ui]
@@ -509,9 +457,6 @@ show_internals = true
 
 [debug]
 max_bytes = 4096
-
-[runtime]
-render_jobs = 6
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
@@ -528,20 +473,13 @@ render_jobs = 6
         self.assertEqual(config.cli_defaults.backup.payload_codec, "raw")
         self.assertEqual(config.cli_defaults.backup.qr_payload_codec, "base64")
         self.assertEqual(config.cli_defaults.recover.output, "/tmp/recovered")
-        self.assertEqual(config.cli_defaults.extend.base_dir, "/tmp/extend-base")
-        self.assertEqual(config.cli_defaults.extend.unlock_policy, "self-contained")
-        self.assertEqual(config.cli_defaults.extend.shard_threshold, 3)
-        self.assertEqual(config.cli_defaults.extend.shard_count, 5)
-        self.assertEqual(config.cli_defaults.extend.signing_key_mode, "sharded")
-        self.assertEqual(config.cli_defaults.extend.signing_key_shard_threshold, 2)
-        self.assertEqual(config.cli_defaults.extend.signing_key_shard_count, 4)
-        self.assertEqual(config.cli_defaults.extend.qr_payload_codec, "base64")
+        self.assertEqual(config.cli_defaults.add_files.base_dir, "/tmp/add-files-base")
+        self.assertEqual(config.cli_defaults.add_files.qr_payload_codec, "base64")
         self.assertTrue(config.cli_defaults.ui.quiet)
         self.assertTrue(config.cli_defaults.ui.no_color)
         self.assertTrue(config.cli_defaults.ui.no_animations)
         self.assertTrue(config.cli_defaults.ui.show_internals)
         self.assertEqual(config.cli_defaults.debug.max_bytes, 4096)
-        self.assertEqual(config.cli_defaults.runtime.render_jobs, 6)
 
     def test_load_cli_defaults_parses_unset_sentinels(self) -> None:
         toml = """
@@ -558,21 +496,12 @@ qr_payload_codec = "raw"
 [defaults.recover]
 output = ""
 
-[defaults.extend]
+[defaults.add_files]
 base_dir = ""
-unlock_policy = ""
-shard_threshold = 0
-shard_count = 0
-signing_key_mode = ""
-signing_key_shard_threshold = 0
-signing_key_shard_count = 0
 qr_payload_codec = "raw"
 
 [debug]
 max_bytes = 0
-
-[runtime]
-render_jobs = "auto"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
@@ -589,16 +518,9 @@ render_jobs = "auto"
         self.assertEqual(defaults.backup.payload_codec, "auto")
         self.assertEqual(defaults.backup.qr_payload_codec, "raw")
         self.assertIsNone(defaults.recover.output)
-        self.assertIsNone(defaults.extend.base_dir)
-        self.assertIsNone(defaults.extend.unlock_policy)
-        self.assertIsNone(defaults.extend.shard_threshold)
-        self.assertIsNone(defaults.extend.shard_count)
-        self.assertIsNone(defaults.extend.signing_key_mode)
-        self.assertIsNone(defaults.extend.signing_key_shard_threshold)
-        self.assertIsNone(defaults.extend.signing_key_shard_count)
-        self.assertEqual(defaults.extend.qr_payload_codec, "raw")
+        self.assertIsNone(defaults.add_files.base_dir)
+        self.assertEqual(defaults.add_files.qr_payload_codec, "raw")
         self.assertIsNone(defaults.debug.max_bytes)
-        self.assertEqual(defaults.runtime.render_jobs, "auto")
 
     def test_load_cli_defaults_rejects_missing_qr_payload_codec(self) -> None:
         toml = """
@@ -695,20 +617,6 @@ signing_key_mode = "invalid"
             ):
                 load_cli_defaults(path=path)
 
-    def test_load_cli_defaults_rejects_invalid_render_jobs(self) -> None:
-        toml = """
-[runtime]
-render_jobs = "many"
-"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "config.toml"
-            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
-            with self.assertRaisesRegex(
-                ValueError,
-                "runtime.render_jobs must be an integer",
-            ):
-                load_cli_defaults(path=path)
-
     def test_load_cli_defaults_rejects_invalid_ui_bool(self) -> None:
         toml = """
 [ui]
@@ -721,7 +629,10 @@ no_color = "maybe"
                 load_cli_defaults(path=path)
 
     def test_load_cli_defaults_rejects_malformed_section_types(self) -> None:
-        cases = (("runtime = 3", "runtime must be a table"),)
+        cases = (
+            ("ui = 3", "ui must be a table"),
+            ("debug = 3", "debug must be a table"),
+        )
         for toml, expected_error in cases:
             with self.subTest(toml=toml):
                 with tempfile.TemporaryDirectory() as tmpdir:

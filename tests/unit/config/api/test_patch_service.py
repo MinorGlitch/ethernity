@@ -9,7 +9,7 @@ from unittest import mock
 import pytest
 
 import ethernity.config.install as installer
-from ethernity.config.api.contracts import ConfigPatchError
+from ethernity.config.api.models import ConfigPatchError
 from ethernity.config.api.service import apply_api_config_patch
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from tests.unit.config.api._support import isolated_user_config, temporary_config_path
@@ -27,21 +27,15 @@ def test_patch_updates_values_and_onboarding_marker() -> None:
                         "page": {"size": "LETTER"},
                         "extension": {
                             "chunking": {
-                                "target_size": 16384,
-                                "min_size": 4096,
-                                "max_size": 65536,
+                                "target_size": 32768,
+                                "min_size": 8192,
+                                "max_size": 131072,
                             }
                         },
                         "defaults": {
                             "backup": {"output_dir": "/tmp/backups"},
-                            "extend": {
-                                "base_dir": "/tmp/extend-base",
-                                "unlock_policy": "self-contained",
-                                "shard_threshold": 2,
-                                "shard_count": 3,
-                                "signing_key_mode": "sharded",
-                                "signing_key_shard_threshold": 2,
-                                "signing_key_shard_count": 4,
+                            "add_files": {
+                                "base_dir": "/tmp/add-files-base",
                                 "qr_payload_codec": "base64",
                             },
                         },
@@ -57,35 +51,28 @@ def test_patch_updates_values_and_onboarding_marker() -> None:
     defaults = cast(dict[str, Any], snapshot.values["defaults"])
     render = cast(dict[str, Any], snapshot.values["render"])
     backup = cast(dict[str, Any], defaults["backup"])
-    extend = cast(dict[str, Any], defaults["extend"])
+    add_files = cast(dict[str, Any], defaults["add_files"])
+    extension = cast(dict[str, Any], snapshot.values["extension"])
+    extension_chunking = cast(dict[str, Any], extension["chunking"])
 
     assert snapshot.values["page"] == {"size": "LETTER"}
     assert render["style"] == "ledger"
     assert backup["output_dir"] == "/tmp/backups"
-    assert extend["base_dir"] == "/tmp/extend-base"
-    assert extend["unlock_policy"] == "self-contained"
-    assert extend["shard_threshold"] == 2
-    assert extend["shard_count"] == 3
-    assert extend["signing_key_mode"] == "sharded"
-    assert extend["signing_key_shard_threshold"] == 2
-    assert extend["signing_key_shard_count"] == 4
-    assert extend["qr_payload_codec"] == "base64"
+    assert add_files["base_dir"] == "/tmp/add-files-base"
+    assert add_files["qr_payload_codec"] == "base64"
+    assert extension_chunking == {
+        "target_size": 32768,
+        "min_size": 8192,
+        "max_size": 131072,
+    }
     assert not snapshot.onboarding["needed"]
     assert snapshot.onboarding["configured_fields"] == ["backup_output_dir", "page_size"]
     assert parsed["page"]["size"] == "LETTER"
     assert parsed["render"]["style"] == "ledger"
-    assert parsed["extension"]["chunking"]["target_size"] == 16384
-    assert parsed["extension"]["chunking"]["min_size"] == 4096
-    assert parsed["extension"]["chunking"]["max_size"] == 65536
     assert parsed["defaults"]["backup"]["output_dir"] == "/tmp/backups"
-    assert parsed["defaults"]["extend"]["base_dir"] == "/tmp/extend-base"
-    assert parsed["defaults"]["extend"]["unlock_policy"] == "self-contained"
-    assert parsed["defaults"]["extend"]["shard_threshold"] == 2
-    assert parsed["defaults"]["extend"]["shard_count"] == 3
-    assert parsed["defaults"]["extend"]["signing_key_mode"] == "sharded"
-    assert parsed["defaults"]["extend"]["signing_key_shard_threshold"] == 2
-    assert parsed["defaults"]["extend"]["signing_key_shard_count"] == 4
-    assert parsed["defaults"]["extend"]["qr_payload_codec"] == "base64"
+    assert parsed["defaults"]["add_files"]["base_dir"] == "/tmp/add-files-base"
+    assert parsed["defaults"]["add_files"]["qr_payload_codec"] == "base64"
+    assert parsed["extension"]["chunking"] == extension_chunking
 
 
 def test_patch_repairs_invalid_current_values() -> None:

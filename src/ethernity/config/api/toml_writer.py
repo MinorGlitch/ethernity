@@ -19,10 +19,9 @@ def update_config_toml(original: str, values: dict[str, object]) -> str:
     defaults = cast(dict[str, object], values["defaults"])
     backup = cast(dict[str, object], defaults["backup"])
     recover = cast(dict[str, object], defaults["recover"])
-    extend = cast(dict[str, object], defaults["extend"])
+    add_files = cast(dict[str, object], defaults["add_files"])
     ui = cast(dict[str, object], values["ui"])
     debug = cast(dict[str, object], values["debug"])
-    runtime = cast(dict[str, object], values["runtime"])
 
     updated = upsert_table_key(
         updated,
@@ -66,7 +65,6 @@ def update_config_toml(original: str, values: dict[str, object]) -> str:
         key="max_size",
         value=str(cast(int, extension_chunking["max_size"])),
     )
-
     updated = upsert_table_key(
         updated,
         table="defaults.backup",
@@ -131,51 +129,15 @@ def update_config_toml(original: str, values: dict[str, object]) -> str:
 
     updated = upsert_table_key(
         updated,
-        table="defaults.extend",
+        table="defaults.add_files",
         key="base_dir",
-        value=toml_quote(cast(str | None, extend["base_dir"]) or ""),
+        value=toml_quote(cast(str | None, add_files["base_dir"]) or ""),
     )
     updated = upsert_table_key(
         updated,
-        table="defaults.extend",
-        key="unlock_policy",
-        value=toml_quote(cast(str | None, extend["unlock_policy"]) or ""),
-    )
-    updated = upsert_table_key(
-        updated,
-        table="defaults.extend",
-        key="shard_threshold",
-        value=str(cast(int | None, extend["shard_threshold"]) or 0),
-    )
-    updated = upsert_table_key(
-        updated,
-        table="defaults.extend",
-        key="shard_count",
-        value=str(cast(int | None, extend["shard_count"]) or 0),
-    )
-    updated = upsert_table_key(
-        updated,
-        table="defaults.extend",
-        key="signing_key_mode",
-        value=toml_quote(cast(str | None, extend["signing_key_mode"]) or ""),
-    )
-    updated = upsert_table_key(
-        updated,
-        table="defaults.extend",
-        key="signing_key_shard_threshold",
-        value=str(cast(int | None, extend["signing_key_shard_threshold"]) or 0),
-    )
-    updated = upsert_table_key(
-        updated,
-        table="defaults.extend",
-        key="signing_key_shard_count",
-        value=str(cast(int | None, extend["signing_key_shard_count"]) or 0),
-    )
-    updated = upsert_table_key(
-        updated,
-        table="defaults.extend",
+        table="defaults.add_files",
         key="qr_payload_codec",
-        value=toml_quote(cast(str, extend["qr_payload_codec"])),
+        value=toml_quote(cast(str, add_files["qr_payload_codec"])),
     )
 
     updated = upsert_table_key(
@@ -207,20 +169,6 @@ def update_config_toml(original: str, values: dict[str, object]) -> str:
         table="debug",
         key="max_bytes",
         value=str(cast(int | None, debug["max_bytes"]) or 0),
-    )
-
-    render_jobs = runtime["render_jobs"]
-    updated = upsert_table_key(
-        updated,
-        table="runtime",
-        key="render_jobs",
-        value=(
-            toml_quote(render_jobs)
-            if isinstance(render_jobs, str)
-            else str(render_jobs)
-            if render_jobs is not None
-            else toml_quote("")
-        ),
     )
 
     if not updated.endswith(("\n", "\r\n")):

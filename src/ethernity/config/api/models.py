@@ -1,4 +1,4 @@
-"""Public data contracts for config snapshots and patches."""
+"""Public models for config snapshots and patches."""
 
 from __future__ import annotations
 

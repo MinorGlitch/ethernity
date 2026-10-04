@@ -20,12 +20,12 @@ from tempfile import TemporaryDirectory
 
 from ethernity.page_sizes import PaperSize
 from ethernity.render.designs import (
-    load_design_manifest,
+    load_design_definition,
     supported_paper_size_names,
 )
 
 
-def _write_manifest(directory: Path, payload: dict[str, object]) -> None:
+def _write_definition(directory: Path, payload: dict[str, object]) -> None:
     (directory / "style.json").write_text("{}", encoding="utf-8")
     (directory / "design.json").write_text(json.dumps(payload), encoding="utf-8")
 
@@ -37,10 +37,10 @@ def _page_support(*doc_types: str) -> dict[str, object]:
 
 
 class TestRenderDesigns(unittest.TestCase):
-    def test_load_design_manifest_normalizes_name_and_doc_types(self) -> None:
+    def test_load_design_definition_normalizes_name_and_doc_types(self) -> None:
         with TemporaryDirectory() as temp_dir:
             directory = Path(temp_dir)
-            _write_manifest(
+            _write_definition(
                 directory,
                 {
                     "schema_version": 2,
@@ -51,37 +51,37 @@ class TestRenderDesigns(unittest.TestCase):
                 },
             )
 
-            manifest = load_design_manifest(directory)
+            definition = load_design_definition(directory)
 
-            self.assertEqual(manifest.name, "custom")
-            self.assertEqual(manifest.style_path, (directory / "style.json").resolve())
-            self.assertEqual(manifest.documents, frozenset({"main", "recovery"}))
-            self.assertTrue(manifest.supports_doc_type("MAIN"))
-            support = manifest.page_support_for("MAIN")
+            self.assertEqual(definition.name, "custom")
+            self.assertEqual(definition.style_path, (directory / "style.json").resolve())
+            self.assertEqual(definition.documents, frozenset({"main", "recovery"}))
+            self.assertTrue(definition.supports_doc_type("MAIN"))
+            support = definition.page_support_for("MAIN")
             self.assertEqual(support.minimum_width_mm, 190.0)
             self.assertEqual(support.minimum_height_mm, 260.0)
             self.assertTrue(
-                manifest.supports_page_size(
+                definition.supports_page_size(
                     "main",
                     PaperSize("CUSTOM", "Custom", 190.0, 260.0),
                 )
             )
             self.assertFalse(
-                manifest.supports_page_size(
+                definition.supports_page_size(
                     "main",
                     PaperSize("A5", "A5", 148.0, 210.0),
                 )
             )
-            with self.assertRaisesRegex(ValueError, "outside the proven responsive envelope"):
-                manifest.require_page_size(
+            with self.assertRaisesRegex(ValueError, "outside the supported dimensions"):
+                definition.require_page_size(
                     "main",
                     PaperSize("A5", "A5", 148.0, 210.0),
                 )
 
-    def test_load_design_manifest_rejects_unknown_keys(self) -> None:
+    def test_load_design_definition_rejects_unknown_keys(self) -> None:
         with TemporaryDirectory() as temp_dir:
             directory = Path(temp_dir)
-            _write_manifest(
+            _write_definition(
                 directory,
                 {
                     "schema_version": 2,
@@ -93,13 +93,13 @@ class TestRenderDesigns(unittest.TestCase):
                 },
             )
 
-            with self.assertRaisesRegex(ValueError, "unknown design manifest key"):
-                load_design_manifest(directory)
+            with self.assertRaisesRegex(ValueError, "unknown design definition key"):
+                load_design_definition(directory)
 
-    def test_load_design_manifest_rejects_unknown_doc_type(self) -> None:
+    def test_load_design_definition_rejects_unknown_doc_type(self) -> None:
         with TemporaryDirectory() as temp_dir:
             directory = Path(temp_dir)
-            _write_manifest(
+            _write_definition(
                 directory,
                 {
                     "schema_version": 2,
@@ -111,12 +111,12 @@ class TestRenderDesigns(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ValueError, "unknown document type 'poster'"):
-                load_design_manifest(directory)
+                load_design_definition(directory)
 
-    def test_load_design_manifest_requires_page_support_for_every_document(self) -> None:
+    def test_load_design_definition_requires_page_support_for_every_document(self) -> None:
         with TemporaryDirectory() as temp_dir:
             directory = Path(temp_dir)
-            _write_manifest(
+            _write_definition(
                 directory,
                 {
                     "schema_version": 2,
@@ -128,12 +128,12 @@ class TestRenderDesigns(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ValueError, "page_support must match.*missing=recovery"):
-                load_design_manifest(directory)
+                load_design_definition(directory)
 
-    def test_load_design_manifest_rejects_non_physical_page_support(self) -> None:
+    def test_load_design_definition_rejects_non_physical_page_support(self) -> None:
         with TemporaryDirectory() as temp_dir:
             directory = Path(temp_dir)
-            _write_manifest(
+            _write_definition(
                 directory,
                 {
                     "schema_version": 2,
@@ -145,7 +145,7 @@ class TestRenderDesigns(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ValueError, "page_support"):
-                load_design_manifest(directory)
+                load_design_definition(directory)
 
     def test_every_builtin_design_advertises_current_registered_sizes(self) -> None:
         for design_name in ("archive", "forge", "ledger", "maritime", "sentinel"):

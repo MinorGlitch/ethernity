@@ -13,9 +13,9 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Config loaders, path resolution, and installer helpers."""
+"""Load, resolve, and install Ethernity configuration."""
 
-from ethernity.config.api.contracts import (
+from ethernity.config.api.models import (
     ApiConfigSnapshot,
     ConfigPatchError,
 )
@@ -59,20 +59,16 @@ from ethernity.config.paths import (
     DEFAULT_RENDER_STYLE,
 )
 from ethernity.config.types import (
+    AddFilesDefaults,
     AppConfig,
     BackupDefaults,
     CliDefaults,
     DebugDefaults,
-    ExtendDefaults,
-    ExtensionChunkingDefaults,
-    ExtensionSigningKeyMode,
-    ExtensionUnlockPolicy,
     PageSize,
     PayloadCodec,
     QrErrorCorrection,
     QrPayloadCodec,
     RecoverDefaults,
-    RuntimeDefaults,
     SigningKeyMode,
     UiDefaults,
 )
@@ -84,16 +80,12 @@ __all__ = [
     "CliDefaults",
     "ConfigPatchError",
     "DebugDefaults",
-    "ExtensionChunkingDefaults",
-    "ExtendDefaults",
-    "ExtensionSigningKeyMode",
-    "ExtensionUnlockPolicy",
+    "AddFilesDefaults",
     "PageSize",
     "PayloadCodec",
     "QrErrorCorrection",
     "QrPayloadCodec",
     "RecoverDefaults",
-    "RuntimeDefaults",
     "SigningKeyMode",
     "UiDefaults",
     "DEFAULT_PAPER_SIZE",

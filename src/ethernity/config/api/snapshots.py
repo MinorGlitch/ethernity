@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from ethernity.config._toml_support import load_toml
-from ethernity.config.api.contracts import ApiConfigSnapshot, ConfigTargetSource
+from ethernity.config.api.models import ApiConfigSnapshot, ConfigTargetSource
 from ethernity.config.install import (
     ONBOARDING_FIELDS,
     first_run_onboarding_configured_fields,
@@ -18,15 +18,14 @@ from ethernity.config.load import load_app_config, load_cli_defaults
 from ethernity.config.paths import DEFAULT_CONFIG_PATH, DEFAULT_RENDER_STYLE
 from ethernity.config.types import AppConfig, CliDefaults
 from ethernity.config.value_constraints import (
-    EXTENSION_SIGNING_KEY_MODES as _EXTENSION_SIGNING_KEY_MODES,
-    EXTENSION_UNLOCK_POLICIES as _EXTENSION_UNLOCK_POLICIES,
     PAGE_SIZES as _PAGE_SIZES,
     PAYLOAD_CODECS as _PAYLOAD_CODECS,
     QR_ERROR_LEVELS as _QR_ERROR_LEVELS,
     QR_PAYLOAD_CODECS as _QR_PAYLOAD_CODECS,
     SIGNING_KEY_MODES as _SIGNING_KEY_MODES,
-    extension_chunking_profile_is_valid,
 )
+from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.formats.extension_document import ExtensionChunkingProfile
 
 
 def snapshot_from_path(path: Path, *, source: ConfigTargetSource) -> ApiConfigSnapshot:
@@ -140,15 +139,9 @@ def _snapshot_values_from_loaded(
                 "qr_payload_codec": cli_defaults.backup.qr_payload_codec,
             },
             "recover": {"output": cli_defaults.recover.output},
-            "extend": {
-                "base_dir": cli_defaults.extend.base_dir,
-                "unlock_policy": cli_defaults.extend.unlock_policy,
-                "shard_threshold": cli_defaults.extend.shard_threshold,
-                "shard_count": cli_defaults.extend.shard_count,
-                "signing_key_mode": cli_defaults.extend.signing_key_mode,
-                "signing_key_shard_threshold": cli_defaults.extend.signing_key_shard_threshold,
-                "signing_key_shard_count": cli_defaults.extend.signing_key_shard_count,
-                "qr_payload_codec": cli_defaults.extend.qr_payload_codec,
+            "add_files": {
+                "base_dir": cli_defaults.add_files.base_dir,
+                "qr_payload_codec": cli_defaults.add_files.qr_payload_codec,
             },
         },
         "ui": {
@@ -158,7 +151,6 @@ def _snapshot_values_from_loaded(
             "show_internals": cli_defaults.ui.show_internals,
         },
         "debug": {"max_bytes": cli_defaults.debug.max_bytes},
-        "runtime": {"render_jobs": cli_defaults.runtime.render_jobs},
     }
 
 
@@ -172,10 +164,9 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     defaults = cast(dict[str, object], values["defaults"])
     backup = cast(dict[str, object], defaults["backup"])
     recover = cast(dict[str, object], defaults["recover"])
-    extend = cast(dict[str, object], defaults["extend"])
+    add_files = cast(dict[str, object], defaults["add_files"])
     ui = cast(dict[str, object], values["ui"])
     debug = cast(dict[str, object], values["debug"])
-    runtime = cast(dict[str, object], values["runtime"])
 
     render["style"] = _raw_render_style(raw)
 
@@ -185,10 +176,9 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     extension_chunking_table = _raw_table(_raw_table(raw, "extension"), "chunking")
     backup_table = _raw_table(_raw_table(raw, "defaults"), "backup")
     recover_table = _raw_table(_raw_table(raw, "defaults"), "recover")
-    extend_table = _raw_table(_raw_table(raw, "defaults"), "extend")
+    add_files_table = _raw_table(_raw_table(raw, "defaults"), "add_files")
     ui_table = _raw_table(raw, "ui")
     debug_table = _raw_table(raw, "debug")
-    runtime_table = _raw_table(raw, "runtime")
     default_extension_chunking = dict(extension_chunking)
 
     render["style"] = _coerce_design_name(render_table.get("style"), fallback=render["style"])
@@ -211,13 +201,15 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
         extension_chunking_table.get("max_size"),
         fallback=extension_chunking["max_size"],
     )
-    if not extension_chunking_profile_is_valid(
-        target_size=cast(int, extension_chunking["target_size"]),
-        min_size=cast(int, extension_chunking["min_size"]),
-        max_size=cast(int, extension_chunking["max_size"]),
-    ):
+    try:
+        ExtensionChunkingProfile(
+            algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+            target_size=cast(int, extension_chunking["target_size"]),
+            min_size=cast(int, extension_chunking["min_size"]),
+            max_size=cast(int, extension_chunking["max_size"]),
+        )
+    except ValueError:
         extension_chunking.update(default_extension_chunking)
-
     backup["base_dir"] = _coerce_optional_string(
         backup_table.get("base_dir"), fallback=backup["base_dir"]
     )
@@ -256,37 +248,13 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     recover["output"] = _coerce_optional_string(
         recover_table.get("output"), fallback=recover["output"]
     )
-    extend["base_dir"] = _coerce_optional_string(
-        extend_table.get("base_dir"), fallback=extend["base_dir"]
+    add_files["base_dir"] = _coerce_optional_string(
+        add_files_table.get("base_dir"), fallback=add_files["base_dir"]
     )
-    extend["unlock_policy"] = _coerce_optional_enum(
-        extend_table.get("unlock_policy"),
-        allowed=_EXTENSION_UNLOCK_POLICIES,
-        fallback=extend["unlock_policy"],
-    )
-    extend["shard_threshold"] = _coerce_optional_positive_int(
-        extend_table.get("shard_threshold"), fallback=extend["shard_threshold"]
-    )
-    extend["shard_count"] = _coerce_optional_positive_int(
-        extend_table.get("shard_count"), fallback=extend["shard_count"]
-    )
-    extend["signing_key_mode"] = _coerce_optional_enum(
-        extend_table.get("signing_key_mode"),
-        allowed=_EXTENSION_SIGNING_KEY_MODES,
-        fallback=extend["signing_key_mode"],
-    )
-    extend["signing_key_shard_threshold"] = _coerce_optional_positive_int(
-        extend_table.get("signing_key_shard_threshold"),
-        fallback=extend["signing_key_shard_threshold"],
-    )
-    extend["signing_key_shard_count"] = _coerce_optional_positive_int(
-        extend_table.get("signing_key_shard_count"),
-        fallback=extend["signing_key_shard_count"],
-    )
-    extend["qr_payload_codec"] = _coerce_enum(
-        extend_table.get("qr_payload_codec"),
+    add_files["qr_payload_codec"] = _coerce_enum(
+        add_files_table.get("qr_payload_codec"),
         allowed=_QR_PAYLOAD_CODECS,
-        fallback=extend["qr_payload_codec"],
+        fallback=add_files["qr_payload_codec"],
     )
     ui["quiet"] = _coerce_bool(ui_table.get("quiet"), fallback=ui["quiet"])
     ui["no_color"] = _coerce_bool(ui_table.get("no_color"), fallback=ui["no_color"])
@@ -297,9 +265,6 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     )
     debug["max_bytes"] = _coerce_optional_positive_int(
         debug_table.get("max_bytes"), fallback=debug["max_bytes"]
-    )
-    runtime["render_jobs"] = _coerce_render_jobs(
-        runtime_table.get("render_jobs"), fallback=runtime["render_jobs"]
     )
     return values
 
@@ -357,20 +322,6 @@ def _coerce_bool(value: object, *, fallback: object) -> object:
     return value if isinstance(value, bool) else fallback
 
 
-def _coerce_render_jobs(value: object, *, fallback: object) -> object:
-    if value is None:
-        return fallback
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if not normalized:
-            return None
-        if normalized == "auto":
-            return normalized
-    return fallback
-
-
 def _config_options() -> dict[str, object]:
     return {
         "render_styles": sorted(list_render_styles().keys()),
@@ -379,8 +330,6 @@ def _config_options() -> dict[str, object]:
         "payload_codecs": list(_PAYLOAD_CODECS),
         "qr_payload_codecs": list(_QR_PAYLOAD_CODECS),
         "signing_key_modes": list(_SIGNING_KEY_MODES),
-        "extension_unlock_policies": list(_EXTENSION_UNLOCK_POLICIES),
-        "extension_signing_key_modes": list(_EXTENSION_SIGNING_KEY_MODES),
         "onboarding_fields": list(ONBOARDING_FIELDS),
     }
 

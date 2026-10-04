@@ -268,27 +268,27 @@ qr_payload_codec = "raw"
 
     def test_list_render_styles_handles_missing_and_filters_entries(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            templates_root = Path(tmpdir) / "package-templates"
-            with mock.patch.object(installer, "TEMPLATES_RESOURCE_ROOT", templates_root):
+            designs_root = Path(tmpdir) / "package-designs"
+            with mock.patch.object(installer, "DESIGNS_RESOURCE_ROOT", designs_root):
                 self.assertEqual(installer.list_render_styles(), {})
 
-                templates_root.mkdir(parents=True, exist_ok=True)
+                designs_root.mkdir(parents=True, exist_ok=True)
 
-                _create_design(templates_root, "ledger")
-                _create_design(templates_root, "maritime")
-                _create_design(templates_root, "archive_stack")
-                _create_design(templates_root, "maritime_ledger")
-                _create_design(templates_root, "shadow_archive")
-                _create_design(templates_root, ".hidden")
-                (templates_root / "file.txt").write_text("x", encoding="utf-8")
-                (templates_root / "invalid").mkdir(parents=True, exist_ok=True)
-                (templates_root / "_shared").mkdir(parents=True, exist_ok=True)
+                _create_design(designs_root, "ledger")
+                _create_design(designs_root, "maritime")
+                _create_design(designs_root, "archive_stack")
+                _create_design(designs_root, "maritime_ledger")
+                _create_design(designs_root, "shadow_archive")
+                _create_design(designs_root, ".hidden")
+                (designs_root / "file.txt").write_text("x", encoding="utf-8")
+                (designs_root / "invalid").mkdir(parents=True, exist_ok=True)
+                (designs_root / "_shared").mkdir(parents=True, exist_ok=True)
 
                 result = installer.list_render_styles()
 
         self.assertEqual(set(result.keys()), {"ledger", "maritime"})
-        self.assertEqual(result["ledger"], templates_root / "ledger")
-        self.assertEqual(result["maritime"], templates_root / "maritime")
+        self.assertEqual(result["ledger"], designs_root / "ledger")
+        self.assertEqual(result["maritime"], designs_root / "maritime")
         self.assertNotIn("archive_stack", result)
         self.assertNotIn("maritime_ledger", result)
         self.assertNotIn("shadow_archive", result)

@@ -28,7 +28,6 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     field_validator,
-    model_validator,
 )
 
 from ethernity.config._toml_support import load_toml
@@ -38,20 +37,19 @@ from ethernity.config.paths import (
     DEFAULT_RENDER_STYLE,
 )
 from ethernity.config.types import (
+    DEFAULT_EXTENSION_CHUNKING_PROFILE,
+    AddFilesDefaults,
     AppConfig,
     BackupDefaults,
     CliDefaults,
     DebugDefaults,
-    ExtendDefaults,
-    ExtensionChunkingDefaults,
     RecoverDefaults,
-    RuntimeDefaults,
     UiDefaults,
 )
 from ethernity.config.value_constraints import PAGE_SIZES, QR_ERROR_LEVELS
-from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
 from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
-from ethernity.formats.extension_envelope import MIN_EXTENSION_CHUNK_SIZE
+from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.formats.extension_document import ExtensionChunkingProfile
 from ethernity.page_sizes import normalize_paper_size_name
 from ethernity.qr.codec import QrConfig
 
@@ -60,7 +58,7 @@ _PAGE_SIZES = frozenset(PAGE_SIZES)
 
 
 class _QrSectionData(BaseModel):
-    """Pydantic boundary model for `[qr]` TOML values."""
+    """Parsed and validated `[qr]` TOML values."""
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
@@ -173,47 +171,6 @@ class _QrSectionData(BaseModel):
         )
 
 
-class _ExtensionChunkingData(BaseModel):
-    """Pydantic boundary model for `[extension.chunking]` TOML values."""
-
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    target_size: int | None = None
-    min_size: int | None = None
-    max_size: int | None = None
-
-    @field_validator("target_size", "min_size", "max_size", mode="before")
-    @classmethod
-    def _validate_size(cls, value: object, info: ValidationInfo) -> int | None:
-        field_name = info.field_name or "value"
-        label = f"extension.chunking.{field_name}"
-        if value is None:
-            return None
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise ValueError(f"{label} must be a positive integer")
-        if value <= 0:
-            raise ValueError(f"{label} must be a positive integer")
-        _validate_extension_chunking_size(field=field_name, value=value)
-        return value
-
-    @model_validator(mode="after")
-    def _validate_order(self) -> _ExtensionChunkingData:
-        chunking = self.to_public()
-        if not chunking.min_size <= chunking.target_size <= chunking.max_size:
-            raise ValueError(
-                "extension.chunking sizes must satisfy min_size <= target_size <= max_size"
-            )
-        return self
-
-    def to_public(self) -> ExtensionChunkingDefaults:
-        defaults = ExtensionChunkingDefaults()
-        return ExtensionChunkingDefaults(
-            target_size=defaults.target_size if self.target_size is None else self.target_size,
-            min_size=defaults.min_size if self.min_size is None else self.min_size,
-            max_size=defaults.max_size if self.max_size is None else self.max_size,
-        )
-
-
 def load_app_config(path: str | Path | None = None, *, paper_size: str | None = None) -> AppConfig:
     """Load app configuration and apply defaults and render-style resolution."""
 
@@ -230,7 +187,7 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
     qr_data = _parse_qr_section(qr_section)
     qr_config = qr_data.to_qr_config()
     qr_chunk_size = DEFAULT_CHUNK_SIZE if qr_data.chunk_size is None else qr_data.chunk_size
-    extension_chunking = _parse_extension_chunking_defaults(
+    extension_chunking = _parse_extension_chunking_profile(
         _get_nested_dict(data, "extension", "chunking")
     )
     return AppConfig(
@@ -265,6 +222,23 @@ def _parse_qr_section(cfg: dict[str, object]) -> _QrSectionData:
         return _QrSectionData.model_validate(cfg)
     except ValidationError as exc:
         raise ValueError(_first_pydantic_value_error(exc)) from exc
+
+
+def _parse_extension_chunking_profile(cfg: dict[str, object]) -> ExtensionChunkingProfile:
+    defaults = DEFAULT_EXTENSION_CHUNKING_PROFILE
+
+    def configured_size(field: str, default: int) -> int:
+        value = cfg.get(field)
+        if value is None:
+            return default
+        return _parse_int_strict(value, field=f"extension.chunking.{field}")
+
+    return ExtensionChunkingProfile(
+        algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+        target_size=configured_size("target_size", defaults.target_size),
+        min_size=configured_size("min_size", defaults.min_size),
+        max_size=configured_size("max_size", defaults.max_size),
+    )
 
 
 def _resolve_page_size(*, override: str | None, configured: object) -> str:
@@ -307,10 +281,9 @@ def _parse_cli_defaults(data: dict[str, object]) -> CliDefaults:
     return CliDefaults(
         backup=_parse_backup_defaults(_get_nested_dict(data, "defaults", "backup")),
         recover=_parse_recover_defaults(_get_nested_dict(data, "defaults", "recover")),
-        extend=_parse_extend_defaults(_get_nested_dict(data, "defaults", "extend")),
+        add_files=_parse_add_files_defaults(_get_nested_dict(data, "defaults", "add_files")),
         ui=_parse_ui_defaults(_get_dict(data, "ui")),
         debug=_parse_debug_defaults(_get_dict(data, "debug")),
-        runtime=_parse_runtime_defaults(_get_dict(data, "runtime")),
     )
 
 
@@ -361,78 +334,19 @@ def _parse_recover_defaults(cfg: dict[str, object]) -> RecoverDefaults:
     )
 
 
-def _parse_extend_defaults(cfg: dict[str, object]) -> ExtendDefaults:
-    """Parse `[defaults.extend]` values."""
+def _parse_add_files_defaults(cfg: dict[str, object]) -> AddFilesDefaults:
+    """Parse `[defaults.add_files]` values."""
 
-    defaults = ExtendDefaults(
-        base_dir=_parse_optional_unset_str(cfg.get("base_dir"), field="defaults.extend.base_dir"),
-        unlock_policy=_parse_optional_extension_unlock_policy(
-            cfg.get("unlock_policy"),
-            field="defaults.extend.unlock_policy",
-        ),
-        shard_threshold=_parse_optional_positive_int_or_unset_zero(
-            cfg.get("shard_threshold"),
-            field="defaults.extend.shard_threshold",
-        ),
-        shard_count=_parse_optional_positive_int_or_unset_zero(
-            cfg.get("shard_count"),
-            field="defaults.extend.shard_count",
-        ),
-        signing_key_mode=_parse_optional_extension_signing_key_mode(
-            cfg.get("signing_key_mode"),
-            field="defaults.extend.signing_key_mode",
-        ),
-        signing_key_shard_threshold=_parse_optional_positive_int_or_unset_zero(
-            cfg.get("signing_key_shard_threshold"),
-            field="defaults.extend.signing_key_shard_threshold",
-        ),
-        signing_key_shard_count=_parse_optional_positive_int_or_unset_zero(
-            cfg.get("signing_key_shard_count"),
-            field="defaults.extend.signing_key_shard_count",
+    defaults = AddFilesDefaults(
+        base_dir=_parse_optional_unset_str(
+            cfg.get("base_dir"), field="defaults.add_files.base_dir"
         ),
         qr_payload_codec=_parse_required_qr_payload_codec(
             cfg.get("qr_payload_codec", "raw"),
-            field="defaults.extend.qr_payload_codec",
+            field="defaults.add_files.qr_payload_codec",
         ),
     )
-    _validate_extend_defaults(defaults)
     return defaults
-
-
-def _validate_extend_defaults(defaults: ExtendDefaults) -> None:
-    """Validate cross-field extension default constraints."""
-
-    if (defaults.shard_threshold is None) != (defaults.shard_count is None):
-        raise ValueError("defaults.extend.shard_threshold and shard_count must be set together")
-    if (
-        defaults.shard_threshold is not None
-        and defaults.shard_count is not None
-        and defaults.shard_count < defaults.shard_threshold
-    ):
-        raise ValueError("defaults.extend.shard_count must be >= shard_threshold")
-    if defaults.unlock_policy == "reuse-root" and (
-        defaults.shard_threshold is not None or defaults.shard_count is not None
-    ):
-        raise ValueError("defaults.extend.unlock_policy='reuse-root' cannot set extension shards")
-
-    signing_threshold = defaults.signing_key_shard_threshold
-    signing_count = defaults.signing_key_shard_count
-    if (signing_threshold is None) != (signing_count is None):
-        raise ValueError(
-            "defaults.extend.signing_key_shard_threshold and signing_key_shard_count "
-            "must be set together"
-        )
-    if signing_threshold is not None or signing_count is not None:
-        if defaults.signing_key_mode != "sharded":
-            raise ValueError(
-                "defaults.extend.signing_key_shard_threshold and signing_key_shard_count "
-                "require signing_key_mode='sharded'"
-            )
-        if signing_threshold is not None and signing_count is not None:
-            if signing_count < signing_threshold:
-                raise ValueError(
-                    "defaults.extend.signing_key_shard_count must be >= signing_key_shard_threshold"
-                )
 
 
 def _parse_ui_defaults(cfg: dict[str, object]) -> UiDefaults:
@@ -463,32 +377,6 @@ def _parse_debug_defaults(cfg: dict[str, object]) -> DebugDefaults:
             field="debug.max_bytes",
         ),
     )
-
-
-def _parse_runtime_defaults(cfg: dict[str, object]) -> RuntimeDefaults:
-    """Parse `[runtime]` defaults."""
-
-    return RuntimeDefaults(
-        render_jobs=_parse_optional_render_jobs(
-            cfg.get("render_jobs"),
-            field="runtime.render_jobs",
-        ),
-    )
-
-
-def _parse_extension_chunking_defaults(cfg: dict[str, object]) -> ExtensionChunkingDefaults:
-    try:
-        return _ExtensionChunkingData.model_validate(cfg).to_public()
-    except ValidationError as exc:
-        raise ValueError(_first_pydantic_value_error(exc)) from exc
-
-
-def _validate_extension_chunking_size(*, field: str, value: int) -> None:
-    label = f"extension.chunking.{field}"
-    if value < MIN_EXTENSION_CHUNK_SIZE:
-        raise ValueError(f"{label} must be >= {MIN_EXTENSION_CHUNK_SIZE}")
-    if value > MAX_DECOMPRESSED_PAYLOAD_BYTES:
-        raise ValueError(f"{label} must be <= MAX_DECOMPRESSED_PAYLOAD_BYTES")
 
 
 def _first_pydantic_value_error(exc: ValidationError) -> str:
@@ -586,44 +474,6 @@ def _parse_optional_signing_key_mode(
     return cast(Literal["embedded", "sharded"], normalized)
 
 
-def _parse_optional_extension_unlock_policy(
-    value: object,
-    *,
-    field: str,
-) -> Literal["self-contained", "reuse-root"] | None:
-    """Parse the optional extension unlock policy."""
-
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be 'self-contained', 'reuse-root', or empty")
-    normalized = value.strip().lower()
-    if not normalized:
-        return None
-    if normalized not in {"self-contained", "reuse-root"}:
-        raise ValueError(f"{field} must be 'self-contained', 'reuse-root', or empty")
-    return cast(Literal["self-contained", "reuse-root"], normalized)
-
-
-def _parse_optional_extension_signing_key_mode(
-    value: object,
-    *,
-    field: str,
-) -> Literal["not-stored", "sharded"] | None:
-    """Parse the optional extension signing-key storage mode."""
-
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be 'not-stored', 'sharded', or empty")
-    normalized = value.strip().lower()
-    if not normalized:
-        return None
-    if normalized not in {"not-stored", "sharded"}:
-        raise ValueError(f"{field} must be 'not-stored', 'sharded', or empty")
-    return cast(Literal["not-stored", "sharded"], normalized)
-
-
 def _parse_payload_codec(
     value: object,
     *,
@@ -670,31 +520,6 @@ def _parse_optional_positive_int_or_unset_zero(value: object, *, field: str) -> 
         return None
     if parsed < 0:
         raise ValueError(f"{field} must be a positive integer or 0")
-    return parsed
-
-
-def _parse_optional_render_jobs(
-    value: object,
-    *,
-    field: str,
-) -> int | Literal["auto"] | None:
-    """Parse runtime render worker count or the `auto` sentinel."""
-
-    if value is None:
-        return None
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if not normalized:
-            return None
-        if normalized == "auto":
-            return "auto"
-        parsed = _parse_int_strict(normalized, field=field)
-        if parsed <= 0:
-            raise ValueError(f"{field} must be 'auto' or a positive integer")
-        return parsed
-    parsed = _parse_int_strict(value, field=field)
-    if parsed <= 0:
-        raise ValueError(f"{field} must be 'auto' or a positive integer")
     return parsed
 
 

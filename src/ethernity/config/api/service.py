@@ -1,4 +1,4 @@
-"""Orchestrate config snapshot reads and transactional patch writes."""
+"""Read config snapshots and apply transactional patches."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import copy
 from pathlib import Path
 
 from ethernity.config._toml_support import write_text_atomic
-from ethernity.config.api.contracts import ApiConfigSnapshot, ConfigPatchError, ConfigTargetSource
+from ethernity.config.api.models import ApiConfigSnapshot, ConfigPatchError, ConfigTargetSource
 from ethernity.config.api.onboarding import (
     apply_onboarding_plan,
     build_onboarding_patch_plan,

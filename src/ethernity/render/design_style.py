@@ -45,7 +45,7 @@ _CAPABILITY_KEYS = frozenset({*_BOOL_CAPABILITY_FIELDS, "main_qr_grid_size_mm"})
 
 
 @dataclass(frozen=True)
-class TemplateCapabilities:
+class DesignCapabilities:
     """Design-specific behavior still consumed by the active render pipeline."""
 
     recovery_first_page_single_section: bool = False
@@ -54,15 +54,15 @@ class TemplateCapabilities:
 
 
 @dataclass(frozen=True)
-class TemplateStyle:
+class DesignStyle:
     """Validated style metadata for one render design."""
 
     name: str
-    capabilities: TemplateCapabilities
+    capabilities: DesignCapabilities
 
 
-class _TemplateCapabilitiesData(BaseModel):
-    """Pydantic boundary model for the optional ``capabilities`` object."""
+class _DesignCapabilitiesData(BaseModel):
+    """Parsed and validated values from the optional ``capabilities`` object."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -108,32 +108,32 @@ class _TemplateCapabilitiesData(BaseModel):
             path=_context_path(info),
         )
 
-    def to_public(self) -> TemplateCapabilities:
-        return TemplateCapabilities(
+    def to_public(self) -> DesignCapabilities:
+        return DesignCapabilities(
             recovery_first_page_single_section=self.recovery_first_page_single_section,
             recovery_kit_index_document=self.recovery_kit_index_document,
             main_qr_grid_size_mm=self.main_qr_grid_size_mm,
         )
 
 
-class _TemplateStyleData(BaseModel):
-    """Pydantic boundary model for raw ``style.json`` content."""
+class _DesignStyleData(BaseModel):
+    """Parsed and validated ``style.json`` content."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
-    capabilities: _TemplateCapabilitiesData = Field(default_factory=_TemplateCapabilitiesData)
+    capabilities: _DesignCapabilitiesData = Field(default_factory=_DesignCapabilitiesData)
 
     @model_validator(mode="before")
     @classmethod
     def _validate_object(cls, value: object, info: ValidationInfo) -> object:
         path = _context_path(info)
         if not isinstance(value, dict):
-            raise ValueError(f"template style must be a JSON object: {path}")
+            raise ValueError(f"design style must be a JSON object: {path}")
         _reject_unknown_keys(
             value,
             allowed_keys=_STYLE_TOP_LEVEL_KEYS,
-            section="template style",
+            section="design style",
             path=path,
         )
         return value
@@ -154,43 +154,43 @@ class _TemplateStyleData(BaseModel):
             raise ValueError(f"invalid 'capabilities' object in {_context_path(info)}")
         return value
 
-    def to_public(self) -> TemplateStyle:
-        return TemplateStyle(name=self.name, capabilities=self.capabilities.to_public())
+    def to_public(self) -> DesignStyle:
+        return DesignStyle(name=self.name, capabilities=self.capabilities.to_public())
 
 
-def load_template_style(design: str | Path) -> TemplateStyle:
-    """Load the style for a render design name, directory, or manifest path."""
+def load_design_style(design: str | Path) -> DesignStyle:
+    """Load the style for a render design name, directory, or design definition path."""
 
-    template_dir = resolve_design_directory(design)
-    return _load_style_for_dir(template_dir)
+    design_dir = resolve_design_directory(design)
+    return _load_style_for_dir(design_dir)
 
 
 @lru_cache(maxsize=32)
-def _load_style_for_dir(template_dir: Path) -> TemplateStyle:
-    """Load and validate ``style.json`` for a template directory."""
+def _load_style_for_dir(design_dir: Path) -> DesignStyle:
+    """Load and validate ``style.json`` for a design directory."""
 
-    style_path = template_dir / "style.json"
+    style_path = design_dir / "style.json"
     if not style_path.is_file():
-        raise ValueError(f"missing template style file: {style_path}")
+        raise ValueError(f"missing design style file: {style_path}")
 
     try:
         raw = style_path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ValueError(f"unable to read template style file: {style_path}") from exc
+        raise ValueError(f"unable to read design style file: {style_path}") from exc
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid JSON in template style file: {style_path}") from exc
+        raise ValueError(f"invalid JSON in design style file: {style_path}") from exc
 
     return _load_style_data(data, path=style_path).to_public()
 
 
-def _load_style_data(data: object, *, path: Path) -> _TemplateStyleData:
+def _load_style_data(data: object, *, path: Path) -> _DesignStyleData:
     if not isinstance(data, dict):
-        raise ValueError(f"template style must be a JSON object: {path}")
+        raise ValueError(f"design style must be a JSON object: {path}")
     try:
-        return _TemplateStyleData.model_validate(data, context={_STYLE_CONTEXT_PATH: path})
+        return _DesignStyleData.model_validate(data, context={_STYLE_CONTEXT_PATH: path})
     except ValidationError as exc:
         raise ValueError(_style_validation_message(exc, path=path)) from exc
 
@@ -211,14 +211,14 @@ def _style_validation_message(exc: ValidationError, *, path: Path) -> str:
         return str(context_error)
 
     loc = tuple(error.get("loc", ()))
-    field = str(loc[-1]) if loc else "template style"
+    field = str(loc[-1]) if loc else "design style"
     if field == "main_qr_grid_size_mm":
         return f"missing or invalid '{field}' positive number in {path}"
     if field == "name":
         return f"missing or invalid 'name' string in {path}"
     if field == "capabilities":
         return f"invalid 'capabilities' object in {path}"
-    return f"invalid template style in {path}"
+    return f"invalid design style in {path}"
 
 
 def _require_positive_number_value(value: object, *, key: str | None, path: Path) -> float:
@@ -244,4 +244,4 @@ def _reject_unknown_keys(
         raise ValueError(f"unknown key(s) in {section} ({unknown_text}) in {path}")
 
 
-__all__ = ["TemplateCapabilities", "TemplateStyle", "load_template_style"]
+__all__ = ["DesignCapabilities", "DesignStyle", "load_design_style"]
