@@ -22,25 +22,28 @@ import ast
 import hashlib
 import json
 import re
+import tempfile
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Literal
 
-from ethernity.config import AppConfig
+from ethernity.config import AppConfig, apply_render_style, load_app_config
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
-from ethernity.formats.extension_envelope_constants import (
-    EXTENSION_ENVELOPE_VERSION,
+from ethernity.formats.extension_constants import (
+    EXTENSION_DOCUMENT_VERSION,
     EXTENSION_SCHEMA_VERSION,
 )
 from ethernity.qr.capacity import fits_qr_payload
 from ethernity.qr.codec import QrConfig
 from ethernity.render import render_frames_to_pdf
 from ethernity.render.service import RenderService
-from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
+from ethernity.render.types import DocumentOrigin, RenderInputs, RenderResult
+from ethernity.render.validation import validate_rendered_pdf_document
 
 DEFAULT_KIT_BUNDLE_NAME = "recovery_kit.bundle.html"
 SCANNER_KIT_BUNDLE_NAME = "recovery_kit.scanner.bundle.html"
+DEFAULT_KIT_OUTPUT = "recovery_kit_qr.pdf"
 DEFAULT_KIT_CHUNK_SIZE = 1200
 _MAX_QR_PROBE_BYTES = 4000
 _JS_IDENTIFIER_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
@@ -50,6 +53,16 @@ _BASE91_ALPHABET = (
 )
 _SUPPORTED_KIT_BUNDLE_COMPRESSIONS = {"gzip", "brotli"}
 _DEV_KIT_DIST_ROOT = Path(__file__).resolve().parents[4] / "kit" / "dist"
+
+
+@dataclass(frozen=True)
+class KitRequest:
+    output_path: Path
+    config_path: Path | None
+    paper_size: str
+    design: str
+    variant: Literal["lean", "scanner"]
+    chunk_size: int | None
 
 
 @dataclass(frozen=True)
@@ -67,35 +80,17 @@ class KitBundleLoaderMetadata:
     compression: str
 
 
-@dataclass(frozen=True)
-class KitAnchor:
-    """Authenticated chain identity and freshness claim embedded in a recovery kit."""
+def create_kit(request: KitRequest) -> KitResult:
+    """Resolve user-facing kit settings and create one kit PDF."""
 
-    root_document_hash: bytes
-    root_signing_public_key: bytes
-    expected_latest_head_hash: bytes
-
-    def __post_init__(self) -> None:
-        for label, value in (
-            ("root_document_hash", self.root_document_hash),
-            ("root_signing_public_key", self.root_signing_public_key),
-            ("expected_latest_head_hash", self.expected_latest_head_hash),
-        ):
-            if not isinstance(value, bytes) or len(value) != 32:
-                raise ValueError(f"{label} must be exactly 32 bytes")
-
-    def as_json_object(self) -> dict[str, object]:
-        return {
-            "capability": "ethernity-chain-bound-recovery",
-            "version": 1,
-            "root_document_hash": self.root_document_hash.hex(),
-            "root_signing_public_key_fingerprint": hashlib.sha256(
-                self.root_signing_public_key
-            ).hexdigest(),
-            "expected_latest_head_hash": self.expected_latest_head_hash.hex(),
-            "supported_extension_envelope_versions": [EXTENSION_ENVELOPE_VERSION],
-            "supported_extension_schema_versions": [EXTENSION_SCHEMA_VERSION],
-        }
+    config = load_app_config(request.config_path, paper_size=request.paper_size)
+    config = apply_render_style(config, request.design)
+    return render_kit_qr_document(
+        output_path=request.output_path,
+        config=config,
+        variant=request.variant,
+        chunk_size=request.chunk_size,
+    )
 
 
 def render_kit_qr_document(
@@ -104,7 +99,6 @@ def render_kit_qr_document(
     config: AppConfig,
     variant: str,
     chunk_size: int | None,
-    anchor: KitAnchor | None = None,
     render_pdf: Callable[[RenderInputs], RenderResult] | None = None,
     bundle_loader: Callable[..., bytes] | None = None,
     payload_builder: Callable[..., list[bytes]] | None = None,
@@ -115,7 +109,7 @@ def render_kit_qr_document(
 
     normalized_variant = _normalize_kit_variant(variant)
     load_bundle = bundle_loader or _load_kit_bundle
-    build_payloads = payload_builder or _build_kit_qr_payloads
+    build_payloads = payload_builder or build_kit_qr_payloads
     resolve_capacity = capacity_resolver or _max_qr_payload_bytes
     bundle_bytes = load_bundle(variant=normalized_variant)
     qr_config = config.qr_config
@@ -132,7 +126,6 @@ def render_kit_qr_document(
         bundle_bytes,
         resolved_chunk_size,
         qr_config,
-        embedded_metadata=_kit_metadata(anchor),
     )
     doc_id = hashlib.blake2b(b"".join(qr_payloads), digest_size=DOC_ID_LEN).digest()
     frames = [
@@ -149,14 +142,21 @@ def render_kit_qr_document(
 
     create_render_service = render_service_factory or RenderService
     render_service = create_render_service(config)
-    inputs = render_service.kit_inputs(
-        frames,
-        output_path,
-        qr_payloads=qr_payloads,
-        context=render_service.base_context(),
-        lineage=RenderLineage(kind="recovery_kit"),
-    )
-    (render_pdf or render_frames_to_pdf)(inputs)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".ethernity-kit-", dir=output_path.parent) as staging:
+        staged_path = Path(staging) / output_path.name
+        inputs = render_service.kit_inputs(
+            frames,
+            staged_path,
+            qr_payloads=qr_payloads,
+            context=render_service.base_context(),
+            origin=DocumentOrigin(kind="recovery_kit"),
+        )
+        result = (render_pdf or render_frames_to_pdf)(inputs)
+        validate_rendered_pdf_document(
+            inputs=inputs, result=result, document_label="rendered recovery kit"
+        )
+        staged_path.replace(output_path)
 
     return KitResult(
         output_path=output_path,
@@ -165,59 +165,6 @@ def render_kit_qr_document(
         bytes_total=len(bundle_bytes),
         doc_id_hex=doc_id.hex(),
     )
-
-
-def validate_chain_bound_kit_carrier(
-    raw_qr_payloads: Sequence[bytes],
-    *,
-    config: AppConfig,
-    anchor: KitAnchor,
-    chunk_size: int | None = None,
-    bundle_loader: Callable[..., bytes] | None = None,
-) -> None:
-    """Require a canonical, ordered chain-bound carrier for the packaged lean kit."""
-
-    payloads = tuple(raw_qr_payloads)
-    if not payloads:
-        raise ValueError("chain-bound recovery kit carrier contains no QR payloads")
-    if any(not isinstance(payload, bytes) for payload in payloads):
-        raise ValueError("chain-bound recovery kit carrier payloads must be raw bytes")
-
-    load_bundle = bundle_loader or _load_kit_bundle
-    bundle_bytes = load_bundle(variant="lean")
-    resolved_chunk_size = chunk_size
-    if resolved_chunk_size is None:
-        max_size = _max_qr_payload_bytes(b"x" * _MAX_QR_PROBE_BYTES, config.qr_config)
-        resolved_chunk_size = min(DEFAULT_KIT_CHUNK_SIZE, max_size)
-    if resolved_chunk_size <= 0:
-        raise ValueError("chunk_size must be positive")
-
-    expected_payloads = tuple(
-        _build_kit_qr_payloads(
-            bundle_bytes,
-            resolved_chunk_size,
-            config.qr_config,
-            embedded_metadata=anchor.as_json_object(),
-        )
-    )
-    if len(payloads) != len(expected_payloads):
-        raise ValueError(
-            "chain-bound recovery kit carrier QR count mismatch: "
-            f"expected {len(expected_payloads)}, found {len(payloads)}"
-        )
-    if payloads[0] != expected_payloads[0]:
-        raise ValueError(
-            "chain-bound recovery kit shell is non-canonical or has mismatched anchor metadata"
-        )
-    for index, (payload, expected) in enumerate(
-        zip(payloads[1:], expected_payloads[1:], strict=True),
-        start=1,
-    ):
-        if payload != expected:
-            raise ValueError(
-                "chain-bound recovery kit payload chunks are non-canonical, reordered, or do not "
-                f"reconstruct the packaged lean bundle (QR {index + 1})"
-            )
 
 
 def _normalize_kit_variant(value: str | None) -> str:
@@ -388,13 +335,11 @@ def _split_kit_payload_chunks(payload: str, chunk_payload_size: int) -> list[byt
     return chunks
 
 
-def _kit_metadata(anchor: KitAnchor | None) -> dict[str, object]:
-    if anchor is not None:
-        return anchor.as_json_object()
+def _kit_metadata() -> dict[str, object]:
     return {
         "capability": "ethernity-unanchored-rescue",
         "version": 1,
-        "supported_extension_envelope_versions": [EXTENSION_ENVELOPE_VERSION],
+        "supported_extension_envelope_versions": [EXTENSION_DOCUMENT_VERSION],
         "supported_extension_schema_versions": [EXTENSION_SCHEMA_VERSION],
     }
 
@@ -403,15 +348,12 @@ def _kit_shell_payload(
     *,
     chunk_count: int,
     compression: str = "gzip",
-    metadata: dict[str, object] | None = None,
 ) -> bytes:
     if compression not in _SUPPORTED_KIT_BUNDLE_COMPRESSIONS:
         raise ValueError("compression must be gzip or brotli")
     alphabet_json = json.dumps(_BASE91_ALPHABET)
     compression_json = json.dumps(compression)
-    metadata_json = json.dumps(
-        metadata or _kit_metadata(None), sort_keys=True, separators=(",", ":")
-    )
+    metadata_json = json.dumps(_kit_metadata(), sort_keys=True, separators=(",", ":"))
     script = (
         "(function(){"
         f"globalThis.{_KIT_CHUNK_ARRAY}=globalThis.{_KIT_CHUNK_ARRAY}||[];"
@@ -446,12 +388,11 @@ def _kit_shell_payload(
     ).encode("ascii")
 
 
-def _build_kit_qr_payloads(
+def build_kit_qr_payloads(
     bundle_bytes: bytes,
     chunk_size: int,
     config: QrConfig,
     *,
-    embedded_metadata: dict[str, object] | None = None,
     loader_metadata_extractor: Callable[[bytes], KitBundleLoaderMetadata] | None = None,
     payload_splitter: Callable[[str, int], list[bytes]] | None = None,
     shell_builder: Callable[..., bytes] | None = None,
@@ -466,7 +407,6 @@ def _build_kit_qr_payloads(
     shell = build_shell(
         chunk_count=len(payload_chunks),
         compression=loader_metadata.compression,
-        metadata=embedded_metadata,
     )
     if not fits_payload(shell, config):
         raise ValueError(
@@ -509,10 +449,12 @@ def _max_qr_payload_bytes(
 __all__ = [
     "DEFAULT_KIT_BUNDLE_NAME",
     "DEFAULT_KIT_CHUNK_SIZE",
-    "KitAnchor",
+    "DEFAULT_KIT_OUTPUT",
     "KitBundleLoaderMetadata",
+    "KitRequest",
     "KitResult",
     "SCANNER_KIT_BUNDLE_NAME",
+    "create_kit",
+    "build_kit_qr_payloads",
     "render_kit_qr_document",
-    "validate_chain_bound_kit_carrier",
 ]

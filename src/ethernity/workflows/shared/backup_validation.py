@@ -17,9 +17,8 @@
 from __future__ import annotations
 
 from ethernity.crypto import MNEMONIC_WORD_COUNTS
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.workflows.shared.operation_types import BackupArgs
-
-MAX_SHARDS = 255
 
 __all__ = ["validate_backup_args"]
 
@@ -50,12 +49,12 @@ def validate_backup_args(args: BackupArgs) -> None:
             raise ValueError("signing key shard quorum requires --signing-key-mode sharded")
         if args.signing_key_shard_threshold < 1:
             raise ValueError("signing key shard threshold must be >= 1")
-        if args.signing_key_shard_threshold > MAX_SHARDS:
-            raise ValueError(f"signing key shard threshold must be <= {MAX_SHARDS}")
+        if args.signing_key_shard_threshold > MAX_SHARES:
+            raise ValueError(f"signing key shard threshold must be <= {MAX_SHARES}")
         if args.signing_key_shard_count < args.signing_key_shard_threshold:
             raise ValueError("signing key shard count must be >= signing key shard threshold")
-        if args.signing_key_shard_count > MAX_SHARDS:
-            raise ValueError(f"signing key shard count must be <= {MAX_SHARDS}")
+        if args.signing_key_shard_count > MAX_SHARES:
+            raise ValueError(f"signing key shard count must be <= {MAX_SHARES}")
     if args.signing_key_mode == "sharded":
         if args.shard_threshold is None or args.shard_count is None:
             raise ValueError("signing key sharding requires passphrase sharding")
@@ -65,12 +64,12 @@ def validate_backup_args(args: BackupArgs) -> None:
     if args.shard_threshold is not None and args.shard_count is not None:
         if args.shard_threshold < 1:
             raise ValueError("shard threshold must be >= 1")
-        if args.shard_threshold > MAX_SHARDS:
-            raise ValueError(f"shard threshold must be <= {MAX_SHARDS}")
+        if args.shard_threshold > MAX_SHARES:
+            raise ValueError(f"shard threshold must be <= {MAX_SHARES}")
         if args.shard_count < args.shard_threshold:
             raise ValueError("shard count must be >= shard threshold")
-        if args.shard_count > MAX_SHARDS:
-            raise ValueError(f"shard count must be <= {MAX_SHARDS}")
+        if args.shard_count > MAX_SHARES:
+            raise ValueError(f"shard count must be <= {MAX_SHARES}")
     if args.passphrase_words is not None:
         _validate_passphrase_words(args.passphrase_words)
 

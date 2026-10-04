@@ -27,13 +27,13 @@ import uuid
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from ethernity.artifacts.publish import (
+from ethernity.core.validation import normalize_path
+from ethernity.publication import (
     PublicationDurability,
     create_sibling_staging_dir,
-    discard_staged_artifact_dir,
-    promote_staged_artifact_dir,
+    discard_staging_directory,
+    promote_staged_directory,
 )
-from ethernity.core.validation import normalize_path
 from ethernity.workflows.shared.paths import expanduser_cli_path
 
 __all__ = [
@@ -134,18 +134,14 @@ def commit_prepared_output_dir(
     staging_dir: str | Path,
     final_dir: str | Path,
     *,
-    validate_promotion: Callable[[], None] | None = None,
-    lock_path: str | Path | None = None,
     durability: PublicationDurability = "best-effort",
 ) -> str:
     """Promote a staged output directory into place."""
 
     return str(
-        promote_staged_artifact_dir(
+        promote_staged_directory(
             staging_dir,
             final_dir,
-            validate_promotion=validate_promotion,
-            lock_path=lock_path,
             durability=durability,
         )
     )
@@ -154,7 +150,7 @@ def commit_prepared_output_dir(
 def discard_prepared_output_dir(staging_dir: str | Path | None) -> None:
     """Remove a staged output directory when a render fails."""
 
-    discard_staged_artifact_dir(staging_dir)
+    discard_staging_directory(staging_dir)
 
 
 def _safe_join(base: Path, relative: str) -> Path:
@@ -348,7 +344,7 @@ def _commit_recovered_directory_outputs(
     total: int,
     on_entry_written: Callable[[object, bytes, str, int, int], None] | None,
 ) -> list[str]:
-    """Publish the staged recovered tree as the authoritative destination."""
+    """Replace the destination with the staged recovered files."""
 
     fd, backup_name = tempfile.mkstemp(prefix=f".{base_dir.name}.bak-", dir=str(base_dir.parent))
     os.close(fd)

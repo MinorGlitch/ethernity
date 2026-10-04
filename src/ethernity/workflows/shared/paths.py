@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Shared CLI path normalization helpers."""
+"""Normalize and display paths for scriptable commands."""
 
 from __future__ import annotations
 

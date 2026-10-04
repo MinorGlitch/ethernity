@@ -15,8 +15,8 @@
 
 import unittest
 
-from ethernity.cli.shared.plan import validate_backup_args
-from ethernity.cli.shared.types import BackupArgs
+from ethernity.workflows.shared.backup_validation import validate_backup_args
+from ethernity.workflows.shared.operation_types import BackupArgs
 
 
 class TestBackupArgsValidation(unittest.TestCase):

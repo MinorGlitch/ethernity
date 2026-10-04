@@ -36,7 +36,7 @@ READ_PROGRESS_UPDATE_INTERVAL = 10
 
 
 class InputLoadProgress(Protocol):
-    """Minimal progress surface accepted by input loading."""
+    """Progress reporting methods accepted by input loading."""
 
     def add_task(self, description: str, *, total: float | None = None) -> object: ...
 

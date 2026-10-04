@@ -16,12 +16,40 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from ethernity.workflows.shared import api_codes
 from ethernity.workflows.shared.events import active_event_sink, emit_warning
 
-__all__ = ["warn"]
+
+@dataclass(frozen=True)
+class WorkflowNotice:
+    """Adapter-neutral non-fatal workflow notice."""
+
+    code: str
+    message: str
+    details: dict[str, object]
+
+
+WorkflowNoticeSink = Callable[[WorkflowNotice], None]
+
+
+def send_notice(
+    sink: WorkflowNoticeSink | None,
+    code: str,
+    message: str,
+    *,
+    details: Mapping[str, object] | None = None,
+) -> None:
+    """Send one typed notice when a caller supplied a sink."""
+
+    if sink is not None:
+        sink(WorkflowNotice(code=code, message=message, details=dict(details or {})))
+
+
+__all__ = ["WorkflowNotice", "WorkflowNoticeSink", "send_notice", "warn"]
 
 
 def warn(

@@ -25,8 +25,8 @@ from ethernity.crypto.sharding import ShardPayload
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_RAW, QrPayloadCodec
 from ethernity.render.service import RenderService
-from ethernity.render.types import RenderLineage
-from ethernity.render.validation import validate_rendered_pdf_artifact
+from ethernity.render.types import DocumentOrigin
+from ethernity.render.validation import validate_rendered_pdf_document
 
 
 def render_shard_document(
@@ -39,7 +39,7 @@ def render_shard_document(
     doc_type: str | None = None,
     layout_debug_json_path: str | None = None,
     qr_payload_codec: QrPayloadCodec = QR_PAYLOAD_CODEC_RAW,
-    lineage: RenderLineage,
+    origin: DocumentOrigin,
 ) -> str:
     """Render one shard document to PDF and return its output path."""
 
@@ -64,13 +64,13 @@ def render_shard_document(
         qr_payloads=render_service.build_qr_payloads([shard_frame], codec=qr_payload_codec),
         doc_type=doc_type,
         layout_debug_json_path=layout_debug_json_path,
-        lineage=lineage,
+        origin=origin,
     )
     render_result = render_module.render_frames_to_pdf(shard_inputs)
-    validate_rendered_pdf_artifact(
+    validate_rendered_pdf_document(
         inputs=shard_inputs,
         result=render_result,
-        artifact_label=f"rendered {filename_prefix} artifact",
+        document_label=f"rendered {filename_prefix} document",
     )
     return shard_path
 

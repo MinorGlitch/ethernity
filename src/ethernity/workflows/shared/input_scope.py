@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Adapter-neutral selected input scope and diff helpers."""
+"""Load selected inputs and calculate their scope changes."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ class SelectedInputScope:
 
 @dataclass(frozen=True)
 class InputScopeDiff:
-    """Summary of desired local scope versus current logical file state."""
+    """Summary of desired local scope versus current backup files."""
 
     new_paths: tuple[str, ...]
     changed_paths: tuple[str, ...]
@@ -249,18 +249,18 @@ def _ambiguous_new_path_aliases(
         for current_path in current_paths:
             if current_path == item.relative_path:
                 continue
-            if _logical_path_matches_source_tail(current_path, item.source_path):
+            if _backup_path_matches_source_tail(current_path, item.source_path):
                 aliases.append((item.relative_path, current_path))
                 break
     return tuple(sorted(set(aliases)))
 
 
-def _logical_path_matches_source_tail(logical_path: str, source_path: Path) -> bool:
-    logical_parts = PurePosixPath(logical_path).parts
+def _backup_path_matches_source_tail(backup_path: str, source_path: Path) -> bool:
+    backup_parts = PurePosixPath(backup_path).parts
     source_parts = source_path.resolve().parts
     return (
-        len(logical_parts) <= len(source_parts)
-        and tuple(source_parts[-len(logical_parts) :]) == logical_parts
+        len(backup_parts) <= len(source_parts)
+        and tuple(source_parts[-len(backup_parts) :]) == backup_parts
     )
 
 

@@ -14,46 +14,46 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Backup document generation flow for QR, recovery, and shard PDFs."""
+"""Generate QR, recovery, and shard backup documents."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from contextlib import contextmanager
-from dataclasses import replace
 from pathlib import Path
 from typing import Iterator, Protocol
 
 from ethernity import render as render_module
-from ethernity.artifacts.publish import PublicationDurability
 from ethernity.config import AppConfig
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan, SigningSeedMode
 from ethernity.crypto import (
+    decrypt_bytes,
     encrypt_bytes_with_passphrase,
     sharding as sharding_module,
     signing as signing_module,
 )
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
-from ethernity.crypto.passphrases import canonicalize_valid_bip39_mnemonic
+from ethernity.crypto.passphrases import normalize_valid_bip39_whitespace
 from ethernity.crypto.sharding import ShardPayload
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.chunking import chunk_payload
-from ethernity.encoding.framing import VERSION, Frame, FrameType
-from ethernity.encoding.qr_payloads import QrPayloadCodec
+from ethernity.encoding.framing import VERSION, Frame, FrameType, decode_frame
+from ethernity.encoding.qr_payloads import QrPayloadCodec, decode_qr_payload
 from ethernity.formats import (
-    envelope_codec as envelope_codec_module,
+    document_codec as document_codec_module,
     payload_codec as payload_codec_module,
 )
-from ethernity.formats.envelope_types import PayloadPart
+from ethernity.formats.manifest import BackupFile
+from ethernity.publication import PublicationDurability
 from ethernity.qr.capacity import choose_frame_chunk_size
+from ethernity.qr.scan import scan_qr_payloads
+from ethernity.render.checks import RenderValidationError
 from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
 from ethernity.render.fallback_labels import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.render.layout_debug import (
     layout_debug_json_path,
     resolve_layout_debug_dir,
 )
-from ethernity.render.proofs import RenderProofError
 from ethernity.render.recovery_kit_index import (
     build_recovery_kit_index_inventory_rows,
     resolve_recovery_kit_index_style,
@@ -61,8 +61,8 @@ from ethernity.render.recovery_kit_index import (
 from ethernity.render.recovery_lines import append_signing_key_lines
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
-from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
-from ethernity.render.validation import validate_rendered_pdf_artifact
+from ethernity.render.types import DocumentOrigin, RenderInputs, RenderResult
+from ethernity.render.validation import validate_rendered_pdf_document
 from ethernity.workflows.shared import api_codes
 from ethernity.workflows.shared.events import emit_phase, emit_progress
 from ethernity.workflows.shared.notices import warn
@@ -73,6 +73,7 @@ from ethernity.workflows.shared.outputs import (
     prepare_output_dir,
 )
 from ethernity.workflows.shared.shard_rendering import render_shard_document
+from ethernity.workflows.shared.standalone import encode_standalone_backup
 from ethernity.workflows.shared.status import plain_status
 
 
@@ -112,13 +113,13 @@ def _update_kit_index_qr_page_count(
 ) -> None:
     if kit_index_inputs is None:
         return
-    if render_result.artifact_proof is None:
-        raise RenderProofError("rendered QR document is missing render artifact proof")
-    if render_result.artifact_proof.page_count > 0:
-        kit_index_inputs.context["kit_qr_page_count"] = render_result.artifact_proof.page_count
+    if render_result.document_summary is None:
+        raise RenderValidationError("rendered QR document is missing its document summary")
+    if render_result.document_summary.page_count > 0:
+        kit_index_inputs.context["kit_qr_page_count"] = render_result.document_summary.page_count
 
 
-def _prepare_envelope(
+def _prepare_backup_document(
     input_files: list[InputFile],
     plan: DocumentPlan,
     sign_priv: bytes,
@@ -128,31 +129,19 @@ def _prepare_envelope(
         payload_codec_module.PAYLOAD_ENCODING_AUTO
     ),
 ) -> tuple[bytes, bytes]:
-    """Prepare the envelope from input files. Returns (envelope, payload)."""
+    """Encode input files and return the backup document bytes and raw file payload."""
     parts = [
-        PayloadPart(path=item.relative_path, data=item.data, mtime=item.mtime)
+        BackupFile(path=item.relative_path, data=item.data, mtime=item.mtime)
         for item in input_files
     ]
-    manifest, payload = envelope_codec_module.build_manifest_and_payload(
+    return encode_standalone_backup(
         parts,
         sealed=plan.sealed,
         signing_seed=sign_priv if not plan.sealed else None,
         input_origin=input_origin,
         input_roots=input_roots,
+        payload_codec_mode=payload_codec_mode,
     )
-    encoded_payload, payload_codec, payload_raw_len = (
-        payload_codec_module.encode_payload_for_manifest(
-            payload,
-            mode=payload_codec_mode,
-        )
-    )
-    manifest = replace(
-        manifest,
-        payload_codec=payload_codec,
-        payload_raw_len=payload_raw_len,
-    )
-    envelope = envelope_codec_module.encode_envelope(encoded_payload, manifest)
-    return envelope, payload
 
 
 def _create_auth_frame(
@@ -240,7 +229,7 @@ def _render_all_documents(
     status_quiet: bool,
     layout_debug_dir: str | None,
     qr_payload_codec: QrPayloadCodec,
-    lineage: RenderLineage,
+    origin: DocumentOrigin,
 ) -> tuple[list[str], list[str]]:
     """Render all PDF documents. Returns (shard_paths, signing_key_shard_paths)."""
     shard_paths: list[str] = []
@@ -269,7 +258,7 @@ def _render_all_documents(
                 config=config,
                 layout_debug_dir=layout_debug_dir,
                 qr_payload_codec=qr_payload_codec,
-                lineage=lineage,
+                origin=origin,
             )
         else:
             shard_paths, signing_key_shard_paths = _render_without_progress(
@@ -285,7 +274,7 @@ def _render_all_documents(
                 status_quiet=status_quiet,
                 layout_debug_dir=layout_debug_dir,
                 qr_payload_codec=qr_payload_codec,
-                lineage=lineage,
+                origin=origin,
             )
 
     return shard_paths, signing_key_shard_paths
@@ -306,7 +295,7 @@ def _render_with_progress(
     config: AppConfig,
     layout_debug_dir: str | None,
     qr_payload_codec: QrPayloadCodec,
-    lineage: RenderLineage,
+    origin: DocumentOrigin,
 ) -> tuple[list[str], list[str]]:
     """Render documents with progress bar."""
     shard_paths: list[str] = []
@@ -332,10 +321,10 @@ def _render_with_progress(
 
     progress_bar.update(task_id, description="Rendering QR document...")
     qr_result = render_module.render_frames_to_pdf(qr_inputs)
-    validate_rendered_pdf_artifact(
+    validate_rendered_pdf_document(
         inputs=qr_inputs,
         result=qr_result,
-        artifact_label="rendered QR document",
+        document_label="rendered QR document",
     )
     _update_kit_index_qr_page_count(kit_index_inputs, qr_result)
     progress_bar.advance(task_id)
@@ -343,10 +332,10 @@ def _render_with_progress(
 
     progress_bar.update(task_id, description="Rendering recovery document...")
     recovery_result = render_module.render_frames_to_pdf(recovery_inputs)
-    validate_rendered_pdf_artifact(
+    validate_rendered_pdf_document(
         inputs=recovery_inputs,
         result=recovery_result,
-        artifact_label="rendered recovery document",
+        document_label="rendered recovery document",
     )
     progress_bar.advance(task_id)
     _advance_render(
@@ -358,10 +347,10 @@ def _render_with_progress(
     if kit_index_inputs is not None:
         progress_bar.update(task_id, description="Rendering recovery kit index...")
         kit_index_result = render_module.render_frames_to_pdf(kit_index_inputs)
-        validate_rendered_pdf_artifact(
+        validate_rendered_pdf_document(
             inputs=kit_index_inputs,
             result=kit_index_result,
-            artifact_label="rendered recovery kit index",
+            document_label="rendered recovery kit index",
             expected_text=_expected_kit_index_component_ids(kit_index_inputs),
         )
         progress_bar.advance(task_id)
@@ -389,7 +378,7 @@ def _render_with_progress(
                     f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                 ),
                 qr_payload_codec=qr_payload_codec,
-                lineage=lineage,
+                origin=origin,
             )
             shard_paths.append(shard_path)
             progress_bar.advance(task_id)
@@ -418,7 +407,7 @@ def _render_with_progress(
                     f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                 ),
                 qr_payload_codec=qr_payload_codec,
-                lineage=lineage,
+                origin=origin,
             )
             signing_key_shard_paths.append(shard_path)
             progress_bar.advance(task_id)
@@ -445,7 +434,7 @@ def _render_without_progress(
     status_quiet: bool,
     layout_debug_dir: str | None,
     qr_payload_codec: QrPayloadCodec,
-    lineage: RenderLineage,
+    origin: DocumentOrigin,
 ) -> tuple[list[str], list[str]]:
     """Render documents without progress bar (using status messages)."""
     shard_paths: list[str] = []
@@ -474,20 +463,20 @@ def _render_without_progress(
 
     with plain_status("Rendering QR document...", quiet=status_quiet, console=console):
         qr_result = render_module.render_frames_to_pdf(qr_inputs)
-        validate_rendered_pdf_artifact(
+        validate_rendered_pdf_document(
             inputs=qr_inputs,
             result=qr_result,
-            artifact_label="rendered QR document",
+            document_label="rendered QR document",
         )
         _update_kit_index_qr_page_count(kit_index_inputs, qr_result)
     _advance_render("Rendered QR document", kind="qr_document", path=qr_inputs.output_path)
 
     with plain_status("Rendering recovery document...", quiet=status_quiet, console=console):
         recovery_result = render_module.render_frames_to_pdf(recovery_inputs)
-        validate_rendered_pdf_artifact(
+        validate_rendered_pdf_document(
             inputs=recovery_inputs,
             result=recovery_result,
-            artifact_label="rendered recovery document",
+            document_label="rendered recovery document",
         )
     _advance_render(
         "Rendered recovery document",
@@ -502,10 +491,10 @@ def _render_without_progress(
             console=console,
         ):
             kit_index_result = render_module.render_frames_to_pdf(kit_index_inputs)
-            validate_rendered_pdf_artifact(
+            validate_rendered_pdf_document(
                 inputs=kit_index_inputs,
                 result=kit_index_result,
-                artifact_label="rendered recovery kit index",
+                document_label="rendered recovery kit index",
                 expected_text=_expected_kit_index_component_ids(kit_index_inputs),
             )
         _advance_render(
@@ -529,7 +518,7 @@ def _render_without_progress(
                         f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
                     qr_payload_codec=qr_payload_codec,
-                    lineage=lineage,
+                    origin=origin,
                 )
                 shard_paths.append(shard_path)
                 _advance_render(
@@ -558,7 +547,7 @@ def _render_without_progress(
                         f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
                     qr_payload_codec=qr_payload_codec,
-                    lineage=lineage,
+                    origin=origin,
                 )
                 signing_key_shard_paths.append(shard_path)
                 _advance_render(
@@ -568,6 +557,90 @@ def _render_without_progress(
                 )
 
     return shard_paths, signing_key_shard_paths
+
+
+def _read_staged_shard_quorum(
+    paths: list[str],
+    *,
+    doc_id: bytes,
+    doc_hash: bytes,
+    sign_pub: bytes,
+    qr_payload_codec: QrPayloadCodec,
+) -> list[ShardPayload]:
+    """Recover one complete quorum from the actual staged PDF carriers."""
+
+    shares: list[ShardPayload] = []
+    for path in paths:
+        payloads = scan_qr_payloads([Path(path)])
+        if len(payloads) != 1:
+            raise ValueError("staged recovery sheet must contain exactly one shard QR")
+        frame = decode_frame(decode_qr_payload(payloads[0], codec=qr_payload_codec))
+        if (
+            frame.frame_type != FrameType.KEY_DOCUMENT
+            or frame.doc_id != doc_id
+            or frame.version != VERSION
+            or frame.index != 0
+            or frame.total != 1
+        ):
+            raise ValueError("staged recovery sheet does not match the new root identity")
+        shard = sharding_module.decode_shard_payload(frame.data)
+        if shard.doc_hash != doc_hash or shard.sign_pub != sign_pub:
+            raise ValueError("staged recovery shard does not bind to the new root ciphertext")
+        shares.append(shard)
+        if len(shares) >= shard.threshold:
+            return shares
+    raise ValueError("staged recovery sheets do not provide a complete quorum")
+
+
+def _validate_staged_credentials(
+    *,
+    ciphertext: bytes,
+    backup_document: bytes,
+    passphrase: str,
+    signing_seed: bytes,
+    doc_id: bytes,
+    doc_hash: bytes,
+    auth_frame: Frame,
+    shard_paths: list[str],
+    signing_key_shard_paths: list[str],
+    qr_payload_codec: QrPayloadCodec,
+) -> None:
+    """Verify credentials and signed ciphertext before publishing verified carriers."""
+
+    recovered_passphrase = passphrase
+    sign_pub = derive_public_key(signing_seed)
+    if shard_paths:
+        shares = _read_staged_shard_quorum(
+            shard_paths,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            sign_pub=sign_pub,
+            qr_payload_codec=qr_payload_codec,
+        )
+        recovered_passphrase = sharding_module.recover_passphrase(shares)
+        if recovered_passphrase != passphrase:
+            raise ValueError("staged recovery quorum does not recover the backup passphrase")
+    if signing_key_shard_paths:
+        shares = _read_staged_shard_quorum(
+            signing_key_shard_paths,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            sign_pub=sign_pub,
+            qr_payload_codec=qr_payload_codec,
+        )
+        if sharding_module.recover_signing_seed(shares) != signing_seed:
+            raise ValueError("staged signing-key quorum does not recover the backup signing seed")
+    if decrypt_bytes(ciphertext, passphrase=recovered_passphrase) != backup_document:
+        raise ValueError("staged backup credentials do not recover the complete standalone payload")
+    auth = signing_module.decode_auth_payload(auth_frame.data)
+    if (
+        auth.doc_hash != doc_hash
+        or auth.sign_pub != derive_public_key(signing_seed)
+        or not signing_module.verify_auth(
+            doc_hash, sign_pub=auth.sign_pub, signature=auth.signature
+        )
+    ):
+        raise ValueError("staged backup authentication does not match the new root")
 
 
 def run_backup(
@@ -584,13 +657,11 @@ def run_backup(
     passphrase_words: int | None = None,
     config: AppConfig,
     signing_seed_override: bytes | None = None,
-    render_lineage: RenderLineage,
+    payload_codec_override: payload_codec_module.PayloadEncodingMode | None = None,
+    render_origin: DocumentOrigin,
     debug: bool = False,
     debug_max_bytes: int | None = None,
     debug_reveal_secrets: bool = False,
-    promote_lock_path: str | Path | None = None,
-    prepare_promotion: Callable[[], None] | None = None,
-    validate_promotion: Callable[[], None] | None = None,
     publication_durability: PublicationDurability = "best-effort",
     quiet: bool = False,
 ) -> BackupResult:
@@ -619,15 +690,15 @@ def run_backup(
         and plan.signing_seed_mode == SigningSeedMode.SHARDED
     )
     producer_passphrase = (
-        canonicalize_valid_bip39_mnemonic(passphrase) if passphrase is not None else None
+        normalize_valid_bip39_whitespace(passphrase) if passphrase is not None else None
     )
 
-    # Prepare envelope and handle debug output
+    # Encode the backup document and handle debug output.
     with plain_status("Preparing payload...", quiet=status_quiet, console=console):
         emit_phase(phase="prepare", label="Preparing payload")
-        payload_codec_mode = config.cli_defaults.backup.payload_codec
+        payload_codec_mode = payload_codec_override or config.cli_defaults.backup.payload_codec
         qr_payload_codec_mode = config.cli_defaults.backup.qr_payload_codec
-        envelope, payload = _prepare_envelope(
+        backup_document, payload = _prepare_backup_document(
             input_files,
             plan,
             sign_priv,
@@ -635,7 +706,7 @@ def run_backup(
             input_roots or [],
             payload_codec_mode=payload_codec_mode,
         )
-        manifest = envelope_codec_module.decode_envelope(envelope)[0]
+        manifest = document_codec_module.decode_backup_document(backup_document)[0]
         emit_progress(
             phase="prepare",
             current=1,
@@ -654,7 +725,7 @@ def run_backup(
     with plain_status("Encrypting payload...", quiet=status_quiet, console=console):
         emit_phase(phase="encrypt", label="Encrypting payload")
         ciphertext, passphrase_used = encrypt_bytes_with_passphrase(
-            envelope,
+            backup_document,
             passphrase=producer_passphrase,
             passphrase_words=passphrase_words,
         )
@@ -769,9 +840,9 @@ def run_backup(
             "staging output": staging_output_dir,
         },
     )
-    if render_lineage is None:
-        raise ValueError("backup execution requires explicit render lineage")
-    lineage = render_lineage
+    if render_origin is None:
+        raise ValueError("backup execution requires explicit render origin")
+    origin = render_origin
 
     render_service = RenderService(config)
     qr_payloads = render_service.build_qr_payloads(qr_frames, codec=qr_payload_codec_mode)
@@ -780,7 +851,7 @@ def run_backup(
         qr_path,
         qr_payloads=qr_payloads,
         layout_debug_json_path=layout_debug_json_path(layout_debug_dir, "qr_document"),
-        lineage=lineage,
+        origin=origin,
     )
     kit_index_context = render_service.base_context(
         {
@@ -798,7 +869,7 @@ def run_backup(
             design_name=kit_index_style,
             qr_chunk_count=len(qr_frames),
             layout_debug_json_path=layout_debug_json_path(layout_debug_dir, "recovery_kit_index"),
-            lineage=lineage,
+            origin=origin,
         )
         if kit_index_style is not None and kit_index_path is not None
         else None
@@ -823,7 +894,7 @@ def run_backup(
         recovery_meta=recovery_meta,
         fallback_sections=fallback_sections,
         layout_debug_json_path=layout_debug_json_path(layout_debug_dir, "recovery_document"),
-        lineage=lineage,
+        origin=origin,
     )
 
     try:
@@ -841,15 +912,23 @@ def run_backup(
             status_quiet=status_quiet,
             layout_debug_dir=layout_debug_dir,
             qr_payload_codec=qr_payload_codec_mode,
-            lineage=lineage,
+            origin=origin,
         )
-        if prepare_promotion is not None:
-            prepare_promotion()
+        _validate_staged_credentials(
+            ciphertext=ciphertext,
+            backup_document=backup_document,
+            passphrase=passphrase_final,
+            signing_seed=sign_priv,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            auth_frame=auth_frame,
+            shard_paths=shard_paths,
+            signing_key_shard_paths=signing_key_shard_paths,
+            qr_payload_codec=qr_payload_codec_mode,
+        )
         commit_prepared_output_dir(
             staging_output_dir,
             output_dir,
-            validate_promotion=validate_promotion,
-            lock_path=promote_lock_path,
             durability=publication_durability,
         )
     except BaseException:
@@ -869,6 +948,7 @@ def run_backup(
 
     return BackupResult(
         doc_id=doc_id,
+        doc_hash=doc_hash,
         qr_path=final_qr_path,
         recovery_path=final_recovery_path,
         kit_index_path=final_kit_index_path,

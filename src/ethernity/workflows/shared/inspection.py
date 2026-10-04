@@ -13,14 +13,14 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Shared inspection/preflight payload helpers."""
+"""Build inspection and preflight response payloads."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from ethernity.formats.envelope_summary import manifest_summary_payload
+from ethernity.formats.manifest_summary import manifest_summary_payload
 from ethernity.workflows.shared import api_codes
 from ethernity.workflows.shared.events import CommandError
 
@@ -80,7 +80,7 @@ def stable_blocking_issue_code(code: str) -> str:
 def normalize_blocking_issues(
     issues: Iterable[Mapping[str, Any]],
 ) -> list[BlockingIssue]:
-    """Normalize arbitrary issue mappings into the inspect/preflight issue contract."""
+    """Normalize arbitrary issue mappings into inspect/preflight blocking issues."""
 
     normalized: list[BlockingIssue] = []
     for issue in issues:

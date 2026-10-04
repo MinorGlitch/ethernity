@@ -21,25 +21,25 @@ from types import SimpleNamespace
 from typing import cast
 from unittest import mock
 
-from ethernity.cli.shared.shard_rendering import render_shard_document
 from ethernity.crypto.sharding import ShardPayload
 from ethernity.encoding.framing import FrameType
 from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_RAW
-from ethernity.render.types import RenderLineage
+from ethernity.render.types import DocumentOrigin
+from ethernity.workflows.shared.shard_rendering import render_shard_document
 
 
 class TestShardRendering(unittest.TestCase):
-    @mock.patch("ethernity.cli.shared.shard_rendering.validate_rendered_pdf_artifact")
-    @mock.patch("ethernity.cli.shared.shard_rendering.render_module.render_frames_to_pdf")
+    @mock.patch("ethernity.workflows.shared.shard_rendering.validate_rendered_pdf_document")
+    @mock.patch("ethernity.workflows.shared.shard_rendering.render_module.render_frames_to_pdf")
     @mock.patch(
-        "ethernity.cli.shared.shard_rendering.sharding_module.encode_shard_payload",
+        "ethernity.workflows.shared.shard_rendering.sharding_module.encode_shard_payload",
         return_value=b"encoded-shard",
     )
-    def test_render_shard_document_builds_and_validates_owned_artifact(
+    def test_render_shard_document_builds_and_validates_its_pdf(
         self,
         _encode_shard_payload: mock.MagicMock,
         render_frames_to_pdf: mock.MagicMock,
-        validate_artifact: mock.MagicMock,
+        validate_document: mock.MagicMock,
     ) -> None:
         shard = cast(
             ShardPayload,
@@ -61,7 +61,7 @@ class TestShardRendering(unittest.TestCase):
             filename_prefix="shard",
             layout_debug_json_path="/tmp/debug/shard.layout.json",
             qr_payload_codec=QR_PAYLOAD_CODEC_RAW,
-            lineage=RenderLineage(kind="minted_shard_set"),
+            origin=DocumentOrigin(kind="replacement_recovery"),
         )
 
         self.assertEqual(
@@ -76,10 +76,10 @@ class TestShardRendering(unittest.TestCase):
             render_service.shard_inputs.call_args.kwargs["layout_debug_json_path"],
             "/tmp/debug/shard.layout.json",
         )
-        validate_artifact.assert_called_once_with(
+        validate_document.assert_called_once_with(
             inputs=render_inputs,
             result=render_result,
-            artifact_label="rendered shard artifact",
+            document_label="rendered shard document",
         )
 
 

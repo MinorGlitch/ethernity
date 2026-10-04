@@ -1,4 +1,4 @@
-"""Typed execution boundary shared by task states and workflow implementations."""
+"""Typed execution results shared by task states and workflow implementations."""
 
 from __future__ import annotations
 
@@ -6,31 +6,28 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TypeVar
 
-from ethernity.config import AppConfig, apply_render_style, load_app_config
+from ethernity.config import AppConfig
 from ethernity.core.models import DocumentPlan
 from ethernity.encoding.framing import Frame
 from ethernity.workflows.backup.service import (
     execute_prepared_backup,
     prepare_backup_run,
 )
-from ethernity.workflows.doctor.service import reconcile_publication_transactions
-from ethernity.workflows.kit import service as kit_service
-from ethernity.workflows.rebuild.service import run_compact
+from ethernity.workflows.rebuild.service import execute_rebuild_operation
 from ethernity.workflows.recovery.models import RecoveryInspection
 from ethernity.workflows.recovery.planning import inspect_from_args
 from ethernity.workflows.recovery.service import execute_recover_plan, prepare_recover_plan
-from ethernity.workflows.replacement_recovery.service import execute_mint
+from ethernity.workflows.replacement_recovery.service import execute_replacement_recovery_operation
 from ethernity.workflows.shared.events import CommandError
 from ethernity.workflows.shared.file_inputs import InputFile
 from ethernity.workflows.shared.operation_types import (
     BackupArgs,
     BackupResult,
-    CompactArgs,
-    MintArgs,
+    RebuildOperationRequest,
     RecoverArgs,
+    ReplacementRecoveryOperationRequest,
 )
 
-DEFAULT_KIT_OUTPUT = "recovery_kit_qr.pdf"
 _T = TypeVar("_T")
 
 
@@ -71,6 +68,8 @@ class BackupExecutionResult:
     shard_paths: tuple[Path, ...]
     signing_key_shard_paths: tuple[Path, ...]
     kit_index_path: Path | None = None
+    signing_key_preserved: bool | None = None
+    doc_hash: bytes | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +99,10 @@ class RecoveryRequest:
 @dataclass(frozen=True, slots=True)
 class RecoveryExecutionResult:
     written_paths: tuple[Path, ...]
+    trust_basis: Literal["matched_expected_head", "internally_consistent", "unauthenticated"] = (
+        "internally_consistent"
+    )
+    signing_key_verified: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,52 +159,14 @@ class ReplacementRecoveryRequest:
     signing_key_shard_count: int | None = None
     passphrase_replacement_count: int | None = None
     signing_key_replacement_count: int | None = None
-    mint_passphrase_shards: bool = True
-    mint_signing_key_shards: bool = True
+    create_passphrase_shards: bool = True
+    create_signing_key_shards: bool = True
 
 
 @dataclass(frozen=True, slots=True)
 class ReplacementRecoveryResult:
     shard_paths: tuple[Path, ...]
     signing_key_shard_paths: tuple[Path, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class KitRequest:
-    output_path: Path
-    config_path: Path | None
-    paper_size: str
-    design: str
-    variant: Literal["lean", "scanner"]
-    chunk_size: int | None
-
-
-@dataclass(frozen=True, slots=True)
-class KitExecutionResult:
-    output_path: Path
-    chunk_count: int
-    bytes_total: int
-
-
-@dataclass(frozen=True, slots=True)
-class DoctorRequest:
-    backup_folder: Path
-    passphrase: str
-    repair: bool
-
-
-@dataclass(frozen=True, slots=True)
-class DoctorTransactionResult:
-    path: Path
-    status: str
-    action: str
-
-
-@dataclass(frozen=True, slots=True)
-class DoctorExecutionResult:
-    authenticated_head_index: int
-    authenticated_head_hash: str
-    transactions: tuple[DoctorTransactionResult, ...]
 
 
 class WorkflowExecutionError(Exception):
@@ -242,12 +207,14 @@ def execute_recovery(request: RecoveryRequest) -> RecoveryExecutionResult:
     result = execute_recover_plan(plan, quiet=True)
     return RecoveryExecutionResult(
         written_paths=tuple(Path(path) for path in result.written_paths),
+        trust_basis=result.trust_basis,
+        signing_key_verified=result.signing_key_verified,
     )
 
 
 def execute_rebuild(request: RebuildRequest) -> BackupExecutionResult:
-    result = run_compact(
-        CompactArgs(
+    result = execute_rebuild_operation(
+        RebuildOperationRequest(
             config=_path_text(request.config_path),
             paper=request.paper_size,
             design=request.design,
@@ -274,8 +241,8 @@ def execute_rebuild(request: RebuildRequest) -> BackupExecutionResult:
 def execute_replacement_recovery(
     request: ReplacementRecoveryRequest,
 ) -> ReplacementRecoveryResult:
-    result = execute_mint(
-        MintArgs(
+    result = execute_replacement_recovery_operation(
+        ReplacementRecoveryOperationRequest(
             config=_path_text(request.config_path),
             paper=request.paper_size,
             design=request.design,
@@ -308,50 +275,14 @@ def execute_replacement_recovery(
             signing_key_shard_count=request.signing_key_shard_count,
             passphrase_replacement_count=request.passphrase_replacement_count,
             signing_key_replacement_count=request.signing_key_replacement_count,
-            mint_passphrase_shards=request.mint_passphrase_shards,
-            mint_signing_key_shards=request.mint_signing_key_shards,
+            create_passphrase_shards=request.create_passphrase_shards,
+            create_signing_key_shards=request.create_signing_key_shards,
             quiet=True,
         )
     )
     return ReplacementRecoveryResult(
         shard_paths=tuple(Path(path) for path in result.shard_paths),
         signing_key_shard_paths=tuple(Path(path) for path in result.signing_key_shard_paths),
-    )
-
-
-def execute_kit(request: KitRequest) -> KitExecutionResult:
-    config = load_app_config(request.config_path, paper_size=request.paper_size)
-    config = apply_render_style(config, request.design)
-    result = kit_service.render_kit_qr_document(
-        output_path=request.output_path,
-        config=config,
-        variant=request.variant,
-        chunk_size=request.chunk_size,
-    )
-    return KitExecutionResult(
-        output_path=result.output_path,
-        chunk_count=result.chunk_count,
-        bytes_total=result.bytes_total,
-    )
-
-
-def execute_doctor(request: DoctorRequest) -> DoctorExecutionResult:
-    result = reconcile_publication_transactions(
-        request.backup_folder,
-        passphrase=request.passphrase,
-        repair=request.repair,
-    )
-    return DoctorExecutionResult(
-        authenticated_head_index=result.authenticated_head_index,
-        authenticated_head_hash=result.authenticated_head_hash,
-        transactions=tuple(
-            DoctorTransactionResult(
-                path=item.path,
-                status=item.status,
-                action=item.action,
-            )
-            for item in result.transactions
-        ),
     )
 
 
@@ -414,6 +345,8 @@ def _backup_result(result: BackupResult) -> BackupExecutionResult:
         shard_paths=tuple(Path(path) for path in result.shard_paths),
         signing_key_shard_paths=tuple(Path(path) for path in result.signing_key_shard_paths),
         kit_index_path=Path(result.kit_index_path) if result.kit_index_path is not None else None,
+        signing_key_preserved=result.signing_key_preserved,
+        doc_hash=result.doc_hash,
     )
 
 
@@ -430,15 +363,9 @@ def _list_or_none(values: tuple[_T, ...]) -> list[_T] | None:
 
 
 __all__ = [
-    "DEFAULT_KIT_OUTPUT",
     "BackupExecutionResult",
     "BackupPreparation",
     "BackupRequest",
-    "DoctorExecutionResult",
-    "DoctorRequest",
-    "DoctorTransactionResult",
-    "KitExecutionResult",
-    "KitRequest",
     "RebuildRequest",
     "RecoveryExecutionResult",
     "RecoveryRequest",
@@ -446,8 +373,6 @@ __all__ = [
     "ReplacementRecoveryResult",
     "WorkflowExecutionError",
     "execute_backup",
-    "execute_doctor",
-    "execute_kit",
     "execute_rebuild",
     "execute_recovery",
     "execute_replacement_recovery",

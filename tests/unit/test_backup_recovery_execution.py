@@ -17,12 +17,6 @@ import hashlib
 import os
 import unittest
 
-from ethernity.cli.features.backup.execution import (
-    _create_auth_frame,
-    _prepare_envelope,
-)
-from ethernity.cli.features.recover.execution import decrypt_and_extract
-from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan
 from ethernity.crypto import decrypt_bytes, encrypt_bytes_with_passphrase
@@ -33,17 +27,23 @@ from ethernity.crypto.signing import (
     verify_auth,
 )
 from ethernity.encoding.framing import DOC_ID_LEN, FrameType
-from ethernity.formats.envelope_codec import (
+from ethernity.formats.document_codec import (
     build_manifest_and_payload,
-    decode_envelope,
-    encode_envelope,
+    decode_backup_document,
+    encode_backup_document,
     extract_payloads,
 )
-from ethernity.formats.envelope_types import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, PayloadPart
+from ethernity.formats.manifest import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, BackupFile
+from ethernity.workflows.backup.execution import (
+    _create_auth_frame,
+    _prepare_backup_document,
+)
+from ethernity.workflows.recovery.execution import decrypt_and_extract
+from ethernity.workflows.recovery.planning import RecoveryPlan
 
 
-class MockInputFile:
-    """Mock InputFile for testing."""
+class StubInputFile:
+    """In-memory input file used by backup execution tests."""
 
     def __init__(self, relative_path: str, data: bytes, mtime: int | None = None) -> None:
         self.relative_path = relative_path
@@ -51,65 +51,69 @@ class MockInputFile:
         self.mtime = mtime
 
 
-class TestPrepareEnvelope(unittest.TestCase):
-    """Tests for _prepare_envelope function."""
-
-    def test_basic_envelope_creation(self) -> None:
-        """Test basic envelope creation from input files."""
+class TestBackupDocumentEncoding(unittest.TestCase):
+    def test_basic_backup_document_encoding(self) -> None:
+        """Encode and decode a backup containing one input file."""
         sign_priv, sign_pub = generate_signing_keypair()
         input_files = [
-            MockInputFile("test.txt", b"hello world", mtime=1234),
+            StubInputFile("test.txt", b"hello world", mtime=1234),
         ]
         plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
 
-        envelope, payload = _prepare_envelope(input_files, plan, sign_priv, "file", [])
+        backup_document, payload = _prepare_backup_document(
+            input_files, plan, sign_priv, "file", []
+        )
 
-        # Verify envelope can be decoded
-        manifest, decoded_payload = decode_envelope(envelope)
+        # Check that the encoded backup can be decoded.
+        manifest, decoded_payload = decode_backup_document(backup_document)
         self.assertEqual(decoded_payload, b"hello world")
         self.assertEqual(len(manifest.files), 1)
         self.assertEqual(manifest.files[0].path, "test.txt")
         self.assertEqual(manifest.signing_seed, sign_priv)
 
-    def test_sealed_envelope(self) -> None:
-        """Test sealed envelope creation."""
+    def test_sealed_backup_document(self) -> None:
+        """Sealed backups omit the signing seed."""
         sign_priv, sign_pub = generate_signing_keypair()
         input_files = [
-            MockInputFile("sealed.txt", b"sealed content"),
+            StubInputFile("sealed.txt", b"sealed content"),
         ]
         plan = DocumentPlan(version=1, sealed=True, sharding=None, signing_seed_sharding=None)
 
-        envelope, payload = _prepare_envelope(input_files, plan, sign_priv, "file", [])
+        backup_document, payload = _prepare_backup_document(
+            input_files, plan, sign_priv, "file", []
+        )
 
-        manifest, _ = decode_envelope(envelope)
+        manifest, _ = decode_backup_document(backup_document)
         self.assertTrue(manifest.sealed)
         self.assertIsNone(manifest.signing_seed)
 
     def test_multiple_files(self) -> None:
-        """Test envelope with multiple files."""
+        """Encode a backup containing multiple files."""
         sign_priv, sign_pub = generate_signing_keypair()
         input_files = [
-            MockInputFile("file1.txt", b"content1", mtime=100),
-            MockInputFile("dir/file2.txt", b"content2", mtime=200),
-            MockInputFile("file3.bin", b"content3", mtime=300),
+            StubInputFile("file1.txt", b"content1", mtime=100),
+            StubInputFile("dir/file2.txt", b"content2", mtime=200),
+            StubInputFile("file3.bin", b"content3", mtime=300),
         ]
         plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
 
-        envelope, payload = _prepare_envelope(input_files, plan, sign_priv, "mixed", ["input"])
+        backup_document, payload = _prepare_backup_document(
+            input_files, plan, sign_priv, "mixed", ["input"]
+        )
 
-        manifest, decoded_payload = decode_envelope(envelope)
+        manifest, decoded_payload = decode_backup_document(backup_document)
         self.assertEqual(len(manifest.files), 3)
         self.assertEqual(decoded_payload, b"content2content1content3")
         paths = [f.path for f in manifest.files]
         self.assertEqual(paths, ["dir/file2.txt", "file1.txt", "file3.bin"])
 
-    def test_prepare_envelope_forced_raw_mode_sets_raw_codec(self) -> None:
+    def test_prepare_backup_document_forced_raw_mode_sets_raw_codec(self) -> None:
         sign_priv, _ = generate_signing_keypair()
         raw_payload = b"A" * 4096
-        input_files = [MockInputFile("large.txt", raw_payload)]
+        input_files = [StubInputFile("large.txt", raw_payload)]
         plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
 
-        envelope, _ = _prepare_envelope(
+        backup_document, _ = _prepare_backup_document(
             input_files,
             plan,
             sign_priv,
@@ -118,19 +122,19 @@ class TestPrepareEnvelope(unittest.TestCase):
             payload_codec_mode=PAYLOAD_CODEC_RAW,
         )
 
-        manifest, encoded_payload = decode_envelope(envelope)
+        manifest, encoded_payload = decode_backup_document(backup_document)
         self.assertEqual(manifest.payload_codec, PAYLOAD_CODEC_RAW)
         self.assertIsNone(manifest.payload_raw_len)
         extracted = extract_payloads(manifest, encoded_payload)
         self.assertEqual(extracted[0][1], raw_payload)
 
-    def test_prepare_envelope_forced_gzip_mode_sets_gzip_codec(self) -> None:
+    def test_prepare_backup_document_forced_gzip_mode_sets_gzip_codec(self) -> None:
         sign_priv, _ = generate_signing_keypair()
         raw_payload = os.urandom(4096)
-        input_files = [MockInputFile("large.bin", raw_payload)]
+        input_files = [StubInputFile("large.bin", raw_payload)]
         plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
 
-        envelope, _ = _prepare_envelope(
+        backup_document, _ = _prepare_backup_document(
             input_files,
             plan,
             sign_priv,
@@ -139,16 +143,14 @@ class TestPrepareEnvelope(unittest.TestCase):
             payload_codec_mode=PAYLOAD_CODEC_GZIP,
         )
 
-        manifest, encoded_payload = decode_envelope(envelope)
+        manifest, encoded_payload = decode_backup_document(backup_document)
         self.assertEqual(manifest.payload_codec, PAYLOAD_CODEC_GZIP)
         self.assertEqual(manifest.payload_raw_len, len(raw_payload))
         extracted = extract_payloads(manifest, encoded_payload)
         self.assertEqual(extracted[0][1], raw_payload)
 
 
-class TestCreateAuthFrame(unittest.TestCase):
-    """Tests for _create_auth_frame function."""
-
+class TestBackupAuthFrameCreation(unittest.TestCase):
     def test_auth_frame_creation(self) -> None:
         """Test basic auth frame creation."""
         sign_priv, sign_pub = generate_signing_keypair()
@@ -194,14 +196,12 @@ class TestCreateAuthFrame(unittest.TestCase):
         self.assertFalse(is_valid)
 
 
-class TestRecoverFlow(unittest.TestCase):
-    """Tests for recover flow functions."""
-
+class TestRecoveryExecutionRoundTrip(unittest.TestCase):
     def test_decrypt_and_extract_integration(self) -> None:
         """Test decrypt_and_extract with real encryption using full RecoveryPlan."""
         # Create test data
         payload = b"test recovery content"
-        parts = [PayloadPart(path="recovered.txt", data=payload, mtime=None)]
+        parts = [BackupFile(path="recovered.txt", data=payload, mtime=None)]
         signing_seed, _ = generate_signing_keypair()
         manifest, payload_out = build_manifest_and_payload(
             parts,
@@ -209,10 +209,10 @@ class TestRecoverFlow(unittest.TestCase):
             created_at=0.0,
             signing_seed=signing_seed,
         )
-        envelope = encode_envelope(payload_out, manifest)
+        backup_document = encode_backup_document(payload_out, manifest)
 
-        # Encrypt the envelope
-        ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+        # Encrypt the backup document.
+        ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
 
         # Get doc_id and doc_hash from ciphertext
         doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
@@ -246,19 +246,19 @@ class TestRecoverFlow(unittest.TestCase):
         self.assertEqual(data, payload)
 
 
-class TestCompressionAdmission(unittest.TestCase):
+class TestCompressedBackupSizeLimits(unittest.TestCase):
     def test_large_compressible_payload_recovers_when_ciphertext_fits(self) -> None:
         sign_priv, _ = generate_signing_keypair()
         raw_payload = b"A" * (MAX_CIPHERTEXT_BYTES + 200_000)
-        input_files = [MockInputFile("large.txt", raw_payload)]
+        input_files = [StubInputFile("large.txt", raw_payload)]
         plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
 
-        envelope, _ = _prepare_envelope(input_files, plan, sign_priv, "file", [])
-        ciphertext, _ = encrypt_bytes_with_passphrase(envelope, passphrase="test passphrase")
+        backup_document, _ = _prepare_backup_document(input_files, plan, sign_priv, "file", [])
+        ciphertext, _ = encrypt_bytes_with_passphrase(backup_document, passphrase="test passphrase")
         self.assertLessEqual(len(ciphertext), MAX_CIPHERTEXT_BYTES)
 
         plaintext = decrypt_bytes(ciphertext, passphrase="test passphrase")
-        manifest, encoded_payload = decode_envelope(plaintext)
+        manifest, encoded_payload = decode_backup_document(plaintext)
         extracted = extract_payloads(manifest, encoded_payload)
         self.assertEqual(len(extracted), 1)
         self.assertEqual(extracted[0][1], raw_payload)
@@ -266,11 +266,11 @@ class TestCompressionAdmission(unittest.TestCase):
     def test_incompressible_payload_still_exceeds_ciphertext_limit(self) -> None:
         sign_priv, _ = generate_signing_keypair()
         raw_payload = os.urandom(MAX_CIPHERTEXT_BYTES + 50_000)
-        input_files = [MockInputFile("large.bin", raw_payload)]
+        input_files = [StubInputFile("large.bin", raw_payload)]
         plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
 
-        envelope, _ = _prepare_envelope(input_files, plan, sign_priv, "file", [])
-        ciphertext, _ = encrypt_bytes_with_passphrase(envelope, passphrase="test passphrase")
+        backup_document, _ = _prepare_backup_document(input_files, plan, sign_priv, "file", [])
+        ciphertext, _ = encrypt_bytes_with_passphrase(backup_document, passphrase="test passphrase")
         self.assertGreater(len(ciphertext), MAX_CIPHERTEXT_BYTES)
 
 

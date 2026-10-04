@@ -25,7 +25,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.shared.io.outputs import (
+from ethernity.workflows.shared.outputs import (
     _ensure_output_dir,
     _safe_join,
     _write_output,
@@ -97,7 +97,7 @@ class TestOutputFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "secure"
             out_file = out_dir / "payload.bin"
-            with mock.patch("ethernity.cli.shared.io.outputs._is_posix", return_value=True):
+            with mock.patch("ethernity.workflows.shared.outputs._is_posix", return_value=True):
                 with mock.patch("pathlib.Path.chmod", side_effect=OSError("denied")):
                     _ensure_output_dir(str(out_dir), "deadbeef")
                     _write_output(str(out_file), b"payload")
@@ -105,7 +105,7 @@ class TestOutputFiles(unittest.TestCase):
     def test_prepare_output_dir_does_not_harden_existing_parent_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             parent = Path(tmpdir)
-            with mock.patch("ethernity.cli.shared.io.outputs._harden_dir_permissions") as harden:
+            with mock.patch("ethernity.workflows.shared.outputs._harden_dir_permissions") as harden:
                 final_dir, staging_dir = prepare_output_dir(
                     str(parent / "backup-deadbeef"),
                     "deadbeef",
@@ -225,7 +225,7 @@ class TestOutputFiles(unittest.TestCase):
                 (types.SimpleNamespace(path="README.txt"), b"B"),
             ]
             with mock.patch(
-                "ethernity.cli.shared.io.outputs._is_directory_case_sensitive",
+                "ethernity.workflows.shared.outputs._is_directory_case_sensitive",
                 return_value=False,
             ):
                 with self.assertRaisesRegex(ValueError, "collide on this filesystem"):

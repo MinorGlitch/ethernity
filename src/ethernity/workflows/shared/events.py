@@ -124,8 +124,8 @@ def emit_progress(
     )
 
 
-def emit_artifact(*, kind: str, path: str, details: dict[str, Any] | None = None) -> None:
-    emit_event("artifact", kind=kind, path=path, details=details or {})
+def emit_written_file(*, kind: str, path: str, details: dict[str, Any] | None = None) -> None:
+    emit_event("file", kind=kind, path=path, details=details or {})
 
 
 def emit_result(**payload: Any) -> None:
@@ -140,7 +140,7 @@ __all__ = [
     "CommandError",
     "EventSink",
     "active_event_sink",
-    "emit_artifact",
+    "emit_written_file",
     "emit_error",
     "emit_event",
     "emit_phase",

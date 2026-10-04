@@ -22,7 +22,7 @@ from typing import Literal
 
 from ethernity.config import AppConfig, apply_render_style, load_app_config
 from ethernity.core.models import DocumentPlan, SigningSeedMode
-from ethernity.render.types import RenderLineage
+from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.backup.execution import run_backup as _run_backup
 from ethernity.workflows.backup.planning import plan_from_args
 from ethernity.workflows.shared import api_codes
@@ -117,7 +117,7 @@ def execute_prepared_backup(
             passphrase=prepared.args.passphrase,
             passphrase_words=prepared.args.passphrase_words,
             config=prepared.config,
-            render_lineage=RenderLineage(kind="root_backup"),
+            render_origin=DocumentOrigin(kind="root_backup"),
             debug=prepared.args.debug,
             debug_max_bytes=prepared.args.debug_max_bytes,
             debug_reveal_secrets=prepared.args.debug_reveal_secrets,

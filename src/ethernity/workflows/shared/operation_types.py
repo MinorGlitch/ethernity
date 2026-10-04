@@ -32,10 +32,12 @@ class BackupResult:
     signing_key_shard_paths: tuple[str, ...]
     passphrase_used: str | None
     kit_index_path: str | None = None
+    signing_key_preserved: bool | None = None
     source_head_index: int | None = None
     source_head_doc_hash: str | None = None
     expected_head_doc_hash: str | None = None
     freshness_scope: str | None = None
+    doc_hash: bytes | None = None
 
 
 @dataclass
@@ -99,8 +101,8 @@ class RecoverArgs:
 
 
 @dataclass
-class MintArgs:
-    """Typed container for mint command arguments."""
+class ReplacementRecoveryOperationRequest:
+    """Typed container for replacement-recovery operation arguments."""
 
     config: str | None = None
     paper: str | None = None
@@ -135,13 +137,13 @@ class MintArgs:
     signing_key_shard_count: int | None = None
     passphrase_replacement_count: int | None = None
     signing_key_replacement_count: int | None = None
-    mint_passphrase_shards: bool = True
-    mint_signing_key_shards: bool = True
+    create_passphrase_shards: bool = True
+    create_signing_key_shards: bool = True
     quiet: bool = False
 
 
 @dataclass(frozen=True)
-class MintResult:
+class ReplacementRecoveryOperationResult:
     doc_id: bytes
     doc_hash: bytes
     output_dir: str
@@ -154,8 +156,8 @@ class MintResult:
 
 
 @dataclass
-class CompactArgs:
-    """Typed container for compact command arguments."""
+class RebuildOperationRequest:
+    """Typed container for rebuild command arguments."""
 
     config: str | None = None
     paper: str | None = None

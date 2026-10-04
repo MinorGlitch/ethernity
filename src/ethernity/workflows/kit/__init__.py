@@ -1,15 +1,17 @@
 """Adapter-neutral recovery-kit workflow services."""
 
 from ethernity.workflows.kit.service import (
-    KitAnchor,
+    DEFAULT_KIT_OUTPUT,
+    KitRequest,
     KitResult,
+    create_kit,
     render_kit_qr_document,
-    validate_chain_bound_kit_carrier,
 )
 
 __all__ = [
-    "KitAnchor",
+    "DEFAULT_KIT_OUTPUT",
+    "KitRequest",
     "KitResult",
+    "create_kit",
     "render_kit_qr_document",
-    "validate_chain_bound_kit_carrier",
 ]

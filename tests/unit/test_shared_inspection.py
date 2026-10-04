@@ -17,18 +17,18 @@ from __future__ import annotations
 
 import unittest
 
-from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.inspection import (
+from ethernity.formats.manifest import BackupManifest, ManifestFile
+from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared.inspection import (
     blocking_issue,
     inspect_result_payload,
     manifest_summary_payload,
 )
-from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 
 
 class TestSharedInspection(unittest.TestCase):
-    def test_manifest_summary_payload_preserves_contract_and_key_order(self) -> None:
-        manifest = EnvelopeManifest(
+    def test_manifest_summary_payload_preserves_schema_and_key_order(self) -> None:
+        manifest = BackupManifest(
             format_version=1,
             created_at=1234.0,
             sealed=True,

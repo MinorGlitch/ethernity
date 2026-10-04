@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.shared.io.inputs import _directory_root_label, load_input_files
+from ethernity.workflows.shared.file_inputs import directory_root_label, load_input_files
 
 
 class _FakeProgress:
@@ -46,7 +46,7 @@ class _FakeProgress:
 class TestInputFiles(unittest.TestCase):
     def test_directory_root_label_accepts_filesystem_root(self) -> None:
         root_anchor = Path.cwd().anchor or "/"
-        label = _directory_root_label(Path(root_anchor))
+        label = directory_root_label(Path(root_anchor))
         self.assertTrue(label)
         self.assertNotIn("/", label)
         self.assertNotIn("\\", label)
@@ -58,7 +58,7 @@ class TestInputFiles(unittest.TestCase):
         resolved.name = ""
         resolved.anchor = "C:\\"
         path.resolve.return_value = resolved
-        self.assertEqual(_directory_root_label(path), "drive-c")
+        self.assertEqual(directory_root_label(path), "drive-c")
 
     def test_directory_recursion_and_relative_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -201,7 +201,7 @@ class TestInputFiles(unittest.TestCase):
                 load_input_files([str(file_path)], [], str(base_link), allow_stdin=False)
 
     def test_empty_stdin_rejected(self) -> None:
-        with mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("")):
+        with mock.patch("ethernity.workflows.shared.file_inputs.sys.stdin", new=io.StringIO("")):
             with self.assertRaisesRegex(ValueError, "stdin input is empty"):
                 load_input_files(["-"], [], None, allow_stdin=True)
 
@@ -210,7 +210,7 @@ class TestInputFiles(unittest.TestCase):
             file_path = Path(tmpdir) / "data.txt"
             file_path.write_text("file", encoding="utf-8")
             with mock.patch(
-                "ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("stdin-data")
+                "ethernity.workflows.shared.file_inputs.sys.stdin", new=io.StringIO("stdin-data")
             ):
                 with self.assertRaisesRegex(ValueError, "duplicate relative path 'data.txt'"):
                     load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
@@ -257,9 +257,11 @@ class TestInputFiles(unittest.TestCase):
             file_path = Path(tmpdir) / "big.bin"
             file_path.write_bytes(b"abcde")
             with (
-                mock.patch("ethernity.cli.shared.io.inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES", 4),
                 mock.patch(
-                    "ethernity.cli.shared.io.inputs._read_planned_input_file",
+                    "ethernity.workflows.shared.file_inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES", 4
+                ),
+                mock.patch(
+                    "ethernity.workflows.shared.file_inputs._read_planned_input_file",
                     side_effect=AssertionError("should not read"),
                 ),
             ):
@@ -273,9 +275,11 @@ class TestInputFiles(unittest.TestCase):
             first.write_bytes(b"abc")
             second.write_bytes(b"def")
             with (
-                mock.patch("ethernity.cli.shared.io.inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES", 5),
                 mock.patch(
-                    "ethernity.cli.shared.io.inputs._read_planned_input_file",
+                    "ethernity.workflows.shared.file_inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES", 5
+                ),
+                mock.patch(
+                    "ethernity.workflows.shared.file_inputs._read_planned_input_file",
                     side_effect=AssertionError("should not read"),
                 ),
             ):
@@ -294,9 +298,9 @@ class TestInputFiles(unittest.TestCase):
             first.write_bytes(b"a")
             second.write_bytes(b"b")
             with (
-                mock.patch("ethernity.cli.shared.io.inputs.MAX_MANIFEST_FILES", 1),
+                mock.patch("ethernity.workflows.shared.file_inputs.MAX_MANIFEST_FILES", 1),
                 mock.patch(
-                    "ethernity.cli.shared.io.inputs._read_planned_input_file",
+                    "ethernity.workflows.shared.file_inputs._read_planned_input_file",
                     side_effect=AssertionError("should not read"),
                 ),
             ):
@@ -325,7 +329,9 @@ class TestInputFiles(unittest.TestCase):
                     self.skipTest(f"symlinks unavailable: {exc}")
                 return real_open(path, flags)
 
-            with mock.patch("ethernity.cli.shared.io.inputs.os.open", side_effect=_swap_then_open):
+            with mock.patch(
+                "ethernity.workflows.shared.file_inputs.os.open", side_effect=_swap_then_open
+            ):
                 with self.assertRaisesRegex(
                     ValueError,
                     "input file must not be a symlink|input file changed while opening",
@@ -337,8 +343,12 @@ class TestInputFiles(unittest.TestCase):
             file_path = Path(tmpdir) / "one.bin"
             file_path.write_bytes(b"abc")
             with (
-                mock.patch("ethernity.cli.shared.io.inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES", 5),
-                mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("def")),
+                mock.patch(
+                    "ethernity.workflows.shared.file_inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES", 5
+                ),
+                mock.patch(
+                    "ethernity.workflows.shared.file_inputs.sys.stdin", new=io.StringIO("def")
+                ),
             ):
                 with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
                     load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
@@ -348,8 +358,10 @@ class TestInputFiles(unittest.TestCase):
             file_path = Path(tmpdir) / "one.bin"
             file_path.write_bytes(b"abc")
             with (
-                mock.patch("ethernity.cli.shared.io.inputs.MAX_MANIFEST_FILES", 1),
-                mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("def")),
+                mock.patch("ethernity.workflows.shared.file_inputs.MAX_MANIFEST_FILES", 1),
+                mock.patch(
+                    "ethernity.workflows.shared.file_inputs.sys.stdin", new=io.StringIO("def")
+                ),
             ):
                 with self.assertRaisesRegex(ValueError, "MAX_MANIFEST_FILES"):
                     load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
@@ -361,7 +373,7 @@ class TestInputFiles(unittest.TestCase):
             left.write_text("left", encoding="utf-8")
             right.write_text("right", encoding="utf-8")
             with mock.patch(
-                "ethernity.cli.shared.io.inputs.os.path.commonpath",
+                "ethernity.workflows.shared.file_inputs.os.path.commonpath",
                 side_effect=ValueError("different drives"),
             ):
                 with self.assertRaisesRegex(ValueError, "different roots"):
@@ -372,7 +384,7 @@ class TestInputFiles(unittest.TestCase):
             path = Path(tmpdir) / "file.txt"
             path.write_bytes(b"data")
             with mock.patch(
-                "ethernity.cli.shared.io.inputs.normalize_path",
+                "ethernity.workflows.shared.file_inputs.normalize_path",
                 side_effect=ValueError("invalid utf8"),
             ):
                 with self.assertRaisesRegex(ValueError, "not valid UTF-8"):
