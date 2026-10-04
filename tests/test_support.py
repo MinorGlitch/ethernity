@@ -19,7 +19,7 @@ from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from unittest import mock
 
 # =============================================================================
-# Environment Helpers
+# Test process environment
 # =============================================================================
 
 

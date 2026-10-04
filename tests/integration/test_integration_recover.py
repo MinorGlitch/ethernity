@@ -35,12 +35,12 @@ from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.encoding.zbase32 import encode_zbase32
-from ethernity.formats.envelope_codec import (
+from ethernity.formats.document_codec import (
     build_manifest_and_payload,
     build_single_file_manifest,
-    encode_envelope,
+    encode_backup_document,
 )
-from ethernity.formats.envelope_types import PAYLOAD_CODEC_GZIP, PayloadPart
+from ethernity.formats.manifest import PAYLOAD_CODEC_GZIP, BackupFile
 from ethernity.formats.payload_codec import encode_payload_for_manifest
 from ethernity.render.fallback_text import format_zbase32_lines
 from ethernity.workflows.recovery.service import execute_recover_plan, prepare_recover_plan
@@ -84,8 +84,8 @@ class TestIntegrationRecover(unittest.TestCase):
                 payload,
                 signing_seed=TEST_SIGNING_SEED,
             )
-            envelope = encode_envelope(payload, manifest)
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            backup_document = encode_backup_document(payload, manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             frames = chunk_payload(
@@ -127,8 +127,8 @@ class TestIntegrationRecover(unittest.TestCase):
                 payload,
                 signing_seed=TEST_SIGNING_SEED,
             )
-            envelope = encode_envelope(payload, manifest)
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            backup_document = encode_backup_document(payload, manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             frame = Frame(
@@ -175,8 +175,8 @@ class TestIntegrationRecover(unittest.TestCase):
                 payload,
                 signing_seed=TEST_SIGNING_SEED,
             )
-            envelope = encode_envelope(payload, manifest)
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            backup_document = encode_backup_document(payload, manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             frames = chunk_payload(
@@ -210,16 +210,16 @@ class TestIntegrationRecover(unittest.TestCase):
 
     def test_recover_multi_file_output_dir(self) -> None:
         parts = [
-            PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),
-            PayloadPart(path="beta/beta.txt", data=b"beta", mtime=2),
+            BackupFile(path="alpha.txt", data=b"alpha", mtime=1),
+            BackupFile(path="beta/beta.txt", data=b"beta", mtime=2),
         ]
         manifest, payload = build_manifest_and_payload(
             parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            envelope = encode_envelope(payload, manifest)
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            backup_document = encode_backup_document(payload, manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             frame = Frame(
@@ -261,7 +261,7 @@ class TestIntegrationRecover(unittest.TestCase):
 
     def test_recover_rejects_gzip_payload_with_trailing_bytes(self) -> None:
         raw_payload = b"gzip trailing integration" * 32
-        parts = [PayloadPart(path="payload.bin", data=raw_payload, mtime=None)]
+        parts = [BackupFile(path="payload.bin", data=raw_payload, mtime=None)]
         manifest, payload = build_manifest_and_payload(
             parts,
             sealed=False,
@@ -280,8 +280,8 @@ class TestIntegrationRecover(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            envelope = encode_envelope(encoded_payload + b"junk", manifest)
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            backup_document = encode_backup_document(encoded_payload + b"junk", manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             frames = chunk_payload(
@@ -324,8 +324,8 @@ class TestIntegrationRecover(unittest.TestCase):
                 payload,
                 signing_seed=TEST_SIGNING_SEED,
             )
-            envelope = encode_envelope(payload, manifest)
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            backup_document = encode_backup_document(payload, manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             sign_priv = TEST_SIGNING_SEED

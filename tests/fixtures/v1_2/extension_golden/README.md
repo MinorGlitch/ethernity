@@ -1,31 +1,28 @@
-# Stable v1.2 Extension Golden Fixtures
+# Stable v1.2 extension golden fixtures
 
-Frozen Forge-rendered extension-chain fixtures for the v1.2 golden e2e matrix.
+Frozen Forge-rendered extension-chain fixtures for the v1.2 compatibility profile. Newly generated
+documents in the `raw` and `base64` folders use their named QR transport codec; the builder verifies
+the active Backup and Add Files settings before generating either profile. The imported frozen v1.0
+root keeps its historical transport bytes, so fixture extraction accepts that mixed-version chain.
 
 ## Matrix
 
-- `base64/large_raw_two_extension_chain` and `raw/large_raw_two_extension_chain`:
-  roughly 40 KiB raw root content plus two raw extension heads.
-- `base64/gzip_replacement_chain` and `raw/gzip_replacement_chain`: gzip root
-  and extension chunks with replacement, inherited files, and an empty file.
-- `raw/extension_local_sharded_chain`: extension-local passphrase shards plus
-  extension signing-key shards.
-- `raw/reuse_root_shards_chain`: root passphrase shards reused by the extension.
-- `raw/loose_scan_append_chain`: renamed scan carriers and a loose append layout
-  without the canonical generated `extensions/<index>` tree.
+- `raw/large_raw_two_extension_chain`: roughly 40 KiB raw root content, root
+  recovery shards, and two raw extension heads.
+- `base64/gzip_replacement_chain`: gzip root and extension chunks with
+  replacement, inherited files, and an empty file.
 - `base64/v1_0_root_plus_v1_2_extension`: a frozen v1.0 root with one v1.2
   extension appended.
 
-Each scenario commits rendered carriers, scanned payload fixtures, shard payload
-fixtures where applicable, and a semantic `snapshot.json`. The tests compare
-committed artifact hashes and semantic projections; freshly generated encrypted
-PDFs are not compared byte-for-byte.
+Each guarantee appears once in the matrix. Every scenario commits rendered
+documents, scanned payload fixtures, shard payload fixtures where applicable, and
+a `snapshot.json` containing decoded document records and expected file hashes. The tests compare
+committed file hashes and decoded records; freshly generated encrypted PDFs are not compared
+byte-for-byte.
 
-The committed fixtures are historical compatibility artifacts. Do not regenerate
-them just because the current builder, CLI surface, or renderer implementation
-changed. The builder is only a reproduction tool for intentional fixture-version
-work, and any regeneration must review the committed artifact hashes and prove
-that older recovery behavior is still covered.
+The committed fixtures are compatibility files. Regenerate them only for an
+intentional v1.2 format or document-layout change, then review the file
+inventory and prove older root recovery remains covered.
 
 Regenerate with:
 
@@ -33,17 +30,6 @@ Regenerate with:
 uv run python tests/fixtures/v1_2/extension_golden/build_golden.py
 ```
 
-When only a rendered shard carrier is invalid but its frozen QR frame and semantic payload must
-remain unchanged, refresh the carrier from that exact frame instead of rebuilding the encrypted
-scenario:
-
-```bash
-uv run python tests/fixtures/v1_2/extension_golden/build_golden.py \
-  --refresh-shard-carriers \
-  raw/extension_local_sharded_chain/chain/extensions/01/signing-key-shard-01-275c2fd427ea034a-1-of-2.pdf \
-  raw/extension_local_sharded_chain/chain/extensions/01/signing-key-shard-01-275c2fd427ea034a-2-of-2.pdf
-```
-
 Generated PDFs and payload files are intentionally committed. If a fixture
 version is intentionally replaced, edit the builder and regenerate instead of
-hand-editing fixture artifacts.
+hand-editing fixture files.

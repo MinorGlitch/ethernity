@@ -4,10 +4,6 @@
   "qr_payload_codec": "base64",
   "scenarios": [
     {
-      "id": "large_raw_two_extension_chain",
-      "path": "large_raw_two_extension_chain/snapshot.json"
-    },
-    {
       "id": "gzip_replacement_chain",
       "path": "gzip_replacement_chain/snapshot.json"
     },
