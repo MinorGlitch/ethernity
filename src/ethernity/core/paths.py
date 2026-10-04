@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Adapter-neutral user-path normalization helpers."""
+"""Normalize user paths independently of CLI and UI adapters."""
 
 from __future__ import annotations
 

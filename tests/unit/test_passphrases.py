@@ -19,9 +19,9 @@ from unittest import mock
 
 from ethernity.crypto import passphrases
 from ethernity.crypto.passphrases import (
-    canonicalize_valid_bip39_mnemonic,
     looks_like_bip39_mnemonic,
     normalize_bip39_mnemonic,
+    normalize_valid_bip39_whitespace,
     validate_mnemonic_checksum_if_bip39,
 )
 
@@ -81,21 +81,21 @@ class TestPassphrases(unittest.TestCase):
             ),
         )
 
-    def test_canonicalize_only_checksum_valid_bip39(self) -> None:
+    def test_normalize_only_checksum_valid_bip39(self) -> None:
         valid_spaced = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
         invalid_spaced = "  " + "  ".join(["abandon"] * 11 + ["above"]) + "  "
 
         self.assertEqual(
-            canonicalize_valid_bip39_mnemonic(valid_spaced),
+            normalize_valid_bip39_whitespace(valid_spaced),
             " ".join(["abandon"] * 11 + ["about"]),
         )
-        self.assertEqual(canonicalize_valid_bip39_mnemonic(invalid_spaced), invalid_spaced)
+        self.assertEqual(normalize_valid_bip39_whitespace(invalid_spaced), invalid_spaced)
 
-    def test_format_notes_mnemonic_example_has_a_valid_checksum(self) -> None:
-        notes = Path("docs/format_notes.md").read_text(encoding="utf-8")
+    def test_format_rationale_mnemonic_example_has_a_valid_checksum(self) -> None:
+        rationale = Path("docs/format_rationale.md").read_text(encoding="utf-8")
         phrase = " ".join(["abandon"] * 11 + ["about"])
 
-        self.assertIn(phrase, notes)
+        self.assertIn(phrase, rationale)
         validate_mnemonic_checksum_if_bip39(phrase)
 
 

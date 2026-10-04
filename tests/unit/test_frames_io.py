@@ -27,7 +27,6 @@ from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.qr.scan import NoQrPayloadsError, QrScanError, ScannedQrPayload
 from ethernity.workflows.recovery.frame_inputs import (
-    FrameInputNotice,
     FrameInputResult,
     NoQrFramesError,
     _all_lines_match_fallback_text,
@@ -49,6 +48,7 @@ from ethernity.workflows.recovery.frame_inputs import (
     frames_from_scan,
     recovery_frames_from_scan,
 )
+from ethernity.workflows.shared.notices import WorkflowNotice
 
 
 class TestFramesIo(unittest.TestCase):
@@ -215,7 +215,7 @@ class TestFramesIo(unittest.TestCase):
                     "ethernity.workflows.recovery.frame_inputs._frame_from_fallback_lines",
                     side_effect=ValueError("invalid"),
                 ):
-                    notices: list[FrameInputNotice] = []
+                    notices: list[WorkflowNotice] = []
                     parsed = _parse_fallback_section(
                         ["AUTH FRAME", "bad"],
                         "auth",
@@ -466,57 +466,62 @@ class TestFramesIo(unittest.TestCase):
         self.assertEqual(parsed[0].frame_type, FrameType.AUTH)
         self.assertEqual(parsed[0].doc_id, frame.doc_id)
 
-    def test_frames_from_scan_rejects_bad_published_extension_carrier(self) -> None:
-        root_frame = self._frame(doc_id=b"\x31" * DOC_ID_LEN)
-        extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
+    def test_frames_from_scan_combines_partial_carriers_without_name_checks(self) -> None:
+        doc_id = b"\x31" * DOC_ID_LEN
+        main = self._frame(doc_id=doc_id)
+        auth = self._frame(frame_type=FrameType.AUTH, doc_id=doc_id, data=b"auth")
+        payloads = [
+            ScannedQrPayload(
+                data=encode_frame(main),
+                source_path=Path("copies/extensions/99/qr_document-01-deadbeefcafebabe.pdf"),
+                source_is_explicit=True,
+            ),
+            ScannedQrPayload(
+                data=encode_frame(auth),
+                source_path=Path("photo-of-page.png"),
+                source_is_explicit=True,
+            ),
+        ]
         with mock.patch(
             "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
-            return_value=[
-                ScannedQrPayload(data=encode_frame(root_frame), source_path=Path("root/qr.pdf")),
-                ScannedQrPayload(data=b"bad-extension", source_path=extension_path),
-            ],
+            return_value=payloads,
         ):
-            with self.assertRaisesRegex(
-                ValueError,
-                "published extension carrier did not yield a valid extension MAIN/AUTH document",
-            ):
-                frames_from_scan(["root"])
+            self.assertEqual(frames_from_scan(["copies", "photo-of-page.png"]), [main, auth])
 
-    def test_frames_from_scan_rejects_extension_carrier_without_auth(self) -> None:
-        extension_doc_id = bytes.fromhex("deadbeefcafebabe")
-        extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
-        extension_main = self._frame(doc_id=extension_doc_id)
+    def test_frames_from_scan_ignores_companion_kit_content(self) -> None:
+        main = self._frame(doc_id=b"\x31" * DOC_ID_LEN)
+        companions = (
+            b"<!doctype html><title>Ethernity Recovery Kit</title><script>shell</script>",
+            b'<script>(globalThis._k||(globalThis._k=[])).push("chunk")</script>',
+        )
+        payloads = [ScannedQrPayload(data=encode_frame(main), source_path=Path("backup.pdf"))]
+        payloads.extend(
+            ScannedQrPayload(
+                data=data, source_path=Path(f"companion-{index}.pdf"), source_is_explicit=True
+            )
+            for index, data in enumerate(companions)
+        )
         with mock.patch(
             "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
-            return_value=[
-                ScannedQrPayload(data=encode_frame(extension_main), source_path=extension_path),
-            ],
+            return_value=payloads,
         ):
-            with self.assertRaisesRegex(
-                ValueError,
-                "published extension carrier did not yield a valid extension MAIN/AUTH document",
-            ):
-                frames_from_scan(["root"])
+            self.assertEqual(frames_from_scan(["folder"]), [main])
 
-    def test_frames_from_scan_validates_explicit_extension_carrier_when_excluded(self) -> None:
-        extension_doc_id = bytes.fromhex("deadbeefcafebabe")
-        extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
-        extension_main = self._frame(doc_id=extension_doc_id)
+    def test_companion_payload_does_not_hide_invalid_explicit_frame_payload(self) -> None:
+        source = Path("mixed.pdf")
         with mock.patch(
             "ethernity.workflows.recovery.frame_inputs.scan_qr_payloads_with_sources",
             return_value=[
                 ScannedQrPayload(
-                    data=encode_frame(extension_main),
-                    source_path=extension_path,
+                    data=b"<!doctype html><title>Ethernity Recovery Kit</title>",
+                    source_path=source,
                     source_is_explicit=True,
                 ),
+                ScannedQrPayload(data=b"broken", source_path=source, source_is_explicit=True),
             ],
         ):
-            with self.assertRaisesRegex(
-                ValueError,
-                "published extension carrier did not yield a valid extension MAIN/AUTH document",
-            ):
-                frames_from_scan([str(extension_path)], include_extension_carriers=False)
+            with self.assertRaisesRegex(ValueError, "explicit scan input yielded invalid"):
+                frames_from_scan([str(source)])
 
     def test_frames_from_scan_accepts_valid_published_extension_carrier(self) -> None:
         extension_doc_id = bytes.fromhex("deadbeefcafebabe")
@@ -570,42 +575,6 @@ class TestFramesIo(unittest.TestCase):
         self.assertEqual(result.frames, (main, auth))
         self.assertEqual(len(result.notices), 1)
         self.assertEqual(result.notices[0].code, "RECOVERY_SHARD_PAYLOADS_IGNORED")
-
-    def test_recovery_frames_from_scan_can_exclude_extension_carriers(self) -> None:
-        main = self._frame(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
-        with mock.patch(
-            "ethernity.workflows.recovery.frame_inputs.frames_from_scan",
-            return_value=[main],
-        ) as scan_mock:
-            result = recovery_frames_from_scan(
-                ["backup-dir"],
-                include_extension_carriers=False,
-            )
-
-        self.assertEqual(result.frames, (main,))
-        scan_mock.assert_called_once_with(
-            ["backup-dir"],
-            include_extension_carriers=False,
-            extension_carrier_max_index=None,
-        )
-
-    def test_recovery_frames_from_scan_can_bound_extension_carriers(self) -> None:
-        main = self._frame(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
-        with mock.patch(
-            "ethernity.workflows.recovery.frame_inputs.frames_from_scan",
-            return_value=[main],
-        ) as scan_mock:
-            result = recovery_frames_from_scan(
-                ["backup-dir"],
-                extension_carrier_max_index=1,
-            )
-
-        self.assertEqual(result.frames, (main,))
-        scan_mock.assert_called_once_with(
-            ["backup-dir"],
-            include_extension_carriers=True,
-            extension_carrier_max_index=1,
-        )
 
     def test_recovery_frames_from_scan_rejects_shard_only_input(self) -> None:
         shard = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x41" * DOC_ID_LEN)

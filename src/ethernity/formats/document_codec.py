@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Envelope manifest/payload encoding and extraction helpers."""
+"""Encode, decode, and extract standalone backups and extension documents."""
 
 from __future__ import annotations
 
@@ -24,21 +24,25 @@ import time
 from pathlib import Path
 
 from ethernity.core.bounds import MAX_MANIFEST_CBOR_BYTES
-from ethernity.core.validation import normalize_manifest_path, normalize_path
-from ethernity.encoding.cbor import dumps_canonical, loads_canonical
+from ethernity.core.validation import (
+    normalize_manifest_path,
+    normalize_path,
+    validate_manifest_file_tree,
+)
+from ethernity.encoding.cbor import dumps_deterministic, loads_deterministic
 from ethernity.encoding.varint import (
     decode_uvarint as _decode_uvarint,
     encode_uvarint as _encode_uvarint,
 )
-from ethernity.formats.envelope_constants import MAGIC, VERSION
-from ethernity.formats.envelope_types import (
+from ethernity.formats.document_constants import MAGIC, VERSION
+from ethernity.formats.extension_document import ExtensionDocument
+from ethernity.formats.manifest import (
     MANIFEST_VERSION,
     SIGNING_SEED_LEN,
-    EnvelopeManifest,
+    BackupFile,
+    BackupManifest,
     ManifestFile,
-    PayloadPart,
 )
-from ethernity.formats.extension_envelope import ExtensionEnvelope
 from ethernity.formats.payload_codec import decode_payload_from_manifest
 
 
@@ -49,12 +53,12 @@ def build_single_file_manifest(
     sealed: bool = False,
     created_at: float | None = None,
     signing_seed: bytes | None = None,
-) -> EnvelopeManifest:
+) -> BackupManifest:
     """Build a manifest for a single payload file-like input."""
 
     path = _normalize_path(input_path)
     mtime = _read_mtime(input_path)
-    part = PayloadPart(path=path, data=payload, mtime=mtime)
+    part = BackupFile(path=path, data=payload, mtime=mtime)
     manifest, _payload = build_manifest_and_payload(
         (part,),
         sealed=sealed,
@@ -67,14 +71,14 @@ def build_single_file_manifest(
 
 
 def build_manifest_and_payload(
-    parts: tuple[PayloadPart, ...] | list[PayloadPart],
+    parts: tuple[BackupFile, ...] | list[BackupFile],
     *,
     sealed: bool = False,
     created_at: float | None = None,
     signing_seed: bytes | None = None,
     input_origin: str = "file",
     input_roots: tuple[str, ...] | list[str] = (),
-) -> tuple[EnvelopeManifest, bytes]:
+) -> tuple[BackupManifest, bytes]:
     """Build a manifest and concatenated payload bytes from payload parts."""
 
     if not parts:
@@ -97,10 +101,14 @@ def build_manifest_and_payload(
     files: list[ManifestFile] = []
     payload = bytearray()
     seen_paths: set[str] = set()
-    normalized_parts: list[tuple[str, PayloadPart]] = []
+    normalized_parts: list[tuple[str, BackupFile]] = []
     for part in parts:
         normalized_parts.append((normalize_manifest_path(part.path, label="payload path"), part))
     normalized_parts.sort(key=lambda item: item[0])
+    validate_manifest_file_tree(
+        (path for path, _part in normalized_parts),
+        label="payload file paths",
+    )
 
     for path, part in normalized_parts:
         if path in seen_paths:
@@ -116,7 +124,7 @@ def build_manifest_and_payload(
                 mtime=part.mtime,
             )
         )
-    manifest = EnvelopeManifest(
+    manifest = BackupManifest(
         format_version=MANIFEST_VERSION,
         created_at=created,
         sealed=sealed,
@@ -128,10 +136,10 @@ def build_manifest_and_payload(
     return manifest, bytes(payload)
 
 
-def encode_manifest(manifest: EnvelopeManifest) -> bytes:
+def encode_manifest(manifest: BackupManifest) -> bytes:
     """Encode a manifest and enforce manifest CBOR size bounds."""
 
-    encoded = dumps_canonical(manifest.to_cbor())
+    encoded = dumps_deterministic(manifest.to_cbor())
     if len(encoded) > MAX_MANIFEST_CBOR_BYTES:
         raise ValueError(
             f"manifest exceeds MAX_MANIFEST_CBOR_BYTES ({MAX_MANIFEST_CBOR_BYTES}): "
@@ -140,8 +148,8 @@ def encode_manifest(manifest: EnvelopeManifest) -> bytes:
     return encoded
 
 
-def decode_manifest(data: bytes) -> EnvelopeManifest:
-    """Decode and validate a manifest from canonical CBOR bytes."""
+def decode_manifest(data: bytes) -> BackupManifest:
+    """Decode and validate a manifest from deterministic CBOR bytes."""
 
     if len(data) > MAX_MANIFEST_CBOR_BYTES:
         raise ValueError(
@@ -149,14 +157,14 @@ def decode_manifest(data: bytes) -> EnvelopeManifest:
             f"{len(data)} bytes"
         )
     try:
-        decoded = loads_canonical(data, label="manifest")
+        decoded = loads_deterministic(data, label="manifest")
     except UnicodeDecodeError as exc:
         raise ValueError("manifest contains invalid UTF-8") from exc
-    return EnvelopeManifest.from_cbor(decoded)
+    return BackupManifest.from_cbor(decoded)
 
 
-def encode_envelope(payload: bytes, manifest: EnvelopeManifest) -> bytes:
-    """Encode an envelope container with manifest and payload sections."""
+def encode_backup_document(payload: bytes, manifest: BackupManifest) -> bytes:
+    """Encode a standalone backup's manifest and stored file payload."""
 
     manifest_bytes = encode_manifest(manifest)
     parts = [
@@ -170,19 +178,19 @@ def encode_envelope(payload: bytes, manifest: EnvelopeManifest) -> bytes:
     return b"".join(parts)
 
 
-def decode_envelope(data: bytes) -> tuple[EnvelopeManifest, bytes]:
-    """Decode an envelope and return `(manifest, payload)`."""
+def decode_backup_document(data: bytes) -> tuple[BackupManifest, bytes]:
+    """Decode a standalone backup and return `(manifest, stored_payload)`."""
 
     idx = 0
     if len(data) < len(MAGIC) + 1:
-        raise ValueError("envelope too short")
+        raise ValueError("document too short")
     if data[: len(MAGIC)] != MAGIC:
-        raise ValueError("invalid envelope magic")
+        raise ValueError("invalid document magic")
     idx += len(MAGIC)
 
     version, idx = _decode_uvarint(data, idx)
     if version != VERSION:
-        raise ValueError(f"unsupported envelope version: {version}")
+        raise ValueError(f"unsupported document version: {version}")
 
     manifest_len, idx = _decode_uvarint(data, idx)
     if manifest_len > MAX_MANIFEST_CBOR_BYTES:
@@ -205,58 +213,58 @@ def decode_envelope(data: bytes) -> tuple[EnvelopeManifest, bytes]:
     return manifest, payload
 
 
-def encode_extension_envelope(document: object) -> bytes:
-    """Encode an extension envelope."""
+def encode_extension_document(document: object) -> bytes:
+    """Encode an extension document."""
 
-    if not isinstance(document, ExtensionEnvelope):
-        raise ValueError("encode_extension_envelope expects an ExtensionEnvelope document")
+    if not isinstance(document, ExtensionDocument):
+        raise ValueError("encode_extension_document expects an ExtensionDocument")
     return document.encode()
 
 
-def decode_extension_envelope(
+def decode_extension_document(
     data: bytes,
     *,
     max_inline_chunk_bytes: int | None = None,
 ) -> object:
-    """Decode an extension envelope."""
+    """Decode an extension document."""
 
     if max_inline_chunk_bytes is None:
-        return ExtensionEnvelope.decode(data)
-    return ExtensionEnvelope.decode(data, max_inline_chunk_bytes=max_inline_chunk_bytes)
+        return ExtensionDocument.decode(data)
+    return ExtensionDocument.decode(data, max_inline_chunk_bytes=max_inline_chunk_bytes)
 
 
-def detect_envelope_version(data: bytes) -> int:
-    """Return the authenticated plaintext envelope version without decoding its body."""
+def detect_document_version(data: bytes) -> int:
+    """Read the document version after its magic bytes, without decoding its body."""
 
     idx = len(MAGIC)
     if len(data) < idx + 1:
-        raise ValueError("envelope too short")
+        raise ValueError("document too short")
     if data[:idx] != MAGIC:
-        raise ValueError("invalid envelope magic")
+        raise ValueError("invalid document magic")
     version, _next_idx = _decode_uvarint(data, idx)
     return version
 
 
-def decode_any_envelope(
+def decode_document(
     data: bytes,
     *,
     max_extension_inline_chunk_bytes: int | None = None,
 ) -> tuple[int, object]:
-    """Decode any supported envelope version and return `(version, payload)`."""
+    """Decode a root backup or extension and return `(version, decoded_document)`."""
 
-    version = detect_envelope_version(data)
+    version = detect_document_version(data)
     if version == VERSION:
-        return version, decode_envelope(data)
+        return version, decode_backup_document(data)
     if version == 2:
-        return version, decode_extension_envelope(
+        return version, decode_extension_document(
             data,
             max_inline_chunk_bytes=max_extension_inline_chunk_bytes,
         )
-    raise ValueError(f"unsupported envelope version: {version}")
+    raise ValueError(f"unsupported document version: {version}")
 
 
 def extract_payloads(
-    manifest: EnvelopeManifest,
+    manifest: BackupManifest,
     payload: bytes,
 ) -> list[tuple[ManifestFile, bytes]]:
     """Split payload bytes into manifest entries and verify entry hashes."""

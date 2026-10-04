@@ -28,8 +28,8 @@ from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES, MAX_DECOMPRESSED_PAYLOAD
 from ethernity.crypto.age_policy import AgeScryptProfile, preflight_age_scrypt
 from ethernity.crypto.passphrases import (
     DEFAULT_PASSPHRASE_WORDS,
-    canonicalize_valid_bip39_mnemonic,
     generate_passphrase,
+    normalize_valid_bip39_whitespace,
 )
 from ethernity.security.resource_worker import (
     DisposableWorkerError,
@@ -161,7 +161,7 @@ def encrypt_bytes_with_passphrase(
         words = DEFAULT_PASSPHRASE_WORDS if passphrase_words is None else passphrase_words
         passphrase = generate_passphrase(words=words)
     else:
-        passphrase = canonicalize_valid_bip39_mnemonic(passphrase)
+        passphrase = normalize_valid_bip39_whitespace(passphrase)
     ciphertext = _encrypt_with_pyrage(data, passphrase)
     return ciphertext, passphrase
 
@@ -175,9 +175,9 @@ def decrypt_bytes(
     """Decrypt bytes and hide backend details unless debug mode is enabled."""
 
     candidates = (passphrase,)
-    canonical = canonicalize_valid_bip39_mnemonic(passphrase)
-    if canonical != passphrase:
-        candidates = (*candidates, canonical)
+    normalized = normalize_valid_bip39_whitespace(passphrase)
+    if normalized != passphrase:
+        candidates = (*candidates, normalized)
     last_error: AgeError | None = None
     for candidate in candidates:
         try:

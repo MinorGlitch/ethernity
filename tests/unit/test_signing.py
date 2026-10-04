@@ -193,7 +193,7 @@ class TestSigning(unittest.TestCase):
         self.assertEqual(decoded.sign_pub, sign_pub)
         self.assertEqual(decoded.signature, signature)
 
-    def test_decode_auth_payload_rejects_non_canonical_cbor(self) -> None:
+    def test_decode_auth_payload_rejects_nondeterministic_cbor(self) -> None:
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
         sign_priv, sign_pub = generate_signing_keypair()
         signature = sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=sign_priv)
@@ -203,11 +203,11 @@ class TestSigning(unittest.TestCase):
             "pub": sign_pub,
             "sig": signature,
         }
-        non_canonical = cbor2.dumps(payload, canonical=False)
-        canonical = cbor2.dumps(payload, canonical=True)
-        self.assertNotEqual(non_canonical, canonical)
-        with self.assertRaisesRegex(ValueError, "canonical CBOR"):
-            decode_auth_payload(non_canonical)
+        nondeterministic = cbor2.dumps(payload, canonical=False)
+        deterministic = cbor2.dumps(payload, canonical=True)
+        self.assertNotEqual(nondeterministic, deterministic)
+        with self.assertRaisesRegex(ValueError, "deterministic CBOR"):
+            decode_auth_payload(nondeterministic)
 
     def test_decode_auth_payload_rejects_indefinite_length_map(self) -> None:
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
@@ -230,7 +230,7 @@ class TestSigning(unittest.TestCase):
                 b"\xff",
             ]
         )
-        with self.assertRaisesRegex(ValueError, "canonical CBOR"):
+        with self.assertRaisesRegex(ValueError, "deterministic CBOR"):
             decode_auth_payload(payload)
 
 

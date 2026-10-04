@@ -20,34 +20,34 @@ from unittest import mock
 
 import cbor2
 
-from ethernity.encoding.cbor import dumps_canonical, loads_canonical
+from ethernity.encoding.cbor import dumps_deterministic, loads_deterministic
 
 
 class TestCbor(unittest.TestCase):
-    def test_loads_canonical_wraps_recursion_error(self) -> None:
+    def test_loads_deterministic_wraps_recursion_error(self) -> None:
         with mock.patch(
             "ethernity.encoding.cbor.cbor2.loads",
             side_effect=RecursionError("too deep"),
         ):
             with self.assertRaisesRegex(ValueError, "nesting is too deep"):
-                loads_canonical(b"\x80", label="auth payload")
+                loads_deterministic(b"\x80", label="auth payload")
 
-    def test_loads_canonical_roundtrip(self) -> None:
+    def test_loads_deterministic_roundtrip(self) -> None:
         payload = {"version": 1, "value": b"\x01"}
-        encoded = dumps_canonical(payload)
-        self.assertEqual(loads_canonical(encoded, label="payload"), payload)
+        encoded = dumps_deterministic(payload)
+        self.assertEqual(loads_deterministic(encoded, label="payload"), payload)
 
-    def test_loads_canonical_wraps_decode_errors(self) -> None:
+    def test_loads_deterministic_wraps_decode_errors(self) -> None:
         with self.assertRaisesRegex(ValueError, "invalid auth payload CBOR payload"):
-            loads_canonical(b"\x9f\x01", label="auth payload")
+            loads_deterministic(b"\x9f\x01", label="auth payload")
 
-    def test_loads_canonical_wraps_encode_errors(self) -> None:
+    def test_loads_deterministic_wraps_encode_errors(self) -> None:
         with mock.patch(
-            "ethernity.encoding.cbor.dumps_canonical",
-            side_effect=cbor2.CBOREncodeError("bad canonical"),
+            "ethernity.encoding.cbor.dumps_deterministic",
+            side_effect=cbor2.CBOREncodeError("bad deterministic encoding"),
         ):
             with self.assertRaisesRegex(ValueError, "invalid auth payload CBOR payload"):
-                loads_canonical(dumps_canonical({"ok": 1}), label="auth payload")
+                loads_deterministic(dumps_deterministic({"ok": 1}), label="auth payload")
 
 
 if __name__ == "__main__":

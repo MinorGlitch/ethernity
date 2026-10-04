@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Canonical document hash and identifier derivation."""
+"""Document hash and identifier derivation."""
 
 from __future__ import annotations
 

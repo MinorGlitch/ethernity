@@ -14,17 +14,17 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Content-defined chunking helpers shared by extension build, envelope, and replay."""
+"""Content-defined chunking for extension build, document validation, and replay."""
 
 from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Protocol
 
 
-class ExtensionChunkingProfileLike(Protocol):
+class ExtensionChunkingSettings(Protocol):
     @property
     def target_size(self) -> int: ...
 
@@ -36,7 +36,6 @@ class ExtensionChunkingProfileLike(Protocol):
 
 
 ChunkRange = tuple[int, int]
-Chunker = Callable[[bytes, ExtensionChunkingProfileLike], Sequence[ChunkRange]]
 
 _ROLLING_HASH_MASK = (1 << 64) - 1
 _MIN_MASK_BITS = 4
@@ -60,9 +59,9 @@ _GEAR_TABLE = _build_gear_table()
 
 def default_extension_chunker(
     data: bytes,
-    profile: ExtensionChunkingProfileLike,
+    profile: ExtensionChunkingSettings,
 ) -> tuple[ChunkRange, ...]:
-    """Return canonical ``(start, end)`` ranges without copying chunk payloads."""
+    """Return the required ``(start, end)`` ranges without copying chunk payloads."""
 
     if not data:
         return ()
@@ -81,17 +80,17 @@ def default_extension_chunker(
             secondary_mask=secondary_mask,
         )
         if chunk_end is None:  # eof=True always yields a boundary.
-            raise AssertionError("canonical chunker failed to produce an EOF boundary")
+            raise AssertionError("extension chunker failed to produce an EOF boundary")
         chunks.append((start, chunk_end))
         start = chunk_end
     return tuple(chunks)
 
 
-def canonical_chunk_refs_for_bytes(
+def chunk_refs_for_bytes(
     data: bytes,
-    profile: ExtensionChunkingProfileLike,
+    profile: ExtensionChunkingSettings,
 ) -> tuple[tuple[bytes, int], ...]:
-    """Return the canonical chunk reference sequence for bytes under an extension profile."""
+    """Return chunk references produced by the required extension profile."""
 
     data_view = memoryview(data)
     return tuple(
@@ -100,20 +99,20 @@ def canonical_chunk_refs_for_bytes(
     )
 
 
-def require_canonical_chunk_refs(
+def require_matching_chunk_refs(
     declared_refs: Sequence[tuple[bytes, int]],
     data: bytes,
-    profile: ExtensionChunkingProfileLike,
+    profile: ExtensionChunkingSettings,
 ) -> None:
     """Reject chunk refs that do not match the locked extension chunking profile."""
 
-    if tuple(declared_refs) != canonical_chunk_refs_for_bytes(data, profile):
+    if tuple(declared_refs) != chunk_refs_for_bytes(data, profile):
         raise ValueError("extension file chunk_refs do not match locked chunking profile")
 
 
-def require_canonical_chunk_boundary(
+def require_valid_chunk_boundary(
     chunk: bytes | memoryview,
-    profile: ExtensionChunkingProfileLike,
+    profile: ExtensionChunkingSettings,
     *,
     is_final: bool,
 ) -> None:
@@ -204,10 +203,9 @@ def _rotate_left(value: int, shift: int) -> int:
 
 
 __all__ = [
-    "Chunker",
     "ChunkRange",
-    "canonical_chunk_refs_for_bytes",
+    "chunk_refs_for_bytes",
     "default_extension_chunker",
-    "require_canonical_chunk_refs",
-    "require_canonical_chunk_boundary",
+    "require_matching_chunk_refs",
+    "require_valid_chunk_boundary",
 ]

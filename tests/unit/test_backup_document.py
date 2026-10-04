@@ -27,24 +27,24 @@ from ethernity.core.bounds import (
     MAX_MANIFEST_FILES,
 )
 from ethernity.encoding.varint import encode_uvarint
-from ethernity.formats.envelope_codec import (
+from ethernity.formats.document_codec import (
     MAGIC,
     build_manifest_and_payload,
-    decode_envelope,
+    decode_backup_document,
     decode_manifest,
-    encode_envelope,
+    encode_backup_document,
     encode_manifest,
     extract_payloads,
 )
-from ethernity.formats.envelope_types import (
+from ethernity.formats.manifest import (
     MANIFEST_VERSION,
     PATH_ENCODING_DIRECT,
     PATH_ENCODING_PREFIX_TABLE,
     PAYLOAD_CODEC_GZIP,
     PAYLOAD_CODEC_RAW,
-    EnvelopeManifest,
+    BackupFile,
+    BackupManifest,
     ManifestFile,
-    PayloadPart,
 )
 
 TEST_SIGNING_SEED = b"\x11" * 32
@@ -107,9 +107,52 @@ def _make_manifest_cbor(
     return output
 
 
-class TestEnvelope(unittest.TestCase):
+class TestBackupDocument(unittest.TestCase):
+    def test_root_builder_rejects_file_ancestor_paths(self) -> None:
+        for paths in (("a", "a/b"), ("a/b", "a"), ("caf\u00e9", "cafe\u0301/file")):
+            with self.subTest(paths=paths):
+                with self.assertRaisesRegex(ValueError, "ancestor of file"):
+                    build_manifest_and_payload(
+                        [BackupFile(path=path, data=b"x", mtime=None) for path in paths],
+                        sealed=True,
+                        created_at=0.0,
+                    )
+
+    def test_root_encoder_rejects_file_ancestor_paths(self) -> None:
+        manifest = BackupManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=True,
+            signing_seed=None,
+            files=tuple(
+                ManifestFile(path=path, size=1, sha256=hashlib.sha256(b"x").digest(), mtime=None)
+                for path in ("a", "a/b")
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "ancestor of file"):
+            encode_manifest(manifest)
+
+    def test_root_decoder_rejects_file_ancestors_in_both_path_encodings(self) -> None:
+        for encoding in (PATH_ENCODING_DIRECT, PATH_ENCODING_PREFIX_TABLE):
+            with self.subTest(encoding=encoding):
+                files = (
+                    [_make_manifest_file_entry(path=path) for path in ("a", "a/b")]
+                    if encoding == PATH_ENCODING_DIRECT
+                    else [
+                        _make_manifest_file_entry(prefix_index=0, suffix="a"),
+                        _make_manifest_file_entry(prefix_index=1, suffix="b"),
+                    ]
+                )
+                data = _make_manifest_cbor(
+                    path_encoding=encoding,
+                    path_prefixes=["", "a"],
+                    files=files,
+                )
+                with self.assertRaisesRegex(ValueError, "ancestor of file"):
+                    decode_manifest(cbor2.dumps(data, canonical=True))
+
     def test_encode_manifest_rejects_unsupported_manifest_version(self) -> None:
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION + 1,
             created_at=0.0,
             sealed=True,
@@ -127,7 +170,7 @@ class TestEnvelope(unittest.TestCase):
             encode_manifest(manifest)
 
     def test_encode_manifest_rejects_empty_files(self) -> None:
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=True,
@@ -140,7 +183,7 @@ class TestEnvelope(unittest.TestCase):
 
     def test_manifest_encodes_to_map(self) -> None:
         payload = b"hello world"
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=1234.0,
             sealed=False,
@@ -170,7 +213,7 @@ class TestEnvelope(unittest.TestCase):
 
     def test_manifest_adaptive_encoding_chooses_direct_for_flat_paths(self) -> None:
         parts = [
-            PayloadPart(path=f"file_{index:03d}.txt", data=b"x", mtime=index) for index in range(80)
+            BackupFile(path=f"file_{index:03d}.txt", data=b"x", mtime=index) for index in range(80)
         ]
         manifest, payload = build_manifest_and_payload(
             parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
@@ -180,13 +223,15 @@ class TestEnvelope(unittest.TestCase):
         self.assertEqual(decoded["path_encoding"], PATH_ENCODING_DIRECT)
         self.assertNotIn("path_prefixes", decoded)
 
-        roundtrip_manifest, roundtrip_payload = decode_envelope(encode_envelope(payload, manifest))
+        roundtrip_manifest, roundtrip_payload = decode_backup_document(
+            encode_backup_document(payload, manifest)
+        )
         self.assertEqual(roundtrip_payload, payload)
         self.assertEqual(len(roundtrip_manifest.files), 80)
 
     def test_manifest_adaptive_encoding_chooses_prefix_for_shared_deep_paths(self) -> None:
         parts = [
-            PayloadPart(
+            BackupFile(
                 path=f"project/docs/sub/section/file_{index:03d}.txt",
                 data=b"x",
                 mtime=index,
@@ -203,23 +248,25 @@ class TestEnvelope(unittest.TestCase):
         self.assertTrue(decoded["path_prefixes"])
         self.assertEqual(decoded["path_prefixes"][0], "")
 
-        roundtrip_manifest, roundtrip_payload = decode_envelope(encode_envelope(payload, manifest))
+        roundtrip_manifest, roundtrip_payload = decode_backup_document(
+            encode_backup_document(payload, manifest)
+        )
         self.assertEqual(roundtrip_payload, payload)
         self.assertEqual(roundtrip_manifest.files[0].path, "project/docs/sub/section/file_000.txt")
 
     def test_build_manifest_defaults_created_at_to_integer_seconds(self) -> None:
-        parts = [PayloadPart(path="payload.bin", data=b"data", mtime=1)]
-        with mock.patch("ethernity.formats.envelope_codec.time.time", return_value=1234.75):
+        parts = [BackupFile(path="payload.bin", data=b"data", mtime=1)]
+        with mock.patch("ethernity.formats.document_codec.time.time", return_value=1234.75):
             manifest, _payload = build_manifest_and_payload(parts, sealed=True)
 
         self.assertEqual(manifest.created_at, 1234.0)
 
-    @mock.patch("ethernity.formats.envelope_types.dumps_canonical")
+    @mock.patch("ethernity.formats.manifest.dumps_deterministic")
     def test_manifest_encoding_tie_breaker_prefers_direct(
-        self, dumps_canonical: mock.MagicMock
+        self, dumps_deterministic: mock.MagicMock
     ) -> None:
-        dumps_canonical.side_effect = [b"ab", b"cd"]
-        manifest = EnvelopeManifest(
+        dumps_deterministic.side_effect = [b"ab", b"cd"]
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=1.0,
             sealed=False,
@@ -238,7 +285,7 @@ class TestEnvelope(unittest.TestCase):
 
     def test_manifest_encoding_is_deterministic(self) -> None:
         payload = b"hello world"
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=1234.0,
             sealed=False,
@@ -260,7 +307,7 @@ class TestEnvelope(unittest.TestCase):
 
     def test_roundtrip(self) -> None:
         payload = b"hello world"
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=1234.0,
             sealed=False,
@@ -276,15 +323,15 @@ class TestEnvelope(unittest.TestCase):
                 ),
             ),
         )
-        encoded = encode_envelope(payload, manifest)
-        decoded_manifest, decoded_payload = decode_envelope(encoded)
+        encoded = encode_backup_document(payload, manifest)
+        decoded_manifest, decoded_payload = decode_backup_document(encoded)
         self.assertEqual(decoded_payload, payload)
         self.assertEqual(decoded_manifest.format_version, MANIFEST_VERSION)
         self.assertEqual(decoded_manifest.files[0].path, "payload.bin")
 
     def test_invalid_magic(self) -> None:
         payload = b"data"
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -300,14 +347,14 @@ class TestEnvelope(unittest.TestCase):
                 ),
             ),
         )
-        encoded = encode_envelope(payload, manifest)
+        encoded = encode_backup_document(payload, manifest)
         corrupted = b"ZZ" + encoded[len(MAGIC) :]
         with self.assertRaises(ValueError):
-            decode_envelope(corrupted)
+            decode_backup_document(corrupted)
 
     def test_truncated_payload(self) -> None:
         payload = b"data"
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -323,13 +370,13 @@ class TestEnvelope(unittest.TestCase):
                 ),
             ),
         )
-        encoded = encode_envelope(payload, manifest)
+        encoded = encode_backup_document(payload, manifest)
         with self.assertRaises(ValueError):
-            decode_envelope(encoded[:-1])
+            decode_backup_document(encoded[:-1])
 
     def test_extract_payloads_hash_mismatch(self) -> None:
         payload = b"data"
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -348,8 +395,8 @@ class TestEnvelope(unittest.TestCase):
 
     def test_build_manifest_and_payload_multiple(self) -> None:
         parts = [
-            PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),
-            PayloadPart(path="beta.txt", data=b"beta", mtime=2),
+            BackupFile(path="alpha.txt", data=b"alpha", mtime=1),
+            BackupFile(path="beta.txt", data=b"beta", mtime=2),
         ]
         manifest, payload = build_manifest_and_payload(parts, sealed=True, created_at=10.0)
         self.assertEqual(payload, b"alphabeta")
@@ -359,8 +406,8 @@ class TestEnvelope(unittest.TestCase):
 
     def test_build_manifest_and_payload_sorts_by_path(self) -> None:
         parts = [
-            PayloadPart(path="beta.txt", data=b"beta", mtime=2),
-            PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),
+            BackupFile(path="beta.txt", data=b"beta", mtime=2),
+            BackupFile(path="alpha.txt", data=b"alpha", mtime=1),
         ]
         manifest, payload = build_manifest_and_payload(parts, sealed=True, created_at=10.0)
         self.assertEqual(payload, b"alphabeta")
@@ -368,14 +415,14 @@ class TestEnvelope(unittest.TestCase):
 
     def test_path_roundtrip(self) -> None:
         parts = [
-            PayloadPart(path="dir/alpha.txt", data=b"alpha", mtime=1),
-            PayloadPart(path="dir/beta.txt", data=b"beta", mtime=2),
+            BackupFile(path="dir/alpha.txt", data=b"alpha", mtime=1),
+            BackupFile(path="dir/beta.txt", data=b"beta", mtime=2),
         ]
         manifest, payload = build_manifest_and_payload(
             parts, sealed=False, created_at=1.0, signing_seed=TEST_SIGNING_SEED
         )
-        encoded = encode_envelope(payload, manifest)
-        decoded_manifest, decoded_payload = decode_envelope(encoded)
+        encoded = encode_backup_document(payload, manifest)
+        decoded_manifest, decoded_payload = decode_backup_document(encoded)
         self.assertEqual(decoded_payload, payload)
         self.assertEqual(
             [file.path for file in decoded_manifest.files],
@@ -393,7 +440,7 @@ class TestEnvelope(unittest.TestCase):
                 _make_manifest_file_entry(prefix_index=1, suffix="beta.txt", mtime=2),
             ],
         )
-        manifest = EnvelopeManifest.from_cbor(data)
+        manifest = BackupManifest.from_cbor(data)
         self.assertEqual(
             [entry.path for entry in manifest.files],
             ["dir/alpha.txt", "dir/beta.txt"],
@@ -405,7 +452,7 @@ class TestEnvelope(unittest.TestCase):
         self.assertNotEqual(composed, decomposed)
         self.assertEqual(unicodedata.normalize("NFC", decomposed), composed)
 
-        parts = [PayloadPart(path=decomposed, data=b"x", mtime=None)]
+        parts = [BackupFile(path=decomposed, data=b"x", mtime=None)]
         manifest, payload = build_manifest_and_payload(
             parts,
             sealed=True,
@@ -413,51 +460,51 @@ class TestEnvelope(unittest.TestCase):
         )
         self.assertEqual(manifest.files[0].path, composed)
 
-        encoded = encode_envelope(payload, manifest)
-        decoded_manifest, _ = decode_envelope(encoded)
+        encoded = encode_backup_document(payload, manifest)
+        decoded_manifest, _ = decode_backup_document(encoded)
         self.assertEqual(decoded_manifest.files[0].path, composed)
 
     def test_manifest_duplicate_paths_after_normalization_raise(self) -> None:
         composed = "caf\u00e9.txt"
         decomposed = "cafe\u0301.txt"
         parts = [
-            PayloadPart(path=composed, data=b"a", mtime=None),
-            PayloadPart(path=decomposed, data=b"b", mtime=None),
+            BackupFile(path=composed, data=b"a", mtime=None),
+            BackupFile(path=decomposed, data=b"b", mtime=None),
         ]
         with self.assertRaises(ValueError):
             build_manifest_and_payload(parts, sealed=True, created_at=0.0)
 
     def test_manifest_rejects_invalid_utf8_paths(self) -> None:
-        parts = [PayloadPart(path="bad\udcff.txt", data=b"x", mtime=None)]
+        parts = [BackupFile(path="bad\udcff.txt", data=b"x", mtime=None)]
         with self.assertRaises(ValueError):
             build_manifest_and_payload(parts, sealed=True, created_at=0.0)
 
     def test_manifest_builder_rejects_absolute_paths(self) -> None:
-        parts = [PayloadPart(path="/abs/file.txt", data=b"x", mtime=None)]
+        parts = [BackupFile(path="/abs/file.txt", data=b"x", mtime=None)]
         with self.assertRaises(ValueError) as ctx:
             build_manifest_and_payload(parts, sealed=True, created_at=0.0)
         self.assertIn("relative", str(ctx.exception))
 
     def test_manifest_builder_rejects_backslash_paths(self) -> None:
-        parts = [PayloadPart(path=r"dir\file.txt", data=b"x", mtime=None)]
+        parts = [BackupFile(path=r"dir\file.txt", data=b"x", mtime=None)]
         with self.assertRaises(ValueError) as ctx:
             build_manifest_and_payload(parts, sealed=True, created_at=0.0)
         self.assertIn("POSIX separators", str(ctx.exception))
 
     def test_manifest_builder_rejects_dotdot_segments(self) -> None:
-        parts = [PayloadPart(path="dir/../file.txt", data=b"x", mtime=None)]
+        parts = [BackupFile(path="dir/../file.txt", data=b"x", mtime=None)]
         with self.assertRaises(ValueError) as ctx:
             build_manifest_and_payload(parts, sealed=True, created_at=0.0)
         self.assertIn("'.' or '..'", str(ctx.exception))
 
     def test_manifest_builder_rejects_empty_segments(self) -> None:
-        parts = [PayloadPart(path="dir//file.txt", data=b"x", mtime=None)]
+        parts = [BackupFile(path="dir//file.txt", data=b"x", mtime=None)]
         with self.assertRaises(ValueError) as ctx:
             build_manifest_and_payload(parts, sealed=True, created_at=0.0)
         self.assertIn("empty path segments", str(ctx.exception))
 
     def test_manifest_ascii_paths_unchanged(self) -> None:
-        parts = [PayloadPart(path="docs/file.txt", data=b"x", mtime=None)]
+        parts = [BackupFile(path="docs/file.txt", data=b"x", mtime=None)]
         manifest, _ = build_manifest_and_payload(parts, sealed=True, created_at=0.0)
         self.assertEqual(manifest.files[0].path, "docs/file.txt")
 
@@ -469,7 +516,7 @@ class TestEnvelope(unittest.TestCase):
             seed=None,
             files=[_make_manifest_file_entry(path=decomposed)],
         )
-        manifest = EnvelopeManifest.from_cbor(data)
+        manifest = BackupManifest.from_cbor(data)
         self.assertEqual(manifest.files[0].path, composed)
 
     def test_manifest_decoder_rejects_duplicate_paths_after_normalization(self) -> None:
@@ -484,7 +531,7 @@ class TestEnvelope(unittest.TestCase):
             ],
         )
         with self.assertRaises(ValueError):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_decoder_rejects_absolute_paths(self) -> None:
         data = _make_manifest_cbor(
@@ -493,7 +540,7 @@ class TestEnvelope(unittest.TestCase):
             files=[_make_manifest_file_entry(path="/abs/file.txt")],
         )
         with self.assertRaises(ValueError) as ctx:
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
         self.assertIn("relative", str(ctx.exception))
 
     def test_manifest_decoder_rejects_backslash_paths(self) -> None:
@@ -503,7 +550,7 @@ class TestEnvelope(unittest.TestCase):
             files=[_make_manifest_file_entry(path=r"dir\file.txt")],
         )
         with self.assertRaises(ValueError) as ctx:
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
         self.assertIn("POSIX separators", str(ctx.exception))
 
     def test_manifest_decoder_rejects_dotdot_segments(self) -> None:
@@ -513,7 +560,7 @@ class TestEnvelope(unittest.TestCase):
             files=[_make_manifest_file_entry(path="dir/../file.txt")],
         )
         with self.assertRaises(ValueError) as ctx:
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
         self.assertIn("'.' or '..'", str(ctx.exception))
 
     def test_manifest_decoder_rejects_empty_segments(self) -> None:
@@ -523,53 +570,53 @@ class TestEnvelope(unittest.TestCase):
             files=[_make_manifest_file_entry(path="dir//file.txt")],
         )
         with self.assertRaises(ValueError) as ctx:
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
         self.assertIn("empty path segments", str(ctx.exception))
 
     def test_manifest_rejects_invalid_signing_seed(self) -> None:
         data = _make_manifest_cbor(seed="not-bytes")
         with self.assertRaises(ValueError):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_requires_input_origin(self) -> None:
         data = _make_manifest_cbor()
         del data["input_origin"]
         with self.assertRaisesRegex(ValueError, "input_origin"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_invalid_input_origin(self) -> None:
         data = _make_manifest_cbor(input_origin="archive")
         with self.assertRaisesRegex(ValueError, "input_origin"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_requires_input_roots(self) -> None:
         data = _make_manifest_cbor()
         del data["input_roots"]
         with self.assertRaisesRegex(ValueError, "input_roots"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_requires_path_encoding(self) -> None:
         data = _make_manifest_cbor()
         del data["path_encoding"]
         with self.assertRaisesRegex(ValueError, "path_encoding"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_requires_payload_codec(self) -> None:
         data = _make_manifest_cbor()
         del data["payload_codec"]
         with self.assertRaisesRegex(ValueError, "payload_codec"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_invalid_path_encoding(self) -> None:
         data = _make_manifest_cbor(path_encoding="legacy")
         with self.assertRaisesRegex(ValueError, "path_encoding"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_prefix_table_requires_path_prefixes(self) -> None:
         data = _make_manifest_cbor(path_encoding=PATH_ENCODING_PREFIX_TABLE)
         del data["path_prefixes"]
         with self.assertRaisesRegex(ValueError, "path_prefixes"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_invalid_path_prefixes_shape(self) -> None:
         data = _make_manifest_cbor(
@@ -577,7 +624,7 @@ class TestEnvelope(unittest.TestCase):
             path_prefixes="not-a-list",
         )
         with self.assertRaisesRegex(ValueError, "path_prefixes"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_invalid_path_prefixes_values(self) -> None:
         data = _make_manifest_cbor(
@@ -586,7 +633,7 @@ class TestEnvelope(unittest.TestCase):
             files=[_make_manifest_file_entry(prefix_index=1, suffix="payload.bin")],
         )
         with self.assertRaisesRegex(ValueError, "path_prefix"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_prefix_index_out_of_range(self) -> None:
         data = _make_manifest_cbor(
@@ -595,7 +642,7 @@ class TestEnvelope(unittest.TestCase):
             files=[_make_manifest_file_entry(prefix_index=1, suffix="payload.bin")],
         )
         with self.assertRaisesRegex(ValueError, "prefix_index"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_legacy_map_file_entries(self) -> None:
         data = _make_manifest_cbor(
@@ -610,15 +657,15 @@ class TestEnvelope(unittest.TestCase):
             ],
         )
         with self.assertRaisesRegex(ValueError, "array encoding"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_bool_created_timestamp(self) -> None:
         data = _make_manifest_cbor(created=True)
         with self.assertRaisesRegex(ValueError, "created"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_encode_manifest_rejects_bool_created_timestamp(self) -> None:
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=True,
             sealed=True,
@@ -642,12 +689,12 @@ class TestEnvelope(unittest.TestCase):
             with self.subTest(created_at=created_at):
                 data = _make_manifest_cbor(created=created_at)
                 with self.assertRaisesRegex(ValueError, "finite"):
-                    EnvelopeManifest.from_cbor(data)
+                    BackupManifest.from_cbor(data)
 
     def test_encode_manifest_rejects_non_finite_created_timestamp(self) -> None:
         for created_at in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(created_at=created_at):
-                manifest = EnvelopeManifest(
+                manifest = BackupManifest(
                     format_version=MANIFEST_VERSION,
                     created_at=created_at,
                     sealed=True,
@@ -667,7 +714,7 @@ class TestEnvelope(unittest.TestCase):
                     encode_manifest(manifest)
 
     def test_manifest_rejects_zero_raw_len_for_empty_gzip_payload(self) -> None:
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=True,
@@ -689,7 +736,7 @@ class TestEnvelope(unittest.TestCase):
             encode_manifest(manifest)
 
     def test_encode_manifest_rejects_invalid_file_entry_fields(self) -> None:
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=True,
@@ -702,7 +749,7 @@ class TestEnvelope(unittest.TestCase):
     def test_manifest_rejects_direct_file_entry_with_trailing_values(self) -> None:
         data = _make_manifest_cbor(files=[["payload.bin", 4, b"\x00" * 32, None, "extra"]])
         with self.assertRaisesRegex(ValueError, "exactly 4 items"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_prefix_file_entry_with_trailing_values(self) -> None:
         data = _make_manifest_cbor(
@@ -711,81 +758,81 @@ class TestEnvelope(unittest.TestCase):
             files=[[0, "payload.bin", 4, b"\x00" * 32, None, "extra"]],
         )
         with self.assertRaisesRegex(ValueError, "exactly 5 items"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_invalid_input_roots_shape(self) -> None:
         data = _make_manifest_cbor(input_roots="root")
         with self.assertRaisesRegex(ValueError, "input_roots"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_invalid_input_root_label(self) -> None:
         for root in ("dir/name", "a\\b", ".", "..", "C:notes", "/abs", "bad\x01"):
             with self.subTest(root=root):
                 data = _make_manifest_cbor(input_origin="directory", input_roots=[root])
                 with self.assertRaisesRegex(ValueError, "input_root"):
-                    EnvelopeManifest.from_cbor(data)
+                    BackupManifest.from_cbor(data)
 
     def test_manifest_accepts_directory_and_mixed_input_origin(self) -> None:
         data = _make_manifest_cbor(input_origin="directory", input_roots=["vault"])
-        directory_manifest = EnvelopeManifest.from_cbor(data)
+        directory_manifest = BackupManifest.from_cbor(data)
         self.assertEqual(directory_manifest.input_origin, "directory")
         self.assertEqual(directory_manifest.input_roots, ("vault",))
 
         data = _make_manifest_cbor(input_origin="mixed", input_roots=["vault"])
-        mixed_manifest = EnvelopeManifest.from_cbor(data)
+        mixed_manifest = BackupManifest.from_cbor(data)
         self.assertEqual(mixed_manifest.input_origin, "mixed")
         self.assertEqual(mixed_manifest.input_roots, ("vault",))
 
         data = _make_manifest_cbor(input_origin="directory", input_roots=[" vault "])
-        whitespace_manifest = EnvelopeManifest.from_cbor(data)
+        whitespace_manifest = BackupManifest.from_cbor(data)
         self.assertEqual(whitespace_manifest.input_roots, (" vault ",))
 
     def test_manifest_rejects_file_origin_with_input_roots(self) -> None:
         data = _make_manifest_cbor(input_origin="file", input_roots=["vault"])
         with self.assertRaisesRegex(ValueError, "input_roots"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_rejects_directory_or_mixed_without_input_roots(self) -> None:
         data = _make_manifest_cbor(input_origin="directory", input_roots=[])
         with self.assertRaisesRegex(ValueError, "input_roots"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
         data = _make_manifest_cbor(input_origin="mixed", input_roots=[])
         with self.assertRaisesRegex(ValueError, "input_roots"):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_ignores_unknown_keys(self) -> None:
         data = _make_manifest_cbor()
         data["extra"] = 123
-        manifest = EnvelopeManifest.from_cbor(data)
+        manifest = BackupManifest.from_cbor(data)
         self.assertEqual(manifest.format_version, MANIFEST_VERSION)
         self.assertEqual(manifest.signing_seed, TEST_SIGNING_SEED)
 
-    def test_manifest_decoder_rejects_non_canonical_cbor(self) -> None:
+    def test_manifest_decoder_rejects_nondeterministic_cbor(self) -> None:
         data = _make_manifest_cbor()
-        non_canonical = cbor2.dumps(data, canonical=False)
-        canonical = cbor2.dumps(data, canonical=True)
-        self.assertNotEqual(non_canonical, canonical)
-        with self.assertRaisesRegex(ValueError, "canonical CBOR"):
-            decode_manifest(non_canonical)
+        nondeterministic = cbor2.dumps(data, canonical=False)
+        deterministic = cbor2.dumps(data, canonical=True)
+        self.assertNotEqual(nondeterministic, deterministic)
+        with self.assertRaisesRegex(ValueError, "deterministic CBOR"):
+            decode_manifest(nondeterministic)
 
     def test_manifest_rejects_hex_sha256(self) -> None:
         data = _make_manifest_cbor(files=[_make_manifest_file_entry(hash_value="00" * 32)])
         with self.assertRaises(ValueError) as ctx:
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
         self.assertIn("hash", str(ctx.exception).lower())
 
     def test_manifest_rejects_unsupported_version(self) -> None:
         data = _make_manifest_cbor(version=4)
         with self.assertRaises(ValueError):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_requires_seed_when_unsealed(self) -> None:
         data = _make_manifest_cbor(seed=None)
         with self.assertRaises(ValueError):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_encode_manifest_respects_manifest_cbor_bound(self) -> None:
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=True,
@@ -802,12 +849,12 @@ class TestEnvelope(unittest.TestCase):
         encoded = encode_manifest(manifest)
         self.assertLessEqual(len(encoded), MAX_MANIFEST_CBOR_BYTES)
         with mock.patch(
-            "ethernity.formats.envelope_codec.MAX_MANIFEST_CBOR_BYTES",
+            "ethernity.formats.document_codec.MAX_MANIFEST_CBOR_BYTES",
             len(encoded),
         ):
             self.assertEqual(encode_manifest(manifest), encoded)
         with mock.patch(
-            "ethernity.formats.envelope_codec.MAX_MANIFEST_CBOR_BYTES",
+            "ethernity.formats.document_codec.MAX_MANIFEST_CBOR_BYTES",
             len(encoded) - 1,
         ):
             with self.assertRaisesRegex(ValueError, "MAX_MANIFEST_CBOR_BYTES"):
@@ -828,7 +875,7 @@ class TestEnvelope(unittest.TestCase):
             )
             for i in range(MAX_MANIFEST_FILES)
         )
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=True,
@@ -849,7 +896,7 @@ class TestEnvelope(unittest.TestCase):
             )
             for i in range(MAX_MANIFEST_FILES + 1)
         )
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=True,
@@ -862,11 +909,11 @@ class TestEnvelope(unittest.TestCase):
     def test_manifest_rejects_seed_when_sealed(self) -> None:
         data = _make_manifest_cbor(sealed=True, seed=TEST_SIGNING_SEED)
         with self.assertRaises(ValueError):
-            EnvelopeManifest.from_cbor(data)
+            BackupManifest.from_cbor(data)
 
     def test_manifest_roundtrip_with_signing_seed(self) -> None:
         payload = b"hello"
-        parts = [PayloadPart(path="payload.bin", data=payload, mtime=None)]
+        parts = [BackupFile(path="payload.bin", data=payload, mtime=None)]
         signing_seed = b"\x11" * 32
         manifest, payload_out = build_manifest_and_payload(
             parts,
@@ -875,8 +922,8 @@ class TestEnvelope(unittest.TestCase):
             signing_seed=signing_seed,
         )
         self.assertEqual(payload_out, payload)
-        encoded = encode_envelope(payload_out, manifest)
-        decoded_manifest, decoded_payload = decode_envelope(encoded)
+        encoded = encode_backup_document(payload_out, manifest)
+        decoded_manifest, decoded_payload = decode_backup_document(encoded)
         self.assertEqual(decoded_payload, payload)
         self.assertEqual(decoded_manifest.signing_seed, signing_seed)
 
@@ -885,40 +932,40 @@ class TestEnvelope(unittest.TestCase):
     # ==========================================================================
 
     def test_single_byte_payload(self) -> None:
-        """Test envelope with single byte payload."""
+        """Test document with single byte payload."""
         payload = b"X"
-        parts = [PayloadPart(path="single.bin", data=payload, mtime=None)]
+        parts = [BackupFile(path="single.bin", data=payload, mtime=None)]
         manifest, payload_out = build_manifest_and_payload(
             parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
         )
-        encoded = encode_envelope(payload_out, manifest)
-        decoded_manifest, decoded_payload = decode_envelope(encoded)
+        encoded = encode_backup_document(payload_out, manifest)
+        decoded_manifest, decoded_payload = decode_backup_document(encoded)
         self.assertEqual(decoded_payload, payload)
 
     def test_large_payload(self) -> None:
-        """Test envelope with large payload (1MB)."""
+        """Test document with large payload (1MB)."""
         payload = b"X" * (1024 * 1024)
-        parts = [PayloadPart(path="large.bin", data=payload, mtime=None)]
+        parts = [BackupFile(path="large.bin", data=payload, mtime=None)]
         manifest, payload_out = build_manifest_and_payload(
             parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
         )
-        encoded = encode_envelope(payload_out, manifest)
-        decoded_manifest, decoded_payload = decode_envelope(encoded)
+        encoded = encode_backup_document(payload_out, manifest)
+        decoded_manifest, decoded_payload = decode_backup_document(encoded)
         self.assertEqual(decoded_payload, payload)
         self.assertEqual(len(decoded_payload), 1024 * 1024)
 
     def test_many_files_manifest(self) -> None:
         """Test manifest with many files (100)."""
         parts = [
-            PayloadPart(path=f"file_{i:03d}.txt", data=f"content {i}".encode(), mtime=i)
+            BackupFile(path=f"file_{i:03d}.txt", data=f"content {i}".encode(), mtime=i)
             for i in range(100)
         ]
         manifest, payload = build_manifest_and_payload(
             parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
         )
         self.assertEqual(len(manifest.files), 100)
-        encoded = encode_envelope(payload, manifest)
-        decoded_manifest, decoded_payload = decode_envelope(encoded)
+        encoded = encode_backup_document(payload, manifest)
+        decoded_manifest, decoded_payload = decode_backup_document(encoded)
         self.assertEqual(len(decoded_manifest.files), 100)
 
     def test_empty_parts_raises(self) -> None:
@@ -927,7 +974,7 @@ class TestEnvelope(unittest.TestCase):
             build_manifest_and_payload([], sealed=False, created_at=0.0)
         self.assertIn("at least one", str(ctx.exception).lower())
 
-    def test_decode_envelope_rejects_empty_files(self) -> None:
+    def test_decode_document_rejects_empty_files(self) -> None:
         manifest_data = _make_manifest_cbor(sealed=True, seed=None, files=[])
         manifest_bytes = cbor2.dumps(manifest_data, canonical=True)
         payload = b""
@@ -940,14 +987,14 @@ class TestEnvelope(unittest.TestCase):
             + payload
         )
         with self.assertRaises(ValueError) as ctx:
-            decode_envelope(encoded)
+            decode_backup_document(encoded)
         self.assertIn("files", str(ctx.exception).lower())
 
     def test_duplicate_paths_raises(self) -> None:
         """Test that duplicate paths raise ValueError."""
         parts = [
-            PayloadPart(path="same.txt", data=b"first", mtime=None),
-            PayloadPart(path="same.txt", data=b"second", mtime=None),
+            BackupFile(path="same.txt", data=b"first", mtime=None),
+            BackupFile(path="same.txt", data=b"second", mtime=None),
         ]
         with self.assertRaises(ValueError) as ctx:
             build_manifest_and_payload(
@@ -968,29 +1015,29 @@ class TestEnvelope(unittest.TestCase):
             "unicode-\u00e9\u00e8.txt",
         ]
         for path in special_paths:
-            parts = [PayloadPart(path=path, data=b"content", mtime=None)]
+            parts = [BackupFile(path=path, data=b"content", mtime=None)]
             manifest, payload = build_manifest_and_payload(
                 parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
             )
-            encoded = encode_envelope(payload, manifest)
-            decoded_manifest, _ = decode_envelope(encoded)
+            encoded = encode_backup_document(payload, manifest)
+            decoded_manifest, _ = decode_backup_document(encoded)
             self.assertEqual(decoded_manifest.files[0].path, path)
 
     def test_binary_payload_all_bytes(self) -> None:
         """Test payload containing all possible byte values."""
         payload = bytes(range(256))
-        parts = [PayloadPart(path="binary.bin", data=payload, mtime=None)]
+        parts = [BackupFile(path="binary.bin", data=payload, mtime=None)]
         manifest, payload_out = build_manifest_and_payload(
             parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
         )
-        encoded = encode_envelope(payload_out, manifest)
-        decoded_manifest, decoded_payload = decode_envelope(encoded)
+        encoded = encode_backup_document(payload_out, manifest)
+        decoded_manifest, decoded_payload = decode_backup_document(encoded)
         self.assertEqual(decoded_payload, payload)
 
     def test_extract_payloads_size_mismatch(self) -> None:
         """Test extract_payloads with payload shorter than manifest claims."""
         payload = b"short"
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -1012,7 +1059,7 @@ class TestEnvelope(unittest.TestCase):
         """Test extract_payloads when payload is longer than manifest total."""
         payload = b"extra data here"
 
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -1032,42 +1079,42 @@ class TestEnvelope(unittest.TestCase):
 
     def test_sealed_manifest(self) -> None:
         """Test manifest with sealed=True."""
-        parts = [PayloadPart(path="sealed.bin", data=b"secret", mtime=None)]
+        parts = [BackupFile(path="sealed.bin", data=b"secret", mtime=None)]
         manifest, payload = build_manifest_and_payload(parts, sealed=True, created_at=0.0)
         self.assertTrue(manifest.sealed)
-        encoded = encode_envelope(payload, manifest)
-        decoded_manifest, _ = decode_envelope(encoded)
+        encoded = encode_backup_document(payload, manifest)
+        decoded_manifest, _ = decode_backup_document(encoded)
         self.assertTrue(decoded_manifest.sealed)
 
     def test_manifest_with_mtime(self) -> None:
         """Test manifest files preserve mtime."""
         mtime = 1704067200  # 2024-01-01 00:00:00 UTC
-        parts = [PayloadPart(path="timed.bin", data=b"data", mtime=mtime)]
+        parts = [BackupFile(path="timed.bin", data=b"data", mtime=mtime)]
         manifest, payload = build_manifest_and_payload(
             parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
         )
         self.assertEqual(manifest.files[0].mtime, mtime)
-        encoded = encode_envelope(payload, manifest)
-        decoded_manifest, _ = decode_envelope(encoded)
+        encoded = encode_backup_document(payload, manifest)
+        decoded_manifest, _ = decode_backup_document(encoded)
         self.assertEqual(decoded_manifest.files[0].mtime, mtime)
 
     def test_manifest_with_none_mtime(self) -> None:
         """Test manifest files with None mtime."""
-        parts = [PayloadPart(path="no_mtime.bin", data=b"data", mtime=None)]
+        parts = [BackupFile(path="no_mtime.bin", data=b"data", mtime=None)]
         manifest, _ = build_manifest_and_payload(
             parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
         )
         self.assertIsNone(manifest.files[0].mtime)
 
-    def test_decode_envelope_too_short(self) -> None:
-        """Test decoding envelope that's too short."""
+    def test_decode_document_too_short(self) -> None:
+        """Test decoding document that's too short."""
         with self.assertRaises(ValueError) as ctx:
-            decode_envelope(b"A")
+            decode_backup_document(b"A")
         self.assertIn("short", str(ctx.exception).lower())
 
-    def test_decode_envelope_invalid_version(self) -> None:
-        """Test decoding envelope with invalid version."""
-        # Manually construct an envelope with wrong version
+    def test_decode_document_invalid_version(self) -> None:
+        """Test decoding document with invalid version."""
+        # Construct a document with an unsupported version.
         manifest_data = _make_manifest_cbor(
             sealed=True,
             seed=None,
@@ -1075,7 +1122,7 @@ class TestEnvelope(unittest.TestCase):
         )
         manifest_bytes = cbor2.dumps(manifest_data, canonical=True)
         payload = b"x"
-        bad_envelope = (
+        bad_document = (
             MAGIC
             + encode_uvarint(99)  # Invalid version
             + encode_uvarint(len(manifest_bytes))
@@ -1084,10 +1131,10 @@ class TestEnvelope(unittest.TestCase):
             + payload
         )
         with self.assertRaises(ValueError) as ctx:
-            decode_envelope(bad_envelope)
+            decode_backup_document(bad_document)
         self.assertIn("version", str(ctx.exception).lower())
 
-    def test_decode_envelope_rejects_non_canonical_version_varint(self) -> None:
+    def test_decode_document_rejects_overlong_version_varint(self) -> None:
         manifest_data = _make_manifest_cbor(
             sealed=True,
             seed=None,
@@ -1103,15 +1150,15 @@ class TestEnvelope(unittest.TestCase):
             + encode_uvarint(len(payload))
             + payload
         )
-        # Replace canonical VERSION=1 (0x01) with overlong encoding (0x81 0x00).
-        non_canonical = encoded[:2] + b"\x81\x00" + encoded[3:]
-        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
-            decode_envelope(non_canonical)
+        # Replace shortest VERSION=1 (0x01) with overlong encoding (0x81 0x00).
+        overlong = encoded[:2] + b"\x81\x00" + encoded[3:]
+        with self.assertRaisesRegex(ValueError, "overlong varint"):
+            decode_backup_document(overlong)
 
     def test_manifest_gzip_codec_roundtrip(self) -> None:
         payload = b"hello " * 400
         compressed = gzip.compress(payload, compresslevel=9, mtime=0)
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -1127,8 +1174,8 @@ class TestEnvelope(unittest.TestCase):
                 ),
             ),
         )
-        encoded = encode_envelope(compressed, manifest)
-        decoded_manifest, decoded_payload = decode_envelope(encoded)
+        encoded = encode_backup_document(compressed, manifest)
+        decoded_manifest, decoded_payload = decode_backup_document(encoded)
         self.assertEqual(decoded_manifest.payload_codec, PAYLOAD_CODEC_GZIP)
         self.assertEqual(decoded_manifest.payload_raw_len, len(payload))
         extracted = extract_payloads(decoded_manifest, decoded_payload)
@@ -1181,7 +1228,7 @@ class TestEnvelope(unittest.TestCase):
     def test_extract_payloads_rejects_gzip_overrun(self) -> None:
         payload = b"A" * 32
         compressed = gzip.compress(payload, compresslevel=9, mtime=0)
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -1203,7 +1250,7 @@ class TestEnvelope(unittest.TestCase):
     def test_extract_payloads_rejects_gzip_trailing_bytes(self) -> None:
         payload = b"trailing-check" * 40
         compressed = gzip.compress(payload, compresslevel=9, mtime=0)
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -1225,7 +1272,7 @@ class TestEnvelope(unittest.TestCase):
     def test_extract_payloads_rejects_incomplete_gzip_stream(self) -> None:
         payload = b"incomplete-stream" * 40
         compressed = gzip.compress(payload, compresslevel=9, mtime=0)
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,

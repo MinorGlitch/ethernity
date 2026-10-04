@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Canonical unsigned varint encoding and decoding."""
+"""Shortest-form unsigned varint encoding and decoding."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ _MAX_UVARINT = (1 << 64) - 1
 
 
 def encode_uvarint(value: int) -> bytes:
-    """Encode an unsigned integer as a canonical varint."""
+    """Encode an unsigned integer in its shortest varint form."""
 
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError("value must be an int")
@@ -43,7 +43,7 @@ def encode_uvarint(value: int) -> bytes:
 
 
 def decode_uvarint(data: bytes, start: int) -> tuple[int, int]:
-    """Decode an unsigned varint and reject non-canonical encodings."""
+    """Decode an unsigned varint and reject overlong encodings."""
 
     if start < 0:
         raise ValueError("start must be non-negative")
@@ -61,7 +61,7 @@ def decode_uvarint(data: bytes, start: int) -> tuple[int, int]:
         value |= payload << shift
         if byte & 0x80 == 0:
             if data[start:idx] != encode_uvarint(value):
-                raise ValueError("non-canonical varint")
+                raise ValueError("overlong varint")
             return value, idx
         shift += 7
         if shift > 63:

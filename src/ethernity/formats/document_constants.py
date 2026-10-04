@@ -14,20 +14,9 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Shared public constants for the extension envelope format."""
+"""Shared document container constants."""
 
-EXTENSION_ENVELOPE_VERSION = 2
-EXTENSION_SCHEMA_VERSION = 1
-CHAIN_ID_PERSONALIZATION = b"ETHERNITY-CHAIN-V1"
-CHUNK_CODEC_RAW = 0
-CHUNK_CODEC_GZIP = 1
-CHUNK_ALGORITHM_FASTCDC = 1
+from __future__ import annotations
 
-__all__ = [
-    "CHAIN_ID_PERSONALIZATION",
-    "CHUNK_ALGORITHM_FASTCDC",
-    "CHUNK_CODEC_GZIP",
-    "CHUNK_CODEC_RAW",
-    "EXTENSION_ENVELOPE_VERSION",
-    "EXTENSION_SCHEMA_VERSION",
-]
+MAGIC = b"AY"
+VERSION = 1

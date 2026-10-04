@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Envelope payload codec helpers for optional manifest-signaled compression."""
+"""Encode and decode optionally compressed document payloads."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ import zlib
 from typing import Literal
 
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
-from ethernity.formats.envelope_types import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, EnvelopeManifest
+from ethernity.formats.manifest import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, BackupManifest
 
 PAYLOAD_ENCODING_AUTO: Literal["auto"] = "auto"
 PayloadEncodingMode = Literal["auto", "raw", "gzip"]
@@ -58,7 +58,7 @@ def encode_payload_for_manifest(
     return payload, PAYLOAD_CODEC_RAW, None
 
 
-def decode_payload_from_manifest(manifest: EnvelopeManifest, payload: bytes) -> bytes:
+def decode_payload_from_manifest(manifest: BackupManifest, payload: bytes) -> bytes:
     """Decode payload bytes according to manifest codec metadata."""
 
     codec = manifest.payload_codec

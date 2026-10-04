@@ -46,7 +46,7 @@ MAX_AUTH_CBOR_BYTES = 512
 # Maximum shard payload size (CBOR bytes).
 MAX_SHARD_CBOR_BYTES = 2_048
 
-# Maximum canonical manifest size (CBOR bytes).
+# Maximum deterministic manifest size (CBOR bytes).
 MAX_MANIFEST_CBOR_BYTES = 1_048_576
 
 # Maximum number of files in a manifest.

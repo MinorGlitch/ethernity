@@ -98,6 +98,20 @@ def normalize_input_root_label(value: object, *, label: str) -> str:
     return root
 
 
+def validate_manifest_file_tree(paths: Iterable[str], *, label: str = "file paths") -> None:
+    """Reject file paths that also name a parent directory of another file."""
+
+    normalized_paths = {normalize_manifest_path(path, label=label) for path in paths}
+    for path in sorted(normalized_paths):
+        segments = path.split("/")
+        for depth in range(1, len(segments)):
+            ancestor = "/".join(segments[:depth])
+            if ancestor in normalized_paths:
+                raise ValueError(
+                    f"{label} conflict: file '{ancestor}' is an ancestor of file '{path}'"
+                )
+
+
 def validate_input_origin_roots(
     input_origin: str,
     input_roots: tuple[str, ...],

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Shamir-based shard payload encoding, decoding, split, and recovery helpers."""
+"""Encode, decode, split, and recover Shamir-based shard payloads."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ from ethernity.crypto.signing import (
     sign_shard,
     verify_shard,
 )
-from ethernity.encoding.cbor import dumps_canonical, loads_canonical
+from ethernity.encoding.cbor import dumps_deterministic, loads_deterministic
 
 LEGACY_SHARD_VERSION = 1
 SHARD_VERSION = 2
@@ -153,13 +153,13 @@ def recover_signing_seed(
     return seed
 
 
-def mint_replacement_shards(
+def create_replacement_shards(
     shares: list[ShardPayload],
     *,
     count: int,
     sign_priv: bytes,
 ) -> list[ShardPayload]:
-    """Mint replacement shards compatible with an existing shard set."""
+    """Create replacement shards compatible with an existing shard set."""
 
     if not shares:
         raise ValueError("no shares provided")
@@ -191,12 +191,12 @@ def mint_replacement_shards(
         seen_indices.add(share.share_index)
     validate_shard_set_consistency(shares)
     if len(shares) < threshold:
-        raise ValueError(f"need at least {threshold} shard(s) to mint compatible replacements")
+        raise ValueError(f"need at least {threshold} shard(s) to create compatible replacements")
 
     missing_indices = [index for index in range(1, share_total + 1) if index not in seen_indices]
     if count > len(missing_indices):
         raise ValueError(
-            f"only {len(missing_indices)} replacement shard(s) can be minted from this set"
+            f"only {len(missing_indices)} replacement shard(s) can be created from this set"
         )
 
     source_shares = sorted(shares, key=lambda item: item.share_index)[:threshold]
@@ -246,7 +246,7 @@ def mint_replacement_shards(
 
 
 def encode_shard_payload(payload: ShardPayload) -> bytes:
-    """Encode a shard payload as canonical CBOR."""
+    """Encode a shard payload as deterministic CBOR."""
 
     (
         version,
@@ -278,13 +278,13 @@ def encode_shard_payload(payload: ShardPayload) -> bytes:
         if shard_set_id is None:
             raise ValueError("shard set_id is required for shard version 2")
         data["set_id"] = shard_set_id
-    return dumps_canonical(data)
+    return dumps_deterministic(data)
 
 
 def decode_shard_payload(data: bytes) -> ShardPayload:
-    """Decode and validate a shard payload from canonical CBOR."""
+    """Decode and validate a shard payload from deterministic CBOR."""
 
-    decoded = require_dict(loads_canonical(data, label="shard payload"), label="shard payload")
+    decoded = require_dict(loads_deterministic(data, label="shard payload"), label="shard payload")
     require_keys(
         decoded,
         (
@@ -443,7 +443,7 @@ def _split_secret(
 def _normalize_shard_payload_for_encoding(
     payload: ShardPayload,
 ) -> tuple[int, str, int, int, int, int, bytes, bytes, bytes, bytes, bytes | None]:
-    """Validate shard payload fields before canonical encoding."""
+    """Validate shard payload fields before deterministic encoding."""
 
     version = require_int(payload.version, label="shard version")
     if version not in (LEGACY_SHARD_VERSION, SHARD_VERSION):

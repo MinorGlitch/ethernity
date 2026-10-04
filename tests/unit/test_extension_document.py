@@ -22,28 +22,28 @@ from ethernity.core.bounds import (
     MAX_JS_SAFE_INTEGER,
     MAX_MANIFEST_CBOR_BYTES,
 )
-from ethernity.encoding.cbor import dumps_canonical
+from ethernity.encoding.cbor import dumps_deterministic
 from ethernity.encoding.varint import encode_uvarint
-from ethernity.formats.envelope_codec import (
+from ethernity.formats.document_codec import (
     MAGIC,
-    decode_any_envelope,
-    decode_extension_envelope,
-    encode_extension_envelope,
+    decode_document,
+    decode_extension_document,
+    encode_extension_document,
 )
-from ethernity.formats.extension_envelope import (
-    ExtensionChunkingProfile,
-    ExtensionChunkRecord,
-    ExtensionChunkRef,
-    ExtensionEnvelope,
-    ExtensionEnvelopeHeader,
-    ExtensionFile,
-    build_extension_header,
-    derive_chain_id,
-)
-from ethernity.formats.extension_envelope_constants import (
+from ethernity.formats.extension_constants import (
     CHUNK_ALGORITHM_FASTCDC,
     CHUNK_CODEC_GZIP,
     CHUNK_CODEC_RAW,
+)
+from ethernity.formats.extension_document import (
+    ExtensionChunkingProfile,
+    ExtensionChunkRecord,
+    ExtensionChunkRef,
+    ExtensionDocument,
+    ExtensionFile,
+    ExtensionHeader,
+    build_extension_header,
+    derive_chain_id,
 )
 
 TEST_DOC_HASH = b"\x22" * 32
@@ -53,16 +53,16 @@ TEST_ROOT_DOC_HASH = b"\x33" * 32
 def _make_profile() -> ExtensionChunkingProfile:
     return ExtensionChunkingProfile(
         algorithm_id=CHUNK_ALGORITHM_FASTCDC,
-        target_size=64 * 1024,
-        min_size=16 * 1024,
-        max_size=256 * 1024,
+        target_size=16 * 1024,
+        min_size=4 * 1024,
+        max_size=64 * 1024,
     )
 
 
-def _make_test_envelope() -> ExtensionEnvelope:
+def _make_test_document() -> ExtensionDocument:
     chunk_bytes = b"hello extension"
     chunk_id = hashlib.sha256(chunk_bytes).digest()
-    return ExtensionEnvelope(
+    return ExtensionDocument(
         header=build_extension_header(
             index=1,
             parent_doc_hash=TEST_DOC_HASH,
@@ -98,8 +98,8 @@ def _make_test_envelope() -> ExtensionEnvelope:
 
 
 def _encode_sections(header: dict[int, object], body: dict[int, object]) -> bytes:
-    header_bytes = dumps_canonical(header)
-    body_bytes = dumps_canonical(body)
+    header_bytes = dumps_deterministic(header)
+    body_bytes = dumps_deterministic(body)
     return b"".join(
         (
             MAGIC,
@@ -112,12 +112,22 @@ def _encode_sections(header: dict[int, object], body: dict[int, object]) -> byte
     )
 
 
-def _non_canonical_uvarint(value: int) -> bytes:
+def _overlong_uvarint(value: int) -> bytes:
     encoded = encode_uvarint(value)
     return encoded[:-1] + bytes((encoded[-1] | 0x80, 0))
 
 
-class TestExtensionEnvelope(unittest.TestCase):
+class TestExtensionDocument(unittest.TestCase):
+    def test_extension_decoder_rejects_file_ancestor_paths(self) -> None:
+        for ancestor, descendant in (("a", "a/b"), ("caf\u00e9", "cafe\u0301/file")):
+            with self.subTest(ancestor=ancestor, descendant=descendant):
+                document = _make_test_document()
+                header, body = document.to_cbor_sections()
+                template = body[1][0]
+                body[1] = [[ancestor, *template[1:]], [descendant, *template[1:]]]
+                with self.assertRaisesRegex(ValueError, "ancestor of file"):
+                    ExtensionDocument.decode(_encode_sections(header, body))
+
     def test_extension_index_stops_at_complete_chain_limit(self) -> None:
         header = build_extension_header(
             index=127,
@@ -161,9 +171,9 @@ class TestExtensionEnvelope(unittest.TestCase):
             )
 
     def test_decode_enforces_remaining_chain_chunk_budget_before_decompression(self) -> None:
-        encoded = _make_test_envelope().encode()
+        encoded = _make_test_document().encode()
         with self.assertRaisesRegex(ValueError, "remaining chain decoded-chunk budget"):
-            decode_extension_envelope(encoded, max_inline_chunk_bytes=1)
+            decode_extension_document(encoded, max_inline_chunk_bytes=1)
 
     def test_chain_id_derivation_matches_deterministic_vector(self) -> None:
         root_doc_hash = bytes(range(32))
@@ -184,7 +194,7 @@ class TestExtensionEnvelope(unittest.TestCase):
             input_roots=(),
             created_at=123,
         )
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=header,
             files=(
                 ExtensionFile(
@@ -210,13 +220,13 @@ class TestExtensionEnvelope(unittest.TestCase):
             ),
         )
 
-        decoded = ExtensionEnvelope.decode(envelope.encode())
+        decoded = ExtensionDocument.decode(document.encode())
         self.assertEqual(decoded.header.index, 1)
         reconstructed = decoded.reconstruct_files()
         self.assertEqual(reconstructed[0][0].path, "docs/update.txt")
         self.assertEqual(reconstructed[0][1], chunk_bytes)
 
-    def test_reconstruct_accepts_available_chunks_outside_current_envelope(self) -> None:
+    def test_reconstruct_accepts_available_chunks_outside_current_document(self) -> None:
         chunk_bytes = b"reused root chunk"
         chunk_id = hashlib.sha256(chunk_bytes).digest()
         header = build_extension_header(
@@ -228,7 +238,7 @@ class TestExtensionEnvelope(unittest.TestCase):
             input_roots=(),
             created_at=123,
         )
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=header,
             files=(
                 ExtensionFile(
@@ -247,7 +257,7 @@ class TestExtensionEnvelope(unittest.TestCase):
             chunks=(),
         )
 
-        reconstructed = envelope.reconstruct_files(available_chunks={chunk_id: chunk_bytes})
+        reconstructed = document.reconstruct_files(available_chunks={chunk_id: chunk_bytes})
 
         self.assertEqual(reconstructed[0][0].path, "docs/update.txt")
         self.assertEqual(reconstructed[0][1], chunk_bytes)
@@ -264,7 +274,7 @@ class TestExtensionEnvelope(unittest.TestCase):
             input_roots=(),
             created_at=123,
         )
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=header,
             files=(
                 ExtensionFile(
@@ -291,9 +301,9 @@ class TestExtensionEnvelope(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "newly introduced"):
-            envelope.reconstruct_files(available_chunks={chunk_id: chunk_bytes})
+            document.reconstruct_files(available_chunks={chunk_id: chunk_bytes})
 
-    def test_reconstruct_rejects_noncanonical_chunk_refs(self) -> None:
+    def test_reconstruct_rejects_mismatched_chunk_refs(self) -> None:
         file_bytes = b"abcdefgh"
         first = b"abcd"
         second = b"efgh"
@@ -318,7 +328,7 @@ class TestExtensionEnvelope(unittest.TestCase):
                 key=lambda item: item.chunk_id,
             )
         )
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=build_extension_header(
                 index=1,
                 parent_doc_hash=TEST_DOC_HASH,
@@ -344,7 +354,7 @@ class TestExtensionEnvelope(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "locked chunking profile"):
-            envelope.reconstruct_files()
+            document.reconstruct_files()
 
     def test_directory_input_roots_preserve_whitespace(self) -> None:
         header = build_extension_header(
@@ -375,7 +385,7 @@ class TestExtensionEnvelope(unittest.TestCase):
 
     def test_rejects_unknown_header_keys(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown keys"):
-            ExtensionEnvelopeHeader.from_cbor(
+            ExtensionHeader.from_cbor(
                 {
                     1: 1,
                     2: 1,
@@ -390,18 +400,18 @@ class TestExtensionEnvelope(unittest.TestCase):
             )
 
     def test_decode_rejects_header_without_required_input_keys(self) -> None:
-        envelope = _make_test_envelope()
-        header, body = envelope.to_cbor_sections()
+        document = _make_test_document()
+        header, body = document.to_cbor_sections()
         del header[11]
         del header[12]
 
         with self.assertRaisesRegex(ValueError, "extension header 11 is required"):
-            ExtensionEnvelope.decode(_encode_sections(header, body))
+            ExtensionDocument.decode(_encode_sections(header, body))
 
     def test_rejects_non_integer_header_keys(self) -> None:
         chunk_bytes = b"hello extension"
         chunk_id = hashlib.sha256(chunk_bytes).digest()
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=build_extension_header(
                 index=1,
                 parent_doc_hash=TEST_DOC_HASH,
@@ -434,7 +444,7 @@ class TestExtensionEnvelope(unittest.TestCase):
                 ),
             ),
         )
-        _header, body = envelope.to_cbor_sections()
+        _header, body = document.to_cbor_sections()
         malformed_header = {
             True: 1,
             2: 1,
@@ -449,20 +459,20 @@ class TestExtensionEnvelope(unittest.TestCase):
             (
                 MAGIC,
                 encode_uvarint(2),
-                encode_uvarint(len(dumps_canonical(malformed_header))),
-                dumps_canonical(malformed_header),
-                encode_uvarint(len(dumps_canonical(body))),
-                dumps_canonical(body),
+                encode_uvarint(len(dumps_deterministic(malformed_header))),
+                dumps_deterministic(malformed_header),
+                encode_uvarint(len(dumps_deterministic(body))),
+                dumps_deterministic(body),
             )
         )
 
         with self.assertRaisesRegex(ValueError, "keys must be integers"):
-            ExtensionEnvelope.decode(malformed)
+            ExtensionDocument.decode(malformed)
 
     def test_rejects_mixed_type_header_keys_without_typeerror(self) -> None:
         chunk_bytes = b"hello extension"
         chunk_id = hashlib.sha256(chunk_bytes).digest()
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=build_extension_header(
                 index=1,
                 parent_doc_hash=TEST_DOC_HASH,
@@ -495,22 +505,22 @@ class TestExtensionEnvelope(unittest.TestCase):
                 ),
             ),
         )
-        header, body = envelope.to_cbor_sections()
+        header, body = document.to_cbor_sections()
         header["unexpected"] = 1
         header[b"other"] = 2
         malformed = b"".join(
             (
                 MAGIC,
                 encode_uvarint(2),
-                encode_uvarint(len(dumps_canonical(header))),
-                dumps_canonical(header),
-                encode_uvarint(len(dumps_canonical(body))),
-                dumps_canonical(body),
+                encode_uvarint(len(dumps_deterministic(header))),
+                dumps_deterministic(header),
+                encode_uvarint(len(dumps_deterministic(body))),
+                dumps_deterministic(body),
             )
         )
 
         with self.assertRaisesRegex(ValueError, "keys must be integers"):
-            ExtensionEnvelope.decode(malformed)
+            ExtensionDocument.decode(malformed)
 
     def test_rejects_file_origin_with_non_empty_input_roots(self) -> None:
         with self.assertRaisesRegex(ValueError, "input_roots must be empty"):
@@ -540,33 +550,52 @@ class TestExtensionEnvelope(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "CHUNK_ALGORITHM_FASTCDC"):
             ExtensionChunkingProfile(
                 algorithm_id=999,
-                target_size=64 * 1024,
-                min_size=16 * 1024,
-                max_size=256 * 1024,
+                target_size=16 * 1024,
+                min_size=4 * 1024,
+                max_size=64 * 1024,
             )
 
-    def test_rejects_chunking_profile_sizes_above_decompressed_payload_limit(self) -> None:
-        with self.assertRaisesRegex(ValueError, "target_size exceeds MAX_DECOMPRESSED"):
-            ExtensionChunkingProfile(
-                algorithm_id=CHUNK_ALGORITHM_FASTCDC,
-                target_size=MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
-                min_size=16 * 1024,
-                max_size=MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
-            )
+    def test_accepts_custom_chunking_profile(self) -> None:
+        profile = ExtensionChunkingProfile(
+            algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+            target_size=32 * 1024,
+            min_size=8 * 1024,
+            max_size=128 * 1024,
+        )
 
-    def test_rejects_pathologically_small_chunking_profile_sizes(self) -> None:
-        with self.assertRaisesRegex(ValueError, "target_size must be >= MIN_EXTENSION_CHUNK_SIZE"):
-            ExtensionChunkingProfile(
-                algorithm_id=CHUNK_ALGORITHM_FASTCDC,
-                target_size=1024,
-                min_size=1024,
-                max_size=4 * 1024,
-            )
+        self.assertEqual(ExtensionChunkingProfile.from_cbor(profile.to_cbor()), profile)
+
+    def test_rejects_invalid_chunking_profile_sizes(self) -> None:
+        cases = (
+            (4 * 1024, 2 * 1024, 64 * 1024, ">= 4096"),
+            (
+                16 * 1024,
+                4 * 1024,
+                MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
+                "<= MAX_DECOMPRESSED_PAYLOAD_BYTES",
+            ),
+            (4 * 1024, 8 * 1024, 64 * 1024, "min_size <= target_size <= max_size"),
+        )
+        for target_size, min_size, max_size, expected_error in cases:
+            with (
+                self.subTest(
+                    target_size=target_size,
+                    min_size=min_size,
+                    max_size=max_size,
+                ),
+                self.assertRaisesRegex(ValueError, expected_error),
+            ):
+                ExtensionChunkingProfile(
+                    algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+                    target_size=target_size,
+                    min_size=min_size,
+                    max_size=max_size,
+                )
 
     def test_rejects_unknown_body_keys(self) -> None:
         chunk_bytes = b"body"
         chunk_id = hashlib.sha256(chunk_bytes).digest()
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=build_extension_header(
                 index=1,
                 parent_doc_hash=TEST_DOC_HASH,
@@ -600,21 +629,21 @@ class TestExtensionEnvelope(unittest.TestCase):
             ),
         )
 
-        header, body = envelope.to_cbor_sections()
+        header, body = document.to_cbor_sections()
         body[99] = "unexpected"
         malformed = b"".join(
             (
                 MAGIC,
                 encode_uvarint(2),
-                encode_uvarint(len(dumps_canonical(header))),
-                dumps_canonical(header),
-                encode_uvarint(len(dumps_canonical(body))),
-                dumps_canonical(body),
+                encode_uvarint(len(dumps_deterministic(header))),
+                dumps_deterministic(header),
+                encode_uvarint(len(dumps_deterministic(body))),
+                dumps_deterministic(body),
             )
         )
 
         with self.assertRaisesRegex(ValueError, "unknown keys"):
-            ExtensionEnvelope.decode(malformed)
+            ExtensionDocument.decode(malformed)
 
     def test_reconstruct_rejects_gzip_trailing_bytes(self) -> None:
         chunk_bytes = b"gzip payload"
@@ -629,7 +658,7 @@ class TestExtensionEnvelope(unittest.TestCase):
             input_roots=(),
             created_at=123,
         )
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=header,
             files=(
                 ExtensionFile(
@@ -656,7 +685,7 @@ class TestExtensionEnvelope(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "trailing data|trailing"):
-            envelope.reconstruct_files()
+            document.reconstruct_files()
 
     def test_reconstruct_rejects_truncated_gzip_chunk(self) -> None:
         chunk_bytes = b"gzip payload"
@@ -671,7 +700,7 @@ class TestExtensionEnvelope(unittest.TestCase):
             input_roots=(),
             created_at=123,
         )
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=header,
             files=(
                 ExtensionFile(
@@ -698,7 +727,7 @@ class TestExtensionEnvelope(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "invalid gzip chunk"):
-            envelope.reconstruct_files()
+            document.reconstruct_files()
 
     def test_reconstruct_rejects_gzip_chunk_short_of_raw_len(self) -> None:
         chunk_bytes = b"gzip payload"
@@ -713,7 +742,7 @@ class TestExtensionEnvelope(unittest.TestCase):
             input_roots=(),
             created_at=123,
         )
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=header,
             files=(
                 ExtensionFile(
@@ -740,12 +769,12 @@ class TestExtensionEnvelope(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "decoded chunk length does not match raw_len"):
-            envelope.reconstruct_files()
+            document.reconstruct_files()
 
     def test_encode_rejects_raw_chunk_length_mismatch(self) -> None:
         chunk_bytes = b"payload"
         chunk_id = hashlib.sha256(chunk_bytes).digest()
-        envelope = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=build_extension_header(
                 index=1,
                 parent_doc_hash=TEST_DOC_HASH,
@@ -783,11 +812,11 @@ class TestExtensionEnvelope(unittest.TestCase):
             ValueError,
             "raw extension chunk data length must equal raw_len",
         ):
-            envelope.encode()
+            document.encode()
 
     def test_decode_rejects_chunk_raw_len_over_payload_bound_before_decompression(self) -> None:
-        envelope = _make_test_envelope()
-        header, body = envelope.to_cbor_sections()
+        document = _make_test_document()
+        header, body = document.to_cbor_sections()
         chunk_record = list(body[2][0])
         chunk_record[1] = CHUNK_CODEC_GZIP
         chunk_record[2] = MAX_DECOMPRESSED_PAYLOAD_BYTES + 1
@@ -798,11 +827,11 @@ class TestExtensionEnvelope(unittest.TestCase):
             ValueError,
             "extension chunk raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES",
         ):
-            ExtensionEnvelope.decode(_encode_sections(header, body))
+            ExtensionDocument.decode(_encode_sections(header, body))
 
     def test_decode_rejects_aggregate_inline_chunk_raw_len_over_payload_bound(self) -> None:
-        envelope = _make_test_envelope()
-        header, body = envelope.to_cbor_sections()
+        document = _make_test_document()
+        header, body = document.to_cbor_sections()
         raw_len = MAX_DECOMPRESSED_PAYLOAD_BYTES // 2 + 1
         body[2] = [
             [b"\x11" * 32, CHUNK_CODEC_GZIP, raw_len, gzip.compress(b"x", mtime=0)],
@@ -813,7 +842,7 @@ class TestExtensionEnvelope(unittest.TestCase):
             ValueError,
             "extension inline chunk bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES",
         ):
-            ExtensionEnvelope.decode(_encode_sections(header, body))
+            ExtensionDocument.decode(_encode_sections(header, body))
 
     def test_rejects_unordered_files(self) -> None:
         chunk_bytes = b"x"
@@ -828,7 +857,7 @@ class TestExtensionEnvelope(unittest.TestCase):
             created_at=123,
         )
         with self.assertRaisesRegex(ValueError, "ordered by normalized path"):
-            ExtensionEnvelope(
+            ExtensionDocument(
                 header=header,
                 files=(
                     ExtensionFile(
@@ -856,7 +885,7 @@ class TestExtensionEnvelope(unittest.TestCase):
                 ),
             )
 
-    def test_rejects_inline_chunks_unused_by_same_envelope(self) -> None:
+    def test_rejects_inline_chunks_unused_by_same_document(self) -> None:
         chunk_bytes = b"x"
         chunk_id = hashlib.sha256(chunk_bytes).digest()
         unused_bytes = b"unused"
@@ -880,7 +909,7 @@ class TestExtensionEnvelope(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "inline chunks must be referenced"):
-            ExtensionEnvelope(
+            ExtensionDocument(
                 header=build_extension_header(
                     index=2,
                     parent_doc_hash=TEST_DOC_HASH,
@@ -902,11 +931,11 @@ class TestExtensionEnvelope(unittest.TestCase):
                 chunks=tuple(chunks),
             )
 
-    def test_decode_rejects_non_canonical_version_uvarint(self) -> None:
-        envelope = _make_test_envelope()
-        header, body = envelope.to_cbor_sections()
-        header_bytes = dumps_canonical(header)
-        body_bytes = dumps_canonical(body)
+    def test_decode_rejects_overlong_encoding_version_uvarint(self) -> None:
+        document = _make_test_document()
+        header, body = document.to_cbor_sections()
+        header_bytes = dumps_deterministic(header)
+        body_bytes = dumps_deterministic(body)
         malformed = b"".join(
             (
                 MAGIC,
@@ -918,51 +947,51 @@ class TestExtensionEnvelope(unittest.TestCase):
             )
         )
 
-        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
-            ExtensionEnvelope.decode(malformed)
+        with self.assertRaisesRegex(ValueError, "overlong varint"):
+            ExtensionDocument.decode(malformed)
 
-    def test_decode_rejects_non_canonical_header_len_uvarint(self) -> None:
-        envelope = _make_test_envelope()
-        header, body = envelope.to_cbor_sections()
-        header_bytes = dumps_canonical(header)
-        body_bytes = dumps_canonical(body)
+    def test_decode_rejects_overlong_encoding_header_len_uvarint(self) -> None:
+        document = _make_test_document()
+        header, body = document.to_cbor_sections()
+        header_bytes = dumps_deterministic(header)
+        body_bytes = dumps_deterministic(body)
         malformed = b"".join(
             (
                 MAGIC,
                 encode_uvarint(2),
-                _non_canonical_uvarint(len(header_bytes)),
+                _overlong_uvarint(len(header_bytes)),
                 header_bytes,
                 encode_uvarint(len(body_bytes)),
                 body_bytes,
             )
         )
 
-        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
-            ExtensionEnvelope.decode(malformed)
+        with self.assertRaisesRegex(ValueError, "overlong varint"):
+            ExtensionDocument.decode(malformed)
 
-    def test_decode_rejects_non_canonical_body_len_uvarint(self) -> None:
-        envelope = _make_test_envelope()
-        header, body = envelope.to_cbor_sections()
-        header_bytes = dumps_canonical(header)
-        body_bytes = dumps_canonical(body)
+    def test_decode_rejects_overlong_encoding_body_len_uvarint(self) -> None:
+        document = _make_test_document()
+        header, body = document.to_cbor_sections()
+        header_bytes = dumps_deterministic(header)
+        body_bytes = dumps_deterministic(body)
         malformed = b"".join(
             (
                 MAGIC,
                 encode_uvarint(2),
                 encode_uvarint(len(header_bytes)),
                 header_bytes,
-                _non_canonical_uvarint(len(body_bytes)),
+                _overlong_uvarint(len(body_bytes)),
                 body_bytes,
             )
         )
 
-        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
-            ExtensionEnvelope.decode(malformed)
+        with self.assertRaisesRegex(ValueError, "overlong varint"):
+            ExtensionDocument.decode(malformed)
 
     def test_decode_rejects_truncated_header_bytes(self) -> None:
-        envelope = _make_test_envelope()
-        header, _body = envelope.to_cbor_sections()
-        header_bytes = dumps_canonical(header)
+        document = _make_test_document()
+        header, _body = document.to_cbor_sections()
+        header_bytes = dumps_deterministic(header)
         malformed = b"".join(
             (
                 MAGIC,
@@ -973,13 +1002,13 @@ class TestExtensionEnvelope(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "truncated extension header"):
-            ExtensionEnvelope.decode(malformed)
+            ExtensionDocument.decode(malformed)
 
     def test_decode_rejects_truncated_body_bytes(self) -> None:
-        envelope = _make_test_envelope()
-        header, body = envelope.to_cbor_sections()
-        header_bytes = dumps_canonical(header)
-        body_bytes = dumps_canonical(body)
+        document = _make_test_document()
+        header, body = document.to_cbor_sections()
+        header_bytes = dumps_deterministic(header)
+        body_bytes = dumps_deterministic(body)
         malformed = b"".join(
             (
                 MAGIC,
@@ -992,27 +1021,27 @@ class TestExtensionEnvelope(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "extension body length mismatch"):
-            ExtensionEnvelope.decode(malformed)
+            ExtensionDocument.decode(malformed)
 
     def test_decode_rejects_duplicate_chunk_ids_in_body(self) -> None:
-        envelope = _make_test_envelope()
-        header, body = envelope.to_cbor_sections()
+        document = _make_test_document()
+        header, body = document.to_cbor_sections()
         body[2] = [*body[2], body[2][0]]
 
         with self.assertRaisesRegex(ValueError, "duplicate extension chunk_id"):
-            ExtensionEnvelope.decode(_encode_sections(header, body))
+            ExtensionDocument.decode(_encode_sections(header, body))
 
     def test_decode_rejects_invalid_magic(self) -> None:
-        encoded = _make_test_envelope().encode()
+        encoded = _make_test_document().encode()
 
-        with self.assertRaisesRegex(ValueError, "invalid envelope magic"):
-            ExtensionEnvelope.decode(b"ZZ" + encoded[2:])
+        with self.assertRaisesRegex(ValueError, "invalid document magic"):
+            ExtensionDocument.decode(b"ZZ" + encoded[2:])
 
-    def test_decode_rejects_unsupported_envelope_version(self) -> None:
-        envelope = _make_test_envelope()
-        header, body = envelope.to_cbor_sections()
-        header_bytes = dumps_canonical(header)
-        body_bytes = dumps_canonical(body)
+    def test_decode_rejects_unsupported_document_version(self) -> None:
+        document = _make_test_document()
+        header, body = document.to_cbor_sections()
+        header_bytes = dumps_deterministic(header)
+        body_bytes = dumps_deterministic(body)
         malformed = b"".join(
             (
                 MAGIC,
@@ -1024,14 +1053,14 @@ class TestExtensionEnvelope(unittest.TestCase):
             )
         )
 
-        with self.assertRaisesRegex(ValueError, "unsupported envelope version"):
-            ExtensionEnvelope.decode(malformed)
+        with self.assertRaisesRegex(ValueError, "unsupported document version"):
+            ExtensionDocument.decode(malformed)
 
     def test_decode_rejects_extra_bytes_after_body(self) -> None:
-        encoded = _make_test_envelope().encode()
+        encoded = _make_test_document().encode()
 
         with self.assertRaisesRegex(ValueError, "extension body length mismatch"):
-            ExtensionEnvelope.decode(encoded + b"\x00")
+            ExtensionDocument.decode(encoded + b"\x00")
 
     def test_decode_rejects_oversized_header_length_before_read(self) -> None:
         malformed = b"".join(
@@ -1043,12 +1072,12 @@ class TestExtensionEnvelope(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "extension header exceeds"):
-            ExtensionEnvelope.decode(malformed)
+            ExtensionDocument.decode(malformed)
 
     def test_decode_rejects_oversized_body_length_before_read(self) -> None:
-        envelope = _make_test_envelope()
-        header, _body = envelope.to_cbor_sections()
-        header_bytes = dumps_canonical(header)
+        document = _make_test_document()
+        header, _body = document.to_cbor_sections()
+        header_bytes = dumps_deterministic(header)
         malformed = b"".join(
             (
                 MAGIC,
@@ -1060,10 +1089,10 @@ class TestExtensionEnvelope(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "extension body exceeds"):
-            ExtensionEnvelope.decode(malformed)
+            ExtensionDocument.decode(malformed)
 
     def test_decode_rejects_indefinite_header_cbor(self) -> None:
-        body_bytes = dumps_canonical(_make_test_envelope().to_cbor_sections()[1])
+        body_bytes = dumps_deterministic(_make_test_document().to_cbor_sections()[1])
         malformed = b"".join(
             (
                 MAGIC,
@@ -1075,11 +1104,11 @@ class TestExtensionEnvelope(unittest.TestCase):
             )
         )
 
-        with self.assertRaisesRegex(ValueError, "extension header must use canonical CBOR"):
-            ExtensionEnvelope.decode(malformed)
+        with self.assertRaisesRegex(ValueError, "extension header must use deterministic CBOR"):
+            ExtensionDocument.decode(malformed)
 
     def test_decode_rejects_indefinite_body_cbor(self) -> None:
-        header_bytes = dumps_canonical(_make_test_envelope().to_cbor_sections()[0])
+        header_bytes = dumps_deterministic(_make_test_document().to_cbor_sections()[0])
         malformed = b"".join(
             (
                 MAGIC,
@@ -1091,19 +1120,19 @@ class TestExtensionEnvelope(unittest.TestCase):
             )
         )
 
-        with self.assertRaisesRegex(ValueError, "extension body must use canonical CBOR"):
-            ExtensionEnvelope.decode(malformed)
+        with self.assertRaisesRegex(ValueError, "extension body must use deterministic CBOR"):
+            ExtensionDocument.decode(malformed)
 
     def test_decode_rejects_empty_files_array(self) -> None:
-        header, _body = _make_test_envelope().to_cbor_sections()
+        header, _body = _make_test_document().to_cbor_sections()
 
         with self.assertRaisesRegex(ValueError, "extension body files"):
-            ExtensionEnvelope.decode(_encode_sections(header, {1: [], 2: []}))
+            ExtensionDocument.decode(_encode_sections(header, {1: [], 2: []}))
 
-    def test_extension_codec_dispatch_helpers(self) -> None:
+    def test_extension_codec_dispatch(self) -> None:
         chunk_bytes = b"dispatch"
         chunk_id = hashlib.sha256(chunk_bytes).digest()
-        document = ExtensionEnvelope(
+        document = ExtensionDocument(
             header=build_extension_header(
                 index=1,
                 parent_doc_hash=TEST_DOC_HASH,
@@ -1132,10 +1161,10 @@ class TestExtensionEnvelope(unittest.TestCase):
             ),
         )
 
-        encoded = encode_extension_envelope(document)
-        decoded = decode_extension_envelope(encoded)
-        version, dispatched = decode_any_envelope(encoded)
+        encoded = encode_extension_document(document)
+        decoded = decode_extension_document(encoded)
+        version, dispatched = decode_document(encoded)
 
         self.assertEqual(decoded.header.index, 1)
         self.assertEqual(version, 2)
-        self.assertIsInstance(dispatched, ExtensionEnvelope)
+        self.assertIsInstance(dispatched, ExtensionDocument)

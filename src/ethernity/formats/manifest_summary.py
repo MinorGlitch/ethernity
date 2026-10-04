@@ -14,15 +14,15 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Stable adapter-neutral envelope summaries."""
+"""Backup manifest summaries used by inspection results."""
 
 from __future__ import annotations
 
-from ethernity.formats.envelope_types import EnvelopeManifest
+from ethernity.formats.manifest import BackupManifest
 
 
-def manifest_summary_payload(manifest: EnvelopeManifest) -> dict[str, object]:
-    """Build the stable envelope manifest summary used by inspection APIs."""
+def manifest_summary_payload(manifest: BackupManifest) -> dict[str, object]:
+    """Summarize a backup's file count, source organization, and compression."""
 
     return {
         "format_version": manifest.format_version,

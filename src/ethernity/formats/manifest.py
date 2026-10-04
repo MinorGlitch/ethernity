@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Manifest dataclasses and encoding helpers for envelope payload metadata."""
+"""Backup manifests, file entries, and their CBOR representation."""
 
 from __future__ import annotations
 
@@ -36,8 +36,9 @@ from ethernity.core.validation import (
     require_non_negative_int,
     require_str,
     validate_input_origin_roots,
+    validate_manifest_file_tree,
 )
-from ethernity.encoding.cbor import dumps_canonical
+from ethernity.encoding.cbor import dumps_deterministic
 
 MANIFEST_VERSION = 1
 SIGNING_SEED_LEN = 32
@@ -58,7 +59,7 @@ def _require_manifest_created_at(value: object) -> float:
 
 @dataclass(frozen=True)
 class ManifestFile:
-    """One file entry stored in the envelope manifest."""
+    """Metadata for one file in a backup manifest."""
 
     path: str
     size: int
@@ -84,8 +85,8 @@ class ManifestFile:
 
 
 @dataclass(frozen=True)
-class EnvelopeManifest:
-    """Envelope manifest metadata and file list."""
+class BackupManifest:
+    """Metadata and file list stored in a standalone backup."""
 
     format_version: int
     created_at: float
@@ -98,7 +99,7 @@ class EnvelopeManifest:
     payload_raw_len: int | None = None
 
     def to_cbor(self) -> dict[str, object]:
-        """Build the canonical manifest CBOR map, selecting the shortest path encoding."""
+        """Build the manifest CBOR map, selecting the shorter path representation."""
 
         format_version = require_int(self.format_version, label="manifest version")
         if format_version != MANIFEST_VERSION:
@@ -168,6 +169,7 @@ class EnvelopeManifest:
             if entry.path in seen_paths:
                 raise ValueError(f"duplicate manifest file path: {entry.path}")
             seen_paths.add(entry.path)
+        validate_manifest_file_tree(seen_paths, label="manifest file paths")
 
         base_manifest: dict[str, object] = {
             "version": format_version,
@@ -191,8 +193,8 @@ class EnvelopeManifest:
         prefix_manifest["path_prefixes"] = list(path_prefixes)
         prefix_manifest["files"] = _encode_prefix_files(files, path_prefixes)
 
-        encoded_direct = dumps_canonical(direct_manifest)
-        encoded_prefix = dumps_canonical(prefix_manifest)
+        encoded_direct = dumps_deterministic(direct_manifest)
+        encoded_prefix = dumps_deterministic(prefix_manifest)
         if len(encoded_prefix) < len(encoded_direct):
             return prefix_manifest
         return direct_manifest
@@ -213,7 +215,7 @@ class EnvelopeManifest:
         }
 
     @classmethod
-    def from_cbor(cls, data: object) -> "EnvelopeManifest":
+    def from_cbor(cls, data: object) -> "BackupManifest":
         """Decode and validate a manifest object from parsed CBOR."""
 
         validated = require_dict(data, label="manifest")
@@ -297,6 +299,7 @@ class EnvelopeManifest:
             if file_entry.path in seen_paths:
                 raise ValueError(f"duplicate manifest file path: {file_entry.path}")
             seen_paths.add(file_entry.path)
+        validate_manifest_file_tree(seen_paths, label="manifest file paths")
         expected_raw_len = sum(file_entry.size for file_entry in files)
         if payload_codec == PAYLOAD_CODEC_RAW:
             if payload_raw_len_raw is not None:
@@ -331,8 +334,8 @@ class EnvelopeManifest:
 
 
 @dataclass(frozen=True)
-class PayloadPart:
-    """Input payload part used to build an envelope manifest and payload bytes."""
+class BackupFile:
+    """File contents and metadata used to build a standalone backup."""
 
     path: str
     data: bytes

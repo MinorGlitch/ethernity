@@ -105,8 +105,8 @@ class TestChunking(unittest.TestCase):
         decoded = decode_zbase32(decorated)
         self.assertEqual(decoded, data)
 
-    def test_decode_zbase32_rejects_noncanonical_tail_bits(self) -> None:
-        with self.assertRaisesRegex(ValueError, "non-canonical tail bits"):
+    def test_decode_zbase32_rejects_nonzero_unused_tail_bits(self) -> None:
+        with self.assertRaisesRegex(ValueError, "nonzero unused tail bits"):
             decode_zbase32("yb")
 
     def test_decode_zbase32_rejects_non_ascii_confusables(self) -> None:

@@ -37,14 +37,14 @@ class TestAgeCli(unittest.TestCase):
         plaintext = decrypt_bytes(ciphertext, passphrase="secret")
         self.assertEqual(plaintext, data)
 
-    def test_valid_bip39_input_is_canonicalized_once_for_encryption_and_recovery(self) -> None:
+    def test_valid_bip39_input_is_normalized_once_for_encryption_and_recovery(self) -> None:
         data = b"payload"
         spaced = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
-        canonical = " ".join(["abandon"] * 11 + ["about"])
+        normalized = " ".join(["abandon"] * 11 + ["about"])
 
         ciphertext, passphrase = encrypt_bytes_with_passphrase(data, passphrase=spaced)
 
-        self.assertEqual(passphrase, canonical)
+        self.assertEqual(passphrase, normalized)
         self.assertEqual(decrypt_bytes(ciphertext, passphrase=spaced), data)
 
     def test_invalid_checksum_wordlist_phrase_remains_an_exact_custom_secret(self) -> None:
@@ -56,7 +56,7 @@ class TestAgeCli(unittest.TestCase):
         self.assertEqual(passphrase, exact)
         self.assertEqual(decrypt_bytes(ciphertext, passphrase=exact), data)
 
-    def test_recovery_tries_exact_legacy_secret_before_canonical_fallback(self) -> None:
+    def test_recovery_tries_exact_legacy_secret_before_normalized_fallback(self) -> None:
         data = b"legacy"
         exact = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
         ciphertext = age_runtime._encrypt_with_pyrage(data, exact)
@@ -72,7 +72,7 @@ class TestAgeCli(unittest.TestCase):
         self.assertEqual(decrypt_exact.call_count, 1)
         self.assertEqual(decrypt_exact.call_args.args[1], exact)
 
-    def test_recovery_does_not_try_canonical_candidate_for_malformed_ciphertext(self) -> None:
+    def test_recovery_does_not_try_normalized_candidate_for_malformed_ciphertext(self) -> None:
         exact = "  " + "  ".join(["abandon"] * 11 + ["about"]) + "  "
 
         with mock.patch.object(

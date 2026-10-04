@@ -58,7 +58,7 @@ class TestQrPayloads(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid base64 QR payload"):
             decode_qr_payload("YQ==")
 
-    def test_decode_rejects_noncanonical_tail_bits(self) -> None:
+    def test_decode_rejects_nonzero_unused_tail_bits(self) -> None:
         with self.assertRaisesRegex(ValueError, "invalid base64 QR payload"):
             decode_qr_payload("AB")
 

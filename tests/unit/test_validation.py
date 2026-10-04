@@ -33,6 +33,7 @@ from ethernity.core.validation import (
     require_positive_int,
     require_version,
     validate_input_origin_roots,
+    validate_manifest_file_tree,
 )
 
 
@@ -118,6 +119,23 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(
             normalize_manifest_path("dir/sub/file.txt", label="manifest file path"),
             "dir/sub/file.txt",
+        )
+
+    def test_file_tree_rejects_ancestors_in_any_order_and_after_nfc_normalization(self) -> None:
+        for paths in (
+            ("a", "a/b"),
+            ("a/b", "a"),
+            ("a", "a-", "a/b/c"),
+            ("dir/a", "dir/a/b"),
+            ("caf\u00e9", "cafe\u0301/file.txt"),
+        ):
+            with self.subTest(paths=paths):
+                with self.assertRaisesRegex(ValueError, "ancestor of file"):
+                    validate_manifest_file_tree(paths)
+
+    def test_file_tree_allows_shared_directories_and_distinct_path_segments(self) -> None:
+        validate_manifest_file_tree(
+            ("a", "ab/file.txt", "dir/a", "dir/ab", "dir/sub/file.txt"),
         )
 
     def test_normalize_manifest_path_rejects_dot_segments(self) -> None:

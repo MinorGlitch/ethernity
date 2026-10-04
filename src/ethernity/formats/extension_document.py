@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Extension envelope types, validation, and codec helpers."""
+"""Extension document types, validation, encoding, and decoding."""
 
 from __future__ import annotations
 
@@ -46,20 +46,22 @@ from ethernity.core.validation import (
     require_positive_int,
     require_str,
     validate_input_origin_roots,
+    validate_manifest_file_tree,
 )
-from ethernity.encoding.cbor import dumps_canonical, loads_canonical
+from ethernity.encoding.cbor import dumps_deterministic, loads_deterministic
 from ethernity.encoding.varint import decode_uvarint, encode_uvarint
-from ethernity.formats.envelope_constants import MAGIC
-from ethernity.formats.envelope_types import MAX_MANIFEST_FILES
-from ethernity.formats.extension_chunking import require_canonical_chunk_boundary
-from ethernity.formats.extension_envelope_constants import (
+from ethernity.formats.document_constants import MAGIC
+from ethernity.formats.extension_chunking import require_valid_chunk_boundary
+from ethernity.formats.extension_constants import (
     CHAIN_ID_PERSONALIZATION,
     CHUNK_ALGORITHM_FASTCDC,
     CHUNK_CODEC_GZIP,
     CHUNK_CODEC_RAW,
-    EXTENSION_ENVELOPE_VERSION,
+    EXTENSION_DOCUMENT_VERSION,
     EXTENSION_SCHEMA_VERSION,
+    MIN_EXTENSION_CHUNK_SIZE,
 )
+from ethernity.formats.manifest import MAX_MANIFEST_FILES
 
 _HEADER_VERSION = 1
 _HEADER_INDEX = 2
@@ -85,7 +87,6 @@ _ALLOWED_HEADER_KEYS = frozenset(
 
 _BODY_FILES = 1
 _BODY_CHUNKS = 2
-MIN_EXTENSION_CHUNK_SIZE = 4 * 1024
 
 
 class ExtensionDecodedChunkBudgetError(ValueError):
@@ -149,15 +150,16 @@ class ExtensionChunkingProfile:
         ):
             if value < MIN_EXTENSION_CHUNK_SIZE:
                 raise ValueError(
-                    f"extension chunking {label} must be >= MIN_EXTENSION_CHUNK_SIZE "
-                    f"({MIN_EXTENSION_CHUNK_SIZE})"
+                    f"extension chunking {label} must be >= {MIN_EXTENSION_CHUNK_SIZE}"
                 )
             if value > MAX_DECOMPRESSED_PAYLOAD_BYTES:
                 raise ValueError(
-                    f"extension chunking {label} exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES"
+                    f"extension chunking {label} must be <= MAX_DECOMPRESSED_PAYLOAD_BYTES"
                 )
-        if min_size > target_size or target_size > max_size:
-            raise ValueError("extension chunking sizes must satisfy min <= target <= max")
+        if not min_size <= target_size <= max_size:
+            raise ValueError(
+                "extension chunking sizes must satisfy min_size <= target_size <= max_size"
+            )
         object.__setattr__(self, "algorithm_id", algorithm_id)
         object.__setattr__(self, "target_size", target_size)
         object.__setattr__(self, "min_size", min_size)
@@ -335,7 +337,7 @@ class ExtensionChunkRecord:
 
 
 @dataclass(frozen=True)
-class ExtensionEnvelopeHeader:
+class ExtensionHeader:
     """Authenticated extension header metadata."""
 
     version: int
@@ -406,7 +408,7 @@ class ExtensionEnvelopeHeader:
         }
 
     @classmethod
-    def from_cbor(cls, value: object) -> "ExtensionEnvelopeHeader":
+    def from_cbor(cls, value: object) -> "ExtensionHeader":
         header = require_dict(value, label="extension header")
         _require_exact_int_keys(header, allowed_keys=_ALLOWED_HEADER_KEYS, label="extension header")
         require_keys(
@@ -442,10 +444,10 @@ class ExtensionEnvelopeHeader:
 
 
 @dataclass(frozen=True)
-class ExtensionEnvelope:
-    """One extension envelope with header and body."""
+class ExtensionDocument:
+    """One extension document with header and body."""
 
-    header: ExtensionEnvelopeHeader
+    header: ExtensionHeader
     files: tuple[ExtensionFile, ...]
     chunks: tuple[ExtensionChunkRecord, ...]
 
@@ -470,6 +472,7 @@ class ExtensionEnvelope:
             previous_path = file_entry.path
             seen_paths.add(file_entry.path)
             referenced_chunk_ids.update(chunk_ref.chunk_id for chunk_ref in file_entry.chunk_refs)
+        validate_manifest_file_tree(seen_paths, label="extension file paths")
         seen_chunk_ids: set[bytes] = set()
         previous_chunk_id = b""
         total_inline_chunk_bytes = 0
@@ -487,7 +490,7 @@ class ExtensionEnvelope:
             seen_chunk_ids.add(chunk_record.chunk_id)
         if unused_chunk_ids := seen_chunk_ids - referenced_chunk_ids:
             raise ValueError(
-                "extension inline chunks must be referenced by files in the same envelope: "
+                "extension inline chunks must be referenced by files in the same document: "
                 f"{len(unused_chunk_ids)} unused chunk(s)"
             )
         object.__setattr__(self, "files", files)
@@ -509,8 +512,8 @@ class ExtensionEnvelope:
         for chunk_record in self.chunks:
             chunk_record.decode_data()
         header, body = self.to_cbor_sections()
-        header_bytes = dumps_canonical(header)
-        body_bytes = dumps_canonical(body)
+        header_bytes = dumps_deterministic(header)
+        body_bytes = dumps_deterministic(body)
         if len(header_bytes) > MAX_MANIFEST_CBOR_BYTES:
             raise ValueError(
                 f"extension header exceeds MAX_MANIFEST_CBOR_BYTES ({MAX_MANIFEST_CBOR_BYTES})"
@@ -522,7 +525,7 @@ class ExtensionEnvelope:
         return b"".join(
             (
                 MAGIC,
-                encode_uvarint(EXTENSION_ENVELOPE_VERSION),
+                encode_uvarint(EXTENSION_DOCUMENT_VERSION),
                 encode_uvarint(len(header_bytes)),
                 header_bytes,
                 encode_uvarint(len(body_bytes)),
@@ -555,7 +558,7 @@ class ExtensionEnvelope:
             total_reconstructed += len(file_bytes)
             if total_reconstructed > MAX_DECOMPRESSED_PAYLOAD_BYTES:
                 raise ValueError(
-                    "extension reconstructed logical bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES"
+                    "extension reconstructed file bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES"
                 )
             reconstructed.append((file_entry, file_bytes))
         return reconstructed
@@ -566,7 +569,7 @@ class ExtensionEnvelope:
         data: bytes,
         *,
         max_inline_chunk_bytes: int = MAX_RECOVERY_DECODED_CHUNK_BYTES,
-    ) -> "ExtensionEnvelope":
+    ) -> "ExtensionDocument":
         if (
             isinstance(max_inline_chunk_bytes, bool)
             or not isinstance(max_inline_chunk_bytes, int)
@@ -575,14 +578,14 @@ class ExtensionEnvelope:
             raise ValueError("max_inline_chunk_bytes must be a non-negative integer")
         idx = 0
         if len(data) < len(MAGIC) + 1:
-            raise ValueError("extension envelope too short")
+            raise ValueError("extension document too short")
         if data[: len(MAGIC)] != MAGIC:
-            raise ValueError("invalid envelope magic")
+            raise ValueError("invalid document magic")
         idx += len(MAGIC)
 
         version, idx = decode_uvarint(data, idx)
-        if version != EXTENSION_ENVELOPE_VERSION:
-            raise ValueError(f"unsupported envelope version: {version}")
+        if version != EXTENSION_DOCUMENT_VERSION:
+            raise ValueError(f"unsupported document version: {version}")
 
         header_len, idx = decode_uvarint(data, idx)
         if header_len > MAX_MANIFEST_CBOR_BYTES:
@@ -592,8 +595,8 @@ class ExtensionEnvelope:
         header_end = idx + header_len
         if header_end > len(data):
             raise ValueError("truncated extension header")
-        header = ExtensionEnvelopeHeader.from_cbor(
-            loads_canonical(data[idx:header_end], label="extension header")
+        header = ExtensionHeader.from_cbor(
+            loads_deterministic(data[idx:header_end], label="extension header")
         )
         idx = header_end
 
@@ -606,7 +609,7 @@ class ExtensionEnvelope:
         if body_end != len(data):
             raise ValueError("extension body length mismatch")
         body = require_dict(
-            loads_canonical(data[idx:body_end], label="extension body"),
+            loads_deterministic(data[idx:body_end], label="extension body"),
             label="extension body",
         )
         _require_exact_int_keys(
@@ -648,7 +651,7 @@ def _reconstruct_extension_file_bytes(
         next_resolved_size = resolved_size + len(resolved)
         if next_resolved_size > file_entry.size:
             raise ValueError("extension file chunk_refs exceed declared file size")
-        require_canonical_chunk_boundary(
+        require_valid_chunk_boundary(
             memoryview(resolved),
             chunking,
             is_final=index == final_ref_index,
@@ -673,12 +676,12 @@ def build_extension_header(
     input_origin: str,
     input_roots: tuple[str, ...] | list[str],
     created_at: int | None = None,
-) -> ExtensionEnvelopeHeader:
+) -> ExtensionHeader:
     """Build a validated extension header with the derived chain id."""
 
     created = int(time.time()) if created_at is None else created_at
     root_hash = require_bytes(root_doc_hash, 32, label="root_doc_hash")
-    return ExtensionEnvelopeHeader(
+    return ExtensionHeader(
         version=EXTENSION_SCHEMA_VERSION,
         index=index,
         parent_doc_hash=parent_doc_hash,
@@ -757,19 +760,18 @@ def _require_inline_chunk_raw_len_bounds(
                 "extension inline chunk bytes exceed the remaining chain decoded-chunk budget "
                 f"({max_inline_chunk_bytes} bytes; "
                 f"MAX_RECOVERY_DECODED_CHUNK_BYTES={MAX_RECOVERY_DECODED_CHUNK_BYTES}); rebuild "
-                "the latest logical state as a fresh standalone backup"
+                "the latest file set as a fresh standalone backup"
             )
 
 
 __all__ = [
-    "ExtensionEnvelope",
-    "ExtensionEnvelopeHeader",
+    "ExtensionDocument",
+    "ExtensionHeader",
     "ExtensionDecodedChunkBudgetError",
     "ExtensionChunkingProfile",
     "ExtensionChunkRecord",
     "ExtensionChunkRef",
     "ExtensionFile",
-    "MIN_EXTENSION_CHUNK_SIZE",
     "build_extension_header",
     "derive_chain_id",
 ]

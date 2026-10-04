@@ -60,7 +60,7 @@ class Frame:
 
 
 def encode_frame(frame: Frame) -> bytes:
-    """Encode a frame with canonical varints and trailing CRC32."""
+    """Encode a frame with shortest-form varints and trailing CRC32."""
 
     _validate_frame(frame)
 

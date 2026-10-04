@@ -405,7 +405,7 @@ class TestFraming(unittest.TestCase):
             decode_frame(bytes(encoded))
         self.assertIn("type", str(ctx.exception).lower())
 
-    def test_decode_rejects_non_canonical_version_varint(self) -> None:
+    def test_decode_rejects_overlong_encoding_version_varint(self) -> None:
         frame = Frame(
             version=1,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -416,14 +416,14 @@ class TestFraming(unittest.TestCase):
         )
         encoded = encode_frame(frame)
         body = encoded[:-4]
-        # Replace canonical VERSION=1 (0x01) with overlong encoding (0x81 0x00).
+        # Replace shortest VERSION=1 (0x01) with overlong encoding (0x81 0x00).
         mutated_body = body[:2] + b"\x81\x00" + body[3:]
         crc = zlib.crc32(mutated_body) & 0xFFFFFFFF
         mutated = mutated_body + crc.to_bytes(4, "big")
-        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
+        with self.assertRaisesRegex(ValueError, "overlong varint"):
             decode_frame(mutated)
 
-    def test_decode_rejects_non_canonical_index_varint(self) -> None:
+    def test_decode_rejects_overlong_encoding_index_varint(self) -> None:
         frame = Frame(
             version=1,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -438,7 +438,7 @@ class TestFraming(unittest.TestCase):
         mutated_body = body[:12] + b"\x80\x00" + body[13:]
         crc = zlib.crc32(mutated_body) & 0xFFFFFFFF
         mutated = mutated_body + crc.to_bytes(4, "big")
-        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
+        with self.assertRaisesRegex(ValueError, "overlong varint"):
             decode_frame(mutated)
 
     def test_decode_truncated_frame(self) -> None:

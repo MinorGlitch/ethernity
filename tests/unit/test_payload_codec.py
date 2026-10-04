@@ -22,11 +22,11 @@ import unittest
 from unittest import mock
 
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
-from ethernity.formats.envelope_types import (
+from ethernity.formats.manifest import (
     MANIFEST_VERSION,
     PAYLOAD_CODEC_GZIP,
     PAYLOAD_CODEC_RAW,
-    EnvelopeManifest,
+    BackupManifest,
     ManifestFile,
 )
 from ethernity.formats.payload_codec import (
@@ -39,8 +39,8 @@ from ethernity.formats.payload_codec import (
 class TestPayloadCodec(unittest.TestCase):
     _SEED = b"1" * 32
 
-    def _manifest_for(self, payload: bytes, *, codec: str, raw_len: int | None) -> EnvelopeManifest:
-        return EnvelopeManifest(
+    def _manifest_for(self, payload: bytes, *, codec: str, raw_len: int | None) -> BackupManifest:
+        return BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -115,7 +115,7 @@ class TestPayloadCodec(unittest.TestCase):
 
     def test_decode_payload_from_manifest_rejects_gzip_over_max_decompressed_bound(self) -> None:
         expected_len = MAX_DECOMPRESSED_PAYLOAD_BYTES + 1
-        manifest = EnvelopeManifest(
+        manifest = BackupManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,

@@ -29,7 +29,7 @@ __all__ = [
 
 
 def deduplicate_frame_slots(frames: list[Frame]) -> list[Frame]:
-    """Deduplicate logical frame slots while rejecting conflicting contents."""
+    """Deduplicate frame type/index/document slots, rejecting conflicting contents."""
 
     seen: dict[tuple[int, int, bytes], Frame] = {}
     deduplicated: list[Frame] = []

@@ -25,20 +25,40 @@ class AgeScryptProfile:
     memory_bytes: int
 
 
+class RecoveryWorkLimitExceeded(ValueError):
+    """The normal scrypt budget was exceeded, within the explicit retry ceiling."""
+
+    def __init__(self, message: str, *, memory_bytes: int) -> None:
+        super().__init__(f"{RESOURCE_INTENSIVE_COMPATIBILITY_REQUIRED}: {message}")
+        self.memory_bytes = memory_bytes
+
+
 @dataclass(slots=True)
 class KdfBudget:
     """Cumulative scrypt work budget for one user operation."""
 
     maximum_work: int
     consumed_work: int = 0
+    peak_memory_bytes: int = 0
 
     def charge(self, profile: AgeScryptProfile) -> None:
         next_total = self.consumed_work + profile.work
+        peak_memory = max(self.peak_memory_bytes, profile.memory_bytes)
         if next_total > self.maximum_work:
+            if (
+                self.maximum_work == MAX_AUTOMATIC_KDF_WORK
+                and next_total <= MAX_COMPATIBILITY_KDF_WORK
+                and profile.log_n <= MAX_COMPATIBILITY_SCRYPT_LOG_N
+            ):
+                raise RecoveryWorkLimitExceeded(
+                    "cumulative scrypt work exceeds the normal recovery budget",
+                    memory_bytes=peak_memory,
+                )
             raise ValueError(
                 f"cumulative scrypt work exceeds the recovery KDF budget ({self.maximum_work})"
             )
         self.consumed_work = next_total
+        self.peak_memory_bytes = peak_memory
 
 
 _active_kdf_budget: contextvars.ContextVar[KdfBudget | None] = contextvars.ContextVar(
@@ -62,8 +82,7 @@ def recovery_kdf_budget(
     if active_budget is not None:
         if allow_resource_intensive_compatibility and not _active_intensive_override.get():
             raise ValueError(
-                "resource-intensive compatibility recovery must be selected at the operation "
-                "boundary"
+                "resource-intensive compatibility recovery must be selected when recovery starts"
             )
         yield active_budget
         return
@@ -102,9 +121,9 @@ def preflight_age_scrypt(
     )
     if profile.log_n > maximum_log_n:
         if not allow_intensive and profile.log_n <= MAX_COMPATIBILITY_SCRYPT_LOG_N:
-            raise ValueError(
-                f"{RESOURCE_INTENSIVE_COMPATIBILITY_REQUIRED}: age scrypt logN={profile.log_n} "
-                "requires the resource-intensive compatibility recovery override"
+            raise RecoveryWorkLimitExceeded(
+                f"age scrypt logN={profile.log_n} exceeds the normal recovery limit",
+                memory_bytes=profile.memory_bytes,
             )
         raise ValueError(f"age scrypt logN={profile.log_n} exceeds the hard limit {maximum_log_n}")
 

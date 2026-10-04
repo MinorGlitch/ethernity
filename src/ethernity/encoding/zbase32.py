@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""z-base-32 encoding helpers for fallback text payloads."""
+"""Encode fallback text payloads with z-base-32."""
 
 from __future__ import annotations
 
@@ -85,5 +85,5 @@ def decode_zbase32(text: str) -> bytes:
     decoded = bytes(out)
     normalized = "".join(normalized_chars)
     if encode_zbase32(decoded) != normalized:
-        raise ValueError("invalid z-base-32 text: non-canonical tail bits")
+        raise ValueError("invalid z-base-32 text: nonzero unused tail bits")
     return decoded
