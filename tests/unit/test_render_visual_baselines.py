@@ -18,7 +18,12 @@ from ethernity.encoding.framing import FrameType, encode_frame
 from ethernity.page_sizes import PaperSize
 from ethernity.qr.scan import scan_qr_payloads
 from ethernity.render import render_frames_to_pdf
-from ethernity.render.designs import list_design_manifests
+from ethernity.render.checks import (
+    frame_digest,
+    validate_fallback_summary,
+    validate_fallback_text_in_pdf,
+)
+from ethernity.render.designs import list_design_definitions
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT_INDEX,
     DOC_TYPE_MAIN,
@@ -26,23 +31,18 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
-from ethernity.render.proofs import (
-    frame_digest,
-    validate_fallback_render_proof,
-    validate_fallback_text_in_pdf,
-)
 from ethernity.render.recovery_meta import (
     PASSPHRASE_PRINT_MODE_JSON_PARTS,
     build_recovery_meta,
     decode_printed_passphrase,
 )
 from ethernity.render.types import (
+    ComponentLayout,
     FallbackSection,
-    RenderArtifactProof,
-    RenderComponentLayoutProof,
-    RenderFallbackProof,
+    FallbackSummary,
+    RenderedDocumentSummary,
     RenderInputs,
-    RenderRectProof,
+    RenderRect,
     RenderResult,
 )
 
@@ -55,8 +55,8 @@ _SPEC.loader.exec_module(_MODULE)
 
 
 class TestRenderVisualBaselines(unittest.TestCase):
-    def _assert_typography_floors(self, case: object, artifact: object) -> None:
-        minimum_font_size = getattr(artifact, "minimum_font_size_pt")
+    def _assert_typography_floors(self, case: object, rendered: object) -> None:
+        minimum_font_size = getattr(rendered, "minimum_font_size_pt")
         self.assertIsNotNone(minimum_font_size)
         self.assertGreaterEqual(minimum_font_size, _MODULE.MINIMUM_TEXT_FONT_SIZE_PT)
 
@@ -68,7 +68,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
         if not _MODULE.requires_manual_fallback_line_numbers(baseline_case):
             return
         minimum_line_number_size = getattr(
-            artifact,
+            rendered,
             "minimum_manual_fallback_line_number_font_size_pt",
         )
         self.assertIsNotNone(minimum_line_number_size)
@@ -77,7 +77,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
             _MODULE.MINIMUM_MANUAL_FALLBACK_LINE_NUMBER_FONT_SIZE_PT,
         )
 
-    def test_discover_design_cases_uses_design_manifests(self) -> None:
+    def test_discover_design_cases_uses_design_definitions(self) -> None:
         cases = _MODULE.discover_design_cases()
 
         discovered = {(case.design, case.doc_type) for case in cases}
@@ -88,7 +88,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
             {(case.design, case.doc_type, case.paper_size) for case in cases},
         )
 
-    def test_build_sample_inputs_sets_recovery_contract_fields(self) -> None:
+    def test_build_sample_inputs_sets_required_recovery_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             case = _MODULE.VisualBaselineCase(
                 design="forge",
@@ -102,7 +102,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
         self.assertIsNotNone(inputs.recovery_meta)
         self.assertEqual(len(inputs.fallback_sections), 2)
 
-    def test_build_sample_inputs_sets_kit_index_contract_fields(self) -> None:
+    def test_build_sample_inputs_sets_required_kit_index_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             case = _MODULE.VisualBaselineCase(
                 design="forge",
@@ -122,12 +122,12 @@ class TestRenderVisualBaselines(unittest.TestCase):
         part_pattern = re.compile(r'\b\d+/\d+\s+"(?:\\.|[^"\\\r\n])*"')
         cases = tuple(
             _MODULE.VisualBaselineCase(
-                design=manifest.name,
+                design=design.name,
                 doc_type=DOC_TYPE_RECOVERY,
                 paper_size=paper_size,
             )
-            for manifest in list_design_manifests().values()
-            if DOC_TYPE_RECOVERY in manifest.documents
+            for design in list_design_definitions().values()
+            if DOC_TYPE_RECOVERY in design.documents
             for paper_size in ("A4", "LETTER")
         )
 
@@ -149,11 +149,11 @@ class TestRenderVisualBaselines(unittest.TestCase):
 
                     result = render_frames_to_pdf(replace(inputs, recovery_meta=recovery_meta))
 
-                    self.assertIsNotNone(result.layout_proof)
-                    assert result.layout_proof is not None
-                    self.assertFalse(result.layout_proof.overflow)
-                    complete, overlaps = _MODULE.layout_content_overlap_evidence(
-                        result.layout_proof.pages
+                    self.assertIsNotNone(result.layout_report)
+                    assert result.layout_report is not None
+                    self.assertFalse(result.layout_report.overflow)
+                    complete, overlaps = _MODULE.find_layout_content_overlaps(
+                        result.layout_report.pages
                     )
                     self.assertTrue(complete)
                     self.assertEqual(overlaps, ())
@@ -184,33 +184,33 @@ class TestRenderVisualBaselines(unittest.TestCase):
             PaperSize("FUTURE_PORTRAIT", "Future portrait", 260.0, 360.0),
             PaperSize("FUTURE_TALL", "Future tall", 260.0, 450.0),
         )
-        recovery_manifests = tuple(
-            manifest
-            for manifest in list_design_manifests().values()
-            if DOC_TYPE_RECOVERY in manifest.documents
+        recovery_designs = tuple(
+            design
+            for design in list_design_definitions().values()
+            if DOC_TYPE_RECOVERY in design.documents
         )
         cases = tuple(
             _MODULE.VisualBaselineCase(
-                design=manifest.name,
+                design=design.name,
                 doc_type=DOC_TYPE_RECOVERY,
                 paper_size=paper_size.name,
                 page_spec=paper_size,
             )
-            for manifest in recovery_manifests
+            for design in recovery_designs
             for paper_size in paper_sizes
         ) + tuple(
             _MODULE.VisualBaselineCase(
-                design=manifest.name,
+                design=design.name,
                 doc_type=DOC_TYPE_RECOVERY,
                 paper_size="MINIMUM",
                 page_spec=PaperSize(
                     "MINIMUM",
-                    f"{manifest.name} minimum recovery page",
-                    manifest.page_support_for(DOC_TYPE_RECOVERY).minimum_width_mm,
-                    manifest.page_support_for(DOC_TYPE_RECOVERY).minimum_height_mm,
+                    f"{design.name} minimum recovery page",
+                    design.page_support_for(DOC_TYPE_RECOVERY).minimum_width_mm,
+                    design.page_support_for(DOC_TYPE_RECOVERY).minimum_height_mm,
                 ),
             )
-            for manifest in recovery_manifests
+            for design in recovery_designs
         )
         metrics: dict[tuple[str, str], tuple[int, int]] = {}
 
@@ -224,11 +224,11 @@ class TestRenderVisualBaselines(unittest.TestCase):
 
                     result = render_frames_to_pdf(inputs)
 
-                    self.assertIsNotNone(result.layout_proof)
-                    self.assertIsNotNone(result.fallback_proof)
-                    assert result.layout_proof is not None
-                    assert result.fallback_proof is not None
-                    self.assertFalse(result.layout_proof.overflow)
+                    self.assertIsNotNone(result.layout_report)
+                    self.assertIsNotNone(result.fallback_summary)
+                    assert result.layout_report is not None
+                    assert result.fallback_summary is not None
+                    self.assertFalse(result.layout_report.overflow)
                     payload_pages = tuple(
                         tuple(
                             component
@@ -240,14 +240,14 @@ class TestRenderVisualBaselines(unittest.TestCase):
                             )
                             and component.used_rect is not None
                         )
-                        for page in result.layout_proof.pages
+                        for page in result.layout_report.pages
                     )
                     payload_page_indexes = tuple(
                         index for index, payload_lines in enumerate(payload_pages) if payload_lines
                     )
                     self.assertTrue(payload_page_indexes)
                     final_payload_page_index = payload_page_indexes[-1]
-                    emitted_lines = result.fallback_proof.emitted_fallback_lines
+                    emitted_lines = result.fallback_summary.emitted_fallback_lines
                     self.assertEqual(sum(map(len, payload_pages)), len(emitted_lines))
                     maximum_line_length = max(map(len, emitted_lines))
                     line_cursor = 0
@@ -262,7 +262,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                             payload_bottom_mm = max(
                                 component.rect.bottom_mm for component in payload_lines
                             )
-                            page_height_mm = result.layout_proof.pages[page_index].rect.height_mm
+                            page_height_mm = result.layout_report.pages[page_index].rect.height_mm
                             self.assertGreaterEqual(
                                 payload_bottom_mm / page_height_mm,
                                 0.75,
@@ -280,25 +280,25 @@ class TestRenderVisualBaselines(unittest.TestCase):
                         self.assertGreaterEqual(min(full_line_ratios), 0.80)
                     self.assertEqual(line_cursor, len(emitted_lines))
                     validate_fallback_text_in_pdf(
-                        artifact_label=case.case_id,
+                        document_label=case.case_id,
                         reader=PdfReader(output_path),
                         fallback_sections=inputs.fallback_sections or (),
-                        fallback_proof=result.fallback_proof,
+                        fallback_summary=result.fallback_summary,
                     )
                     metrics[(case.design, case.paper_size)] = (
-                        len(result.layout_proof.pages),
+                        len(result.layout_report.pages),
                         maximum_line_length,
                     )
 
-        for manifest in recovery_manifests:
-            a4_pages, a4_line_length = metrics[(manifest.name, "A4")]
-            letter_pages, letter_line_length = metrics[(manifest.name, "LETTER")]
-            future_pages, future_line_length = metrics[(manifest.name, "FUTURE_PORTRAIT")]
-            tall_pages, tall_line_length = metrics[(manifest.name, "FUTURE_TALL")]
-            self.assertLessEqual(a4_pages, standard_page_count_ceilings[manifest.name]["A4"])
+        for design in recovery_designs:
+            a4_pages, a4_line_length = metrics[(design.name, "A4")]
+            letter_pages, letter_line_length = metrics[(design.name, "LETTER")]
+            future_pages, future_line_length = metrics[(design.name, "FUTURE_PORTRAIT")]
+            tall_pages, tall_line_length = metrics[(design.name, "FUTURE_TALL")]
+            self.assertLessEqual(a4_pages, standard_page_count_ceilings[design.name]["A4"])
             self.assertLessEqual(
                 letter_pages,
-                standard_page_count_ceilings[manifest.name]["LETTER"],
+                standard_page_count_ceilings[design.name]["LETTER"],
             )
             self.assertGreaterEqual(letter_line_length, a4_line_length)
             self.assertLessEqual(future_pages, a4_pages)
@@ -312,21 +312,21 @@ class TestRenderVisualBaselines(unittest.TestCase):
     def test_every_shard_document_renderer_is_one_page_at_key_document_data_bound(self) -> None:
         cases = tuple(
             _MODULE.VisualBaselineCase(
-                design=manifest.name,
+                design=design.name,
                 doc_type=doc_type,
                 paper_size=paper_size.name,
                 page_spec=paper_size,
             )
-            for manifest in list_design_manifests().values()
+            for design in list_design_definitions().values()
             for doc_type in (DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD)
             for paper_size in (
                 PaperSize("A4", "A4", 210.0, 297.0),
                 PaperSize("LETTER", "Letter", 215.9, 279.4),
                 PaperSize(
-                    "BOUNDARY",
-                    "Boundary",
-                    manifest.page_support_for(doc_type).minimum_width_mm,
-                    manifest.page_support_for(doc_type).minimum_height_mm,
+                    "MINIMUM",
+                    "Minimum",
+                    design.page_support_for(doc_type).minimum_width_mm,
+                    design.page_support_for(doc_type).minimum_height_mm,
                 ),
             )
         )
@@ -349,26 +349,26 @@ class TestRenderVisualBaselines(unittest.TestCase):
 
                     reader = PdfReader(output_path)
                     self.assertEqual(len(reader.pages), 1)
-                    self.assertIsNotNone(result.artifact_proof)
-                    assert result.artifact_proof is not None
-                    self.assertEqual(result.artifact_proof.page_count, 1)
-                    self.assertEqual(result.artifact_proof.physical_qr_count, 1)
-                    self.assertIsNotNone(result.layout_proof)
-                    assert result.layout_proof is not None
-                    self.assertFalse(result.layout_proof.overflow)
+                    self.assertIsNotNone(result.document_summary)
+                    assert result.document_summary is not None
+                    self.assertEqual(result.document_summary.page_count, 1)
+                    self.assertEqual(result.document_summary.physical_qr_count, 1)
+                    self.assertIsNotNone(result.layout_report)
+                    assert result.layout_report is not None
+                    self.assertFalse(result.layout_report.overflow)
                     components = tuple(
                         component
-                        for page in result.layout_proof.pages
+                        for page in result.layout_report.pages
                         for component in page.components
                     )
                     constraints = tuple(
                         constraint
-                        for page in result.layout_proof.pages
+                        for page in result.layout_report.pages
                         for constraint in page.separation_constraints
                     )
                     self.assertTrue(constraints)
                     self.assertTrue(all(constraint.satisfied for constraint in constraints))
-                    complete, overlaps = _MODULE.content_overlap_evidence(components)
+                    complete, overlaps = _MODULE.find_content_overlaps(components)
                     self.assertTrue(complete)
                     self.assertEqual(overlaps, ())
 
@@ -406,34 +406,34 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     self.assertGreaterEqual(min(qr_sizes), _MODULE.MINIMUM_QR_IMAGE_SIZE_MM)
                     if case.paper_size in {"A4", "LETTER"}:
                         self.assertEqual(scan_qr_payloads((output_path,)), [encode_frame(frame)])
-                        composited_count, skipped_reason = _MODULE.scan_composited_pdf_qr_count(
+                        composited_count, skipped_reason = _MODULE.scan_composited_pdf_qr_payloads(
                             output_path
                         )
                         if skipped_reason is None:
-                            self.assertEqual(composited_count, 1)
+                            self.assertEqual(composited_count, (encode_frame(frame),))
                         else:
                             self.assertEqual(skipped_reason, "pdftoppm not found")
-                    validate_fallback_render_proof(
-                        artifact_label=case.case_id,
+                    validate_fallback_summary(
+                        document_label=case.case_id,
                         frames=(frame,),
-                        fallback_proof=result.fallback_proof,
+                        fallback_summary=result.fallback_summary,
                     )
                     validate_fallback_text_in_pdf(
-                        artifact_label=case.case_id,
+                        document_label=case.case_id,
                         reader=reader,
                         fallback_sections=inputs.fallback_sections or (),
-                        fallback_proof=result.fallback_proof,
+                        fallback_summary=result.fallback_summary,
                     )
 
     def test_every_shard_fallback_panel_is_full_width_and_bottom_anchored(self) -> None:
         cases = tuple(
             _MODULE.VisualBaselineCase(
-                design=manifest.name,
+                design=design.name,
                 doc_type=doc_type,
                 paper_size=paper_size.name,
                 page_spec=paper_size,
             )
-            for manifest in list_design_manifests().values()
+            for design in list_design_definitions().values()
             for doc_type in (DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD)
             for paper_size in (
                 PaperSize("A4", "A4", 210.0, 297.0),
@@ -442,11 +442,11 @@ class TestRenderVisualBaselines(unittest.TestCase):
             )
         )
 
-        def fallback_container(result: RenderResult) -> tuple[RenderRectProof, RenderRectProof]:
-            self.assertIsNotNone(result.layout_proof)
-            assert result.layout_proof is not None
-            self.assertEqual(len(result.layout_proof.pages), 1)
-            page = result.layout_proof.pages[0]
+        def fallback_container(result: RenderResult) -> tuple[RenderRect, RenderRect]:
+            self.assertIsNotNone(result.layout_report)
+            assert result.layout_report is not None
+            self.assertEqual(len(result.layout_report.pages), 1)
+            page = result.layout_report.pages[0]
             interior_spans = tuple(
                 component.rect.width_mm
                 for component in page.components
@@ -514,8 +514,8 @@ class TestRenderVisualBaselines(unittest.TestCase):
 
     def test_every_shard_renderer_designates_an_unlabeled_fallback_payload_region(self) -> None:
         cases = tuple(
-            _MODULE.VisualBaselineCase(design=manifest.name, doc_type=doc_type)
-            for manifest in list_design_manifests().values()
+            _MODULE.VisualBaselineCase(design=design.name, doc_type=doc_type)
+            for design in list_design_definitions().values()
             for doc_type in (DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD)
         )
 
@@ -537,21 +537,21 @@ class TestRenderVisualBaselines(unittest.TestCase):
 
                     self.assertEqual(len(reader.pages), 1)
                     validate_fallback_text_in_pdf(
-                        artifact_label=case.case_id,
+                        document_label=case.case_id,
                         reader=reader,
                         fallback_sections=inputs.fallback_sections or (),
-                        fallback_proof=result.fallback_proof,
+                        fallback_summary=result.fallback_summary,
                     )
 
     def test_every_shard_fallback_text_adapts_to_its_measured_container_width(self) -> None:
         cases = tuple(
             _MODULE.VisualBaselineCase(
-                design=manifest.name,
+                design=design.name,
                 doc_type=doc_type,
                 paper_size=paper_size.name,
                 page_spec=paper_size,
             )
-            for manifest in list_design_manifests().values()
+            for design in list_design_definitions().values()
             for doc_type in (DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD)
             for paper_size in (
                 PaperSize("A4", "A4", 210.0, 297.0),
@@ -560,7 +560,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
             )
         )
 
-        def fallback_container(page: object) -> RenderRectProof:
+        def fallback_container(page: object) -> RenderRect:
             components = getattr(page, "components")
             containers = tuple(
                 component.rect
@@ -599,10 +599,10 @@ class TestRenderVisualBaselines(unittest.TestCase):
 
                         result = render_frames_to_pdf(inputs)
 
-                        self.assertIsNotNone(result.layout_proof)
-                        assert result.layout_proof is not None
-                        self.assertEqual(len(result.layout_proof.pages), 1)
-                        page = result.layout_proof.pages[0]
+                        self.assertIsNotNone(result.layout_report)
+                        assert result.layout_report is not None
+                        self.assertEqual(len(result.layout_report.pages), 1)
+                        page = result.layout_report.pages[0]
                         panel = fallback_container(page)
                         lines = tuple(
                             component
@@ -614,7 +614,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                             and component.used_rect is not None
                         )
                         self.assertTrue(lines)
-                        columns: dict[float, list[RenderComponentLayoutProof]] = {}
+                        columns: dict[float, list[ComponentLayout]] = {}
                         for line in lines:
                             columns.setdefault(round(line.rect.x_mm, 2), []).append(line)
 
@@ -636,8 +636,8 @@ class TestRenderVisualBaselines(unittest.TestCase):
 
     def test_every_shard_renderer_rejects_ambiguous_fallback_sources(self) -> None:
         cases = tuple(
-            _MODULE.VisualBaselineCase(design=manifest.name, doc_type=doc_type)
-            for manifest in list_design_manifests().values()
+            _MODULE.VisualBaselineCase(design=design.name, doc_type=doc_type)
+            for design in list_design_definitions().values()
             for doc_type in (DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD)
         )
 
@@ -694,7 +694,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     ):
                         render_frames_to_pdf(replace(inputs, qr_payloads=(b"UNRELATED",)))
 
-    def test_render_visual_baselines_renders_direct_artifacts_for_supported_cases(self) -> None:
+    def test_render_visual_baselines_renders_direct_documents_for_supported_cases(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             forge_case = _MODULE.VisualBaselineCase(
@@ -715,22 +715,21 @@ class TestRenderVisualBaselines(unittest.TestCase):
                 cases=(forge_case, sentinel_case, sentinel_main_case),
                 rasterize="never",
                 renderer=_fake_pdf_renderer,
-                require_evidence=False,
+                require_checks=False,
             )
-            manifest_path = root / "baselines" / "manifest.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            report_path = root / "baselines" / _MODULE.MANIFEST_NAME
+            saved_report = json.loads(report_path.read_text(encoding="utf-8"))
 
-        artifacts = {
-            case.case_id: [artifact.renderer for artifact in case.artifacts]
-            for case in report.cases
+        renders = {
+            case.case_id: [rendered.renderer for rendered in case.renders] for case in report.cases
         }
-        self.assertEqual(artifacts["forge/main"], ["direct"])
-        self.assertEqual(artifacts["sentinel/recovery"], ["direct"])
-        self.assertEqual(artifacts["sentinel/main"], ["direct"])
-        self.assertEqual(report.schema_version, 7)
+        self.assertEqual(renders["forge/main"], ["direct"])
+        self.assertEqual(renders["sentinel/recovery"], ["direct"])
+        self.assertEqual(renders["sentinel/main"], ["direct"])
+        self.assertEqual(report.schema_version, 9)
         self.assertIn("not pixel-perfect", report.visual_review_note)
         self.assertIn("existing render style", report.visual_review_note)
-        self.assertEqual(manifest["visual_review_note"], report.visual_review_note)
+        self.assertEqual(saved_report["visual_review_note"], report.visual_review_note)
 
     def test_signing_key_shard_baseline_uses_dedicated_direct_renderer(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -745,12 +744,12 @@ class TestRenderVisualBaselines(unittest.TestCase):
                 cases=(signing_case,),
                 rasterize="never",
                 renderer=_fake_pdf_renderer,
-                require_evidence=False,
+                require_checks=False,
             )
 
         self.assertTrue(report.cases[0].direct_supported)
         self.assertEqual(
-            [artifact.renderer for artifact in report.cases[0].artifacts],
+            [rendered.renderer for rendered in report.cases[0].renders],
             ["direct"],
         )
 
@@ -812,32 +811,32 @@ class TestRenderVisualBaselines(unittest.TestCase):
 
     def test_typography_gate_rejects_text_below_six_points(self) -> None:
         case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_MAIN)
-        artifact = SimpleNamespace(
+        rendered = SimpleNamespace(
             minimum_font_size_pt=5.99,
             layout_component_count=1,
             minimum_manual_fallback_line_number_font_size_pt=None,
         )
 
         with self.assertRaisesRegex(RuntimeError, "text font floor failed"):
-            _MODULE.validate_typography_floor(case, artifact)
+            _MODULE.validate_typography_floor(case, rendered)
 
     def test_typography_gate_rejects_small_or_missing_manual_line_numbers(self) -> None:
         case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_RECOVERY)
         for minimum_line_number_size, expected_message in (
-            (None, "line-number evidence is missing"),
+            (None, "line-number size is missing"),
             (6.49, "line-number font floor failed"),
         ):
             with self.subTest(minimum_line_number_size=minimum_line_number_size):
-                artifact = SimpleNamespace(
+                rendered = SimpleNamespace(
                     minimum_font_size_pt=6.0,
                     layout_component_count=1,
                     minimum_manual_fallback_line_number_font_size_pt=(minimum_line_number_size),
                 )
 
                 with self.assertRaisesRegex(RuntimeError, expected_message):
-                    _MODULE.validate_typography_floor(case, artifact)
+                    _MODULE.validate_typography_floor(case, rendered)
 
-    def test_render_visual_baselines_rejects_layout_proof_failures(self) -> None:
+    def test_render_visual_baselines_rejects_layout_layout_failures(self) -> None:
         case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_MAIN)
         failures = (
             (
@@ -860,15 +859,15 @@ class TestRenderVisualBaselines(unittest.TestCase):
             ),
         )
 
-        for artifact, expected_message in failures:
+        for rendered, expected_message in failures:
             with (
                 self.subTest(expected_message=expected_message),
                 tempfile.TemporaryDirectory() as tmp,
             ):
                 with mock.patch.object(
                     _MODULE,
-                    "render_baseline_artifact",
-                    return_value=artifact,
+                    "render_baseline",
+                    return_value=rendered,
                 ):
                     with self.assertRaisesRegex(RuntimeError, expected_message):
                         _MODULE.render_visual_baselines(
@@ -877,7 +876,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                             rasterize="never",
                         )
 
-    def test_layout_gate_rejects_missing_proof_inventory(self) -> None:
+    def test_layout_gate_rejects_missing_layout_inventory(self) -> None:
         case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_MAIN)
         missing_cases = (
             (
@@ -887,7 +886,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     separation_constraint_count=0,
                     separation_constraints_satisfied=None,
                 ),
-                "layout proof is missing",
+                "layout report is missing",
             ),
             (
                 SimpleNamespace(
@@ -896,14 +895,14 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     separation_constraint_count=0,
                     separation_constraints_satisfied=None,
                 ),
-                "separation-constraint proof is missing",
+                "separation checks are missing",
             ),
         )
 
-        for artifact, expected_message in missing_cases:
+        for rendered, expected_message in missing_cases:
             with self.subTest(expected_message=expected_message):
                 with self.assertRaisesRegex(RuntimeError, expected_message):
-                    _MODULE.validate_layout_evidence(case, artifact)
+                    _MODULE.validate_layout_checks(case, rendered)
 
     def test_layout_gate_rejects_content_overlap_and_missing_visible_rects(self) -> None:
         case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_MAIN)
@@ -912,7 +911,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
             layout_component_count=1,
             separation_constraint_count=1,
             separation_constraints_satisfied=True,
-            content_overlap_evidence_complete=False,
+            content_overlap_check_complete=False,
             content_overlap_count=0,
             content_overlap_pairs=(),
         )
@@ -921,25 +920,25 @@ class TestRenderVisualBaselines(unittest.TestCase):
             layout_component_count=2,
             separation_constraint_count=1,
             separation_constraints_satisfied=True,
-            content_overlap_evidence_complete=True,
+            content_overlap_check_complete=True,
             content_overlap_count=1,
             content_overlap_pairs=("heading (text) intersects qr (image)",),
         )
 
-        with self.assertRaisesRegex(RuntimeError, "content-overlap evidence is incomplete"):
-            _MODULE.validate_layout_evidence(case, missing)
+        with self.assertRaisesRegex(RuntimeError, "content-overlap measurements are incomplete"):
+            _MODULE.validate_layout_checks(case, missing)
         with self.assertRaisesRegex(RuntimeError, "content overlap detected"):
-            _MODULE.validate_layout_evidence(case, overlapping)
+            _MODULE.validate_layout_checks(case, overlapping)
 
-    def test_content_overlap_evidence_checks_text_and_images_but_not_image_compounds(self) -> None:
+    def test_content_overlap_check_covers_text_and_images_but_not_image_compounds(self) -> None:
         def component(
             component_id: str,
             component_type: str,
-            rect: RenderRectProof,
+            rect: RenderRect,
             *,
-            used_rect: RenderRectProof | None = None,
-        ) -> RenderComponentLayoutProof:
-            return RenderComponentLayoutProof(
+            used_rect: RenderRect | None = None,
+        ) -> ComponentLayout:
+            return ComponentLayout(
                 component_id=component_id,
                 rect=rect,
                 used_rect=used_rect,
@@ -947,36 +946,36 @@ class TestRenderVisualBaselines(unittest.TestCase):
                 component_type=component_type,
             )
 
-        text_rect = RenderRectProof(0.0, 0.0, 10.0, 10.0)
+        text_rect = RenderRect(0.0, 0.0, 10.0, 10.0)
         components = (
             component("heading", "text", text_rect, used_rect=text_rect),
             component(
                 "caption",
                 "text",
-                RenderRectProof(5.0, 5.0, 10.0, 10.0),
-                used_rect=RenderRectProof(5.0, 5.0, 10.0, 10.0),
+                RenderRect(5.0, 5.0, 10.0, 10.0),
+                used_rect=RenderRect(5.0, 5.0, 10.0, 10.0),
             ),
-            component("qr-image", "image", RenderRectProof(12.0, 12.0, 10.0, 10.0)),
-            component("qr-frame", "image", RenderRectProof(12.0, 12.0, 10.0, 10.0)),
+            component("qr-image", "image", RenderRect(12.0, 12.0, 10.0, 10.0)),
+            component("qr-frame", "image", RenderRect(12.0, 12.0, 10.0, 10.0)),
         )
 
-        complete, overlaps = _MODULE.content_overlap_evidence(components)
+        complete, overlaps = _MODULE.find_content_overlaps(components)
 
         self.assertTrue(complete)
         self.assertEqual(len(overlaps), 3)
         self.assertFalse(any("qr-image (image) intersects qr-frame" in item for item in overlaps))
 
         missing_used_rect = component("missing", "text", text_rect)
-        complete, _overlaps = _MODULE.content_overlap_evidence((missing_used_rect,))
+        complete, _overlaps = _MODULE.find_content_overlaps((missing_used_rect,))
         self.assertFalse(complete)
 
-    def test_layout_content_overlap_evidence_is_page_local(self) -> None:
-        rect = RenderRectProof(5.0, 5.0, 20.0, 5.0)
+    def test_layout_content_overlap_check_is_page_local(self) -> None:
+        rect = RenderRect(5.0, 5.0, 20.0, 5.0)
         pages = tuple(
             SimpleNamespace(
                 page_number=page_number,
                 components=(
-                    RenderComponentLayoutProof(
+                    ComponentLayout(
                         component_id=f"page-{page_number}-title",
                         component_type="text",
                         rect=rect,
@@ -987,30 +986,30 @@ class TestRenderVisualBaselines(unittest.TestCase):
             for page_number in (1, 2)
         )
 
-        complete, overlaps = _MODULE.layout_content_overlap_evidence(pages)
+        complete, overlaps = _MODULE.find_layout_content_overlaps(pages)
 
         self.assertTrue(complete)
         self.assertEqual(overlaps, ())
 
-    def test_content_overlap_evidence_rejects_untyped_visible_components(self) -> None:
-        rect = RenderRectProof(5.0, 5.0, 20.0, 5.0)
-        component = RenderComponentLayoutProof(
+    def test_content_overlap_check_rejects_untyped_visible_components(self) -> None:
+        rect = RenderRect(5.0, 5.0, 20.0, 5.0)
+        component = ComponentLayout(
             component_id="untyped-visible-component",
             component_type=None,
             rect=rect,
             used_rect=rect,
         )
 
-        complete, overlaps = _MODULE.content_overlap_evidence((component,))
+        complete, overlaps = _MODULE.find_content_overlaps((component,))
 
         self.assertFalse(complete)
         self.assertEqual(overlaps, ())
 
-    def test_production_default_rejects_synthetic_renderer_without_proof(self) -> None:
+    def test_production_default_rejects_synthetic_renderer_without_layout(self) -> None:
         case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_MAIN)
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            with self.assertRaisesRegex(RuntimeError, "layout proof is missing"):
+            with self.assertRaisesRegex(RuntimeError, "layout report is missing"):
                 _MODULE.render_visual_baselines(
                     Path(temp_dir) / "baselines",
                     cases=(case,),
@@ -1018,7 +1017,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     renderer=_fake_pdf_renderer,
                 )
 
-    def test_page_label_gate_rejects_missing_and_incomplete_evidence(self) -> None:
+    def test_page_label_check_rejects_missing_and_incomplete_measurements(self) -> None:
         case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_MAIN)
         missing = SimpleNamespace(
             numbered_page_count=None,
@@ -1031,10 +1030,10 @@ class TestRenderVisualBaselines(unittest.TestCase):
             page_count=2,
         )
 
-        with self.assertRaisesRegex(RuntimeError, "page-label evidence is missing"):
-            _MODULE.validate_page_label_evidence(case, missing)
+        with self.assertRaisesRegex(RuntimeError, "page-number measurements are missing"):
+            _MODULE.validate_page_labels(case, missing)
         with self.assertRaisesRegex(RuntimeError, "page-label coverage mismatch"):
-            _MODULE.validate_page_label_evidence(case, incomplete)
+            _MODULE.validate_page_labels(case, incomplete)
 
     def test_shard_page_count_gate_requires_one_page_and_one_physical_qr(self) -> None:
         shard_case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_SHARD)
@@ -1044,22 +1043,22 @@ class TestRenderVisualBaselines(unittest.TestCase):
         )
         valid = SimpleNamespace(page_count=1, expected_qr_count=1)
 
-        _MODULE.validate_page_count_contract(shard_case, valid)
-        _MODULE.validate_page_count_contract(signing_case, valid)
+        _MODULE.validate_single_page_documents(shard_case, valid)
+        _MODULE.validate_single_page_documents(signing_case, valid)
 
-        with self.assertRaisesRegex(RuntimeError, "page-count contract failed"):
-            _MODULE.validate_page_count_contract(
+        with self.assertRaisesRegex(RuntimeError, "single-page shard requirement failed"):
+            _MODULE.validate_single_page_documents(
                 shard_case,
                 SimpleNamespace(page_count=2, expected_qr_count=2),
             )
-        with self.assertRaisesRegex(RuntimeError, "QR-count contract failed"):
-            _MODULE.validate_page_count_contract(
+        with self.assertRaisesRegex(RuntimeError, "single-QR shard requirement failed"):
+            _MODULE.validate_single_page_documents(
                 signing_case,
                 SimpleNamespace(page_count=1, expected_qr_count=2),
             )
 
         main_case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_MAIN)
-        _MODULE.validate_page_count_contract(
+        _MODULE.validate_single_page_documents(
             main_case,
             SimpleNamespace(page_count=3, expected_qr_count=12),
         )
@@ -1072,13 +1071,13 @@ class TestRenderVisualBaselines(unittest.TestCase):
             poppler_skipped_reason="Poppler tools not found",
         )
 
-        with self.assertRaisesRegex(RuntimeError, "Poppler evidence is missing"):
-            _MODULE.validate_poppler_evidence(
+        with self.assertRaisesRegex(RuntimeError, "Poppler result is missing"):
+            _MODULE.validate_poppler_result(
                 case,
                 missing,
                 strict_external_tools=True,
             )
-        _MODULE.validate_poppler_evidence(
+        _MODULE.validate_poppler_result(
             case,
             missing,
             strict_external_tools=False,
@@ -1090,7 +1089,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
             poppler_skipped_reason=None,
         )
         with self.assertRaisesRegex(RuntimeError, "Poppler reported"):
-            _MODULE.validate_poppler_evidence(
+            _MODULE.validate_poppler_result(
                 case,
                 failed,
                 strict_external_tools=False,
@@ -1100,14 +1099,14 @@ class TestRenderVisualBaselines(unittest.TestCase):
             poppler_warning_count=None,
             poppler_skipped_reason=None,
         )
-        with self.assertRaisesRegex(RuntimeError, "warning-count evidence is missing"):
-            _MODULE.validate_poppler_evidence(
+        with self.assertRaisesRegex(RuntimeError, "warning count is missing"):
+            _MODULE.validate_poppler_result(
                 case,
                 incomplete,
                 strict_external_tools=False,
             )
 
-    def test_qr_gate_requires_embedded_composited_and_physical_size_evidence(self) -> None:
+    def test_qr_check_requires_embedded_whole_page_and_physical_size_results(self) -> None:
         case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_MAIN)
         valid = {
             "expected_qr_count": 2,
@@ -1119,9 +1118,9 @@ class TestRenderVisualBaselines(unittest.TestCase):
             "composited_qr_scan_skipped_reason": None,
         }
         failures = (
-            ({**valid, "expected_qr_count": None}, "QR proof is missing"),
-            ({**valid, "qr_scan_succeeded": None}, "QR scan evidence failed or is missing"),
-            ({**valid, "minimum_qr_image_size_mm": None}, "QR-size evidence is missing"),
+            ({**valid, "expected_qr_count": None}, "QR summary is missing"),
+            ({**valid, "qr_scan_succeeded": None}, "embedded QR payload mismatch or missing scan"),
+            ({**valid, "minimum_qr_image_size_mm": None}, "minimum QR size is missing"),
             (
                 {
                     **valid,
@@ -1131,11 +1130,11 @@ class TestRenderVisualBaselines(unittest.TestCase):
             ),
             (
                 {**valid, "composited_qr_scan_succeeded": False},
-                "composited QR scan count mismatch",
+                "composited QR payload mismatch",
             ),
             (
                 {**valid, "composited_decoded_qr_count": None},
-                "composited QR scan count evidence is missing",
+                "whole-page QR scan count is missing",
             ),
             (
                 {
@@ -1143,16 +1142,16 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     "composited_qr_scan_succeeded": None,
                     "composited_qr_scan_skipped_reason": "pdftoppm not found",
                 },
-                "composited QR scan evidence is missing",
+                "whole-page QR scan result is missing",
             ),
         )
 
-        for artifact_values, expected_message in failures:
+        for render_values, expected_message in failures:
             with self.subTest(expected_message=expected_message):
                 with self.assertRaisesRegex(RuntimeError, expected_message):
-                    _MODULE.validate_qr_evidence(
+                    _MODULE.validate_qr_scans(
                         case,
-                        SimpleNamespace(**artifact_values),
+                        SimpleNamespace(**render_values),
                         strict_external_tools=True,
                     )
 
@@ -1163,17 +1162,17 @@ class TestRenderVisualBaselines(unittest.TestCase):
                 "composited_qr_scan_skipped_reason": "pdftoppm not found",
             }
         )
-        _MODULE.validate_qr_evidence(
+        _MODULE.validate_qr_scans(
             case,
             missing_composited,
             strict_external_tools=False,
         )
 
-    def test_render_visual_baselines_requires_fallback_artifact_proof(self) -> None:
+    def test_render_visual_baselines_requires_fallback_document_summary(self) -> None:
         case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_RECOVERY)
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            with self.assertRaisesRegex(RuntimeError, "artifact proof is missing"):
+            with self.assertRaisesRegex(RuntimeError, "rendered document summary is missing"):
                 _MODULE.render_visual_baselines(
                     Path(temp_dir) / "baselines",
                     cases=(case,),
@@ -1181,13 +1180,13 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     renderer=_fake_pdf_renderer,
                 )
 
-    def test_fallback_proof_gate_rejects_incomplete_or_inconsistent_counts(self) -> None:
+    def test_fallback_summary_gate_rejects_incomplete_or_inconsistent_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             case = _MODULE.VisualBaselineCase(design="forge", doc_type=DOC_TYPE_RECOVERY)
             inputs = _MODULE.build_sample_inputs(case, Path(temp_dir) / "recovery.pdf")
 
         sections = inputs.fallback_sections
-        valid_proof = RenderFallbackProof(
+        valid_layout = FallbackSummary(
             section_frame_digests=tuple(frame_digest(section.frame) for section in sections),
             section_titles=tuple(section.label for section in sections),
             expected_section_count=len(sections),
@@ -1197,49 +1196,49 @@ class TestRenderVisualBaselines(unittest.TestCase):
             fully_consumed=True,
             emitted_fallback_lines=("line one", "line two"),
         )
-        invalid_proofs = (
-            replace(valid_proof, fully_consumed=False),
-            replace(valid_proof, emitted_line_count=3),
-            replace(valid_proof, consumed_section_count=len(sections) - 1),
+        invalid_summaries = (
+            replace(valid_layout, fully_consumed=False),
+            replace(valid_layout, emitted_line_count=3),
+            replace(valid_layout, consumed_section_count=len(sections) - 1),
         )
 
-        for fallback_proof in invalid_proofs:
-            with self.subTest(fallback_proof=fallback_proof):
+        for fallback_summary in invalid_summaries:
+            with self.subTest(fallback_summary=fallback_summary):
                 result = RenderResult(
-                    fallback_proof=fallback_proof,
-                    artifact_proof=RenderArtifactProof(
+                    fallback_summary=fallback_summary,
+                    document_summary=RenderedDocumentSummary(
                         output_path=str(inputs.output_path),
                         doc_type=inputs.doc_type,
                         frame_digests=tuple(frame_digest(frame) for frame in inputs.frames),
                         encoded_payload_count=len(inputs.frames),
                         physical_qr_count=0,
-                        fallback_proof=fallback_proof,
+                        fallback_summary=fallback_summary,
                     ),
                 )
 
-                with self.assertRaisesRegex(RuntimeError, "fallback render proof failed"):
-                    _MODULE.validate_fallback_proof_evidence(case, inputs, result)
+                with self.assertRaisesRegex(RuntimeError, "fallback summary failed"):
+                    _MODULE.validate_fallback_output(case, inputs, result)
 
-    def test_every_design_document_renders_at_its_declared_geometry_boundary(self) -> None:
+    def test_every_design_document_renders_at_its_declared_minimum_geometry(self) -> None:
         cases = tuple(
             _MODULE.VisualBaselineCase(
-                design=manifest.name,
+                design=design.name,
                 doc_type=doc_type,
-                paper_size="BOUNDARY",
+                paper_size="MINIMUM",
                 page_spec=PaperSize(
-                    "BOUNDARY",
-                    "Boundary",
-                    manifest.page_support_for(doc_type).minimum_width_mm,
-                    manifest.page_support_for(doc_type).minimum_height_mm,
+                    "MINIMUM",
+                    "Minimum",
+                    design.page_support_for(doc_type).minimum_width_mm,
+                    design.page_support_for(doc_type).minimum_height_mm,
                 ),
             )
-            for manifest in list_design_manifests().values()
-            for doc_type in sorted(manifest.documents)
+            for design in list_design_definitions().values()
+            for doc_type in sorted(design.documents)
         )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             report = _MODULE.render_visual_baselines(
-                Path(temp_dir) / "boundary-matrix",
+                Path(temp_dir) / "minimum-size-matrix",
                 cases=cases,
                 rasterize="never",
                 strict_external_tools=False,
@@ -1248,17 +1247,17 @@ class TestRenderVisualBaselines(unittest.TestCase):
         self.assertEqual(len(report.cases), 27)
         for case in report.cases:
             with self.subTest(case_id=case.case_id):
-                artifact = case.artifacts[0]
-                self.assertGreater(artifact.page_count, 0)
-                self.assertFalse(artifact.layout_overflow)
-                self.assertGreater(artifact.layout_component_count, 0)
-                self.assertGreater(artifact.separation_constraint_count, 0)
-                self.assertTrue(artifact.separation_constraints_satisfied)
-                self._assert_typography_floors(case, artifact)
-                self.assertIn(artifact.qr_scan_succeeded, {True, None})
-                self.assertTrue(artifact.all_pages_numbered)
-                self.assertIn(artifact.poppler_clean, {True, None})
-                self.assertIn(artifact.composited_qr_scan_succeeded, {True, None})
+                rendered = case.renders[0]
+                self.assertGreater(rendered.page_count, 0)
+                self.assertFalse(rendered.layout_overflow)
+                self.assertGreater(rendered.layout_component_count, 0)
+                self.assertGreater(rendered.separation_constraint_count, 0)
+                self.assertTrue(rendered.separation_constraints_satisfied)
+                self._assert_typography_floors(case, rendered)
+                self.assertIn(rendered.qr_scan_succeeded, {True, None})
+                self.assertTrue(rendered.all_pages_numbered)
+                self.assertIn(rendered.poppler_clean, {True, None})
+                self.assertIn(rendered.composited_qr_scan_succeeded, {True, None})
 
     def test_every_design_document_renders_on_conventional_future_page_sizes(self) -> None:
         future_pages = (
@@ -1267,14 +1266,14 @@ class TestRenderVisualBaselines(unittest.TestCase):
         )
         cases = tuple(
             _MODULE.VisualBaselineCase(
-                design=manifest.name,
+                design=design.name,
                 doc_type=doc_type,
                 paper_size=page.name,
                 page_spec=page,
             )
             for page in future_pages
-            for manifest in list_design_manifests().values()
-            for doc_type in sorted(manifest.documents)
+            for design in list_design_definitions().values()
+            for doc_type in sorted(design.documents)
         )
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1288,15 +1287,15 @@ class TestRenderVisualBaselines(unittest.TestCase):
         self.assertEqual(len(report.cases), 54)
         for case in report.cases:
             with self.subTest(case_id=case.case_id):
-                artifact = case.artifacts[0]
-                self.assertFalse(artifact.layout_overflow)
-                self.assertGreater(artifact.separation_constraint_count, 0)
-                self.assertTrue(artifact.separation_constraints_satisfied)
-                self._assert_typography_floors(case, artifact)
-                self.assertIn(artifact.qr_scan_succeeded, {True, None})
-                self.assertTrue(artifact.all_pages_numbered)
-                self.assertIn(artifact.poppler_clean, {True, None})
-                self.assertIn(artifact.composited_qr_scan_succeeded, {True, None})
+                rendered = case.renders[0]
+                self.assertFalse(rendered.layout_overflow)
+                self.assertGreater(rendered.separation_constraint_count, 0)
+                self.assertTrue(rendered.separation_constraints_satisfied)
+                self._assert_typography_floors(case, rendered)
+                self.assertIn(rendered.qr_scan_succeeded, {True, None})
+                self.assertTrue(rendered.all_pages_numbered)
+                self.assertIn(rendered.poppler_clean, {True, None})
+                self.assertIn(rendered.composited_qr_scan_succeeded, {True, None})
 
     def test_measure_png_pair_diagnostic_reports_pixel_delta(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

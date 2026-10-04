@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import segno
+from PIL import ImageColor
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,7 @@ def make_qr(
     try:
         return segno.make(
             data,
+            encoding="utf-8" if isinstance(data, str) else None,
             error=error,
             version=version,
             mask=mask,
@@ -81,6 +83,7 @@ def qr_bytes(
     micro: bool | None = None,
     boost_error: bool = True,
 ) -> bytes:
+    validate_qr_colors(dark=dark, light=light)
     qr = make_qr(
         data,
         error=error,
@@ -99,6 +102,33 @@ def qr_bytes(
         **_segno_color_kwargs(dark=dark, light=light),
     )
     return buf.getvalue()
+
+
+def validate_qr_colors(
+    *,
+    dark: str | tuple[int, int, int] | tuple[int, int, int, int] | None,
+    light: str | tuple[int, int, int] | tuple[int, int, int, int] | None,
+) -> None:
+    """Require dark modules to remain darker than the background on white paper."""
+
+    if _qr_color_luminance(dark, (0, 0, 0)) >= _qr_color_luminance(light, (255, 255, 255)):
+        raise ValueError("QR dark modules must be darker than the light background")
+
+
+def _qr_color_luminance(value: object, default: tuple[int, int, int]) -> float:
+    color = default if value is None else value
+    if isinstance(color, str):
+        color = color.strip()
+        if len(color) in {3, 4, 6, 8} and all(char in "0123456789abcdefABCDEF" for char in color):
+            color = "#" + color
+        channels = ImageColor.getcolor(color, "RGBA")
+    else:
+        channels = color
+    if not isinstance(channels, tuple) or len(channels) not in {3, 4}:
+        raise ValueError("QR colors must be RGB or RGBA colors")
+    alpha = channels[3] / 255 if len(channels) == 4 else 1.0
+    red, green, blue = (channel * alpha + 255 * (1 - alpha) for channel in channels[:3])
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
 
 
 def _segno_color_kwargs(**values: object) -> dict[str, object]:

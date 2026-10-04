@@ -18,20 +18,19 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from ethernity.cli.shared.render_validation import (
-    validate_rendered_fallback_artifact,
-    validate_rendered_pdf_artifact,
-)
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
-from ethernity.render.proofs import RenderProofError, frame_digest, qr_payload_digest
+from ethernity.render.checks import RenderValidationError, frame_digest, qr_payload_digest
 from ethernity.render.types import (
+    DocumentOrigin,
     FallbackSection,
-    RenderArtifactProof,
-    RenderFallbackProof,
+    FallbackSummary,
+    LayoutReport,
+    RenderedDocumentSummary,
     RenderInputs,
-    RenderLayoutProof,
-    RenderLineage,
     RenderResult,
+)
+from ethernity.render.validation import (
+    validate_rendered_pdf_document,
 )
 
 
@@ -49,7 +48,7 @@ class _Reader:
 
 
 class TestRenderValidation(unittest.TestCase):
-    def test_fallback_artifact_validation_preserves_proof_check_order(self) -> None:
+    def test_fallback_document_validation_preserves_summary_check_order(self) -> None:
         frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -64,10 +63,11 @@ class TestRenderValidation(unittest.TestCase):
             output_path="/tmp/recovery.pdf",
             context={},
             doc_type="recovery",
-            lineage=RenderLineage(kind="root_backup"),
+            render_qr=False,
+            origin=DocumentOrigin(kind="root_backup"),
             fallback_sections=(FallbackSection(label="MAIN FRAME", frame=frame),),
         )
-        fallback_proof = RenderFallbackProof(
+        fallback_summary = FallbackSummary(
             section_frame_digests=(frame_digest(frame),),
             section_titles=("MAIN FRAME",),
             expected_section_count=1,
@@ -77,98 +77,101 @@ class TestRenderValidation(unittest.TestCase):
             fully_consumed=True,
         )
         result = RenderResult(
-            artifact_proof=RenderArtifactProof(
+            document_summary=RenderedDocumentSummary(
                 output_path="/tmp/recovery.pdf",
                 doc_type="recovery",
                 frame_digests=(frame_digest(frame),),
                 encoded_payload_count=1,
+                page_count=1,
                 physical_qr_count=1,
-                fallback_proof=fallback_proof,
+                fallback_summary=fallback_summary,
             ),
-            layout_proof=RenderLayoutProof(backend="direct", page_count=1, pages=()),
+            layout_report=LayoutReport(backend="direct", page_count=1, pages=()),
         )
         reader = _Reader("Recovery Document")
         calls: list[str] = []
 
         with (
+            mock.patch("ethernity.render.validation.validate_painted_content"),
+            mock.patch("ethernity.render.validation.validate_pdf_appearance", return_value=()),
             mock.patch(
-                "ethernity.render.validation.validate_render_artifact_proof",
-                side_effect=lambda **_kwargs: calls.append("artifact"),
+                "ethernity.render.validation.validate_rendered_document_summary",
+                side_effect=lambda **_kwargs: calls.append("document"),
             ),
             mock.patch(
                 "ethernity.render.validation.validate_pdf_has_pages",
                 side_effect=lambda *_args, **_kwargs: calls.append("pages") or reader,
             ),
             mock.patch(
-                "ethernity.render.validation.validate_render_layout_proof",
+                "ethernity.render.validation.validate_layout_report",
                 side_effect=lambda **_kwargs: calls.append("layout"),
             ),
             mock.patch(
-                "ethernity.render.validation.validate_fallback_render_proof",
-                side_effect=lambda **_kwargs: calls.append("fallback_proof"),
-            ) as validate_fallback_proof,
+                "ethernity.render.validation.validate_fallback_summary",
+                side_effect=lambda **_kwargs: calls.append("fallback_summary"),
+            ) as validate_fallback_summary,
             mock.patch(
                 "ethernity.render.validation.validate_fallback_text_in_pdf",
                 side_effect=lambda **_kwargs: calls.append("fallback_text"),
             ) as validate_fallback_text,
         ):
-            validate_rendered_fallback_artifact(
+            validate_rendered_pdf_document(
                 inputs=inputs,
                 result=result,
-                artifact_label="rendered recovery document",
+                document_label="rendered recovery document",
             )
 
         self.assertEqual(
             calls,
-            ["artifact", "pages", "layout", "fallback_proof", "fallback_text"],
+            ["document", "pages", "fallback_summary", "fallback_text", "layout"],
         )
         self.assertIs(
-            validate_fallback_proof.call_args.kwargs["fallback_proof"],
-            fallback_proof,
+            validate_fallback_summary.call_args.kwargs["fallback_summary"],
+            fallback_summary,
         )
         self.assertIs(validate_fallback_text.call_args.kwargs["reader"], reader)
 
-    def test_artifact_validation_requires_render_result(self) -> None:
+    def test_document_validation_requires_render_result(self) -> None:
         inputs = RenderInputs(
             frames=(),
             design_name="sentinel",
             output_path="/tmp/qr.pdf",
             context={},
             doc_type="qr",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             render_fallback=False,
         )
 
-        with self.assertRaises(RenderProofError) as ctx:
-            validate_rendered_pdf_artifact(
+        with self.assertRaises(RenderValidationError) as ctx:
+            validate_rendered_pdf_document(
                 inputs=inputs,
                 result=object(),
-                artifact_label="rendered QR document",
+                document_label="rendered QR document",
             )
 
         self.assertIn("renderer did not return RenderResult", str(ctx.exception))
 
-    def test_artifact_validation_requires_render_artifact_proof(self) -> None:
+    def test_document_validation_requires_rendered_document_summary(self) -> None:
         inputs = RenderInputs(
             frames=(),
             design_name="sentinel",
             output_path="/tmp/qr.pdf",
             context={},
             doc_type="qr",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             render_fallback=False,
         )
 
-        with self.assertRaises(RenderProofError) as ctx:
-            validate_rendered_pdf_artifact(
+        with self.assertRaises(RenderValidationError) as ctx:
+            validate_rendered_pdf_document(
                 inputs=inputs,
                 result=RenderResult(),
-                artifact_label="rendered QR document",
+                document_label="rendered QR document",
             )
 
-        self.assertIn("missing render artifact proof", str(ctx.exception))
+        self.assertIn("missing rendered document summary", str(ctx.exception))
 
-    def test_recovery_artifact_validation_requires_fallback_proof(self) -> None:
+    def test_recovery_document_validation_requires_fallback_summary(self) -> None:
         frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -183,15 +186,16 @@ class TestRenderValidation(unittest.TestCase):
             output_path="/tmp/recovery.pdf",
             context={},
             doc_type="recovery",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             fallback_sections=(FallbackSection(label="MAIN FRAME", frame=frame),),
         )
         result = RenderResult(
-            artifact_proof=RenderArtifactProof(
+            document_summary=RenderedDocumentSummary(
                 output_path="/tmp/recovery.pdf",
                 doc_type="recovery",
                 frame_digests=(frame_digest(frame),),
                 encoded_payload_count=1,
+                page_count=1,
                 physical_qr_count=1,
                 qr_payload_digests=(qr_payload_digest(encode_frame(frame)),),
                 physical_qr_payload_indexes=(0,),
@@ -203,46 +207,53 @@ class TestRenderValidation(unittest.TestCase):
             "ethernity.render.validation.validate_pdf_has_pages",
             return_value=_Reader("Recovery Document"),
         ):
-            with self.assertRaises(RenderProofError) as ctx:
-                validate_rendered_pdf_artifact(
+            with self.assertRaises(RenderValidationError) as ctx:
+                validate_rendered_pdf_document(
                     inputs=inputs,
                     result=result,
-                    artifact_label="rendered recovery document",
+                    document_label="rendered recovery document",
                 )
 
-        self.assertIn("missing fallback render proof", str(ctx.exception))
+        self.assertIn("missing fallback render summary", str(ctx.exception))
 
-    def test_kit_index_artifact_validation_checks_expected_inventory_text(self) -> None:
+    def test_kit_index_document_validation_checks_expected_inventory_text(self) -> None:
         inputs = RenderInputs(
             frames=(),
             design_name="sentinel",
             output_path="/tmp/recovery_kit_index.pdf",
             context={},
             doc_type="kit_index",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             qr_payloads=(),
             render_qr=False,
             render_fallback=False,
         )
         result = RenderResult(
-            artifact_proof=RenderArtifactProof(
+            layout_report=LayoutReport(backend="direct", page_count=1, pages=()),
+            document_summary=RenderedDocumentSummary(
                 output_path="/tmp/recovery_kit_index.pdf",
                 doc_type="kit_index",
                 frame_digests=(),
                 encoded_payload_count=0,
+                page_count=1,
                 physical_qr_count=0,
-            )
+            ),
         )
 
-        with mock.patch(
-            "ethernity.render.validation.validate_pdf_has_pages",
-            return_value=_Reader("Recovery Kit Index"),
+        with (
+            mock.patch(
+                "ethernity.render.validation.validate_pdf_has_pages",
+                return_value=_Reader("Recovery Kit Index"),
+            ),
+            mock.patch("ethernity.render.validation.validate_layout_report"),
+            mock.patch("ethernity.render.validation.validate_painted_content"),
+            mock.patch("ethernity.render.validation.validate_pdf_appearance", return_value=()),
         ):
-            with self.assertRaises(RenderProofError) as ctx:
-                validate_rendered_pdf_artifact(
+            with self.assertRaises(RenderValidationError) as ctx:
+                validate_rendered_pdf_document(
                     inputs=inputs,
                     result=result,
-                    artifact_label="rendered recovery kit index",
+                    document_label="rendered recovery kit index",
                     expected_text=("QR-DOC-01",),
                 )
 

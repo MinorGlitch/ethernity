@@ -20,26 +20,26 @@ import unittest
 from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
-from ethernity.render.fallback_text import format_zbase32_lines
-from ethernity.render.proofs import (
-    RenderProofError,
-    build_render_artifact_proof,
+from ethernity.render.checks import (
+    RenderValidationError,
+    build_rendered_document_summary,
     frame_digest,
     qr_payload_digest,
-    validate_fallback_render_proof,
+    validate_fallback_summary,
     validate_fallback_text_in_pdf,
-    validate_render_artifact_proof,
-    validate_render_layout_proof,
+    validate_layout_report,
+    validate_rendered_document_summary,
 )
+from ethernity.render.fallback_text import format_zbase32_lines
 from ethernity.render.types import (
+    DocumentOrigin,
     FallbackSection,
-    RenderArtifactProof,
-    RenderFallbackProof,
+    FallbackSummary,
+    LayoutReport,
+    PageLayout,
+    RenderedDocumentSummary,
     RenderInputs,
-    RenderLayoutProof,
-    RenderLineage,
-    RenderPageLayoutProof,
-    RenderRectProof,
+    RenderRect,
 )
 
 
@@ -47,31 +47,31 @@ def _qr_payload_digest_for_frame(frame: Frame) -> str:
     return qr_payload_digest(encode_frame(frame))
 
 
-class TestRenderProofs(unittest.TestCase):
-    def test_validate_render_layout_proof_requires_proof(self) -> None:
-        with self.assertRaisesRegex(RenderProofError, "missing render layout proof"):
-            validate_render_layout_proof(
-                artifact_label="rendered recovery document",
-                layout_proof=None,
+class TestRenderSummarys(unittest.TestCase):
+    def test_validate_render_layout_summary_requires_summary(self) -> None:
+        with self.assertRaisesRegex(RenderValidationError, "missing render layout report"):
+            validate_layout_report(
+                document_label="rendered recovery document",
+                layout_report=None,
                 expected_page_count=1,
             )
 
-    def test_validate_render_layout_proof_rejects_page_count_and_order_mismatch(self) -> None:
+    def test_validate_render_layout_summary_rejects_page_count_and_order_mismatch(self) -> None:
         page_one = _layout_page(1)
         page_two = _layout_page(2)
         cases = (
-            RenderLayoutProof(backend="direct", page_count=1, pages=(page_one, page_two)),
-            RenderLayoutProof(backend="direct", page_count=2, pages=(page_two, page_one)),
+            LayoutReport(backend="direct", page_count=1, pages=(page_one, page_two)),
+            LayoutReport(backend="direct", page_count=2, pages=(page_two, page_one)),
         )
-        for proof in cases:
-            with self.subTest(proof=proof), self.assertRaises(RenderProofError):
-                validate_render_layout_proof(
-                    artifact_label="rendered recovery document",
-                    layout_proof=proof,
+        for summary in cases:
+            with self.subTest(summary=summary), self.assertRaises(RenderValidationError):
+                validate_layout_report(
+                    document_label="rendered recovery document",
+                    layout_report=summary,
                     expected_page_count=2,
                 )
 
-    def test_validate_render_layout_proof_rejects_overflow_and_out_of_bounds(self) -> None:
+    def test_validate_render_layout_summary_rejects_overflow_and_out_of_bounds(self) -> None:
         for page in (
             _layout_page(1, overflow_component_ids=("fallback",)),
             _layout_page(1, out_of_bounds_component_ids=("fallback",)),
@@ -79,13 +79,13 @@ class TestRenderProofs(unittest.TestCase):
             with (
                 self.subTest(page=page),
                 self.assertRaisesRegex(
-                    RenderProofError,
+                    RenderValidationError,
                     "clipped or out-of-bounds",
                 ),
             ):
-                validate_render_layout_proof(
-                    artifact_label="rendered recovery document",
-                    layout_proof=RenderLayoutProof(
+                validate_layout_report(
+                    document_label="rendered recovery document",
+                    layout_report=LayoutReport(
                         backend="direct",
                         page_count=1,
                         pages=(page,),
@@ -93,7 +93,7 @@ class TestRenderProofs(unittest.TestCase):
                     expected_page_count=1,
                 )
 
-    def test_validate_render_artifact_proof_accepts_matching_render_inputs(self) -> None:
+    def test_validate_rendered_document_summary_accepts_matching_render_inputs(self) -> None:
         frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -108,10 +108,10 @@ class TestRenderProofs(unittest.TestCase):
             output_path="/tmp/out.pdf",
             context={},
             doc_type="main",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             render_fallback=False,
         )
-        proof = RenderArtifactProof(
+        summary = RenderedDocumentSummary(
             output_path="/tmp/out.pdf",
             doc_type="main",
             frame_digests=(frame_digest(frame),),
@@ -122,13 +122,13 @@ class TestRenderProofs(unittest.TestCase):
             physical_qr_payload_digests=(_qr_payload_digest_for_frame(frame),),
         )
 
-        validate_render_artifact_proof(
-            artifact_label="rendered QR document",
+        validate_rendered_document_summary(
+            document_label="rendered QR document",
             inputs=inputs,
-            artifact_proof=proof,
+            document_summary=summary,
         )
 
-    def test_validate_render_artifact_proof_rejects_frame_mismatch(self) -> None:
+    def test_validate_rendered_document_summary_rejects_frame_mismatch(self) -> None:
         frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -143,10 +143,10 @@ class TestRenderProofs(unittest.TestCase):
             output_path="/tmp/out.pdf",
             context={},
             doc_type="main",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             render_fallback=False,
         )
-        proof = RenderArtifactProof(
+        summary = RenderedDocumentSummary(
             output_path="/tmp/out.pdf",
             doc_type="main",
             frame_digests=("not-the-frame",),
@@ -157,16 +157,16 @@ class TestRenderProofs(unittest.TestCase):
             physical_qr_payload_digests=(_qr_payload_digest_for_frame(frame),),
         )
 
-        with self.assertRaises(RenderProofError) as ctx:
-            validate_render_artifact_proof(
-                artifact_label="rendered QR document",
+        with self.assertRaises(RenderValidationError) as ctx:
+            validate_rendered_document_summary(
+                document_label="rendered QR document",
                 inputs=inputs,
-                artifact_proof=proof,
+                document_summary=summary,
             )
 
         self.assertIn("frame digests", str(ctx.exception))
 
-    def test_validate_render_artifact_proof_rejects_duplicate_omitted_qr_payload(self) -> None:
+    def test_validate_rendered_document_summary_rejects_duplicate_omitted_qr_payload(self) -> None:
         frames = (
             Frame(
                 version=VERSION,
@@ -192,10 +192,10 @@ class TestRenderProofs(unittest.TestCase):
             output_path="/tmp/out.pdf",
             context={},
             doc_type="main",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             render_fallback=False,
         )
-        proof = RenderArtifactProof(
+        summary = RenderedDocumentSummary(
             output_path="/tmp/out.pdf",
             doc_type="main",
             frame_digests=tuple(frame_digest(frame) for frame in frames),
@@ -206,16 +206,18 @@ class TestRenderProofs(unittest.TestCase):
             physical_qr_payload_digests=(payload_digests[0], payload_digests[0]),
         )
 
-        with self.assertRaises(RenderProofError) as ctx:
-            validate_render_artifact_proof(
-                artifact_label="rendered QR document",
+        with self.assertRaises(RenderValidationError) as ctx:
+            validate_rendered_document_summary(
+                document_label="rendered QR document",
                 inputs=inputs,
-                artifact_proof=proof,
+                document_summary=summary,
             )
 
         self.assertIn("omit or reorder", str(ctx.exception))
 
-    def test_validate_render_artifact_proof_accepts_intentional_repeated_qr_payload(self) -> None:
+    def test_validate_rendered_document_summary_accepts_intentional_repeated_qr_payload(
+        self,
+    ) -> None:
         frame = Frame(
             version=VERSION,
             frame_type=FrameType.KEY_DOCUMENT,
@@ -231,10 +233,10 @@ class TestRenderProofs(unittest.TestCase):
             output_path="/tmp/out.pdf",
             context={},
             doc_type="shard",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             render_fallback=False,
         )
-        proof = RenderArtifactProof(
+        summary = RenderedDocumentSummary(
             output_path="/tmp/out.pdf",
             doc_type="shard",
             frame_digests=(frame_digest(frame),),
@@ -245,13 +247,13 @@ class TestRenderProofs(unittest.TestCase):
             physical_qr_payload_digests=(payload_digest, payload_digest),
         )
 
-        validate_render_artifact_proof(
-            artifact_label="rendered shard document",
+        validate_rendered_document_summary(
+            document_label="rendered shard document",
             inputs=inputs,
-            artifact_proof=proof,
+            document_summary=summary,
         )
 
-    def test_validate_render_artifact_proof_rejects_physical_qr_count_mismatch(self) -> None:
+    def test_validate_rendered_document_summary_rejects_physical_qr_count_mismatch(self) -> None:
         frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -266,11 +268,11 @@ class TestRenderProofs(unittest.TestCase):
             output_path="/tmp/out.pdf",
             context={},
             doc_type="recovery",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             render_qr=False,
             render_fallback=False,
         )
-        proof = RenderArtifactProof(
+        summary = RenderedDocumentSummary(
             output_path="/tmp/out.pdf",
             doc_type="recovery",
             frame_digests=(frame_digest(frame),),
@@ -278,16 +280,16 @@ class TestRenderProofs(unittest.TestCase):
             physical_qr_count=1,
         )
 
-        with self.assertRaises(RenderProofError) as ctx:
-            validate_render_artifact_proof(
-                artifact_label="rendered recovery document",
+        with self.assertRaises(RenderValidationError) as ctx:
+            validate_rendered_document_summary(
+                document_label="rendered recovery document",
                 inputs=inputs,
-                artifact_proof=proof,
+                document_summary=summary,
             )
 
         self.assertIn("physical QR count", str(ctx.exception))
 
-    def test_build_render_artifact_proof_requires_physical_qr_count(self) -> None:
+    def test_build_rendered_document_summary_requires_physical_qr_count(self) -> None:
         frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -302,27 +304,27 @@ class TestRenderProofs(unittest.TestCase):
             output_path="/tmp/out.pdf",
             context={},
             doc_type="recovery",
-            lineage=RenderLineage(kind="root_backup"),
+            origin=DocumentOrigin(kind="root_backup"),
             render_qr=False,
             render_fallback=False,
         )
 
-        proof = build_render_artifact_proof(
+        summary = build_rendered_document_summary(
             inputs,
             encoded_payload_count=1,
             physical_qr_count=0,
-            fallback_proof=None,
+            fallback_summary=None,
         )
 
-        self.assertEqual(proof.encoded_payload_count, 1)
-        self.assertEqual(proof.physical_qr_count, 0)
-        validate_render_artifact_proof(
-            artifact_label="rendered recovery document",
+        self.assertEqual(summary.encoded_payload_count, 1)
+        self.assertEqual(summary.physical_qr_count, 0)
+        validate_rendered_document_summary(
+            document_label="rendered recovery document",
             inputs=inputs,
-            artifact_proof=proof,
+            document_summary=summary,
         )
 
-    def test_validate_fallback_render_proof_accepts_matching_consumed_frames(self) -> None:
+    def test_validate_fallback_render_summary_accepts_matching_consumed_frames(self) -> None:
         frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -331,7 +333,7 @@ class TestRenderProofs(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        proof = RenderFallbackProof(
+        summary = FallbackSummary(
             section_frame_digests=(frame_digest(frame),),
             section_titles=("Main Frame",),
             expected_section_count=1,
@@ -342,13 +344,13 @@ class TestRenderProofs(unittest.TestCase):
             emitted_fallback_lines=("line",),
         )
 
-        validate_fallback_render_proof(
-            artifact_label="rendered recovery document",
+        validate_fallback_summary(
+            document_label="rendered recovery document",
             frames=(frame,),
-            fallback_proof=proof,
+            fallback_summary=summary,
         )
 
-    def test_validate_fallback_render_proof_rejects_unconsumed_frames(self) -> None:
+    def test_validate_fallback_render_summary_rejects_unconsumed_frames(self) -> None:
         frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -357,7 +359,7 @@ class TestRenderProofs(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        proof = RenderFallbackProof(
+        summary = FallbackSummary(
             section_frame_digests=(frame_digest(frame),),
             section_titles=("Main Frame",),
             expected_section_count=1,
@@ -368,11 +370,11 @@ class TestRenderProofs(unittest.TestCase):
             emitted_fallback_lines=(),
         )
 
-        with self.assertRaises(RenderProofError) as ctx:
-            validate_fallback_render_proof(
-                artifact_label="rendered recovery document",
+        with self.assertRaises(RenderValidationError) as ctx:
+            validate_fallback_summary(
+                document_label="rendered recovery document",
                 frames=(frame,),
-                fallback_proof=proof,
+                fallback_summary=summary,
             )
 
         self.assertIn("did not emit all fallback", str(ctx.exception))
@@ -390,16 +392,19 @@ class TestRenderProofs(unittest.TestCase):
         lines = _rendered_fallback_lines(frame, line_length=24)
 
         class _Page:
-            def extract_text(self) -> str:
+            def extract_text(self, **_kwargs) -> str:
                 collapsed = [line.replace(" ", "") for line in lines]
-                return "Auth Frame\n" + "\n".join(
+                text = "Auth Frame\n" + "\n".join(
                     f"{index:02d}. {line}" for index, line in enumerate(collapsed, start=1)
                 )
+                if visitor := _kwargs.get("visitor_text"):
+                    visitor(text, None, None, None, None)
+                return text
 
         class _Reader:
             pages = [_Page()]
 
-        proof = RenderFallbackProof(
+        summary = FallbackSummary(
             section_frame_digests=(frame_digest(frame),),
             section_titles=("Auth Frame",),
             expected_section_count=1,
@@ -411,10 +416,10 @@ class TestRenderProofs(unittest.TestCase):
         )
 
         validate_fallback_text_in_pdf(
-            artifact_label="rendered recovery document",
+            document_label="rendered recovery document",
             reader=_Reader(),
             fallback_sections=(FallbackSection(label="Auth Frame", frame=frame),),
-            fallback_proof=proof,
+            fallback_summary=summary,
         )
 
     def test_validate_fallback_text_round_trips_more_than_nine_lines(self) -> None:
@@ -434,7 +439,7 @@ class TestRenderProofs(unittest.TestCase):
         )
 
         validate_fallback_text_in_pdf(
-            artifact_label="rendered recovery document",
+            document_label="rendered recovery document",
             reader=reader,
             fallback_sections=(FallbackSection(label="Main Frame", frame=frame),),
         )
@@ -455,7 +460,7 @@ class TestRenderProofs(unittest.TestCase):
         )
 
         validate_fallback_text_in_pdf(
-            artifact_label="rendered recovery document",
+            document_label="rendered recovery document",
             reader=reader,
             fallback_sections=(FallbackSection(label="Main Frame", frame=frame),),
         )
@@ -475,9 +480,9 @@ class TestRenderProofs(unittest.TestCase):
             "Main Frame\n" + "\n".join(f"1. {line}" for line in fallback_lines)
         )
 
-        with self.assertRaises(RenderProofError):
+        with self.assertRaises(RenderValidationError):
             validate_fallback_text_in_pdf(
-                artifact_label="rendered recovery document",
+                document_label="rendered recovery document",
                 reader=reader,
                 fallback_sections=(FallbackSection(label="Main Frame", frame=frame),),
             )
@@ -508,9 +513,9 @@ class TestRenderProofs(unittest.TestCase):
                         f"{index:02d}. {line}" for index, line in enumerate(actual_lines, start=1)
                     )
                 )
-                with self.assertRaises(RenderProofError):
+                with self.assertRaises(RenderValidationError):
                     validate_fallback_text_in_pdf(
-                        artifact_label="rendered recovery document",
+                        document_label="rendered recovery document",
                         reader=reader,
                         fallback_sections=(FallbackSection(label="Main Frame", frame=frame),),
                     )
@@ -536,9 +541,9 @@ class TestRenderProofs(unittest.TestCase):
             "SHARD PAYLOAD\n" + "\n".join(_rendered_fallback_lines(actual, line_length=80))
         )
 
-        with self.assertRaisesRegex(RenderProofError, "document identity"):
+        with self.assertRaisesRegex(RenderValidationError, "document identity"):
             validate_fallback_text_in_pdf(
-                artifact_label="rendered shard",
+                document_label="rendered shard",
                 reader=reader,
                 fallback_sections=(FallbackSection(label="SHARD PAYLOAD", frame=expected),),
             )
@@ -552,9 +557,9 @@ class TestRenderProofs(unittest.TestCase):
             + _numbered_section_text("Auth Frame", auth)
         )
 
-        with self.assertRaisesRegex(RenderProofError, "reordered"):
+        with self.assertRaisesRegex(RenderValidationError, "reordered"):
             validate_fallback_text_in_pdf(
-                artifact_label="rendered recovery document",
+                document_label="rendered recovery document",
                 reader=reader,
                 fallback_sections=(
                     FallbackSection(label="Auth Frame", frame=auth),
@@ -571,9 +576,9 @@ class TestRenderProofs(unittest.TestCase):
             + "\n".join(_rendered_fallback_lines(foreign, line_length=80))
         )
 
-        with self.assertRaisesRegex(RenderProofError, "unexpected fallback section"):
+        with self.assertRaisesRegex(RenderValidationError, "unexpected fallback section"):
             validate_fallback_text_in_pdf(
-                artifact_label="rendered recovery document",
+                document_label="rendered recovery document",
                 reader=reader,
                 fallback_sections=(FallbackSection(label="Main Frame", frame=main),),
             )
@@ -591,9 +596,9 @@ class TestRenderProofs(unittest.TestCase):
             )
         )
 
-        with self.assertRaises(RenderProofError):
+        with self.assertRaises(RenderValidationError):
             validate_fallback_text_in_pdf(
-                artifact_label="rendered recovery document",
+                document_label="rendered recovery document",
                 reader=reader,
                 fallback_sections=(FallbackSection(label="Main Frame", frame=expected),),
             )
@@ -604,9 +609,9 @@ class TestRenderProofs(unittest.TestCase):
             _numbered_section_text("Main Frame", main) + "\nFooter\nMain Frame\n03. specifications"
         )
 
-        with self.assertRaisesRegex(RenderProofError, "duplicate 'Main Frame'"):
+        with self.assertRaisesRegex(RenderValidationError, "duplicate 'Main Frame'"):
             validate_fallback_text_in_pdf(
-                artifact_label="rendered recovery document",
+                document_label="rendered recovery document",
                 reader=reader,
                 fallback_sections=(FallbackSection(label="Main Frame", frame=main),),
             )
@@ -624,9 +629,9 @@ class TestRenderProofs(unittest.TestCase):
         self.assertIn("k", text)
         reader = _reader_with_text(text.replace("k", "\N{KELVIN SIGN}", 1))
 
-        with self.assertRaises(RenderProofError):
+        with self.assertRaises(RenderValidationError):
             validate_fallback_text_in_pdf(
-                artifact_label="rendered recovery document",
+                document_label="rendered recovery document",
                 reader=reader,
                 fallback_sections=(FallbackSection(label="Main Frame", frame=frame),),
             )
@@ -645,9 +650,9 @@ class TestRenderProofs(unittest.TestCase):
             + "\nETHERNITY FOOTER"
         )
 
-        with self.assertRaises(RenderProofError):
+        with self.assertRaises(RenderValidationError):
             validate_fallback_text_in_pdf(
-                artifact_label="rendered shard",
+                document_label="rendered shard",
                 reader=reader,
                 fallback_sections=(FallbackSection(label=None, frame=expected),),
             )
@@ -662,9 +667,9 @@ class TestRenderProofs(unittest.TestCase):
             + "\n".join(_rendered_fallback_lines(foreign, line_length=80))
         )
 
-        with self.assertRaisesRegex(RenderProofError, "unexpected fallback section"):
+        with self.assertRaisesRegex(RenderValidationError, "unexpected fallback section"):
             validate_fallback_text_in_pdf(
-                artifact_label="rendered shard",
+                document_label="rendered shard",
                 reader=reader,
                 fallback_sections=(FallbackSection(label=None, frame=expected),),
             )
@@ -684,10 +689,10 @@ def _layout_page(
     *,
     overflow_component_ids: tuple[str, ...] = (),
     out_of_bounds_component_ids: tuple[str, ...] = (),
-) -> RenderPageLayoutProof:
-    return RenderPageLayoutProof(
+) -> PageLayout:
+    return PageLayout(
         page_number=page_number,
-        rect=RenderRectProof(x_mm=0, y_mm=0, width_mm=210, height_mm=297),
+        rect=RenderRect(x_mm=0, y_mm=0, width_mm=210, height_mm=297),
         component_ids=(),
         overflow_component_ids=overflow_component_ids,
         out_of_bounds_component_ids=out_of_bounds_component_ids,
@@ -708,7 +713,9 @@ def _numbered_section_text(label: str, frame: Frame) -> str:
 
 def _reader_with_text(text: str) -> object:
     class _Page:
-        def extract_text(self) -> str:
+        def extract_text(self, **_kwargs) -> str:
+            if visitor := _kwargs.get("visitor_text"):
+                visitor(text, None, None, None, None)
             return text
 
     class _Reader:

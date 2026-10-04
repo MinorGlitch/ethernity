@@ -46,6 +46,24 @@ def decode_qr_from_bytes(png_data: bytes) -> list[bytes]:
 
 
 class TestQrCodec(unittest.TestCase):
+    def test_indistinguishable_and_inverted_print_colors_are_rejected(self) -> None:
+        for dark, light in (
+            ("white", "#ffffff"),
+            ("fff", "ffffff"),
+            ((0, 0, 0), "black"),
+            ((0, 0, 0, 0), "white"),
+            ("white", "black"),
+        ):
+            with self.subTest(dark=dark, light=light):
+                with self.assertRaisesRegex(ValueError, "darker"):
+                    qr_bytes(b"contrast", dark=dark, light=light)
+
+    def test_print_color_validation_accepts_segno_hex_colors(self) -> None:
+        for dark, light in (("000", "fff"), ("000000", "ffffff"), ("000000ff", "ffffffff")):
+            with self.subTest(dark=dark, light=light):
+                png = qr_bytes(b"hex colors", dark=dark, light=light)
+                self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+
     def test_png_signature_for_bytes_and_text_payloads(self) -> None:
         """Generated PNG bytes should start with a valid PNG signature."""
         payloads = (
@@ -103,6 +121,13 @@ class TestQrCodec(unittest.TestCase):
         """Test that module_shape argument is not supported."""
         with self.assertRaises(TypeError):
             qr_bytes(b"data", module_shape="rounded")  # type: ignore[call-arg]
+
+    @unittest.skipUnless(HAS_ZXING, "zxingcpp not available")
+    def test_unicode_text_payloads_decode_as_utf8_bytes(self) -> None:
+        for payload in ("unicode recovery caf\u00e9", "recovery \u6f22\u5b57 \u2603"):
+            with self.subTest(payload=payload):
+                png = qr_bytes(payload, micro=False)
+                self.assertEqual(decode_qr_from_bytes(png), [payload.encode("utf-8")])
 
     @unittest.skipUnless(HAS_ZXING, "zxingcpp not available")
     def test_binary_all_bytes_decodable(self) -> None:

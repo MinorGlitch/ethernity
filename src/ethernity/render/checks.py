@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Shared render proof construction and validation helpers."""
+"""Construct and validate render summaries."""
 
 from __future__ import annotations
 
@@ -36,10 +36,10 @@ from ethernity.encoding.framing import Frame, encode_frame
 from ethernity.encoding.zbase32 import ZBASE32_ALPHABET, encode_zbase32
 from ethernity.render.types import (
     FallbackSection,
-    RenderArtifactProof,
-    RenderFallbackProof,
+    FallbackSummary,
+    LayoutReport,
+    RenderedDocumentSummary,
     RenderInputs,
-    RenderLayoutProof,
 )
 
 _NUMBERED_FALLBACK_PREFIX = re.compile(r"(?<!\d)\d{1,4}\.\s*")
@@ -51,7 +51,7 @@ _UNNUMBERED_FALLBACK_ANCHORS = frozenset(
         "shard payload",
     }
 )
-_CANONICAL_FALLBACK_TITLES = frozenset(
+_KNOWN_FALLBACK_TITLES = frozenset(
     {"auth frame", "key frame", "main frame", "shard frame", "shard payload"}
 )
 _MAX_EXTRACTED_PDF_LINES = MAX_FALLBACK_LINES * 4
@@ -60,8 +60,8 @@ _PDF_TEXT_LINE_BREAKS = frozenset(
 )
 
 
-class RenderProofError(ValueError):
-    """Raised when a rendered artifact does not match its proof contract."""
+class RenderValidationError(ValueError):
+    """Raised when a rendered document does not match its recorded summary."""
 
     def __init__(self, message: str, *, details: Mapping[str, object] | None = None) -> None:
         super().__init__(message)
@@ -69,13 +69,13 @@ class RenderProofError(ValueError):
 
 
 def frame_digest(frame: Frame) -> str:
-    """Return the stable digest used by render proofs for a frame."""
+    """Return the stable digest used by render summaries for a frame."""
 
     return hashlib.sha256(encode_frame(frame)).hexdigest()
 
 
 def qr_payload_digest(payload: bytes | str) -> str:
-    """Return the stable digest used by render proofs for an encoded QR payload."""
+    """Return the stable digest used by render summaries for an encoded QR payload."""
 
     digest = hashlib.sha256()
     if isinstance(payload, str):
@@ -87,7 +87,7 @@ def qr_payload_digest(payload: bytes | str) -> str:
     return digest.hexdigest()
 
 
-def build_render_artifact_proof(
+def build_rendered_document_summary(
     inputs: RenderInputs,
     *,
     qr_payloads: Sequence[bytes | str] | None = None,
@@ -95,9 +95,9 @@ def build_render_artifact_proof(
     physical_qr_count: int,
     physical_qr_payload_indexes: Sequence[int] | None = None,
     page_count: int = 0,
-    fallback_proof: RenderFallbackProof | None,
-) -> RenderArtifactProof:
-    """Build the app-wide render proof for one PDF artifact."""
+    fallback_summary: FallbackSummary | None,
+) -> RenderedDocumentSummary:
+    """Build the app-wide summary record for one rendered PDF document."""
 
     if qr_payloads is not None:
         planned_payloads = tuple(qr_payloads)
@@ -114,247 +114,252 @@ def build_render_artifact_proof(
         )
     physical_payload_digests = tuple(qr_payload_digests[index] for index in physical_indexes)
 
-    return RenderArtifactProof(
+    return RenderedDocumentSummary(
         output_path=str(inputs.output_path),
         doc_type=inputs.doc_type,
         frame_digests=tuple(frame_digest(frame) for frame in inputs.frames),
         encoded_payload_count=encoded_payload_count,
         physical_qr_count=physical_qr_count,
         page_count=page_count,
-        fallback_proof=fallback_proof,
+        fallback_summary=fallback_summary,
         qr_payload_digests=qr_payload_digests,
         physical_qr_payload_indexes=physical_indexes,
         physical_qr_payload_digests=physical_payload_digests,
     )
 
 
-def validate_pdf_has_pages(path: str | Path, *, artifact_label: str | None = None) -> PdfReader:
+def validate_pdf_has_pages(path: str | Path, *, document_label: str | None = None) -> PdfReader:
     """Load a rendered PDF and require it to contain at least one page."""
 
-    artifact_path = Path(path)
-    label = artifact_label or artifact_path.name
+    document_path = Path(path)
+    label = document_label or document_path.name
     try:
-        reader = PdfReader(str(artifact_path))
+        reader = PdfReader(str(document_path))
     except Exception as exc:
-        raise RenderProofError(f"{label} is invalid: {exc}", details={"path": str(path)}) from exc
+        raise RenderValidationError(
+            f"{label} is invalid: {exc}", details={"path": str(path)}
+        ) from exc
     if len(reader.pages) <= 0:
-        raise RenderProofError(
+        raise RenderValidationError(
             f"{label} must contain at least one page",
             details={"path": str(path)},
         )
     return reader
 
 
-def validate_fallback_render_proof(
+def validate_fallback_summary(
     *,
-    artifact_label: str,
+    document_label: str,
     frames: Sequence[Frame],
-    fallback_proof: RenderFallbackProof | None,
+    fallback_summary: FallbackSummary | None,
 ) -> None:
-    """Validate that fallback proof data matches the planned fallback frames."""
+    """Validate that fallback summary data matches the planned fallback frames."""
 
-    if fallback_proof is None:
-        raise RenderProofError(f"{artifact_label} is missing fallback render proof")
+    if fallback_summary is None:
+        raise RenderValidationError(f"{document_label} is missing fallback render summary")
     expected_digests = tuple(frame_digest(frame) for frame in frames)
-    if fallback_proof.section_frame_digests != expected_digests:
-        raise RenderProofError(
-            f"{artifact_label} fallback proof does not match the planned fallback frames"
+    if fallback_summary.section_frame_digests != expected_digests:
+        raise RenderValidationError(
+            f"{document_label} fallback summary does not match the planned fallback frames"
         )
     if (
-        fallback_proof.expected_section_count != len(frames)
-        or fallback_proof.consumed_section_count != len(frames)
-        or not fallback_proof.fully_consumed
-        or fallback_proof.emitted_block_count <= 0
-        or fallback_proof.emitted_line_count <= 0
-        or fallback_proof.emitted_line_count != len(fallback_proof.emitted_fallback_lines)
+        fallback_summary.expected_section_count != len(frames)
+        or fallback_summary.consumed_section_count != len(frames)
+        or not fallback_summary.fully_consumed
+        or fallback_summary.emitted_block_count <= 0
+        or fallback_summary.emitted_line_count <= 0
+        or fallback_summary.emitted_line_count != len(fallback_summary.emitted_fallback_lines)
     ):
-        raise RenderProofError(
-            f"{artifact_label} did not emit all fallback recovery sections",
+        raise RenderValidationError(
+            f"{document_label} did not emit all fallback recovery sections",
             details={
                 "expected_section_count": len(frames),
-                "proof_expected_section_count": fallback_proof.expected_section_count,
-                "consumed_section_count": fallback_proof.consumed_section_count,
-                "emitted_block_count": fallback_proof.emitted_block_count,
-                "emitted_line_count": fallback_proof.emitted_line_count,
-                "emitted_fallback_line_count": len(fallback_proof.emitted_fallback_lines),
-                "fully_consumed": fallback_proof.fully_consumed,
+                "recorded_expected_section_count": fallback_summary.expected_section_count,
+                "consumed_section_count": fallback_summary.consumed_section_count,
+                "emitted_block_count": fallback_summary.emitted_block_count,
+                "emitted_line_count": fallback_summary.emitted_line_count,
+                "emitted_fallback_line_count": len(fallback_summary.emitted_fallback_lines),
+                "fully_consumed": fallback_summary.fully_consumed,
             },
         )
 
 
-def validate_render_artifact_proof(
+def validate_rendered_document_summary(
     *,
-    artifact_label: str,
+    document_label: str,
     inputs: RenderInputs,
-    artifact_proof: RenderArtifactProof | None,
+    document_summary: RenderedDocumentSummary | None,
 ) -> None:
-    """Validate that an artifact proof matches the render inputs that produced it."""
+    """Validate that a document summary matches the render inputs that produced it."""
 
-    if artifact_proof is None:
-        raise RenderProofError(f"{artifact_label} is missing render artifact proof")
-    if Path(artifact_proof.output_path) != Path(inputs.output_path):
-        raise RenderProofError(
-            f"{artifact_label} proof output path does not match render inputs",
+    if document_summary is None:
+        raise RenderValidationError(f"{document_label} is missing rendered document summary")
+    if Path(document_summary.output_path) != Path(inputs.output_path):
+        raise RenderValidationError(
+            f"{document_label} summary output path does not match render inputs",
             details={
                 "expected_output_path": str(inputs.output_path),
-                "proof_output_path": artifact_proof.output_path,
+                "recorded_output_path": document_summary.output_path,
             },
         )
-    if artifact_proof.doc_type != inputs.doc_type:
-        raise RenderProofError(
-            f"{artifact_label} proof doc_type does not match render inputs",
+    if document_summary.doc_type != inputs.doc_type:
+        raise RenderValidationError(
+            f"{document_label} summary doc_type does not match render inputs",
             details={
                 "expected_doc_type": inputs.doc_type,
-                "proof_doc_type": artifact_proof.doc_type,
+                "recorded_doc_type": document_summary.doc_type,
             },
         )
     expected_frame_digests = tuple(frame_digest(frame) for frame in inputs.frames)
-    if artifact_proof.frame_digests != expected_frame_digests:
-        raise RenderProofError(
-            f"{artifact_label} proof frame digests do not match render inputs",
+    if document_summary.frame_digests != expected_frame_digests:
+        raise RenderValidationError(
+            f"{document_label} summary frame digests do not match render inputs",
             details={
                 "expected_frame_count": len(expected_frame_digests),
-                "proof_frame_count": len(artifact_proof.frame_digests),
+                "recorded_frame_count": len(document_summary.frame_digests),
             },
         )
     expected_encoded_payload_count = len(inputs.qr_payloads or inputs.frames)
-    if artifact_proof.encoded_payload_count != expected_encoded_payload_count:
-        raise RenderProofError(
-            f"{artifact_label} proof encoded payload count does not match render inputs",
+    if document_summary.encoded_payload_count != expected_encoded_payload_count:
+        raise RenderValidationError(
+            f"{document_label} summary encoded payload count does not match render inputs",
             details={
                 "expected_encoded_payload_count": expected_encoded_payload_count,
-                "proof_encoded_payload_count": artifact_proof.encoded_payload_count,
+                "recorded_encoded_payload_count": document_summary.encoded_payload_count,
             },
         )
     expected_qr_payload_digests = _expected_qr_payload_digests(inputs)
-    proof_qr_payload_digests = (
-        artifact_proof.qr_payload_digests
-        if artifact_proof.qr_payload_digests
+    recorded_qr_payload_digests = (
+        document_summary.qr_payload_digests
+        if document_summary.qr_payload_digests
         else expected_qr_payload_digests
     )
-    if proof_qr_payload_digests != expected_qr_payload_digests:
-        raise RenderProofError(
-            f"{artifact_label} proof QR payload digests do not match render inputs",
+    if recorded_qr_payload_digests != expected_qr_payload_digests:
+        raise RenderValidationError(
+            f"{document_label} summary QR payload digests do not match render inputs",
             details={
                 "expected_qr_payload_count": len(expected_qr_payload_digests),
-                "proof_qr_payload_count": len(proof_qr_payload_digests),
+                "recorded_qr_payload_count": len(recorded_qr_payload_digests),
             },
         )
-    if not inputs.render_qr and artifact_proof.physical_qr_count != 0:
-        raise RenderProofError(
-            f"{artifact_label} proof physical QR count does not match render inputs",
+    if not inputs.render_qr and document_summary.physical_qr_count != 0:
+        raise RenderValidationError(
+            f"{document_label} summary physical QR count does not match render inputs",
             details={
                 "expected_physical_qr_count": 0,
-                "proof_physical_qr_count": artifact_proof.physical_qr_count,
+                "recorded_physical_qr_count": document_summary.physical_qr_count,
             },
         )
     if not inputs.render_qr and (
-        artifact_proof.physical_qr_payload_indexes or artifact_proof.physical_qr_payload_digests
+        document_summary.physical_qr_payload_indexes or document_summary.physical_qr_payload_digests
     ):
-        raise RenderProofError(
-            f"{artifact_label} proof physical QR payloads do not match render inputs",
+        raise RenderValidationError(
+            f"{document_label} summary physical QR payloads do not match render inputs",
             details={
                 "expected_physical_qr_count": 0,
-                "proof_physical_qr_payload_count": len(artifact_proof.physical_qr_payload_digests),
+                "recorded_physical_qr_payload_count": len(
+                    document_summary.physical_qr_payload_digests
+                ),
             },
         )
-    if inputs.render_qr and artifact_proof.physical_qr_count < expected_encoded_payload_count:
-        raise RenderProofError(
-            f"{artifact_label} proof physical QR count is below render inputs",
+    if inputs.render_qr and document_summary.physical_qr_count < expected_encoded_payload_count:
+        raise RenderValidationError(
+            f"{document_label} summary physical QR count is below render inputs",
             details={
                 "minimum_physical_qr_count": expected_encoded_payload_count,
-                "proof_physical_qr_count": artifact_proof.physical_qr_count,
+                "recorded_physical_qr_count": document_summary.physical_qr_count,
             },
         )
     if inputs.render_qr:
         _validate_physical_qr_indexes(
-            artifact_proof.physical_qr_payload_indexes,
+            document_summary.physical_qr_payload_indexes,
             expected_encoded_payload_count=expected_encoded_payload_count,
         )
         expected_physical_digests = tuple(
             expected_qr_payload_digests[index]
-            for index in artifact_proof.physical_qr_payload_indexes
+            for index in document_summary.physical_qr_payload_indexes
         )
-        if artifact_proof.physical_qr_payload_digests != expected_physical_digests:
-            raise RenderProofError(
-                f"{artifact_label} proof physical QR payload digests do not match QR indexes",
+        if document_summary.physical_qr_payload_digests != expected_physical_digests:
+            raise RenderValidationError(
+                f"{document_label} summary physical QR payload digests do not match QR indexes",
                 details={
-                    "proof_physical_qr_count": artifact_proof.physical_qr_count,
-                    "proof_physical_qr_payload_count": len(
-                        artifact_proof.physical_qr_payload_digests
+                    "recorded_physical_qr_count": document_summary.physical_qr_count,
+                    "recorded_physical_qr_payload_count": len(
+                        document_summary.physical_qr_payload_digests
                     ),
                 },
             )
         if (
-            len(artifact_proof.physical_qr_payload_indexes) != artifact_proof.physical_qr_count
-            or len(artifact_proof.physical_qr_payload_digests) != artifact_proof.physical_qr_count
+            len(document_summary.physical_qr_payload_indexes) != document_summary.physical_qr_count
+            or len(document_summary.physical_qr_payload_digests)
+            != document_summary.physical_qr_count
         ):
-            raise RenderProofError(
-                f"{artifact_label} proof physical QR payload count does not match placements",
+            raise RenderValidationError(
+                f"{document_label} summary physical QR payload count does not match placements",
                 details={
-                    "proof_physical_qr_count": artifact_proof.physical_qr_count,
-                    "proof_physical_qr_index_count": len(
-                        artifact_proof.physical_qr_payload_indexes
+                    "recorded_physical_qr_count": document_summary.physical_qr_count,
+                    "recorded_physical_qr_index_count": len(
+                        document_summary.physical_qr_payload_indexes
                     ),
-                    "proof_physical_qr_payload_count": len(
-                        artifact_proof.physical_qr_payload_digests
+                    "recorded_physical_qr_payload_count": len(
+                        document_summary.physical_qr_payload_digests
                     ),
                 },
             )
-        if _first_physical_qr_occurrences(artifact_proof.physical_qr_payload_indexes) != tuple(
+        if _first_physical_qr_occurrences(document_summary.physical_qr_payload_indexes) != tuple(
             range(expected_encoded_payload_count)
         ):
-            raise RenderProofError(
-                f"{artifact_label} proof physical QR placements omit or reorder payloads",
+            raise RenderValidationError(
+                f"{document_label} summary physical QR placements omit or reorder payloads",
                 details={
                     "expected_payload_indexes": tuple(range(expected_encoded_payload_count)),
-                    "proof_first_payload_indexes": _first_physical_qr_occurrences(
-                        artifact_proof.physical_qr_payload_indexes
+                    "recorded_first_payload_indexes": _first_physical_qr_occurrences(
+                        document_summary.physical_qr_payload_indexes
                     ),
                 },
             )
 
 
-def validate_render_layout_proof(
+def validate_layout_report(
     *,
-    artifact_label: str,
-    layout_proof: RenderLayoutProof | None,
+    document_label: str,
+    layout_report: LayoutReport | None,
     expected_page_count: int,
 ) -> None:
-    """Require complete, non-overflowing measured layout evidence for a rendered artifact."""
+    """Require complete, non-overflowing measured layout data for a rendered document."""
 
-    if layout_proof is None:
-        raise RenderProofError(f"{artifact_label} is missing render layout proof")
+    if layout_report is None:
+        raise RenderValidationError(f"{document_label} is missing render layout report")
     if (
-        layout_proof.page_count != expected_page_count
-        or len(layout_proof.pages) != expected_page_count
+        layout_report.page_count != expected_page_count
+        or len(layout_report.pages) != expected_page_count
     ):
-        raise RenderProofError(
-            f"{artifact_label} layout proof page count does not match the PDF artifact",
+        raise RenderValidationError(
+            f"{document_label} layout report page count does not match the PDF file",
             details={
                 "expected_page_count": expected_page_count,
-                "proof_page_count": layout_proof.page_count,
-                "proof_page_entry_count": len(layout_proof.pages),
+                "recorded_page_count": layout_report.page_count,
+                "recorded_page_entry_count": len(layout_report.pages),
             },
         )
     expected_page_numbers = tuple(range(1, expected_page_count + 1))
-    proof_page_numbers = tuple(page.page_number for page in layout_proof.pages)
-    if proof_page_numbers != expected_page_numbers:
-        raise RenderProofError(
-            f"{artifact_label} layout proof page order does not match the PDF artifact",
+    recorded_page_numbers = tuple(page.page_number for page in layout_report.pages)
+    if recorded_page_numbers != expected_page_numbers:
+        raise RenderValidationError(
+            f"{document_label} layout report page order does not match the PDF file",
             details={
                 "expected_page_numbers": expected_page_numbers,
-                "proof_page_numbers": proof_page_numbers,
+                "recorded_page_numbers": recorded_page_numbers,
             },
         )
-    if layout_proof.overflow:
+    if layout_report.overflow:
         overflow_components = tuple(
             component_id
-            for page in layout_proof.pages
+            for page in layout_report.pages
             for component_id in (*page.overflow_component_ids, *page.out_of_bounds_component_ids)
         )
-        raise RenderProofError(
-            f"{artifact_label} layout proof reports clipped or out-of-bounds content",
+        raise RenderValidationError(
+            f"{document_label} layout report reports clipped or out-of-bounds content",
             details={"overflow_component_ids": overflow_components[:10]},
         )
 
@@ -380,8 +385,8 @@ def _validate_physical_qr_indexes(
             or index < 0
             or index >= expected_encoded_payload_count
         ):
-            raise RenderProofError(
-                "render proof contains an invalid physical QR payload index",
+            raise RenderValidationError(
+                "render summary contains an invalid physical QR payload index",
                 details={
                     "invalid_index": index,
                     "expected_encoded_payload_count": expected_encoded_payload_count,
@@ -402,26 +407,26 @@ def _first_physical_qr_occurrences(indexes: Sequence[int]) -> tuple[int, ...]:
 
 def validate_fallback_text_in_pdf(
     *,
-    artifact_label: str,
+    document_label: str,
     reader: PdfReader,
     fallback_sections: Sequence[FallbackSection],
-    fallback_proof: RenderFallbackProof | None = None,
+    fallback_summary: FallbackSummary | None = None,
 ) -> None:
     """Decode extracted fallback text and require exact, ordered frame equality."""
 
     sections = tuple(fallback_sections)
     if not sections:
-        raise RenderProofError(f"{artifact_label} has no expected fallback sections")
-    _validate_fallback_proof_titles(
-        artifact_label=artifact_label,
+        raise RenderValidationError(f"{document_label} has no expected fallback sections")
+    _validate_fallback_recorded_titles(
+        document_label=document_label,
         sections=sections,
-        fallback_proof=fallback_proof,
+        fallback_summary=fallback_summary,
     )
-    extracted_lines = _bounded_extracted_pdf_lines(reader, artifact_label=artifact_label)
+    extracted_lines = _bounded_extracted_pdf_lines(reader, document_label=document_label)
     regions = _fallback_section_regions(
         extracted_lines,
         sections=sections,
-        artifact_label=artifact_label,
+        document_label=document_label,
     )
     actual_frames: list[Frame] = []
     for index, (section, region) in enumerate(zip(sections, regions, strict=True)):
@@ -432,21 +437,21 @@ def validate_fallback_text_in_pdf(
         )
         actual_frame = _try_decode_fallback_frame(encoded)
         if actual_frame is not None and _has_designated_unnumbered_payload(region):
-            raise RenderProofError(
-                f"{artifact_label} fallback section {index + 1} contains an extra payload region",
+            raise RenderValidationError(
+                f"{document_label} fallback section {index + 1} contains an extra payload region",
                 details={"section_index": index, "section_label": section.label},
             )
         if actual_frame is None:
             encoded = _extract_unnumbered_fallback_payload(
                 region,
-                artifact_label=artifact_label,
+                document_label=document_label,
                 section_index=index,
                 section_label=section.label,
             )
             actual_frame = _try_decode_fallback_frame(encoded)
         if actual_frame is None:
-            raise RenderProofError(
-                f"{artifact_label} fallback section {index + 1} is malformed or incomplete",
+            raise RenderValidationError(
+                f"{document_label} fallback section {index + 1} is malformed or incomplete",
                 details={"section_index": index, "section_label": section.label},
             )
         actual_frames.append(actual_frame)
@@ -458,11 +463,11 @@ def validate_fallback_text_in_pdf(
         elif actual_frame.doc_id != expected_frame.doc_id:
             reason = "document identity"
         elif encode_frame(actual_frame) != encode_frame(expected_frame):
-            reason = "canonical frame bytes"
+            reason = "exact frame bytes"
         else:
             continue
-        raise RenderProofError(
-            f"{artifact_label} fallback section {index + 1} does not match its expected {reason}",
+        raise RenderValidationError(
+            f"{document_label} fallback section {index + 1} does not match its expected {reason}",
             details={
                 "section_index": index,
                 "section_label": section.label,
@@ -474,51 +479,74 @@ def validate_fallback_text_in_pdf(
         )
 
 
-def _validate_fallback_proof_titles(
+def _validate_fallback_recorded_titles(
     *,
-    artifact_label: str,
+    document_label: str,
     sections: Sequence[FallbackSection],
-    fallback_proof: RenderFallbackProof | None,
+    fallback_summary: FallbackSummary | None,
 ) -> None:
-    if fallback_proof is None:
+    if fallback_summary is None:
         return
     expected_titles = tuple(
         section.label.strip() for section in sections if section.label and section.label.strip()
     )
-    if tuple(fallback_proof.section_titles) != expected_titles:
-        raise RenderProofError(
-            f"{artifact_label} fallback proof section labels do not match render inputs",
+    if tuple(fallback_summary.section_titles) != expected_titles:
+        raise RenderValidationError(
+            f"{document_label} fallback summary section labels do not match render inputs",
             details={
                 "expected_section_titles": expected_titles,
-                "proof_section_titles": fallback_proof.section_titles,
+                "recorded_section_titles": fallback_summary.section_titles,
             },
         )
 
 
-def _bounded_extracted_pdf_lines(reader: PdfReader, *, artifact_label: str) -> tuple[str, ...]:
+def _bounded_extracted_pdf_lines(reader: PdfReader, *, document_label: str) -> tuple[str, ...]:
     extracted_parts: list[str] = []
     extracted_bytes = 0
     extracted_line_count = 0
     for page in reader.pages:
-        page_text = page.extract_text() or ""
+        page_text = _extract_fallback_page_text(page)
         page_bytes = len(page_text.encode("utf-8"))
         extracted_bytes += page_bytes
         if extracted_bytes > MAX_RECOVERY_TEXT_BYTES:
-            raise RenderProofError(
-                f"{artifact_label} extracted text exceeds MAX_RECOVERY_TEXT_BYTES "
+            raise RenderValidationError(
+                f"{document_label} extracted text exceeds MAX_RECOVERY_TEXT_BYTES "
                 f"({MAX_RECOVERY_TEXT_BYTES})",
                 details={"extracted_text_bytes": extracted_bytes},
             )
         extracted_line_count += _conservative_split_line_count(page_text)
         if extracted_line_count > _MAX_EXTRACTED_PDF_LINES:
-            raise RenderProofError(
-                f"{artifact_label} extracted text exceeds the operational PDF line limit "
+            raise RenderValidationError(
+                f"{document_label} extracted text exceeds the operational PDF line limit "
                 f"({_MAX_EXTRACTED_PDF_LINES})",
                 details={"extracted_line_count": extracted_line_count},
             )
         page_lines = page_text.splitlines()
         extracted_parts.extend(page_lines)
     return tuple(extracted_parts)
+
+
+def _extract_fallback_page_text(page) -> str:
+    """Exclude explicitly marked recovery values from structural fallback parsing."""
+
+    marked: list[bool] = []
+    extracted: list[str] = []
+
+    def visit_operand(operator, operands, _matrix, _text_matrix) -> None:
+        if operator in {b"BMC", b"BDC"}:
+            marked.append(
+                str(operands[0])
+                in {"/recovery_passphrase", "/recovery_quorum", "/recovery_signing_public_key"}
+            )
+        elif operator == b"EMC" and marked:
+            marked.pop()
+
+    def visit_text(text, _matrix, _text_matrix, _font, _size) -> None:
+        if not any(marked):
+            extracted.append(text)
+
+    page.extract_text(visitor_operand_before=visit_operand, visitor_text=visit_text)
+    return "".join(extracted)
 
 
 def _conservative_split_line_count(value: str) -> int:
@@ -542,42 +570,44 @@ def _fallback_section_regions(
     lines: Sequence[str],
     *,
     sections: Sequence[FallbackSection],
-    artifact_label: str,
+    document_label: str,
 ) -> tuple[tuple[str, ...], ...]:
     labels = tuple(section.label.strip() if section.label else None for section in sections)
     normalized_lines = tuple(_normalize_section_title(line) for line in lines)
     if not any(labels):
         if len(sections) != 1:
-            raise RenderProofError(
-                f"{artifact_label} has multiple unlabeled fallback sections",
+            raise RenderValidationError(
+                f"{document_label} has multiple unlabeled fallback sections",
             )
         unexpected_titles = sorted(
             {
                 line
                 for line in normalized_lines
-                if line in _CANONICAL_FALLBACK_TITLES and line != "shard payload"
+                if line in _KNOWN_FALLBACK_TITLES and line != "shard payload"
             }
         )
         if unexpected_titles:
-            raise RenderProofError(
-                f"{artifact_label} contains unexpected fallback section labels",
+            raise RenderValidationError(
+                f"{document_label} contains unexpected fallback section labels",
                 details={"unexpected_section_titles": tuple(unexpected_titles)},
             )
         return (tuple(lines),)
     if any(label is None for label in labels):
-        raise RenderProofError(f"{artifact_label} mixes labeled and unlabeled fallback sections")
+        raise RenderValidationError(
+            f"{document_label} mixes labeled and unlabeled fallback sections"
+        )
 
     expected_normalized_labels = {_normalize_section_title(label) for label in labels if label}
     unexpected_titles = sorted(
         {
             line
             for line in normalized_lines
-            if line in _CANONICAL_FALLBACK_TITLES and line not in expected_normalized_labels
+            if line in _KNOWN_FALLBACK_TITLES and line not in expected_normalized_labels
         }
     )
     if unexpected_titles:
-        raise RenderProofError(
-            f"{artifact_label} contains unexpected fallback section labels",
+        raise RenderValidationError(
+            f"{document_label} contains unexpected fallback section labels",
             details={"unexpected_section_titles": tuple(unexpected_titles)},
         )
     positions: list[int] = []
@@ -589,13 +619,13 @@ def _fallback_section_regions(
         matches = [index for index, line in enumerate(normalized_lines) if line == normalized_label]
         match_groups = _consecutive_index_groups(matches)
         if not match_groups:
-            raise RenderProofError(
-                f"{artifact_label} is missing the {label!r} fallback section label",
+            raise RenderValidationError(
+                f"{document_label} is missing the {label!r} fallback section label",
                 details={"section_label": label, "label_occurrences": 0},
             )
         if normalized_label in {"auth frame", "main frame"} and len(match_groups) != 1:
-            raise RenderProofError(
-                f"{artifact_label} contains a duplicate {label!r} fallback section label",
+            raise RenderValidationError(
+                f"{document_label} contains a duplicate {label!r} fallback section label",
                 details={"section_label": label, "label_group_count": len(match_groups)},
             )
         positions.append(match_groups[0][-1])
@@ -604,8 +634,8 @@ def _fallback_section_regions(
     if positions != sorted(positions) or any(
         final_positions[index] >= positions[index + 1] for index in range(len(positions) - 1)
     ):
-        raise RenderProofError(
-            f"{artifact_label} fallback section labels are reordered",
+        raise RenderValidationError(
+            f"{document_label} fallback section labels are reordered",
             details={"section_positions": tuple(positions)},
         )
     for section_index, match_groups in enumerate(section_label_groups):
@@ -621,8 +651,8 @@ def _fallback_section_regions(
             continuation_region = lines[group[-1] + 1 : region_end]
             if not _region_contains_fallback_payload(continuation_region):
                 label = labels[section_index]
-                raise RenderProofError(
-                    f"{artifact_label} contains an empty or duplicate {label!r} "
+                raise RenderValidationError(
+                    f"{document_label} contains an empty or duplicate {label!r} "
                     "fallback section label",
                     details={"section_label": label, "label_group_index": group_index},
                 )
@@ -707,7 +737,7 @@ def _try_decode_fallback_frame(encoded: str | None) -> Frame | None:
 def _extract_unnumbered_fallback_payload(
     lines: Sequence[str],
     *,
-    artifact_label: str,
+    document_label: str,
     section_index: int,
     section_label: str | None,
 ) -> str:
@@ -734,21 +764,21 @@ def _extract_unnumbered_fallback_payload(
             if run:
                 payload_runs.append(run)
     if not payload_runs:
-        raise RenderProofError(
-            f"{artifact_label} fallback section {section_index + 1} has no designated "
+        raise RenderValidationError(
+            f"{document_label} fallback section {section_index + 1} has no designated "
             "extractable payload region",
             details={"section_index": section_index},
         )
     candidate_stream = "".join(payload for run in payload_runs for payload in run)
     payload_line_count = sum(len(run) for run in payload_runs)
     if payload_line_count > MAX_FALLBACK_LINES:
-        raise RenderProofError(
-            f"{artifact_label} fallback section {section_index + 1} exceeds "
+        raise RenderValidationError(
+            f"{document_label} fallback section {section_index + 1} exceeds "
             f"MAX_FALLBACK_LINES ({MAX_FALLBACK_LINES})",
         )
     if len(candidate_stream) > MAX_FALLBACK_NORMALIZED_CHARS:
-        raise RenderProofError(
-            f"{artifact_label} fallback section {section_index + 1} exceeds "
+        raise RenderValidationError(
+            f"{document_label} fallback section {section_index + 1} exceeds "
             f"MAX_FALLBACK_NORMALIZED_CHARS ({MAX_FALLBACK_NORMALIZED_CHARS})",
         )
     return candidate_stream
@@ -835,7 +865,7 @@ def _normalize_extracted_payload(value: str) -> str | None:
 
 def validate_text_in_pdf(
     *,
-    artifact_label: str,
+    document_label: str,
     reader: PdfReader,
     expected_text: Sequence[str],
     details_key: str = "missing_text",
@@ -849,9 +879,9 @@ def validate_text_in_pdf(
         message = (
             f"{missing_message}: {', '.join(missing[:3])}"
             if missing_message is not None
-            else f"{artifact_label} is missing expected text: {', '.join(missing[:3])}"
+            else f"{document_label} is missing expected text: {', '.join(missing[:3])}"
         )
-        raise RenderProofError(
+        raise RenderValidationError(
             message,
             details={details_key: missing[:3], f"{details_key}_count": len(missing)},
         )
@@ -864,7 +894,7 @@ def extract_pdf_text(reader: PdfReader) -> str:
 
 
 def normalize_pdf_text(value: Any) -> str:
-    """Normalize text for PDF proof comparisons."""
+    """Normalize text for PDF summary comparisons."""
 
     return " ".join(str(value).lower().split())
 

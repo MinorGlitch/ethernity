@@ -13,108 +13,213 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Proof validation for rendered artifacts."""
+"""Validate rendered PDF content, layout, and appearance."""
 
 from __future__ import annotations
 
-from ethernity.render.proofs import (
-    RenderProofError,
-    validate_fallback_render_proof,
+from collections import Counter
+
+from ethernity.encoding.framing import encode_frame
+from ethernity.render.checks import (
+    RenderValidationError,
+    validate_fallback_summary,
     validate_fallback_text_in_pdf,
+    validate_layout_report,
     validate_pdf_has_pages,
-    validate_render_artifact_proof,
-    validate_render_layout_proof,
+    validate_rendered_document_summary,
     validate_text_in_pdf,
 )
-from ethernity.render.types import RenderInputs, RenderResult
+from ethernity.render.doc_types import DOC_TYPE_KIT
+from ethernity.render.pdf_appearance import validate_pdf_appearance
+from ethernity.render.pdf_content import validate_painted_content
+from ethernity.render.recovery_meta import (
+    PASSPHRASE_PRINT_MODE_LITERAL,
+    decode_printed_passphrase,
+)
+from ethernity.render.types import (
+    LayoutReport,
+    RenderedDocumentSummary,
+    RenderInputs,
+    RenderResult,
+)
 
 
-def validate_rendered_fallback_artifact(
-    *,
-    inputs: RenderInputs,
-    result: RenderResult,
-    artifact_label: str,
-) -> None:
-    """Validate an emitted fallback PDF in its established proof-check order."""
-
-    fallback_sections = tuple(inputs.fallback_sections or ())
-    validate_render_artifact_proof(
-        artifact_label=artifact_label,
-        inputs=inputs,
-        artifact_proof=result.artifact_proof,
-    )
-    reader = validate_pdf_has_pages(inputs.output_path, artifact_label=artifact_label)
-    validate_render_layout_proof(
-        artifact_label=artifact_label,
-        layout_proof=result.layout_proof,
-        expected_page_count=len(reader.pages),
-    )
-    fallback_proof = (
-        result.artifact_proof.fallback_proof if result.artifact_proof is not None else None
-    ) or result.fallback_proof
-    validate_fallback_render_proof(
-        artifact_label=artifact_label,
-        frames=tuple(section.frame for section in fallback_sections),
-        fallback_proof=fallback_proof,
-    )
-    validate_fallback_text_in_pdf(
-        artifact_label=artifact_label,
-        reader=reader,
-        fallback_sections=fallback_sections,
-        fallback_proof=fallback_proof,
-    )
-
-
-def validate_rendered_pdf_artifact(
+def validate_rendered_pdf_document(
     *,
     inputs: RenderInputs,
     result: object,
-    artifact_label: str,
+    document_label: str,
     expected_text: tuple[str, ...] = (),
 ) -> None:
-    """Validate a renderer result, its proof metadata, and its emitted PDF."""
+    """Validate a renderer result, its summary metadata, and its emitted PDF."""
 
     if not isinstance(result, RenderResult):
-        raise RenderProofError(
-            f"{artifact_label} renderer did not return RenderResult",
+        raise RenderValidationError(
+            f"{document_label} renderer did not return RenderResult",
             details={"result_type": type(result).__name__},
         )
-    artifact_proof = result.artifact_proof
-    if artifact_proof is None:
-        raise RenderProofError(f"{artifact_label} is missing render artifact proof")
-    validate_render_artifact_proof(
-        artifact_label=artifact_label,
+    document_summary = result.document_summary
+    if document_summary is None:
+        raise RenderValidationError(f"{document_label} is missing rendered document summary")
+    validate_rendered_document_summary(
+        document_label=document_label,
         inputs=inputs,
-        artifact_proof=artifact_proof,
+        document_summary=document_summary,
     )
-    reader = validate_pdf_has_pages(inputs.output_path, artifact_label=artifact_label)
+    reader = validate_pdf_has_pages(inputs.output_path, document_label=document_label)
     if inputs.render_fallback:
         fallback_sections = tuple(inputs.fallback_sections or ())
-        fallback_proof = artifact_proof.fallback_proof or result.fallback_proof
-        validate_fallback_render_proof(
-            artifact_label=artifact_label,
+        fallback_summary = document_summary.fallback_summary or result.fallback_summary
+        validate_fallback_summary(
+            document_label=document_label,
             frames=tuple(section.frame for section in fallback_sections),
-            fallback_proof=fallback_proof,
-        )
-        validate_render_layout_proof(
-            artifact_label=artifact_label,
-            layout_proof=result.layout_proof,
-            expected_page_count=len(reader.pages),
+            fallback_summary=fallback_summary,
         )
         validate_fallback_text_in_pdf(
-            artifact_label=artifact_label,
+            document_label=document_label,
             reader=reader,
             fallback_sections=fallback_sections,
-            fallback_proof=fallback_proof,
+            fallback_summary=fallback_summary,
+        )
+    if document_summary.page_count != len(reader.pages):
+        raise RenderValidationError(
+            f"{document_label} document summary page count does not match the PDF file"
+        )
+    validate_layout_report(
+        document_label=document_label,
+        layout_report=result.layout_report,
+        expected_page_count=len(reader.pages),
+    )
+    if result.layout_report is None:
+        raise RenderValidationError(f"{document_label} is missing render layout report")
+    validate_painted_content(
+        reader=reader, layout_report=result.layout_report, document_label=document_label
+    )
+    decoded = validate_pdf_appearance(
+        path=inputs.output_path,
+        layout_report=result.layout_report,
+        render_qr=inputs.render_qr,
+        document_label=document_label,
+    )
+    if inputs.render_qr:
+        expected_payloads = expected_physical_qr_payloads(inputs, document_summary)
+        if Counter(decoded) != Counter(expected_payloads):
+            raise RenderValidationError(f"{document_label} QR payloads do not match render inputs")
+        if inputs.doc_type == DOC_TYPE_KIT and (
+            document_summary.physical_qr_payload_indexes
+            != tuple(range(document_summary.encoded_payload_count))
+            or decoded != expected_payloads
+        ):
+            raise RenderValidationError(
+                f"{document_label} QR payloads are not in kit reading order"
+            )
+    if inputs.recovery_meta is not None:
+        _validate_recovery_metadata_in_pdf(
+            inputs=inputs, layout=result.layout_report, document_label=document_label
         )
     if expected_text:
         validate_text_in_pdf(
-            artifact_label=artifact_label,
+            document_label=document_label,
             reader=reader,
             expected_text=expected_text,
             details_key="missing_component_ids",
-            missing_message=f"{artifact_label} is missing expected inventory rows",
+            missing_message=f"{document_label} is missing expected inventory rows",
         )
 
 
-__all__ = ["validate_rendered_fallback_artifact", "validate_rendered_pdf_artifact"]
+def expected_physical_qr_payloads(
+    inputs: RenderInputs, document_summary: RenderedDocumentSummary
+) -> tuple[bytes, ...]:
+    """Resolve the exact payload bytes for each recorded physical QR placement."""
+
+    payloads = inputs.qr_payloads
+    if payloads is None:
+        payloads = tuple(encode_frame(frame) for frame in inputs.frames)
+    encoded = tuple(
+        payload.encode("utf-8") if isinstance(payload, str) else payload for payload in payloads
+    )
+    return tuple(encoded[index] for index in document_summary.physical_qr_payload_indexes)
+
+
+def _validate_recovery_metadata_in_pdf(
+    *, inputs: RenderInputs, layout: LayoutReport, document_label: str
+) -> None:
+    """Decode only verified value placements, using the pagination's explicit print mode."""
+
+    meta = inputs.recovery_meta
+    if meta is None:
+        return
+    values: dict[str, dict[int, tuple[str | None, tuple[str, ...]]]] = {}
+    for page in layout.pages:
+        for component in page.components:
+            metadata = component.text_metadata
+            if metadata is None:
+                continue
+            lines = tuple(line.text for line in component.text_lines)
+            if metadata.value_prefix:
+                text = " ".join(lines)
+                if not text.startswith(metadata.value_prefix):
+                    raise RenderValidationError(
+                        f"{document_label} has incorrect recovery value structure"
+                    )
+                lines = (text[len(metadata.value_prefix) :],)
+            if (
+                metadata.print_mode == PASSPHRASE_PRINT_MODE_LITERAL
+                or metadata.role == "recovery_quorum"
+            ):
+                lines = (" ".join(lines),)
+            elif metadata.role == "recovery_signing_public_key":
+                lines = ("".join("".join(lines).split()),)
+            value = (metadata.print_mode, lines)
+            copies = values.setdefault(metadata.role, {})
+            previous = copies.setdefault(metadata.continuation_index, value)
+            if previous != value:
+                raise RenderValidationError(
+                    f"{document_label} has inconsistent repeated recovery values"
+                )
+
+    quorum = values.get("recovery_quorum", {}).get(0)
+    if meta.quorum_value and (quorum is None or " ".join(quorum[1]) != meta.quorum_value):
+        raise RenderValidationError(
+            f"{document_label} is missing or has an incorrect recovery quorum"
+        )
+    signing = values.get("recovery_signing_public_key", {}).get(0)
+    if meta.signing_pub_lines and (
+        signing is None
+        or "".join("".join(signing[1]).split()) != "".join("".join(meta.signing_pub_lines).split())
+    ):
+        raise RenderValidationError(
+            f"{document_label} is missing or has an incorrect recovery signing public key"
+        )
+    if not meta.passphrase and not meta.passphrase_lines:
+        return
+    passphrase = values.get("recovery_passphrase", {})
+    if not passphrase or list(passphrase) != list(range(len(passphrase))):
+        raise RenderValidationError(f"{document_label} is missing recovery passphrase placements")
+    modes = {value[0] for value in passphrase.values()}
+    if len(modes) != 1 or None in modes:
+        raise RenderValidationError(
+            f"{document_label} has inconsistent recovery passphrase print modes"
+        )
+    print_mode = passphrase[0][0]
+    if print_mode is None:
+        raise RenderValidationError(
+            f"{document_label} is missing the recovery passphrase print mode"
+        )
+    lines = tuple(line for index in sorted(passphrase) for line in passphrase[index][1])
+    try:
+        decoded = decode_printed_passphrase(lines, print_mode=print_mode)
+        expected = meta.passphrase
+        if expected is None:
+            expected = decode_printed_passphrase(
+                meta.passphrase_lines, print_mode=meta.passphrase_print_mode
+            )
+    except ValueError as exc:
+        raise RenderValidationError(
+            f"{document_label} has incomplete recovery passphrase parts"
+        ) from exc
+    if decoded != expected:
+        raise RenderValidationError(f"{document_label} has an incorrect recovery passphrase")
+
+
+__all__ = ["expected_physical_qr_payloads", "validate_rendered_pdf_document"]
