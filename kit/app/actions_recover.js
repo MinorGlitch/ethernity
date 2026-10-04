@@ -17,22 +17,26 @@
 
 import { decryptAgePassphrase, INTENSIVE_SCRYPT_APPROVAL_PREFIX } from "../lib/age_scrypt.js";
 import { recoverLatestFromEncryptedDocuments } from "./extensions/recovery.js";
-import { extractFiles } from "./envelope.js";
+import {
+  isLatestExtensionTarget,
+  normalizeExpectedHeadDocHash,
+  normalizeExtensionTarget,
+} from "./extensions/target.js";
+import { extractFiles } from "./backup_document.js";
 import { collectedRecoveryDocuments, reassembleCiphertext } from "./frames_cipher.js";
 import { formatBytes } from "./format.js";
 import { authOnlyDocumentRecords, incompleteDocumentRecords } from "./documents/store.js";
 import { cloneState } from "./state/initial.js";
-import { readEmbeddedKitMetadata } from "./kit_anchor.js";
 import {
   applyExtractResult,
-  clearDecryptedEnvelope,
+  clearDecryptedBackup,
   clearRecoveredOutput,
   cloneLatest,
   dispatchPatch,
   dispatchState,
   setErrorStatus,
   setLineStatus,
-} from "./actions_common.js";
+} from "./state_actions.js";
 
 let activeDecryptController = null;
 
@@ -54,7 +58,7 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
   }
   const prep = cloneState(base);
   clearRecoveredOutput(prep);
-  clearDecryptedEnvelope(prep);
+  clearDecryptedBackup(prep);
   let didStartDecrypt = false;
   let finalState = null;
   let decryptController = null;
@@ -76,7 +80,7 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     if (!prep.ciphertext && prep.total && prep.mainFrames.size === prep.total) {
       prep.ciphertext = reassembleCiphertext(prep);
     }
-    const allowPartialDocuments = !isLatestTarget(extensionTarget);
+    const allowPartialDocuments = !isLatestExtensionTarget(extensionTarget);
     const ignoredDocumentLines = allowPartialDocuments ? ignoredPartialDocumentLines(prep) : [];
     const documents = collectedRecoveryDocuments(prep, {
       allowIncomplete: allowPartialDocuments,
@@ -105,7 +109,6 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
         extensionTarget,
         signal: decryptController.signal,
         allowResourceIntensiveScrypt: options.allowResourceIntensiveScrypt === true,
-        recoveryAnchor: anchoredKitMetadata(),
         freshnessUnknownAcknowledged: prep.freshnessUnknownAcknowledged === true,
       },
     );
@@ -113,9 +116,8 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     if (!isCurrentDecryptRequest(next, requestId)) {
       return;
     }
-    next.decryptedEnvelope =
-      result.selectedExtensionIndex === null ? result.decryptedEnvelope : null;
-    next.decryptedEnvelopeSource = "Collected ciphertext";
+    next.decryptedBackup = result.selectedExtensionIndex === null ? result.decryptedBackup : null;
+    next.decryptedBackupSource = "Collected ciphertext";
     applyExtractResult(next, result);
     next.isDecrypting = false;
     next.intensiveRecoveryTarget = null;
@@ -190,8 +192,8 @@ function mnemonicWhitespaceFallback(passphrase) {
   ) {
     return null;
   }
-  const canonical = words.join(" ");
-  return canonical === passphrase ? null : canonical;
+  const normalized = words.join(" ");
+  return normalized === passphrase ? null : normalized;
 }
 
 function isPassphraseAuthenticationFailure(error) {
@@ -222,105 +224,11 @@ function recoveryFriendlyError(errorMsg) {
 }
 
 function resolveExtensionTarget(state, options) {
-  const anchor = anchoredKitMetadata();
-  if (anchor) {
-    if (
-      options.extensionTarget !== undefined &&
-      !isLatestTarget(options.extensionTarget) &&
-      !isRootTarget(options.extensionTarget)
-    ) {
-      throw new Error(
-        "chain-bound recovery kits recover only their pinned head or the pinned root",
-      );
-    }
-    return withExpectedHead(options.extensionTarget ?? "latest", anchor.expectedLatestHeadHashHex);
-  }
   const expectedHeadDocHashHex = normalizeExpectedHeadDocHash(state.expectedHeadDocHashText);
   if (options.extensionTarget !== undefined) {
-    return withExpectedHead(options.extensionTarget, expectedHeadDocHashHex);
+    return normalizeExtensionTarget(options.extensionTarget, expectedHeadDocHashHex);
   }
-  return parseExtensionTarget(state.extensionTargetText, expectedHeadDocHashHex);
-}
-
-function anchoredKitMetadata() {
-  const metadata = readEmbeddedKitMetadata();
-  return metadata?.anchored ? metadata : null;
-}
-
-function parseExtensionTarget(value, expectedHeadDocHashHex) {
-  const target = String(value ?? "").trim();
-  if (!target || target.toLowerCase() === "latest") {
-    return withExpectedHead("latest", expectedHeadDocHashHex);
-  }
-  const latestMatch = target.match(/^latest:([0-9a-fA-F]{64})$/);
-  if (latestMatch) {
-    const inlineExpectedHeadDocHashHex = latestMatch[1].toLowerCase();
-    if (expectedHeadDocHashHex && expectedHeadDocHashHex !== inlineExpectedHeadDocHashHex) {
-      throw new Error("expected head doc hash conflicts with latest:<doc hash> target");
-    }
-    return {
-      kind: "latest",
-      expectedHeadDocHashHex: inlineExpectedHeadDocHashHex,
-    };
-  }
-  if (target.toLowerCase() === "root" || target === "0") {
-    return withExpectedHead("root", expectedHeadDocHashHex);
-  }
-  if (/^[1-9]\d*$/.test(target)) {
-    return withExpectedHead(
-      { kind: "index", index: Number.parseInt(target, 10) },
-      expectedHeadDocHashHex,
-    );
-  }
-  const hash = target.toLowerCase();
-  if (/^[0-9a-f]{64}$/.test(hash)) {
-    return withExpectedHead({ kind: "doc_hash", docHashHex: hash }, expectedHeadDocHashHex);
-  }
-  throw new Error(
-    "extension target must be latest, latest:<doc hash>, root, an extension index, or a doc hash",
-  );
-}
-
-function normalizeExpectedHeadDocHash(value) {
-  const text = String(value ?? "").trim();
-  if (!text) {
-    return null;
-  }
-  const hash = text.toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(hash)) {
-    throw new Error("expected head doc hash must be 64 hex characters");
-  }
-  return hash;
-}
-
-function withExpectedHead(target, expectedHeadDocHashHex) {
-  if (!expectedHeadDocHashHex) {
-    return target;
-  }
-  if (target === "latest") {
-    return { kind: "latest", expectedHeadDocHashHex };
-  }
-  if (target === "root") {
-    return { kind: "root", expectedHeadDocHashHex };
-  }
-  if (target && typeof target === "object" && target.expectedHeadDocHashHex) {
-    if (target.expectedHeadDocHashHex.toLowerCase() !== expectedHeadDocHashHex) {
-      throw new Error("expected head doc hash conflicts with extension recovery target");
-    }
-    return target;
-  }
-  if (target && typeof target === "object") {
-    return { ...target, expectedHeadDocHashHex };
-  }
-  return target;
-}
-
-function isLatestTarget(extensionTarget) {
-  return !extensionTarget || extensionTarget === "latest" || extensionTarget?.kind === "latest";
-}
-
-function isRootTarget(extensionTarget) {
-  return extensionTarget === "root" || extensionTarget === 0 || extensionTarget?.kind === "root";
+  return normalizeExtensionTarget(state.extensionTargetText, expectedHeadDocHashHex);
 }
 
 function ignoredPartialDocumentLines(state) {
@@ -362,14 +270,15 @@ function extensionRecoveryLines(result) {
 }
 
 function recoveryTrustLines(result) {
-  if (result.trustBasis === "matched_trusted_kit") {
+  if (result.trustBasis === "matched_expected_head") {
     return [
-      "Trust: Matched trusted kit — root identity, signing key, and expected head match the separately stored anchor.",
+      result.signingKeyVerified
+        ? "Trust: Matched expected fingerprint; root identity, signing key, and selected head are bound."
+        : "Trust: Matched expected fingerprint; backup identity is bound. The sealed backup hash does not bind its signing key.",
+      "Freshness: matched the manually entered expected head hash.",
     ];
   }
-  const lines = [
-    "Trust: Internally consistent — signatures agree with keys carried by the supplied set.",
-  ];
+  const lines = ["Trust: Internally consistent; no independently trusted fingerprint matched."];
   if (result.freshnessDecision === "manual_expected_head") {
     lines.push("Freshness: matched the manually entered expected head hash.");
   } else if (result.freshnessDecision === "supplied_pages_freshness_unknown") {
@@ -378,14 +287,14 @@ function recoveryTrustLines(result) {
   return lines;
 }
 
-export async function extractEnvelope(dispatch, getState) {
+export async function extractBackupFiles(dispatch, getState) {
   const base = cloneState(getState());
   try {
     clearRecoveredOutput(base);
-    if (!base.decryptedEnvelope) {
-      throw new Error("No decrypted envelope available yet.");
+    if (!base.decryptedBackup) {
+      throw new Error("No decrypted document available yet.");
     }
-    const result = await extractFiles(base.decryptedEnvelope);
+    const result = await extractFiles(base.decryptedBackup);
     applyExtractResult(base, result);
     dispatchState(dispatch, base);
   } catch (err) {

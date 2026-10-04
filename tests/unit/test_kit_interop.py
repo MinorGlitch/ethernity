@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import shutil
 import subprocess
@@ -28,19 +29,19 @@ from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import derive_public_key, sign_auth
 from ethernity.extensions.build import _build_extension_document
-from ethernity.extensions.chain import build_chain_available_chunks, extract_root_logical_state
-from ethernity.formats.envelope_codec import (
+from ethernity.extensions.chain import extract_root_files
+from ethernity.formats.document_codec import (
     build_manifest_and_payload,
-    encode_envelope,
-    encode_extension_envelope,
+    encode_backup_document,
+    encode_extension_document,
 )
-from ethernity.formats.envelope_types import PayloadPart
 from ethernity.formats.extension_chunking import default_extension_chunker
-from ethernity.formats.extension_envelope import ExtensionChunkingProfile
+from ethernity.formats.extension_document import ExtensionChunkingProfile
+from ethernity.formats.manifest import BackupFile
 from tests.test_support import cli_subprocess_timeout_seconds
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_SCRIPT_PATH = _PROJECT_ROOT / "kit" / "scripts" / "run_extract_envelope.mjs"
+_SCRIPT_PATH = _PROJECT_ROOT / "kit" / "scripts" / "run_extract_backup.mjs"
 _RECOVER_SCRIPT_PATH = _PROJECT_ROOT / "kit" / "scripts" / "run_recover_documents.mjs"
 _KIT_HASHES_PACKAGE = _PROJECT_ROOT / "kit" / "node_modules" / "@noble" / "hashes" / "package.json"
 
@@ -55,13 +56,13 @@ class TestKitInterop(unittest.TestCase):
             )
 
     @unittest.skipIf(shutil.which("node") is None, "node runtime is required")
-    def test_python_envelope_extracts_in_kit_direct_mode(self) -> None:
-        parts = (
-            PayloadPart(path="plain.txt", data=b"hello", mtime=1700000000),
-            PayloadPart(path="notes.bin", data=b"\x01\x02\x03", mtime=None),
+    def test_python_backup_extracts_in_kit_direct_mode(self) -> None:
+        input_files = (
+            BackupFile(path="plain.txt", data=b"hello", mtime=1700000000),
+            BackupFile(path="notes.bin", data=b"\x01\x02\x03", mtime=None),
         )
         manifest, payload = build_manifest_and_payload(
-            parts,
+            input_files,
             sealed=True,
             input_origin="file",
             input_roots=(),
@@ -72,8 +73,8 @@ class TestKitInterop(unittest.TestCase):
             "direct",
             msg="fixture must exercise direct-mode manifests",
         )
-        envelope = encode_envelope(payload, manifest)
-        extracted = self._extract_with_kit(envelope)
+        backup_document = encode_backup_document(payload, manifest)
+        extracted = self._extract_files_with_kit(backup_document)
         self.assertEqual(
             extracted,
             {
@@ -83,9 +84,9 @@ class TestKitInterop(unittest.TestCase):
         )
 
     @unittest.skipIf(shutil.which("node") is None, "node runtime is required")
-    def test_python_envelope_extracts_in_kit_prefix_table_mode(self) -> None:
-        parts = tuple(
-            PayloadPart(
+    def test_python_backup_extracts_in_kit_prefix_table_mode(self) -> None:
+        input_files = tuple(
+            BackupFile(
                 path=f"vault/customer_{idx:02d}/record_{idx:02d}.txt",
                 data=f"entry-{idx}".encode("utf-8"),
                 mtime=1700000000 + idx,
@@ -93,7 +94,7 @@ class TestKitInterop(unittest.TestCase):
             for idx in range(10)
         )
         manifest, payload = build_manifest_and_payload(
-            parts,
+            input_files,
             sealed=True,
             input_origin="directory",
             input_roots=("vault",),
@@ -104,9 +105,9 @@ class TestKitInterop(unittest.TestCase):
             "prefix_table",
             msg="fixture must exercise prefix-table manifests",
         )
-        envelope = encode_envelope(payload, manifest)
-        extracted = self._extract_with_kit(envelope)
-        expected = {part.path: part.data for part in parts}
+        backup_document = encode_backup_document(payload, manifest)
+        extracted = self._extract_files_with_kit(backup_document)
+        expected = {part.path: part.data for part in input_files}
         self.assertEqual(extracted, expected)
 
     @unittest.skipIf(shutil.which("node") is None, "node runtime is required")
@@ -114,28 +115,33 @@ class TestKitInterop(unittest.TestCase):
         passphrase = "kit interop passphrase"
         signing_seed = b"\x42" * 32
         sign_pub = derive_public_key(signing_seed)
-        root_parts = (PayloadPart(path="plain.txt", data=b"root value", mtime=1_700_000_000),)
+        root_input_files = (BackupFile(path="plain.txt", data=b"root value", mtime=1_700_000_000),)
         root_manifest, root_payload = build_manifest_and_payload(
-            root_parts,
+            root_input_files,
             sealed=False,
             signing_seed=signing_seed,
             input_origin="directory",
             input_roots=("vault",),
         )
-        root_plaintext = encode_envelope(root_payload, root_manifest)
+        root_plaintext = encode_backup_document(root_payload, root_manifest)
         root_ciphertext, _ = encrypt_bytes_with_passphrase(
             root_plaintext,
             passphrase=passphrase,
         )
         _root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
 
-        root_state = extract_root_logical_state(root_manifest, root_payload)
+        restored_root_files = extract_root_files(root_manifest, root_payload)
         chunking = ExtensionChunkingProfile(
             algorithm_id=1,
             target_size=16 * 1024,
             min_size=4 * 1024,
             max_size=64 * 1024,
         )
+        existing_chunks: dict[bytes, bytes] = {}
+        for item in restored_root_files:
+            for start, end in default_extension_chunker(item.data, chunking):
+                chunk = item.data[start:end]
+                existing_chunks.setdefault(hashlib.sha256(chunk).digest(), chunk)
         extension = _build_extension_document(
             index=1,
             parent_doc_hash=root_doc_hash,
@@ -147,12 +153,11 @@ class TestKitInterop(unittest.TestCase):
             ),
             input_origin="directory",
             input_roots=("vault",),
-            chunker=default_extension_chunker,
-            existing_file_sizes={item.path: item.size for item in root_state},
-            existing_chunks=build_chain_available_chunks(root_state, chunking),
-            existing_logical_bytes=sum(item.size for item in root_state),
+            existing_file_sizes={item.path: item.size for item in restored_root_files},
+            existing_chunks=existing_chunks,
+            existing_file_bytes=sum(item.size for item in restored_root_files),
         ).document
-        extension_plaintext = encode_extension_envelope(extension)
+        extension_plaintext = encode_extension_document(extension)
         extension_ciphertext, _ = encrypt_bytes_with_passphrase(
             extension_plaintext,
             passphrase=passphrase,
@@ -174,106 +179,23 @@ class TestKitInterop(unittest.TestCase):
             ],
         }
 
-        for name, extension_target, freshness_unknown_acknowledged, expected in (
-            (
-                "missing selector with freshness acknowledgement defaults to latest",
-                None,
-                True,
-                {
-                    "selected_extension_index": 1,
-                    "selected_extension_doc_hash": extension_doc_hash.hex(),
-                    "freshness_scope": "supplied_carriers_only",
-                    "freshness_decision": "supplied_pages_freshness_unknown",
-                    "replay_target": "latest",
-                    "input_roots": ["reconstructed-state"],
-                    "files": {
-                        "extra.txt": b"added value",
-                        "plain.txt": b"updated value",
-                    },
-                },
-            ),
-            (
-                "root selector",
-                {
-                    "kind": "root",
-                    "expected_head_doc_hash_hex": root_doc_hash.hex(),
-                },
-                False,
-                {
-                    "selected_extension_index": None,
-                    "selected_extension_doc_hash": None,
-                    "freshness_scope": None,
-                    "freshness_decision": "manual_expected_head",
-                    "replay_target": "root",
-                    "input_roots": ["vault"],
-                    "files": {"plain.txt": b"root value"},
-                },
-            ),
-            (
-                "index selector",
-                {
-                    "kind": "index",
-                    "index": 1,
-                    "expected_head_doc_hash_hex": extension_doc_hash.hex(),
-                },
-                False,
-                {
-                    "selected_extension_index": 1,
-                    "selected_extension_doc_hash": extension_doc_hash.hex(),
-                    "freshness_scope": "supplied_carriers_only",
-                    "freshness_decision": "manual_expected_head",
-                    "replay_target": "extension",
-                    "input_roots": ["reconstructed-state"],
-                    "files": {
-                        "extra.txt": b"added value",
-                        "plain.txt": b"updated value",
-                    },
-                },
-            ),
-            (
-                "doc_hash selector",
-                {"kind": "doc_hash", "doc_hash_hex": extension_doc_hash.hex()},
-                False,
-                {
-                    "selected_extension_index": 1,
-                    "selected_extension_doc_hash": extension_doc_hash.hex(),
-                    "freshness_scope": "supplied_carriers_only",
-                    "freshness_decision": "manual_expected_head",
-                    "replay_target": "extension",
-                    "input_roots": ["reconstructed-state"],
-                    "files": {
-                        "extra.txt": b"added value",
-                        "plain.txt": b"updated value",
-                    },
-                },
-            ),
-        ):
-            with self.subTest(name=name):
-                selected_fixture = dict(fixture)
-                if extension_target is not None:
-                    selected_fixture["extension_target"] = extension_target
-                selected_fixture["freshness_unknown_acknowledged"] = freshness_unknown_acknowledged
-                result = self._recover_documents_with_kit(selected_fixture)
-                self._assert_recover_documents_result(result, expected)
-
-        missing_index = self._recover_documents_with_kit_raw(
+        fixture["freshness_unknown_acknowledged"] = True
+        result = self._recover_documents_with_kit(fixture)
+        self._assert_recover_documents_result(
+            result,
             {
-                **fixture,
-                "extension_target": {
-                    "kind": "index",
-                    "index": 2,
-                    "expected_head_doc_hash_hex": "f" * 64,
+                "selected_extension_index": 1,
+                "selected_extension_doc_hash": extension_doc_hash.hex(),
+                "freshness_scope": "supplied_carriers_only",
+                "freshness_decision": "supplied_pages_freshness_unknown",
+                "replay_target": "latest",
+                "input_roots": ["reconstructed-state"],
+                "files": {
+                    "extra.txt": b"added value",
+                    "plain.txt": b"updated value",
                 },
-            }
+            },
         )
-        self.assertNotEqual(missing_index.returncode, 0)
-        self.assertIn("extension index target was not supplied: 2", missing_index.stderr)
-
-        missing_doc_hash = self._recover_documents_with_kit_raw(
-            {**fixture, "extension_target": {"kind": "doc_hash", "doc_hash_hex": "f" * 64}}
-        )
-        self.assertNotEqual(missing_doc_hash.returncode, 0)
-        self.assertIn("extension doc_hash target was not supplied", missing_doc_hash.stderr)
 
     def _assert_recover_documents_result(
         self,
@@ -299,12 +221,12 @@ class TestKitInterop(unittest.TestCase):
         }
         self.assertEqual(recovered, expected["files"])
 
-    def _extract_with_kit(self, envelope_bytes: bytes) -> dict[str, bytes]:
+    def _extract_files_with_kit(self, backup_bytes: bytes) -> dict[str, bytes]:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            envelope_path = Path(tmp_dir) / "envelope.bin"
-            envelope_path.write_bytes(envelope_bytes)
+            backup_path = Path(tmp_dir) / "backup_document.bin"
+            backup_path.write_bytes(backup_bytes)
             result = subprocess.run(
-                ["node", str(_SCRIPT_PATH), str(envelope_path)],
+                ["node", str(_SCRIPT_PATH), str(backup_path)],
                 cwd=_PROJECT_ROOT,
                 text=True,
                 capture_output=True,

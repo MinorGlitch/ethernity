@@ -15,14 +15,13 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ActionsRow, Field, StatusBlock } from "./common.jsx";
+import { ActionsRow, Field, StatusBlock } from "./recovery_controls.jsx";
 
 export function DecryptSection({
   passphrase,
   decryptStatus,
   extensionTarget,
   expectedHeadDocHash,
-  expectedHeadReadOnly,
   freshnessUnknownAcknowledged,
   onPassphraseChange,
   onExtensionTargetChange,
@@ -38,9 +37,9 @@ export function DecryptSection({
   isComplete,
   isDecrypting,
   onExtract,
-  onDownloadEnvelope,
+  onDownloadDecryptedBackup,
   canExtract,
-  canDownloadEnvelope,
+  canDownloadDecryptedBackup,
   children,
 }) {
   const decryptActions = [
@@ -53,7 +52,7 @@ export function DecryptSection({
   ];
   if (onDecryptIntensive) {
     decryptActions.push({
-      label: isDecrypting ? "Unlocking..." : "Try resource-intensive compatibility recovery",
+      label: isDecrypting ? "Unlocking..." : "Retry with higher limits",
       className: "secondary",
       onClick: onDecryptIntensive,
       disabled: isDecrypting,
@@ -68,7 +67,7 @@ export function DecryptSection({
       disabledReason: rootOnlyDisabledReason,
     });
   }
-  const envelopeActions = [
+  const backupActions = [
     {
       label: "Extract files",
       onClick: onExtract,
@@ -78,8 +77,8 @@ export function DecryptSection({
     {
       label: "Download raw data",
       className: "secondary",
-      onClick: onDownloadEnvelope,
-      disabled: !canDownloadEnvelope,
+      onClick: onDownloadDecryptedBackup,
+      disabled: !canDownloadDecryptedBackup,
       disabledReason: "Unlock the backup first.",
     },
   ];
@@ -110,34 +109,32 @@ export function DecryptSection({
         />
         <Field
           id="expected-head-doc-hash-input"
-          label={expectedHeadReadOnly ? "Expected head (trusted kit)" : "Expected head"}
+          label="Expected head"
           value={expectedHeadDocHash}
-          placeholder="64-character expected head hash"
+          placeholder="64-character head hash from your separately kept record"
           onInput={onExpectedHeadDocHashChange}
-          readOnly={expectedHeadReadOnly}
           spellCheck="false"
         />
-        {!expectedHeadReadOnly ? (
-          <div>
-            <label class="freshness-acknowledgement" htmlFor="freshness-unknown-acknowledgement">
-              <input
-                id="freshness-unknown-acknowledgement"
-                type="checkbox"
-                checked={freshnessUnknownAcknowledged}
-                onChange={onFreshnessUnknownAcknowledgedChange}
-              />
-              <span>Recover latest among supplied pages; freshness unknown</span>
-            </label>
-            <div class="sub">
-              Without a trusted kit anchor, recovery proves only internal consistency.
-            </div>
+        <div>
+          <label class="freshness-acknowledgement" htmlFor="freshness-unknown-acknowledgement">
+            <input
+              id="freshness-unknown-acknowledgement"
+              type="checkbox"
+              checked={freshnessUnknownAcknowledged}
+              onChange={onFreshnessUnknownAcknowledgedChange}
+            />
+            <span>Recover latest among supplied pages; freshness unknown</span>
+          </label>
+          <div class="sub">
+            A separately kept full fingerprint pins the selected version. Without one, freshness
+            remains unknown beyond the supplied pages.
           </div>
-        ) : null}
+        </div>
         <ActionsRow actions={decryptActions} />
       </div>
       <div class="step-section">
         <div class="step-section-label">Status</div>
-        <ActionsRow actions={envelopeActions} className="actions-secondary" />
+        <ActionsRow actions={backupActions} className="actions-secondary" />
         <StatusBlock status={decryptStatus} />
       </div>
       <div class="step-section">{children}</div>

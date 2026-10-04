@@ -26,7 +26,7 @@ import { createInitialState } from "../app/state/initial.js";
 import { reducer } from "../app/state/reducer.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { blake2b256 } from "../lib/blake2b.js";
-import { buildFrame, toUnpaddedBase64 } from "./test_helpers.mjs";
+import { buildFrame, toUnpaddedBase64 } from "./protocol_test_data.mjs";
 
 const MAIN_QR_PAYLOAD_SINGLE_FRAME = "QVABRAAAAAAAAAAAAAEBYSBj2P8";
 const FIXTURE_PASSPHRASE = "stable-v1-shamir-meaningful";
@@ -36,7 +36,6 @@ const FIXTURE_SHARES = {
 };
 const AUTH_SIGN_PUB = new Uint8Array(32).fill(0x42);
 const WRONG_SHARD_SIGN_PUB = new Uint8Array(32).fill(0x24);
-
 function createStore() {
   let state = createInitialState();
   return {
@@ -233,8 +232,8 @@ test("changing recovery target clears stale recovered output", () => {
   const store = createStore();
   const state = store.getState();
   state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];
-  state.decryptedEnvelope = new Uint8Array([2]);
-  state.decryptedEnvelopeSource = "Collected ciphertext";
+  state.decryptedBackup = new Uint8Array([2]);
+  state.decryptedBackupSource = "Collected ciphertext";
   state.recoveryComplete = true;
   state.extractStatus = { lines: ["1 file(s) ready."], type: "ok" };
   state.decryptStatus = { lines: ["Recovery complete."], type: "ok" };
@@ -250,8 +249,8 @@ test("changing recovery target clears stale recovered output", () => {
 
   const finalState = store.getState();
   assert.deepEqual(finalState.extractedFiles, []);
-  assert.equal(finalState.decryptedEnvelope, null);
-  assert.equal(finalState.decryptedEnvelopeSource, "");
+  assert.equal(finalState.decryptedBackup, null);
+  assert.equal(finalState.decryptedBackupSource, "");
   assert.equal(finalState.recoveryComplete, false);
   assert.deepEqual(finalState.extractStatus.lines, []);
   assert.deepEqual(finalState.decryptStatus.lines, []);
@@ -263,8 +262,8 @@ test("changing expected head clears stale recovered output", () => {
   const store = createStore();
   const state = store.getState();
   state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];
-  state.decryptedEnvelope = new Uint8Array([2]);
-  state.decryptedEnvelopeSource = "Collected ciphertext";
+  state.decryptedBackup = new Uint8Array([2]);
+  state.decryptedBackupSource = "Collected ciphertext";
   state.recoveryComplete = true;
   state.extractStatus = { lines: ["1 file(s) ready."], type: "ok" };
   state.decryptStatus = { lines: ["Recovery complete."], type: "ok" };
@@ -280,8 +279,8 @@ test("changing expected head clears stale recovered output", () => {
 
   const finalState = store.getState();
   assert.deepEqual(finalState.extractedFiles, []);
-  assert.equal(finalState.decryptedEnvelope, null);
-  assert.equal(finalState.decryptedEnvelopeSource, "");
+  assert.equal(finalState.decryptedBackup, null);
+  assert.equal(finalState.decryptedBackupSource, "");
   assert.equal(finalState.recoveryComplete, false);
   assert.deepEqual(finalState.extractStatus.lines, []);
   assert.deepEqual(finalState.decryptStatus.lines, []);
@@ -307,7 +306,7 @@ test("accepted pasted main frames clear stale recovered output", async () => {
   assert.deepEqual(finalState.decryptStatus.lines, []);
 });
 
-test("scanned payload parse failures surface an error status", async () => {
+test("scanned payload parse failures report an error status", async () => {
   const store = createStore();
 
   await addScannedPayload(store.dispatch.bind(store), store.getState.bind(store), {
@@ -320,7 +319,29 @@ test("scanned payload parse failures surface an error status", async () => {
   assert.equal(finalState.frameStatus.lines[0], "Scanned QR could not be decoded.");
 });
 
-test("scanned shard parse failures surface an error status", async () => {
+for (const method of ["paste", "scan"]) {
+  test(`unrecognized JSON from ${method} cannot change the expected version`, async () => {
+    const store = createStore();
+    const expected = "aa".repeat(32);
+    const payload = JSON.stringify({ expected_latest_head_hash: "bb".repeat(32) });
+    store.getState().expectedHeadDocHashText = expected;
+
+    if (method === "paste") {
+      store.getState().payloadText = payload;
+      await addPayloads(store.dispatch.bind(store), store.getState.bind(store));
+    } else {
+      await addScannedPayload(store.dispatch.bind(store), store.getState.bind(store), {
+        bytes: new TextEncoder().encode(payload),
+      });
+    }
+
+    assert.equal(store.getState().expectedHeadDocHashText, expected);
+    assert.equal(store.getState().frameStatus.type, "error");
+    assert.ok(store.getState().errors > 0);
+  });
+}
+
+test("scanned shard parse failures report an error status", async () => {
   const store = createStore();
   const state = store.getState();
   state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];

@@ -28,17 +28,17 @@ import {
 } from "./actions_collect.js";
 import {
   downloadCipher,
-  downloadEnvelope,
+  downloadDecryptedBackup,
   downloadExtract,
   downloadZip,
 } from "./actions_export.js";
-import { clearOutput, decryptCiphertext, extractEnvelope } from "./actions_recover.js";
+import { clearOutput, decryptCiphertext, extractBackupFiles } from "./actions_recover.js";
 import { DecryptSection } from "./components/DecryptSection.jsx";
 import { FrameCollector } from "./components/FrameCollector.jsx";
 import { RecoveredFiles } from "./components/RecoveredFiles.jsx";
 import { ShardCollector } from "./components/ShardCollector.jsx";
 import { StepShell } from "./components/StepShell.jsx";
-import { SCANNER_ENABLED } from "#kit-scanner-panel";
+import { SCANNER_ENABLED } from "#kit-scanner-runtime";
 import { initialState, reducer } from "./state/reducer.js";
 import {
   selectActionState,
@@ -116,8 +116,8 @@ export function App() {
     decryptCiphertext(dispatch, getState, { extensionTarget: "root" });
   const handleIntensiveDecrypt = () =>
     decryptCiphertext(dispatch, getState, { allowResourceIntensiveScrypt: true });
-  const handleExtract = () => extractEnvelope(dispatch, getState);
-  const handleDownloadEnvelope = () => downloadEnvelope(dispatch, getState);
+  const handleExtract = () => extractBackupFiles(dispatch, getState);
+  const handleDownloadDecryptedBackup = () => downloadDecryptedBackup(dispatch, getState);
   const handleClearOutput = () => clearOutput(dispatch, getState);
   const handleDownloadZip = () => downloadZip(dispatch, getState);
   const handleDownloadFile = (index) => downloadExtract(dispatch, getState, index);
@@ -266,7 +266,6 @@ export function App() {
             decryptStatus={state.decryptStatus}
             extensionTarget={state.extensionTargetText}
             expectedHeadDocHash={state.expectedHeadDocHashText}
-            expectedHeadReadOnly={state.trustedKitAnchored}
             freshnessUnknownAcknowledged={state.freshnessUnknownAcknowledged}
             onPassphraseChange={handlePassphraseChange}
             onExtensionTargetChange={handleExtensionTargetChange}
@@ -279,12 +278,12 @@ export function App() {
             canDecryptRootOnly={actionState.canDecryptRootOnly}
             decryptDisabledReason={actionState.decryptDisabledReason}
             rootOnlyDisabledReason={actionState.rootOnlyDisabledReason}
-            isComplete={actionState.hasOutput || Boolean(state.decryptedEnvelope)}
+            isComplete={actionState.hasOutput || Boolean(state.decryptedBackup)}
             isDecrypting={state.isDecrypting}
             onExtract={handleExtract}
-            onDownloadEnvelope={handleDownloadEnvelope}
-            canExtract={actionState.canExtractEnvelope}
-            canDownloadEnvelope={actionState.canDownloadEnvelope}
+            onDownloadDecryptedBackup={handleDownloadDecryptedBackup}
+            canExtract={actionState.canExtractFiles}
+            canDownloadDecryptedBackup={actionState.canDownloadDecryptedBackup}
           >
             <RecoveredFiles
               extractStatus={state.extractStatus}

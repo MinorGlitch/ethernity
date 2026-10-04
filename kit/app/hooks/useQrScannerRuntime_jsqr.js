@@ -18,6 +18,8 @@
 import { useEffect, useRef, useState } from "microact/hooks";
 import { detectWithJsQr } from "./jsqr_runtime_core.js";
 
+export const SCANNER_ENABLED = true;
+
 function cameraSupportState() {
   if (typeof window === "undefined") return { ok: false, reason: "No browser context." };
   if (!navigator.mediaDevices?.getUserMedia) {

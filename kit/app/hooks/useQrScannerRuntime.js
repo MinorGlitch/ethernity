@@ -17,6 +17,8 @@
 
 import { useRef, useState } from "microact/hooks";
 
+export const SCANNER_ENABLED = false;
+
 function unsupportedScannerState() {
   return {
     ok: false,

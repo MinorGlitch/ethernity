@@ -24,7 +24,7 @@ import {
   dispatchReset,
   dispatchState,
   parseTextWithErrors,
-} from "./actions_common.js";
+} from "./state_actions.js";
 import { cancelActiveDecryptWork } from "./actions_recover.js";
 import { updateAuthStatus } from "./auth.js";
 import { syncCollectedCiphertext } from "./frames_cipher.js";
@@ -278,8 +278,8 @@ export function updateField(dispatch, getState, key, value) {
   const patch = { [key]: value };
   if (RECOVERY_INPUT_FIELDS.has(key) && current[key] !== value) {
     patch.extractedFiles = [];
-    patch.decryptedEnvelope = null;
-    patch.decryptedEnvelopeSource = "";
+    patch.decryptedBackup = null;
+    patch.decryptedBackupSource = "";
     patch.recoveryComplete = false;
     patch.intensiveRecoveryTarget = null;
     patch.extractStatus = { lines: [], type: "" };

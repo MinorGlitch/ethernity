@@ -19,7 +19,7 @@ import { makeZip } from "../lib/zip.js";
 import { reassembleCiphertext } from "./frames_cipher.js";
 import { downloadBlob, downloadBytes } from "./io.js";
 import { cloneState } from "./state/initial.js";
-import { dispatchState, setErrorStatus, setLineStatus } from "./actions_common.js";
+import { dispatchState, setErrorStatus, setLineStatus } from "./state_actions.js";
 
 function basenameForExtractPath(path) {
   const parts = path.split("/").filter(Boolean);
@@ -61,10 +61,10 @@ export function downloadCipher(dispatch, getState) {
   dispatchState(dispatch, next);
 }
 
-export function downloadEnvelope(_dispatch, getState) {
+export function downloadDecryptedBackup(_dispatch, getState) {
   const current = getState();
-  if (!current.decryptedEnvelope) return;
-  downloadBytes(current.decryptedEnvelope, "decrypted_envelope.bin");
+  if (!current.decryptedBackup) return;
+  downloadBytes(current.decryptedBackup, "decrypted_backup.bin");
 }
 
 export function downloadExtract(_dispatch, getState, index) {

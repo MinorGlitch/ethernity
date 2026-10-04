@@ -15,10 +15,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useState } from "microact/hooks";
 import { CollectorStep } from "./CollectorStep.jsx";
-import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
-import { QrScannerPanel, SCANNER_ENABLED } from "#kit-scanner-panel";
+import { DiagnosticsList, Field, StatusBlock } from "./recovery_controls.jsx";
+import { QrScannerPanel } from "#kit-scanner-panel";
+import { SCANNER_ENABLED } from "#kit-scanner-runtime";
+import { useCollectorInput } from "../hooks/useCollectorInput.js";
 
 export function FrameCollector({
   payloadText,
@@ -35,51 +36,19 @@ export function FrameCollector({
   isAdding,
 }) {
   const showDetails = frameDiagnostics.some((item) => item.tone === "error");
-  const [pasteHint, setPasteHint] = useState("");
-  const handlePaste = (event) => {
-    const text = event.clipboardData?.getData("text/plain") ?? "";
-    const lines = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    if (lines.length) {
-      setPasteHint(`Pasted ${lines.length} line(s). Click Add.`);
-    }
-  };
-  const handlePayloadChange = (event) => {
-    setPasteHint("");
-    onPayloadChange(event);
-  };
-  const handleAddFrames = () => {
-    setPasteHint("");
-    onAddPayloads();
-  };
-  const handleScanPayload = SCANNER_ENABLED
-    ? (scannedPayload) => {
-        const hasBytes =
-          scannedPayload &&
-          scannedPayload.bytes instanceof Uint8Array &&
-          scannedPayload.bytes.length > 0;
-        if (hasBytes && typeof onScannedPayload === "function") {
-          onScannedPayload(scannedPayload);
-          setPasteHint("Scanned 1 frame. Added automatically.");
-          return;
-        }
-
-        const lines = String(scannedPayload?.text ?? "")
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .filter(Boolean);
-        if (!lines.length) {
-          setPasteHint("Scanned QR was empty.");
-          return;
-        }
-        const prefix = payloadText && !payloadText.endsWith("\n") ? "\n" : "";
-        const nextValue = `${payloadText ?? ""}${prefix}${lines.join("\n")}`;
-        onPayloadChange({ currentTarget: { value: nextValue } });
-        setPasteHint(`Scanned ${lines.length} line(s). Click Add.`);
-      }
-    : null;
+  const {
+    pasteHint,
+    handlePaste,
+    handleChange: handlePayloadChange,
+    handleAdd: handleAddFrames,
+    handleScanPayload,
+  } = useCollectorInput({
+    value: payloadText,
+    onChange: onPayloadChange,
+    onAdd: onAddPayloads,
+    onScannedPayload,
+    scannedItemLabel: "frame",
+  });
   const input = {
     body: (
       <>
@@ -87,7 +56,7 @@ export function FrameCollector({
           id="payload-text"
           label="Backup text"
           value={payloadText}
-          placeholder="Paste backup text (include AUTH if available)..."
+          placeholder="Paste backup text or AUTH..."
           onInput={handlePayloadChange}
           onPaste={handlePaste}
           as="textarea"

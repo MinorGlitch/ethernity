@@ -36,7 +36,7 @@ async function firstExecutable(paths) {
 async function smokeBundle(chrome, bundlePath) {
   const loaderHtml = await readFile(bundlePath, "utf8");
   if (!/name="ethernity-kit-compression" content="gzip"/u.test(loaderHtml)) {
-    throw new Error(`${bundlePath} is not the canonical gzip recovery kit`);
+    throw new Error(`${bundlePath} is not the default gzip recovery kit`);
   }
   const profileDir = await mkdtemp(resolve(tmpdir(), "ethernity-chrome-smoke-"));
   try {

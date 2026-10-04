@@ -27,3 +27,8 @@ test("default kit scanner runtime import targets the jsqr hook", () => {
     "./app/hooks/useQrScannerRuntime_jsqr.js",
   );
 });
+
+test("app reads scanner capability from the swappable runtime", () => {
+  const appSource = readFileSync(resolve(testDir, "..", "app", "App.jsx"), "utf8");
+  assert.match(appSource, /import \{ SCANNER_ENABLED \} from "#kit-scanner-runtime";/);
+});

@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ActionsRow, OutputTable, StatusBlock } from "./common.jsx";
+import { ActionsRow, OutputTable, StatusBlock } from "./recovery_controls.jsx";
 
 function SuccessBanner({ fileCount }) {
   return (

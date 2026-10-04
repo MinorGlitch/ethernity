@@ -34,7 +34,7 @@ export function dispatchState(dispatch, state) {
       next.shardSets = cloneShardSets(state.shardSets);
       next.activeShardSetKey = state.activeShardSetKey;
       next.mainFrames = new Map(state.mainFrames);
-      next.shardFrames = clonedLegacyShardFrames(state, next.shardSets);
+      next.shardFrames = cloneActiveShardFrames(state, next.shardSets);
       next.extractedFiles = state.extractedFiles.slice();
       next.frameStatus = { ...state.frameStatus };
       next.shardStatus = { ...state.shardStatus };
@@ -81,7 +81,7 @@ export function copyAuthAndCipherFields(target, source) {
 export function copyShardAsyncFields(target, source) {
   target.shardSets = cloneShardSets(source.shardSets);
   target.activeShardSetKey = source.activeShardSetKey;
-  target.shardFrames = clonedLegacyShardFrames(source, target.shardSets);
+  target.shardFrames = cloneActiveShardFrames(source, target.shardSets);
   target.shardDocIdHex = source.shardDocIdHex;
   target.shardVersion = source.shardVersion;
   target.shardDocHashHex = source.shardDocHashHex;
@@ -102,7 +102,7 @@ export function copyShardAsyncFields(target, source) {
   target.cipherDocHashHex = source.cipherDocHashHex;
 }
 
-function clonedLegacyShardFrames(source, clonedShardSets) {
+function cloneActiveShardFrames(source, clonedShardSets) {
   const active = source.activeShardSetKey ? clonedShardSets.get(source.activeShardSetKey) : null;
   return active ? active.shardFrames : cloneShardFrames(source.shardFrames);
 }
@@ -132,14 +132,14 @@ export function clearRecoveredOutput(state) {
   setStatus(state, "extractStatus", []);
 }
 
-export function clearDecryptedEnvelope(state) {
-  state.decryptedEnvelope = null;
-  state.decryptedEnvelopeSource = "";
+export function clearDecryptedBackup(state) {
+  state.decryptedBackup = null;
+  state.decryptedBackupSource = "";
 }
 
 export function clearRecoveryResult(state) {
   clearRecoveredOutput(state);
-  clearDecryptedEnvelope(state);
+  clearDecryptedBackup(state);
   state.recoveryComplete = false;
   state.intensiveRecoveryTarget = null;
   setStatus(state, "decryptStatus", []);

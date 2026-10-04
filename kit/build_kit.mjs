@@ -419,7 +419,7 @@ function htmlForBundleVariant(source, variant) {
   return source.replace(SCANNER_ONLY_CSS_RE, "");
 }
 
-function canonicalizeGzipHeader(gzBytes) {
+function normalizeGzipHeader(gzBytes) {
   if (gzBytes.length < 10) return gzBytes;
   // RFC 1952 mtime + OS bytes are informational; normalize for deterministic output.
   if (gzBytes[0] === 0x1f && gzBytes[1] === 0x8b) {
@@ -454,7 +454,7 @@ async function gzipWithLibdeflate(rawBundle, tmpBase) {
       .trim();
     throw new Error(`libdeflate-gzip failed${details ? `: ${details}` : ""}`);
   }
-  return canonicalizeGzipHeader(new Uint8Array(result.stdout));
+  return normalizeGzipHeader(new Uint8Array(result.stdout));
 }
 
 async function gzipBundlePayload(rawBundle, tmpBase) {
@@ -620,11 +620,8 @@ const microactIndexPath = resolve(kitDir, "lib", "microact", "index.js");
 const microactHooksPath = resolve(kitDir, "lib", "microact", "hooks.js");
 const microactJsxRuntimePath = resolve(kitDir, "lib", "microact", "jsx-runtime.js");
 const scannerRuntimeImport = "#kit-scanner-runtime";
-const scannerPanelImport = "#kit-scanner-panel";
 const scannerHookLeanPath = resolve(kitDir, "app", "hooks", "useQrScannerRuntime.js");
 const scannerHookJsqrPath = resolve(kitDir, "app", "hooks", "useQrScannerRuntime_jsqr.js");
-const scannerPanelFullPath = resolve(kitDir, "app", "components", "QrScannerPanel.jsx");
-const scannerPanelNonePath = resolve(kitDir, "app", "components", "QrScannerPanel_none.jsx");
 
 await mkdir(distDir, { recursive: true });
 await mkdir(packageDir, { recursive: true });
@@ -639,9 +636,6 @@ async function buildBundleVariant(variant) {
     scannerHookLeanPath,
     scannerHookJsqrPath,
   );
-  const scannerPanelPath =
-    variant.scannerMode === "jsqr" ? scannerPanelFullPath : scannerPanelNonePath;
-
   const scryptWorkerSource = await buildScryptWorkerSource(tmpBase);
   const esbuildArgs = [
     entryPoint,
@@ -662,7 +656,6 @@ async function buildBundleVariant(variant) {
     `--alias:microact/jsx-runtime=${microactJsxRuntimePath}`,
     `--alias:microact/jsx-dev-runtime=${microactJsxRuntimePath}`,
     `--alias:${scannerRuntimeImport}=${scannerHookPath}`,
-    `--alias:${scannerPanelImport}=${scannerPanelPath}`,
     `--outfile=${tmpOut}`,
   ];
   const result = spawnSync("npx", ["--no-install", "esbuild", ...esbuildArgs], {
