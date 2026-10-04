@@ -10,6 +10,7 @@ import {
   LEGACY_SHARD_VERSION,
   MAX_CIPHERTEXT_BYTES,
   MAX_QR_PAYLOAD_CHARS,
+  SHARD_DOMAIN,
   SHARD_KEY_PASSPHRASE,
   SHARD_KEY_SIGNING_SEED,
   SHARD_VERSION,
@@ -45,7 +46,7 @@ import {
   ensureAtob,
   mutateFrameCrc,
   toUnpaddedBase64,
-} from "./test_helpers.mjs";
+} from "./protocol_test_data.mjs";
 
 ensureAtob();
 
@@ -371,7 +372,7 @@ test("parseAutoPayload rejects malformed frame encodings", () => {
     const state = createInitialState();
     assert.throws(
       () => parseAutoPayload(state, toUnpaddedBase64(frame)),
-      /(bad magic|unsupported frame version|non-canonical varint|crc mismatch|invalid z-base-32 text: non-canonical tail bits|neither valid QR payloads nor valid fallback text)/,
+      /(bad magic|unsupported frame version|overlong varint|crc mismatch|invalid z-base-32 text: nonzero unused tail bits|neither valid QR payloads nor valid fallback text)/,
     );
   }
 });
@@ -573,7 +574,54 @@ test("shard recovery matches extension-bound shards after root-first scans", () 
   assert.equal(state.agePassphrase, FIXTURE_PASSPHRASE);
 });
 
-test("shard recovery rejects shards outside verified non-primary document authority", async () => {
+test("signed v2 root-bound replacement sheets unlock without a later head; old head-bound sets need their target", async () => {
+  for (const bindToHead of [false, true]) {
+    const state = createInitialState();
+    const { docHash: rootHash } = addAuthenticatedDocument(state, Uint8Array.of(21, 22, 23));
+    const headCiphertext = Uint8Array.of(24, 25, 26);
+    const boundHash = bindToHead ? blake2b256(headCiphertext) : rootHash;
+    for (const [shareIndex, shareHex] of [
+      [1, FIXTURE_SHARES.share1],
+      [2, FIXTURE_SHARES.share2],
+    ]) {
+      const payload = shardPayload({
+        version: SHARD_VERSION,
+        shareIndex,
+        shareHex,
+        docHash: boundHash,
+        signPub: AUTH_SIGN_PUB,
+        shardSetId: new Uint8Array(16).fill(0x19),
+      });
+      const unsignedPayload = { ...payload };
+      delete unsignedPayload.sig;
+      payload.sig = signSigningMessage(
+        concatBytes([textEncoder.encode(SHARD_DOMAIN), encodeCbor(unsignedPayload)]),
+        AUTH_SEED,
+      );
+      parseScannedShard(state, {
+        bytes: buildFrame({
+          frameType: FRAME_TYPE_KEY,
+          docId: boundHash.slice(0, 8),
+          data: encodeCbor(payload),
+        }),
+      });
+    }
+    await updateAuthStatus(state);
+    const verification = await verifyCollectedShardSignatures(state);
+    assert.equal(verification.verified, 2);
+    assert.equal(verification.invalid, 0);
+    assert.equal(autoRecoverShardSecret(state), !bindToHead);
+    if (bindToHead) {
+      assert.match(state.shardStatus.lines.join("\n"), /does not match collected ciphertext/u);
+      addAuthenticatedDocument(state, headCiphertext);
+      await updateAuthStatus(state);
+      assert.equal(autoRecoverShardSecret(state), true);
+    }
+    assert.equal(state.agePassphrase, FIXTURE_PASSPHRASE);
+  }
+});
+
+test("shard recovery rejects shards outside verified non-primary document signing key", async () => {
   const state = createInitialState();
   addAuthenticatedDocument(state, Uint8Array.of(1, 2, 3));
   const { docHash, docId } = addAuthenticatedDocument(state, Uint8Array.of(4, 5, 6));
@@ -607,7 +655,7 @@ test("shard recovery rejects shards outside verified non-primary document author
   );
 });
 
-test("shard recovery clears a recovered secret when later AUTH rejects authority", () => {
+test("shard recovery clears a recovered secret when later AUTH rejects the signing key", () => {
   const state = createInitialState();
   const cipher = Uint8Array.of(8, 7, 6);
   const docHash = blake2b256(cipher);
@@ -653,7 +701,7 @@ test("shard recovery clears a recovered secret when later AUTH rejects authority
   );
 });
 
-test("shard recovery ignores a wrong-authority set when a valid set is available", () => {
+test("shard recovery ignores a set with a different signing key when a valid set is available", () => {
   const state = createInitialState();
   const cipher = Uint8Array.of(6, 5, 4);
   const docHash = blake2b256(cipher);
@@ -773,7 +821,7 @@ test("shard recovery matches reused root shards after extension-first scans", ()
   assert.equal(state.recoveredShardSecret, FIXTURE_PASSPHRASE);
 });
 
-test("ciphertext helpers enforce limits and missing frames", () => {
+test("ciphertext reconstruction enforces limits and missing frames", () => {
   const missingState = createInitialState();
   missingState.total = 1;
   assert.throws(() => reassembleCiphertext(missingState), /missing frames/);

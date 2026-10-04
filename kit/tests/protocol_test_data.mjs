@@ -1,5 +1,7 @@
 import { DOC_ID_LEN, FRAME_MAGIC, FRAME_VERSION } from "../app/constants.js";
+import { concatByteParts as concatBytes } from "../lib/bytes.js";
 import { crc32 } from "../lib/crc32.js";
+import { encodeUvarint } from "../lib/encoding.js";
 
 const ZBASE32_ALPHABET = "ybndrfg8ejkmcpqxot1uwisza345h769";
 
@@ -9,32 +11,8 @@ export function ensureAtob() {
   }
 }
 
-export function encodeUvarint(value) {
-  let current = BigInt(value);
-  const out = [];
-  while (true) {
-    const byte = Number(current & 0x7fn);
-    current >>= 7n;
-    if (current) {
-      out.push(byte | 0x80);
-    } else {
-      out.push(byte);
-      break;
-    }
-  }
-  return Uint8Array.from(out);
-}
-
-export function concatBytes(parts) {
-  const total = parts.reduce((sum, part) => sum + part.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
+export { encodeUvarint };
+export { concatBytes };
 
 export function toUnpaddedBase64(bytes) {
   return Buffer.from(bytes).toString("base64").replace(/=+$/u, "");

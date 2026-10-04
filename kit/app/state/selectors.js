@@ -18,6 +18,7 @@
 import { formatBytes } from "../format.js";
 import { listMissing } from "../frame_list.js";
 import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED } from "../constants.js";
+import { inspectExtensionTarget } from "../extensions/target.js";
 
 const TONE_IDLE = "idle";
 const TONE_OK = "ok";
@@ -86,20 +87,6 @@ function completeMainDocumentRecords(state) {
 
 function incompleteMainDocumentRecords(state) {
   return mainDocumentRecords(state).filter((record) => record.mainFrames.size !== record.total);
-}
-
-function rootOnlyTargetText(value) {
-  const target = String(value ?? "")
-    .trim()
-    .toLowerCase();
-  return target === "root" || target === "0";
-}
-
-function nonLatestTargetText(value) {
-  const target = String(value ?? "")
-    .trim()
-    .toLowerCase();
-  return rootOnlyTargetText(target) || /^[1-9]\d*$/.test(target) || /^[0-9a-f]{64}$/.test(target);
 }
 
 export function selectFrameCollectionComplete(state) {
@@ -247,7 +234,12 @@ export function selectOutputSummary(state) {
 }
 
 export function selectActionState(state) {
-  const allowPartialDocuments = nonLatestTargetText(state.extensionTargetText);
+  const targetInspection = inspectExtensionTarget(
+    state.extensionTargetText,
+    state.expectedHeadDocHashText,
+  );
+  const target = targetInspection.target;
+  const allowPartialDocuments = target !== null && target.kind !== "latest";
   const ciphertextSource = selectCiphertextSource(state, {
     allowIncompleteDocuments: allowPartialDocuments,
     allowAuthOnlyDocuments: allowPartialDocuments,
@@ -256,22 +248,22 @@ export function selectActionState(state) {
     allowIncompleteDocuments: true,
     allowAuthOnlyDocuments: true,
   });
-  const hasEnvelope = Boolean(state.decryptedEnvelope);
+  const hasDecryptedBackup = Boolean(state.decryptedBackup);
   const documentCount = state.documents?.size ?? 0;
   const hasMultipleDocuments = documentCount > 1;
-  const targetText = String(state.extensionTargetText ?? "")
-    .trim()
-    .toLowerCase();
-  const latestTarget = targetText === "" || targetText === "latest";
-  const documentHashTarget = /^[0-9a-f]{64}$/.test(targetText);
-  const hasExpectedHead = String(state.expectedHeadDocHashText ?? "").trim().length > 0;
+  const latestTarget = target?.kind === "latest";
+  const documentHashTarget = target?.kind === "doc_hash";
+  const hasExpectedHead = Boolean(target?.expectedHeadDocHashHex);
   const freshnessDecisionReady =
-    hasExpectedHead ||
-    documentHashTarget ||
-    (latestTarget && state.freshnessUnknownAcknowledged === true);
-  const freshnessDisabledReason = latestTarget
-    ? "Enter an expected head hash or acknowledge unknown freshness."
-    : "Enter the expected head hash for the selected target.";
+    target !== null &&
+    (hasExpectedHead ||
+      documentHashTarget ||
+      (latestTarget && state.freshnessUnknownAcknowledged === true));
+  const freshnessDisabledReason = targetInspection.error
+    ? String(targetInspection.error)
+    : latestTarget
+      ? "Enter an expected head hash or acknowledge unknown freshness."
+      : "Enter the expected head hash for the selected target.";
   const canDownloadCipher =
     !hasMultipleDocuments &&
     state.total &&
@@ -298,8 +290,8 @@ export function selectActionState(state) {
         : !rootOnlyCiphertextSource.available
           ? "Add backup data first (Step 1)."
           : "Enter the expected root head hash.",
-    canExtractEnvelope: hasEnvelope,
-    canDownloadEnvelope: hasEnvelope,
+    canExtractFiles: hasDecryptedBackup,
+    canDownloadDecryptedBackup: hasDecryptedBackup,
     canCopyResult: Boolean(state.recoveredShardSecret),
     hasMultipleDocuments,
     freshnessDecisionReady,

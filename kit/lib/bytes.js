@@ -43,3 +43,14 @@ export function concatBytes(left, right) {
   output.set(right, left.length);
   return output;
 }
+
+export function concatByteParts(parts) {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    output.set(part, offset);
+    offset += part.length;
+  }
+  return output;
+}

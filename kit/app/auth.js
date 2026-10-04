@@ -19,7 +19,7 @@ import { bytesEqual, bytesToHex, concatBytes } from "../lib/bytes.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { getSigningPublicKey, verifySigningSignature } from "../lib/ed25519.js";
 import { AUTH_DOMAIN, AUTH_VERSION, textEncoder } from "./constants.js";
-import { syncLegacyDocumentFields } from "./documents/store.js";
+import { syncPrimaryDocumentFields } from "./documents/store.js";
 import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 
 let authStatusQueue = Promise.resolve();
@@ -73,7 +73,7 @@ async function updateAuthStatusNow(state) {
     for (const record of state.documents.values()) {
       await updateDocumentAuthStatus(record);
     }
-    syncLegacyDocumentFields(state);
+    syncPrimaryDocumentFields(state);
     return;
   }
   await updateDocumentAuthStatus(state);
@@ -126,7 +126,11 @@ export async function updateDocumentAuthStatus(record) {
   record.authStatus = "doc_hash matches; signature not verified";
 }
 
-export async function requireVerifiedAuthPayload(document, expectedSignPub = null) {
+export async function requireVerifiedAuthPayload(
+  document,
+  expectedSignPub = null,
+  verifySignature = verifyAuthSignature,
+) {
   const payload = document.authPayload;
   if (!payload) {
     throw new Error("missing AUTH payload");
@@ -135,9 +139,9 @@ export async function requireVerifiedAuthPayload(document, expectedSignPub = nul
     throw new Error("AUTH doc_hash does not match ciphertext");
   }
   if (expectedSignPub && !bytesEqual(payload.signPub, expectedSignPub)) {
-    throw new Error("AUTH signing key does not match root authority");
+    throw new Error("AUTH signing key does not match root signing key");
   }
-  const verified = await verifyAuthSignature(document.docHash, payload.signPub, payload.signature);
+  const verified = await verifySignature(document.docHash, payload.signPub, payload.signature);
   if (verified === null) {
     throw new Error("this browser cannot verify extension signatures");
   }

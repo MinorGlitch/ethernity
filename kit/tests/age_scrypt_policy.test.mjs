@@ -12,7 +12,7 @@ import {
   preflightAgeScryptBatch,
 } from "../lib/age_scrypt.js";
 
-function syntheticAgeDocument(logN) {
+function buildAgeScryptHeader(logN) {
   const salt = Buffer.alloc(16, 0x11).toString("base64").replaceAll("=", "");
   const body = Buffer.alloc(32, 0x22).toString("base64").replaceAll("=", "");
   const mac = Buffer.alloc(32, 0x33).toString("base64").replaceAll("=", "");
@@ -27,7 +27,7 @@ test("age scrypt preflight accepts calibrated writer profiles through the browse
   assert.equal(MAX_AUTOMATIC_AGE_SCRYPT_LOG_N, 18);
   assert.equal(MAX_AUTOMATIC_RECOVERY_SCRYPT_WORK, 8 * 2 ** 18);
   for (const logN of [1, 10, 18, 19, 20]) {
-    const profile = inspectAgeScryptWork(syntheticAgeDocument(logN));
+    const profile = inspectAgeScryptWork(buildAgeScryptHeader(logN));
     assert.equal(profile.logN, logN);
     assert.equal(profile.work, 2 ** logN);
     assert.equal(profile.memoryBytes, 128 * 8 * (2 ** logN + 2));
@@ -37,14 +37,14 @@ test("age scrypt preflight accepts calibrated writer profiles through the browse
 test("age scrypt preflight rejects profiles above the browser work limit", () => {
   for (const logN of [21, 30, 63]) {
     assert.throws(
-      () => inspectAgeScryptWork(syntheticAgeDocument(logN)),
+      () => inspectAgeScryptWork(buildAgeScryptHeader(logN)),
       /scrypt work factor must be between 1 and 20/,
     );
   }
 });
 
 test("age scrypt batch preflight reports sequential peak memory and cumulative work", () => {
-  const result = preflightAgeScryptBatch([syntheticAgeDocument(19), syntheticAgeDocument(20)], {
+  const result = preflightAgeScryptBatch([buildAgeScryptHeader(19), buildAgeScryptHeader(20)], {
     allowResourceIntensive: true,
   });
 
@@ -56,19 +56,19 @@ test("age scrypt batch preflight reports sequential peak memory and cumulative w
 
 test("age scrypt preflight requires explicit approval before resource-intensive work", () => {
   assert.throws(
-    () => preflightAgeScryptBatch([syntheticAgeDocument(20)]),
+    () => preflightAgeScryptBatch([buildAgeScryptHeader(20)]),
     new RegExp(`^Error: ${INTENSIVE_SCRYPT_APPROVAL_PREFIX}`),
   );
 
-  const approved = preflightAgeScryptBatch([syntheticAgeDocument(20)], {
+  const approved = preflightAgeScryptBatch([buildAgeScryptHeader(20)], {
     allowResourceIntensive: true,
   });
   assert.equal(approved.requiresResourceIntensiveApproval, true);
 });
 
 test("age scrypt preflight gates cumulative automatic work independently of document count", () => {
-  const exactAutomaticBudget = Array.from({ length: 8 }, () => syntheticAgeDocument(18));
-  const aboveAutomaticBudget = [...exactAutomaticBudget, syntheticAgeDocument(18)];
+  const exactAutomaticBudget = Array.from({ length: 8 }, () => buildAgeScryptHeader(18));
+  const aboveAutomaticBudget = [...exactAutomaticBudget, buildAgeScryptHeader(18)];
 
   const accepted = preflightAgeScryptBatch(exactAutomaticBudget);
   assert.equal(accepted.requiresResourceIntensiveApproval, false);
@@ -83,7 +83,7 @@ test("age scrypt preflight gates cumulative automatic work independently of docu
 });
 
 test("age scrypt batch preflight records unsupported documents without scheduling their work", () => {
-  const result = preflightAgeScryptBatch([syntheticAgeDocument(21), syntheticAgeDocument(18)]);
+  const result = preflightAgeScryptBatch([buildAgeScryptHeader(21), buildAgeScryptHeader(18)]);
 
   assert.equal(result.profiles[0], null);
   assert.match(result.errors[0], /scrypt work factor must be between 1 and 20/);
@@ -92,7 +92,7 @@ test("age scrypt batch preflight records unsupported documents without schedulin
 });
 
 test("resource-intensive approval cannot bypass the cumulative hard limit", () => {
-  const excessive = Array.from({ length: 9 }, () => syntheticAgeDocument(20));
+  const excessive = Array.from({ length: 9 }, () => buildAgeScryptHeader(20));
   assert.throws(
     () => preflightAgeScryptBatch(excessive, { allowResourceIntensive: true }),
     new RegExp(`hard compatibility limit \\(${MAX_COMPATIBILITY_RECOVERY_SCRYPT_WORK}\\)`),

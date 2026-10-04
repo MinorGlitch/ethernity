@@ -29,7 +29,7 @@ export function decodeCbor(bytes) {
   return result.value;
 }
 
-export function decodeCanonicalCbor(bytes, label, options = {}) {
+export function decodeDeterministicCbor(bytes, label, options = {}) {
   const typed = decodeCborWithOptions(bytes, {
     preserveFloatType: true,
     preserveMapType: Boolean(options.preserveMapType),
@@ -37,7 +37,7 @@ export function decodeCanonicalCbor(bytes, label, options = {}) {
   const encoded = encodeCbor(typed);
   if (!bytesEqual(encoded, bytes)) {
     throw new Error(
-      `${label} must use canonical CBOR encoding (indefinite-length items are not allowed)`,
+      `${label} must use deterministic CBOR encoding (indefinite-length items are not allowed)`,
     );
   }
   if (options.preserveFloatType) {
@@ -54,7 +54,7 @@ export function encodeCbor(value) {
 
 function encodeCborItem(value, chunks) {
   if (isCborFloatBox(value)) {
-    chunks.push(encodeCanonicalFloat(value.value));
+    chunks.push(encodeShortestFloat(value.value));
     return;
   }
   if (value instanceof Uint8Array) {
@@ -113,7 +113,7 @@ function encodeCborItem(value, chunks) {
     return;
   }
   if (typeof value === "number" && Number.isFinite(value)) {
-    chunks.push(encodeCanonicalFloat(value));
+    chunks.push(encodeShortestFloat(value));
     return;
   }
   if (value === null) {
@@ -223,7 +223,7 @@ function concatChunks(chunks) {
   return out;
 }
 
-function encodeCanonicalFloat(value) {
+function encodeShortestFloat(value) {
   const float16Bits = encodeFloat16Exact(value);
   if (float16Bits !== null) {
     return Uint8Array.of(0xf9, (float16Bits >> 8) & 0xff, float16Bits & 0xff);

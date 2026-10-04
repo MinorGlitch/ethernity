@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { addPayloads, addShardPayloads } from "../app/actions_collect.js";
-import { extractFiles } from "../app/envelope.js";
+import { extractFiles } from "../app/backup_document.js";
 import { ensureCiphertextAndHash } from "../app/frames_cipher.js";
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { verifyCollectedShardSignatures } from "../app/shard_auth.js";
@@ -16,7 +16,7 @@ import { createInitialState } from "../app/state/initial.js";
 import { initialState, reducer } from "../app/state/reducer.js";
 import { decryptAgePassphrase } from "../lib/age_scrypt.js";
 import { bytesToHex } from "../lib/bytes.js";
-import { ensureAtob } from "./test_helpers.mjs";
+import { ensureAtob } from "./protocol_test_data.mjs";
 
 ensureAtob();
 
@@ -58,8 +58,8 @@ async function restoreScenario(scenarioPath) {
     state.agePassphrase = snapshot.passphrase;
   }
 
-  const envelopeBytes = await decryptAgePassphrase(state.ciphertext, state.agePassphrase);
-  const extracted = await extractFiles(envelopeBytes);
+  const documentBytes = await decryptAgePassphrase(state.ciphertext, state.agePassphrase);
+  const extracted = await extractFiles(documentBytes);
   const expectedPaths = snapshot.expected_relative_paths.slice().sort();
   const actualPaths = extracted.files.map((file) => file.path).sort();
 

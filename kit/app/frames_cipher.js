@@ -26,7 +26,7 @@ import {
   completeDocumentRecords,
   incompleteDocumentRecords,
   primaryDocumentRecord,
-  syncLegacyDocumentFields,
+  syncPrimaryDocumentFields,
 } from "./documents/store.js";
 import {
   documentIdentityFromCiphertext,
@@ -64,7 +64,7 @@ export function ensureCiphertextAndHash(state) {
     return ensureDocumentCiphertextAndHash(state);
   }
   const docHash = ensureDocumentCiphertextAndHash(primary);
-  syncLegacyDocumentFields(state);
+  syncPrimaryDocumentFields(state);
   return docHash;
 }
 
@@ -102,7 +102,7 @@ export function syncCollectedCiphertext(state) {
       // leave ciphertext unset if reassembly fails
     }
   }
-  syncLegacyDocumentFields(state);
+  syncPrimaryDocumentFields(state);
 }
 
 export function collectedRecoveryDocuments(
@@ -130,7 +130,7 @@ export function collectedRecoveryDocuments(
     });
   }
   enforceRecoveryDocumentBudget(documents);
-  syncLegacyDocumentFields(state);
+  syncPrimaryDocumentFields(state);
   return documents;
 }
 

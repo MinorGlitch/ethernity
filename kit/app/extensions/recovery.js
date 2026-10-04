@@ -17,19 +17,23 @@
 
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesEqual, bytesToHex } from "../../lib/bytes.js";
-import { EXTENSION_ENVELOPE_VERSION, ENVELOPE_VERSION } from "../constants.js";
+import { EXTENSION_DOCUMENT_VERSION, BACKUP_DOCUMENT_VERSION } from "../constants.js";
 import { documentIdentityFromCiphertext } from "../documents/identity.js";
-import { extractFiles, readEnvelopeVersion } from "../envelope.js";
-import { decodeExtensionEnvelopeHeader, reconstructLatestFilesFromEnvelopes } from "./envelope.js";
-import { deriveSigningPublicKey, verifyAuthSignature } from "../auth.js";
+import { extractFiles, readDocumentVersion } from "../backup_document.js";
+import { decodeExtensionDocumentHeader, reconstructLatestFilesFromDocuments } from "./document.js";
+import {
+  deriveSigningPublicKey,
+  requireVerifiedAuthPayload,
+  verifyAuthSignature,
+} from "../auth.js";
 import { enforceRecoveryDocumentBudget } from "../frames_cipher.js";
+import { normalizeExtensionTarget } from "./target.js";
 
 export async function recoverLatestFromPlaintextDocuments(
   documents,
   {
     verifySignature = verifyAuthSignature,
     extensionTarget = "latest",
-    recoveryAnchor = null,
     freshnessUnknownAcknowledged = false,
   } = {},
 ) {
@@ -37,31 +41,27 @@ export async function recoverLatestFromPlaintextDocuments(
     throw new Error("Collected ciphertext not available yet.");
   }
   enforceRecoveryDocumentBudget(documents, { byteField: "plaintext", byteLabel: "plaintext" });
-  const target = applyRecoveryAnchor(normalizeExtensionTarget(extensionTarget), recoveryAnchor);
-  const freshnessDecision = requireFreshnessDecision(
-    target,
-    recoveryAnchor,
-    freshnessUnknownAcknowledged,
-  );
+  const target = normalizeExtensionTarget(extensionTarget);
+  const freshnessDecision = requireFreshnessDecision(target, freshnessUnknownAcknowledged);
   const rootOnly = target.kind === "root";
   const decoded = [];
   const decodeErrors = [];
   for (const document of documents) {
     try {
-      const version = readEnvelopeVersion(document.plaintext);
-      if (version === ENVELOPE_VERSION) {
+      const version = readDocumentVersion(document.plaintext);
+      if (version === BACKUP_DOCUMENT_VERSION) {
         decoded.push({
           kind: "root",
           document,
           extracted: await extractFiles(document.plaintext),
         });
-      } else if (version === EXTENSION_ENVELOPE_VERSION) {
+      } else if (version === EXTENSION_DOCUMENT_VERSION) {
         decoded.push({
           kind: "extension",
           document,
         });
       } else {
-        decodeErrors.push({ document, message: `unsupported envelope version: ${version}` });
+        decodeErrors.push({ document, message: `unsupported document version: ${version}` });
       }
     } catch (err) {
       decodeErrors.push({ document, message: String(err) });
@@ -78,7 +78,6 @@ export async function recoverLatestFromPlaintextDocuments(
     throw new Error(`content import must contain exactly one root backup (${roots.length} found)`);
   }
   const root = roots[0];
-  validateAnchoredRootDocument(recoveryAnchor, root.document);
   const rawExtensions = decoded.filter((item) => item.kind === "extension");
   for (const failure of decodeErrors) {
     throwIfSelectedDocHashFailure(target, failure.document, "decoded", failure.message);
@@ -87,13 +86,7 @@ export async function recoverLatestFromPlaintextDocuments(
     throw new Error("one or more supplied backup documents could not be decoded");
   }
   const suppliedRootAuthPayload = await verifySuppliedRootAuth(root, verifySignature);
-  if (recoveryAnchor) {
-    const anchoredSignPub =
-      suppliedRootAuthPayload?.signPub ?? deriveRootSigningAuthority(root.extracted.manifest);
-    validateAnchoredSigningAuthority(recoveryAnchor, anchoredSignPub);
-  }
   if (rootOnly) {
-    ensureRootOnlyMatchesAnchor(target, recoveryAnchor, root.document.docHashHex);
     ensureExpectedHeadSatisfied(target, root.document.docHashHex);
     return {
       files: root.extracted.files,
@@ -102,8 +95,8 @@ export async function recoverLatestFromPlaintextDocuments(
       selectedExtensionDocHash: null,
       freshnessScope: null,
       freshnessDecision,
-      trustBasis: recoveryTrustBasis(recoveryAnchor),
-      decryptedEnvelope: root.document.plaintext,
+      ...recoveryTrustDetails(target, root.extracted.manifest),
+      decryptedBackup: root.document.plaintext,
       replayTarget: rootOnly ? "root" : "latest",
       suppliedDocumentCount: documents.length,
     };
@@ -120,25 +113,25 @@ export async function recoverLatestFromPlaintextDocuments(
       selectedExtensionDocHash: null,
       freshnessScope: null,
       freshnessDecision,
-      trustBasis: recoveryTrustBasis(recoveryAnchor),
-      decryptedEnvelope: root.document.plaintext,
+      ...recoveryTrustDetails(target, root.extracted.manifest),
+      decryptedBackup: root.document.plaintext,
       replayTarget: "latest",
       suppliedDocumentCount: documents.length,
     };
   }
 
-  const rootAuthoritySignPub = deriveRootSigningAuthority(root.extracted.manifest);
+  const rootSigningPublicKey = deriveRootSigningPublicKey(root.extracted.manifest);
   if (!suppliedRootAuthPayload) {
-    await requireVerifiedDocumentAuth(root.document, rootAuthoritySignPub, verifySignature);
+    await requireVerifiedAuthPayload(root.document, rootSigningPublicKey, verifySignature);
   }
   const authenticatedExtensions = [];
   const extensionFailures = [];
   for (const item of rawExtensions) {
     let authPayload;
     try {
-      authPayload = await requireVerifiedDocumentAuth(
+      authPayload = await requireVerifiedAuthPayload(
         item.document,
-        rootAuthoritySignPub,
+        rootSigningPublicKey,
         verifySignature,
       );
     } catch (err) {
@@ -151,17 +144,17 @@ export async function recoverLatestFromPlaintextDocuments(
     }
     let header;
     try {
-      header = decodeExtensionEnvelopeHeader(item.document.plaintext);
+      header = decodeExtensionDocumentHeader(item.document.plaintext);
     } catch (err) {
       throwIfSelectedDocHashFailure(
         target,
         item.document,
         "decoded",
-        `root-authority extension could not be decoded: ${String(err)}`,
+        `extension signed by the root key could not be decoded: ${String(err)}`,
       );
       extensionFailures.push({
         authenticated: true,
-        message: `root-authority extension could not be decoded: ${String(err)}`,
+        message: `extension signed by the root key could not be decoded: ${String(err)}`,
       });
       continue;
     }
@@ -188,15 +181,15 @@ export async function recoverLatestFromPlaintextDocuments(
   }
   for (const failure of decodeErrors) {
     if (
-      await documentHasVerifiedRootAuthority(
+      await documentHasVerifiedRootSignature(
         failure.document,
-        rootAuthoritySignPub,
+        rootSigningPublicKey,
         verifySignature,
       )
     ) {
       extensionFailures.push({
         authenticated: true,
-        message: `root-authority extension could not be decoded: ${failure.message}`,
+        message: `extension signed by the root key could not be decoded: ${failure.message}`,
       });
     }
   }
@@ -207,7 +200,7 @@ export async function recoverLatestFromPlaintextDocuments(
   const selectedHeaders = selectSuppliedChainForTarget(authenticatedExtensions, target);
   let files;
   try {
-    files = await reconstructLatestFilesFromEnvelopes(
+    files = await reconstructLatestFilesFromDocuments(
       root.extracted.files,
       root.document.docHash,
       selectedHeaders.map((item) => ({
@@ -223,24 +216,24 @@ export async function recoverLatestFromPlaintextDocuments(
         target,
         selectedDocument,
         "decoded",
-        `root-authority extension could not be decoded: ${String(err)}`,
+        `extension signed by the root key could not be decoded: ${String(err)}`,
       );
     }
-    throw new Error(`root-authority extension could not be decoded: ${String(err)}`);
+    throw new Error(`extension signed by the root key could not be decoded: ${String(err)}`);
   }
   const latest = selectedHeaders.at(-1);
   ensureExpectedHeadSatisfied(target, latest?.docHashHex ?? root.document.docHashHex);
   return {
     files,
     manifest: selectedHeaders.length
-      ? syntheticManifestFromFiles(root.extracted.manifest, files)
+      ? manifestForRecoveredFiles(root.extracted.manifest, files)
       : root.extracted.manifest,
     selectedExtensionIndex: latest?.header.index ?? null,
     selectedExtensionDocHash: latest?.docHashHex ?? null,
     freshnessScope: selectedHeaders.length ? "supplied_carriers_only" : null,
     freshnessDecision,
-    trustBasis: recoveryTrustBasis(recoveryAnchor),
-    decryptedEnvelope: root.document.plaintext,
+    ...recoveryTrustDetails(target, root.extracted.manifest),
+    decryptedBackup: root.document.plaintext,
     replayTarget: target.kind === "latest" ? "latest" : "extension",
     suppliedDocumentCount: documents.length,
   };
@@ -255,12 +248,11 @@ export async function recoverLatestFromEncryptedDocuments(
     extensionTarget = "latest",
     signal,
     allowResourceIntensiveScrypt = false,
-    recoveryAnchor = null,
     freshnessUnknownAcknowledged = false,
   } = {},
 ) {
-  const target = applyRecoveryAnchor(normalizeExtensionTarget(extensionTarget), recoveryAnchor);
-  requireFreshnessDecision(target, recoveryAnchor, freshnessUnknownAcknowledged);
+  const target = normalizeExtensionTarget(extensionTarget);
+  requireFreshnessDecision(target, freshnessUnknownAcknowledged);
   enforceRecoveryDocumentBudget(documents);
   const authPreflight = await preflightEncryptedDocumentAuth(documents, verifySignature);
   const decryptPreflight =
@@ -277,8 +269,8 @@ export async function recoverLatestFromEncryptedDocuments(
     if (firstAuthError) {
       throw new Error(firstAuthError);
     }
-    if (authPreflight.hasMultipleSigningAuthorities) {
-      throw new Error("supplied AUTH payloads advertise multiple signing authorities");
+    if (authPreflight.hasMultipleSigningKeys) {
+      throw new Error("supplied AUTH payloads contain multiple signing keys");
     }
     const firstPreflightError = decryptPreflight?.errors?.find(Boolean);
     if (firstPreflightError) {
@@ -322,31 +314,15 @@ export async function recoverLatestFromEncryptedDocuments(
   const result = await recoverLatestFromPlaintextDocuments(plaintextDocuments, {
     verifySignature,
     extensionTarget: target,
-    recoveryAnchor,
     freshnessUnknownAcknowledged,
   });
   return result;
 }
 
-function validateAnchoredRootDocument(anchor, document) {
-  if (!anchor) return;
-  if (document.docHashHex !== anchor.rootDocumentHashHex) {
-    throw new Error("root backup does not match the recovery kit anchor");
-  }
-}
-
-function validateAnchoredSigningAuthority(anchor, signPub) {
-  if (!anchor) return;
-  const fingerprint = bytesToHex(sha256(signPub));
-  if (fingerprint !== anchor.rootSigningPublicKeyFingerprintHex) {
-    throw new Error("root signing authority does not match the recovery kit anchor");
-  }
-}
-
 async function preflightEncryptedDocumentAuth(documents, verifySignature) {
   const identifiedDocuments = [];
   const errors = [];
-  const signingAuthorities = new Set();
+  const signingKeys = new Set();
   for (const document of documents) {
     let identifiedDocument = document;
     let error = null;
@@ -362,12 +338,8 @@ async function preflightEncryptedDocumentAuth(documents, verifySignature) {
     }
     if (identifiedDocument.authPayload) {
       try {
-        const payload = await requireVerifiedDocumentAuth(
-          identifiedDocument,
-          null,
-          verifySignature,
-        );
-        signingAuthorities.add(bytesToHex(payload.signPub));
+        const payload = await requireVerifiedAuthPayload(identifiedDocument, null, verifySignature);
+        signingKeys.add(bytesToHex(payload.signPub));
       } catch (err) {
         error ??= err instanceof Error ? err.message : String(err);
       }
@@ -378,7 +350,7 @@ async function preflightEncryptedDocumentAuth(documents, verifySignature) {
   return {
     documents: identifiedDocuments,
     errors,
-    hasMultipleSigningAuthorities: signingAuthorities.size > 1,
+    hasMultipleSigningKeys: signingKeys.size > 1,
   };
 }
 
@@ -410,7 +382,7 @@ function assertSuppliedHexMatch(value, expected, label) {
   }
 }
 
-function syntheticManifestFromFiles(rootManifest, files) {
+function manifestForRecoveredFiles(rootManifest, files) {
   return {
     ...rootManifest,
     inputOrigin: "directory",
@@ -427,74 +399,7 @@ function syntheticManifestFromFiles(rootManifest, files) {
   };
 }
 
-function normalizeExtensionTarget(extensionTarget) {
-  if (!extensionTarget || extensionTarget === "latest") {
-    return { kind: "latest" };
-  }
-  if (typeof extensionTarget === "string") {
-    const latestMatch = extensionTarget.trim().match(/^latest:([0-9a-fA-F]{64})$/);
-    if (latestMatch) {
-      return {
-        kind: "latest",
-        expectedHeadDocHashHex: latestMatch[1].toLowerCase(),
-      };
-    }
-  }
-  if (extensionTarget === "root") {
-    return { kind: "root" };
-  }
-  if (typeof extensionTarget === "object" && extensionTarget.kind === "latest") {
-    return withExpectedHeadDocHash({ kind: "latest" }, extensionTarget.expectedHeadDocHashHex);
-  }
-  if (typeof extensionTarget === "object" && extensionTarget.kind === "root") {
-    return withExpectedHeadDocHash({ kind: "root" }, extensionTarget.expectedHeadDocHashHex);
-  }
-  if (typeof extensionTarget === "object" && extensionTarget.kind === "index") {
-    if (!Number.isInteger(extensionTarget.index) || extensionTarget.index < 0) {
-      throw new Error("extension index target must be a non-negative integer");
-    }
-    if (extensionTarget.index === 0) {
-      return withExpectedHeadDocHash({ kind: "root" }, extensionTarget.expectedHeadDocHashHex);
-    }
-    return withExpectedHeadDocHash(
-      { kind: "index", index: extensionTarget.index },
-      extensionTarget.expectedHeadDocHashHex,
-    );
-  }
-  if (typeof extensionTarget === "object" && extensionTarget.kind === "doc_hash") {
-    const docHashHex = String(extensionTarget.docHashHex ?? "").toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(docHashHex)) {
-      throw new Error("extension doc_hash target must be 64 lowercase hex characters");
-    }
-    return withExpectedHeadDocHash(
-      { kind: "doc_hash", docHashHex },
-      extensionTarget.expectedHeadDocHashHex,
-    );
-  }
-  throw new Error("unknown extension recovery target");
-}
-
-function applyRecoveryAnchor(target, anchor) {
-  if (!anchor) return target;
-  if (target.kind !== "latest" && target.kind !== "root") {
-    throw new Error("chain-bound recovery kits recover only their pinned head or the pinned root");
-  }
-  if (
-    target.expectedHeadDocHashHex &&
-    target.expectedHeadDocHashHex !== anchor.expectedLatestHeadHashHex
-  ) {
-    throw new Error("recovery target conflicts with the chain-bound kit head anchor");
-  }
-  return { ...target, expectedHeadDocHashHex: anchor.expectedLatestHeadHashHex };
-}
-
-function requireFreshnessDecision(target, anchor, freshnessUnknownAcknowledged) {
-  if (anchor) {
-    if (target.kind === "root" && anchor.expectedLatestHeadHashHex !== anchor.rootDocumentHashHex) {
-      throw new Error("root-only recovery refused because the trusted kit pins a non-root head");
-    }
-    return "trusted_kit";
-  }
+function requireFreshnessDecision(target, freshnessUnknownAcknowledged) {
   if (target.expectedHeadDocHashHex || target.kind === "doc_hash") {
     return "manual_expected_head";
   }
@@ -509,26 +414,14 @@ function requireFreshnessDecision(target, anchor, freshnessUnknownAcknowledged) 
   throw new Error("selected recovery target requires an expected head hash");
 }
 
-function ensureRootOnlyMatchesAnchor(target, anchor, rootDocHashHex) {
-  if (!anchor || target.kind !== "root") return;
-  if (anchor.expectedLatestHeadHashHex !== rootDocHashHex) {
-    throw new Error("root-only recovery refused because the trusted kit pins a non-root head");
+function recoveryTrustDetails(target, manifest) {
+  if (target.expectedHeadDocHashHex || target.kind === "doc_hash") {
+    return {
+      trustBasis: "matched_expected_head",
+      signingKeyVerified: Boolean(manifest.signingSeed),
+    };
   }
-}
-
-function recoveryTrustBasis(anchor) {
-  return anchor ? "matched_trusted_kit" : "internally_consistent";
-}
-
-function withExpectedHeadDocHash(target, value) {
-  if (value === undefined || value === null || value === "") {
-    return target;
-  }
-  const expectedHeadDocHashHex = String(value).toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(expectedHeadDocHashHex)) {
-    throw new Error("expected extension head doc_hash must be 64 lowercase hex characters");
-  }
-  return { ...target, expectedHeadDocHashHex };
+  return { trustBasis: "internally_consistent", signingKeyVerified: false };
 }
 
 function ensureExpectedHeadSatisfied(target, actualHeadDocHashHex) {
@@ -551,9 +444,9 @@ function throwIfSelectedDocHashFailure(target, document, verb, message) {
   );
 }
 
-function deriveRootSigningAuthority(manifest) {
+function deriveRootSigningPublicKey(manifest) {
   if (!manifest?.signingSeed) {
-    throw new Error("extension replay requires an unsealed root signing authority");
+    throw new Error("extension replay requires an unsealed root backup with its signing seed");
   }
   return deriveSigningPublicKey(manifest.signingSeed);
 }
@@ -565,7 +458,7 @@ async function verifySuppliedRootAuth(root, verifySignature) {
   const expectedSignPub = root.extracted.manifest?.signingSeed
     ? deriveSigningPublicKey(root.extracted.manifest.signingSeed)
     : null;
-  return requireVerifiedDocumentAuth(root.document, expectedSignPub, verifySignature);
+  return requireVerifiedAuthPayload(root.document, expectedSignPub, verifySignature);
 }
 
 function selectLatestSuppliedChain(extensions) {
@@ -613,36 +506,11 @@ function selectSuppliedChainForTarget(extensions, target) {
   throw new Error("unknown extension recovery target");
 }
 
-async function documentHasVerifiedRootAuthority(document, expectedSignPub, verifySignature) {
+async function documentHasVerifiedRootSignature(document, expectedSignPub, verifySignature) {
   try {
-    await requireVerifiedDocumentAuth(document, expectedSignPub, verifySignature);
+    await requireVerifiedAuthPayload(document, expectedSignPub, verifySignature);
     return true;
   } catch {
     return false;
   }
-}
-
-async function requireVerifiedDocumentAuth(document, expectedSignPub, verifySignature) {
-  return requireVerifiedAuthPayloadWithVerifier(document, expectedSignPub, verifySignature);
-}
-
-async function requireVerifiedAuthPayloadWithVerifier(document, expectedSignPub, verifySignature) {
-  const payload = document.authPayload;
-  if (!payload) {
-    throw new Error("missing AUTH payload");
-  }
-  if (!bytesEqual(payload.docHash, document.docHash)) {
-    throw new Error("AUTH doc_hash does not match ciphertext");
-  }
-  if (expectedSignPub && !bytesEqual(payload.signPub, expectedSignPub)) {
-    throw new Error("AUTH signing key does not match root authority");
-  }
-  const verified = await verifySignature(document.docHash, payload.signPub, payload.signature);
-  if (verified === null) {
-    throw new Error("this browser cannot verify extension signatures");
-  }
-  if (!verified) {
-    throw new Error("AUTH signature is invalid");
-  }
-  return payload;
 }

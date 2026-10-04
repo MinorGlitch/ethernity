@@ -17,38 +17,42 @@
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { decodeCanonicalCbor } from "../../lib/cbor.js";
-import { bytesEqual, bytesToHex } from "../../lib/bytes.js";
+import { decodeDeterministicCbor } from "../../lib/cbor.js";
+import { bytesEqual, bytesToHex, concatByteParts } from "../../lib/bytes.js";
 import { readUvarint } from "../../lib/encoding.js";
 import { gunzipBytesBounded } from "../../lib/gzip.js";
 import {
   CHUNK_ALGORITHM_FASTCDC,
   CHUNK_CODEC_GZIP,
   CHUNK_CODEC_RAW,
-  ENVELOPE_MAGIC,
-  EXTENSION_ENVELOPE_VERSION,
+  DOCUMENT_MAGIC,
+  EXTENSION_DOCUMENT_VERSION,
   EXTENSION_SCHEMA_VERSION,
   MAX_DECOMPRESSED_PAYLOAD_BYTES,
   MAX_EXTENSION_INDEX,
   MAX_MANIFEST_CBOR_BYTES,
   MAX_MANIFEST_FILES,
   MAX_RECOVERY_DECODED_CHUNK_BYTES,
+  MIN_EXTENSION_CHUNK_SIZE,
 } from "../constants.js";
-import { validateManifestPath } from "../../lib/path_validation.js";
-import { canonicalChunkRefsForBytes, defaultExtensionChunker } from "./chunking.js";
+import {
+  validateManifestFileTree,
+  validateManifestPath,
+  validateManifestRootLabel,
+} from "../../lib/path_validation.js";
+import { chunkRefsForBytes, defaultExtensionChunker } from "./chunking.js";
 
 const HEADER_KEYS = new Set([1, 2, 4, 5, 7, 10, 11, 12]);
 const BODY_KEYS = new Set([1, 2]);
-const MIN_EXTENSION_CHUNK_SIZE = 4 * 1024;
 
-export function decodeExtensionEnvelopeHeader(bytes) {
-  return readExtensionEnvelopeHeader(bytes).header;
+export function decodeExtensionDocumentHeader(bytes) {
+  return readExtensionDocumentHeader(bytes).header;
 }
 
-export async function decodeExtensionEnvelope(bytes, { decodeChunks = true } = {}) {
-  const { header, bodyStart, bodyEnd } = readExtensionEnvelopeHeader(bytes);
+export async function decodeExtensionDocument(bytes, { decodeChunks = true } = {}) {
+  const { header, bodyStart, bodyEnd } = readExtensionDocumentHeader(bytes);
   const body = await parseExtensionBody(
-    decodeCanonicalCbor(bytes.slice(bodyStart, bodyEnd), "extension body", {
+    decodeDeterministicCbor(bytes.slice(bodyStart, bodyEnd), "extension body", {
       preserveFloatType: true,
       preserveMapType: true,
     }),
@@ -58,20 +62,20 @@ export async function decodeExtensionEnvelope(bytes, { decodeChunks = true } = {
   return { header, files: body.files, chunks: body.chunks };
 }
 
-function readExtensionEnvelopeHeader(bytes) {
+function readExtensionDocumentHeader(bytes) {
   let idx = 0;
-  if (bytes.length < ENVELOPE_MAGIC.length + 1) {
-    throw new Error("extension envelope too short");
+  if (bytes.length < DOCUMENT_MAGIC.length + 1) {
+    throw new Error("extension document too short");
   }
-  if (bytes[0] !== ENVELOPE_MAGIC[0] || bytes[1] !== ENVELOPE_MAGIC[1]) {
-    throw new Error("invalid envelope magic");
+  if (bytes[0] !== DOCUMENT_MAGIC[0] || bytes[1] !== DOCUMENT_MAGIC[1]) {
+    throw new Error("invalid document magic");
   }
-  idx += ENVELOPE_MAGIC.length;
+  idx += DOCUMENT_MAGIC.length;
 
   const versionRes = readUvarint(bytes, idx);
   idx = versionRes.offset;
-  if (versionRes.value !== EXTENSION_ENVELOPE_VERSION) {
-    throw new Error(`unsupported envelope version: ${versionRes.value}`);
+  if (versionRes.value !== EXTENSION_DOCUMENT_VERSION) {
+    throw new Error(`unsupported document version: ${versionRes.value}`);
   }
 
   const headerLenRes = readUvarint(bytes, idx);
@@ -87,7 +91,7 @@ function readExtensionEnvelopeHeader(bytes) {
     throw new Error("truncated extension header");
   }
   const header = parseExtensionHeader(
-    decodeCanonicalCbor(bytes.slice(idx, headerEnd), "extension header", {
+    decodeDeterministicCbor(bytes.slice(idx, headerEnd), "extension header", {
       preserveFloatType: true,
       preserveMapType: true,
     }),
@@ -131,7 +135,7 @@ function parseExtensionHeader(value) {
     throw new Error("extension header input_origin must be one of: file, directory, mixed");
   }
   const inputRoots = requireArray(header.get(12), "extension header input_roots").map((root) =>
-    normalizeRootLabel(root),
+    validateManifestRootLabel(root, "extension header input_root"),
   );
   if (inputOrigin === "file" && inputRoots.length) {
     throw new Error("extension header input_roots must be empty when input_origin is file");
@@ -165,22 +169,20 @@ function parseChunking(value) {
   if (profile.algorithmId !== CHUNK_ALGORITHM_FASTCDC) {
     throw new Error("extension chunking algorithm_id must be CHUNK_ALGORITHM_FASTCDC (1)");
   }
-  if (profile.minSize > profile.targetSize || profile.targetSize > profile.maxSize) {
-    throw new Error("extension chunking sizes must satisfy min <= target <= max");
-  }
-  for (const [label, value] of [
+  for (const [label, size] of [
     ["target_size", profile.targetSize],
     ["min_size", profile.minSize],
     ["max_size", profile.maxSize],
   ]) {
-    if (value < MIN_EXTENSION_CHUNK_SIZE) {
-      throw new Error(
-        `extension chunking ${label} must be >= MIN_EXTENSION_CHUNK_SIZE (${MIN_EXTENSION_CHUNK_SIZE})`,
-      );
+    if (size < MIN_EXTENSION_CHUNK_SIZE) {
+      throw new Error(`extension chunking ${label} must be >= ${MIN_EXTENSION_CHUNK_SIZE}`);
     }
-    if (value > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
-      throw new Error(`extension chunking ${label} exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES`);
+    if (size > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
+      throw new Error(`extension chunking ${label} must be <= MAX_DECOMPRESSED_PAYLOAD_BYTES`);
     }
+  }
+  if (!(profile.minSize <= profile.targetSize && profile.targetSize <= profile.maxSize)) {
+    throw new Error("extension chunking sizes must satisfy min_size <= target_size <= max_size");
   }
   return profile;
 }
@@ -203,6 +205,10 @@ async function parseExtensionBody(value, header, { decodeChunks }) {
     "extension files must be ordered by normalized path",
     compareUnicodeCodePointStrings,
   );
+  validateManifestFileTree(
+    files.map((file) => file.path),
+    "extension file paths",
+  );
   const chunks = requireArray(body.get(2), "extension body chunks").map(parseExtensionChunk);
   validateSortedUnique(chunks, "chunkIdHex", "extension chunks must be ordered by raw chunk_id");
   const referenced = new Set();
@@ -218,7 +224,7 @@ async function parseExtensionBody(value, header, { decodeChunks }) {
       throw new Error("extension inline chunk bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES");
     }
     if (!referenced.has(chunk.chunkIdHex)) {
-      throw new Error("extension inline chunks must be referenced by files in the same envelope");
+      throw new Error("extension inline chunks must be referenced by files in the same document");
     }
   }
   if (decodeChunks) {
@@ -226,7 +232,7 @@ async function parseExtensionBody(value, header, { decodeChunks }) {
       chunk.decoded = await decodeChunkData(chunk);
     }
     for (const file of files) {
-      validateCanonicalChunkRefs(file, new Map(), chunks, header.chunking, {
+      validateMatchingChunkRefs(file, new Map(), chunks, header.chunking, {
         allowUnresolved: true,
       });
     }
@@ -303,6 +309,7 @@ function parseExtensionChunk(value) {
 }
 
 export async function reconstructLatestFiles(rootFiles, rootDocHash, extensions) {
+  validateManifestFileTree(rootFiles.map((file) => file.path));
   if (!extensions.length) {
     return rootFiles.map((file) => ({ ...file, data: file.data.slice() }));
   }
@@ -316,33 +323,34 @@ export async function reconstructLatestFiles(rootFiles, rootDocHash, extensions)
   return replayFiles(replay);
 }
 
-export async function reconstructLatestFilesFromEnvelopes(
+export async function reconstructLatestFilesFromDocuments(
   rootFiles,
   rootDocHash,
-  extensionEnvelopes,
-  { decodeEnvelope = decodeExtensionEnvelope, onExtensionReplayed = null } = {},
+  extensionDocuments,
+  { decodeDocument = decodeExtensionDocument, onExtensionReplayed = null } = {},
 ) {
-  if (!extensionEnvelopes.length) {
+  validateManifestFileTree(rootFiles.map((file) => file.path));
+  if (!extensionDocuments.length) {
     return rootFiles.map((file) => ({ ...file, data: file.data.slice() }));
   }
-  validateExtensionChain(rootDocHash, extensionEnvelopes);
+  validateExtensionChain(rootDocHash, extensionDocuments);
   const neededRefs = new Map();
   let decodedChunkBytes = 0;
-  for (const item of extensionEnvelopes) {
-    const metadata = await decodeEnvelope(item.plaintext, { decodeChunks: false });
-    requireMatchingEnvelopeHeader(metadata.header, item.header);
+  for (const item of extensionDocuments) {
+    const metadata = await decodeDocument(item.plaintext, { decodeChunks: false });
+    requireMatchingDocumentHeader(metadata.header, item.header);
     addExtensionChunkRefCounts(neededRefs, metadata);
     decodedChunkBytes = addDecodedChunkBytes(decodedChunkBytes, metadata);
   }
 
   const replay = createExtensionReplay(
     rootFiles,
-    extensionEnvelopes[0].header.chunking,
+    extensionDocuments[0].header.chunking,
     neededRefs,
   );
-  for (const item of extensionEnvelopes) {
-    const extension = await decodeEnvelope(item.plaintext);
-    requireMatchingEnvelopeHeader(extension.header, item.header);
+  for (const item of extensionDocuments) {
+    const extension = await decodeDocument(item.plaintext);
+    requireMatchingDocumentHeader(extension.header, item.header);
     replayExtension(replay, extension);
     onExtensionReplayed?.({
       index: item.header.index,
@@ -366,6 +374,7 @@ function replayExtension(replay, extension) {
   for (const file of extension.files) {
     projected.set(file.path, file);
   }
+  validateManifestFileTree(projected.keys(), "logical latest file paths");
   if (projected.size > MAX_MANIFEST_FILES) {
     throw new Error(`logical latest state exceeds MAX_MANIFEST_FILES (${MAX_MANIFEST_FILES})`);
   }
@@ -388,7 +397,7 @@ function replayFiles(replay) {
     .map((path) => replay.state.get(path));
 }
 
-function requireMatchingEnvelopeHeader(actual, expected) {
+function requireMatchingDocumentHeader(actual, expected) {
   if (
     actual.version !== expected.version ||
     actual.index !== expected.index ||
@@ -489,11 +498,11 @@ function resolveExtensionFileState(file, availableChunks, chunking) {
   if (!bytesEqual(sha256(data), file.sha)) {
     throw new Error(`extension file sha256 mismatch for ${file.path}`);
   }
-  requireCanonicalChunkRefs(file, data, chunking);
+  requireMatchingChunkRefs(file, data, chunking);
   return { path: file.path, size: file.size, sha: file.sha, mtime: file.mtime, data };
 }
 
-function validateCanonicalChunkRefs(file, availableChunks, chunks, chunking, options = {}) {
+function validateMatchingChunkRefs(file, availableChunks, chunks, chunking, options = {}) {
   if (options.allowUnresolved) {
     const inlineChunks = new Map(chunks.map((chunk) => [chunk.chunkIdHex, chunk.decoded]));
     for (const ref of file.chunkRefs) {
@@ -513,12 +522,12 @@ function validateCanonicalChunkRefs(file, availableChunks, chunks, chunking, opt
     }),
   );
   if (data.length === file.size) {
-    requireCanonicalChunkRefs(file, data, chunking);
+    requireMatchingChunkRefs(file, data, chunking);
   }
 }
 
-function requireCanonicalChunkRefs(file, data, chunking) {
-  const expected = canonicalChunkRefsForBytes(data, chunking);
+function requireMatchingChunkRefs(file, data, chunking) {
+  const expected = chunkRefsForBytes(data, chunking);
   if (expected.length !== file.chunkRefs.length) {
     throw new Error("extension file chunk_refs do not match locked chunking profile");
   }
@@ -677,14 +686,6 @@ function requireNonEmptyBytes(value, label) {
   return value;
 }
 
-function normalizeRootLabel(value) {
-  const root = validateManifestPath(requireString(value, "extension header input_root"));
-  if (!root || root.includes("/") || root.includes("\\")) {
-    throw new Error("extension header input_root must be a leaf label without path separators");
-  }
-  return root;
-}
-
 function validateSortedUnique(items, key, message, compare = compareStrings) {
   let previous = "";
   const seen = new Set();
@@ -727,15 +728,4 @@ function chunkingEqual(left, right) {
     left.minSize === right.minSize &&
     left.maxSize === right.maxSize
   );
-}
-
-function concatByteParts(parts) {
-  const total = parts.reduce((sum, part) => sum + part.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
 }

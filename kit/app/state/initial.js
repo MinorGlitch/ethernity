@@ -17,10 +17,10 @@
 
 import { cloneShardFrames, cloneShardSets } from "../shard_store.js";
 import { cloneDocuments } from "../documents/store.js";
-import { readEmbeddedKitMetadata } from "../kit_anchor.js";
+import { readEmbeddedKitMetadata } from "../kit_metadata.js";
 
 export function createBaseState() {
-  const kitMetadata = readEmbeddedKitMetadata();
+  readEmbeddedKitMetadata();
   return {
     revision: 0,
     documents: new Map(),
@@ -59,8 +59,8 @@ export function createBaseState() {
     authErrors: 0,
     cipherDocHashHex: null,
     ciphertext: null,
-    decryptedEnvelope: null,
-    decryptedEnvelopeSource: "",
+    decryptedBackup: null,
+    decryptedBackupSource: "",
     extractedFiles: [],
     frameStatus: { lines: [], type: "" },
     shardStatus: { lines: [], type: "" },
@@ -69,9 +69,8 @@ export function createBaseState() {
     shardPayloadText: "",
     agePassphrase: "",
     extensionTargetText: "latest",
-    expectedHeadDocHashText: kitMetadata?.anchored ? kitMetadata.expectedLatestHeadHashHex : "",
+    expectedHeadDocHashText: "",
     freshnessUnknownAcknowledged: false,
-    trustedKitAnchored: kitMetadata?.anchored === true,
     decryptStatus: { lines: [], type: "" },
     decryptRequestId: 0,
     isDecrypting: false,

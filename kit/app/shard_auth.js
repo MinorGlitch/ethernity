@@ -19,7 +19,7 @@ import { encodeCbor } from "../lib/cbor.js";
 import { verifySigningSignature } from "../lib/ed25519.js";
 import { concatBytes } from "../lib/bytes.js";
 import { SHARD_DOMAIN, SHARD_VERSION, textEncoder } from "./constants.js";
-import { shardSetRecords, syncLegacyShardFields } from "./shard_store.js";
+import { shardSetRecords, syncActiveShardFields } from "./shard_store.js";
 
 async function verifyShardSignature(payload) {
   const message = shardSignatureMessage(payload);
@@ -90,7 +90,7 @@ export async function verifyCollectedShardSignatures(state) {
       invalid += 1;
     }
   }
-  syncLegacyShardFields(state);
+  syncActiveShardFields(state);
 
   return { unavailable: false, verified, invalid };
 }

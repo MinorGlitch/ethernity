@@ -75,7 +75,7 @@ export function addMainDocumentFrame(state, frame) {
     record.total = frame.total;
   } else if (record.total !== frame.total) {
     record.conflicts += 1;
-    syncLegacyDocumentFields(state);
+    syncPrimaryDocumentFields(state);
     return false;
   }
   if (record.mainFrames.has(frame.index)) {
@@ -85,13 +85,13 @@ export function addMainDocumentFrame(state, frame) {
     } else {
       record.duplicates += 1;
     }
-    syncLegacyDocumentFields(state);
+    syncPrimaryDocumentFields(state);
     return false;
   }
   record.mainFrames.set(frame.index, frame);
   record.ciphertext = null;
   record.cipherDocHashHex = null;
-  syncLegacyDocumentFields(state);
+  syncPrimaryDocumentFields(state);
   return true;
 }
 
@@ -99,7 +99,7 @@ export function addAuthDocumentFrame(state, frame) {
   const record = getOrCreateDocumentRecord(state, frame.docId);
   if (frame.total !== 1 || frame.index !== 0) {
     record.authErrors += 1;
-    syncLegacyDocumentFields(state);
+    syncPrimaryDocumentFields(state);
     return false;
   }
   let payload;
@@ -108,18 +108,18 @@ export function addAuthDocumentFrame(state, frame) {
   } catch {
     record.authErrors += 1;
     record.authStatus = "invalid payload";
-    syncLegacyDocumentFields(state);
+    syncPrimaryDocumentFields(state);
     return false;
   }
   if (record.authPayload) {
     if (!authPayloadsEqual(record.authPayload, payload)) {
       record.authConflicts += 1;
       record.authStatus = "conflicting auth payloads";
-      syncLegacyDocumentFields(state);
+      syncPrimaryDocumentFields(state);
       return false;
     }
     record.authDuplicates += 1;
-    syncLegacyDocumentFields(state);
+    syncPrimaryDocumentFields(state);
     return true;
   }
   record.authPayload = payload;
@@ -127,11 +127,11 @@ export function addAuthDocumentFrame(state, frame) {
   record.authSignPubHex = bytesToHex(payload.signPub);
   record.authSignatureHex = bytesToHex(payload.signature);
   record.authStatus = "pending";
-  syncLegacyDocumentFields(state);
+  syncPrimaryDocumentFields(state);
   return true;
 }
 
-export function syncLegacyDocumentFields(state) {
+export function syncPrimaryDocumentFields(state) {
   const primary = primaryDocumentRecord(state);
   state.duplicates = sumDocumentField(state.documents, "duplicates");
   state.conflicts = sumDocumentField(state.documents, "conflicts");

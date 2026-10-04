@@ -98,7 +98,7 @@ function cloneOptionalBytes(value) {
   return value instanceof Uint8Array ? value.slice() : value;
 }
 
-export function syncLegacyShardFields(state, preferredKey = state.activeShardSetKey) {
+export function syncActiveShardFields(state, preferredKey = state.activeShardSetKey) {
   if (!state.shardSets?.size) {
     return;
   }
@@ -130,7 +130,7 @@ export function addShardPayloadFrame(state, frame, payload) {
   } else if (!shardPayloadMatchesRecord(record, payload)) {
     state.shardConflicts += 1;
     record.conflicts += 1;
-    syncLegacyShardFields(state, key);
+    syncActiveShardFields(state, key);
     return false;
   }
 
@@ -146,12 +146,12 @@ export function addShardPayloadFrame(state, frame, payload) {
       state.shardDuplicates += 1;
       record.duplicates += 1;
     }
-    syncLegacyShardFields(state, key);
+    syncActiveShardFields(state, key);
     return false;
   }
 
   record.shardFrames.set(payload.shareIndex, payload);
-  syncLegacyShardFields(state, key);
+  syncActiveShardFields(state, key);
   return true;
 }
 
@@ -185,7 +185,7 @@ export function activateShardSet(state, key) {
   if (key === null) {
     return;
   }
-  syncLegacyShardFields(state, key);
+  syncActiveShardFields(state, key);
 }
 
 function shardPayloadMatchesRecord(record, payload) {

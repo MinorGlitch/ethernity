@@ -80,11 +80,11 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
 
-  const authorityCompatibleCandidates = matchingCandidates.filter(
+  const signingKeyMatches = matchingCandidates.filter(
     ({ record, documentBinding }) =>
       !documentBinding.authSignPubHex || record.signPubHex === documentBinding.authSignPubHex,
   );
-  if (!authorityCompatibleCandidates.length) {
+  if (!signingKeyMatches.length) {
     activateShardSet(state, matchingCandidates[0].key);
     setShardStatus(
       state,
@@ -95,11 +95,11 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
 
-  const unambiguousCandidates = authorityCompatibleCandidates.filter(
+  const unambiguousCandidates = signingKeyMatches.filter(
     ({ record }) => (record.conflicts ?? 0) === 0,
   );
   if (!unambiguousCandidates.length) {
-    activateShardSet(state, authorityCompatibleCandidates[0].key);
+    activateShardSet(state, signingKeyMatches[0].key);
     setShardStatus(
       state,
       statusPrefix,

@@ -10,7 +10,7 @@ import {
   setStatus,
 } from "../app/state/initial.js";
 import { reducer } from "../app/state/reducer.js";
-import { decodeCanonicalCbor, decodeCbor, encodeCbor } from "../lib/cbor.js";
+import { decodeDeterministicCbor, decodeCbor, encodeCbor } from "../lib/cbor.js";
 import { bytesEqual, concatBytes, hexToBytes } from "../lib/bytes.js";
 import {
   bytesToUnpaddedBase64,
@@ -21,7 +21,7 @@ import {
 } from "../lib/encoding.js";
 import { validateManifestPath } from "../lib/path_validation.js";
 import { makeZip } from "../lib/zip.js";
-import { ensureAtob } from "./test_helpers.mjs";
+import { ensureAtob } from "./protocol_test_data.mjs";
 
 ensureAtob();
 
@@ -39,7 +39,7 @@ test("encoding primitives enforce strict payload and varint rules", () => {
   assert.deepEqual(Array.from(decoded), [97]);
 
   assert.deepEqual(Array.from(decodeZBase32("yy")), [0]);
-  assert.throws(() => decodeZBase32("yb"), /non-canonical tail bits/);
+  assert.throws(() => decodeZBase32("yb"), /nonzero unused tail bits/);
   assert.throws(() => decodeZBase32("!"), /invalid z-base-32 character/);
   assert.throws(() => filterZBase32Lines("yy\nhello\n8x\n"), /outside the z-base-32 alphabet/);
   assert.deepEqual(filterZBase32Lines("01. yy\r12.yy\r\n3. yy\n"), ["yy", "yy", "yy"]);
@@ -61,7 +61,7 @@ test("encoding primitives enforce strict payload and varint rules", () => {
   assert.deepEqual(Array.from(hexToBytes("0a0b")), [10, 11]);
 });
 
-test("CBOR codec roundtrips canonical values and rejects malformed payloads", () => {
+test("CBOR codec roundtrips deterministically encoded values and rejects malformed payloads", () => {
   const value = {
     z: true,
     a: "text",
@@ -77,19 +77,22 @@ test("CBOR codec roundtrips canonical values and rejects malformed payloads", ()
   assert.deepEqual(Array.from(decoded.arr[3]), [1, 2, 3]);
 
   assert.equal(decodeCbor(Uint8Array.of(0xf9, 0x3e, 0x00)), 1.5);
-  assert.equal(decodeCanonicalCbor(Uint8Array.of(0xf9, 0x3e, 0x00), "probe"), 1.5);
-  assert.equal(decodeCanonicalCbor(Uint8Array.of(0xf9, 0x3c, 0x00), "probe"), 1);
+  assert.equal(decodeDeterministicCbor(Uint8Array.of(0xf9, 0x3e, 0x00), "probe"), 1.5);
+  assert.equal(decodeDeterministicCbor(Uint8Array.of(0xf9, 0x3c, 0x00), "probe"), 1);
 
   const f32Value = Math.fround(1.1);
   const f32Bytes = new Uint8Array(5);
   f32Bytes[0] = 0xfa;
   new DataView(f32Bytes.buffer, f32Bytes.byteOffset + 1, 4).setFloat32(0, f32Value);
-  assert.equal(decodeCanonicalCbor(f32Bytes, "probe"), f32Value);
+  assert.equal(decodeDeterministicCbor(f32Bytes, "probe"), f32Value);
 
-  const nonCanonicalFloat32 = Uint8Array.of(0xfa, 0x3f, 0xc0, 0x00, 0x00); // 1.5 encoded as float32
-  assert.throws(() => decodeCanonicalCbor(nonCanonicalFloat32, "probe"), /canonical CBOR/);
+  const overlyWideFloat32 = Uint8Array.of(0xfa, 0x3f, 0xc0, 0x00, 0x00); // 1.5 encoded as float32
+  assert.throws(() => decodeDeterministicCbor(overlyWideFloat32, "probe"), /deterministic CBOR/);
 
-  assert.throws(() => decodeCanonicalCbor(Uint8Array.of(0x18, 0x01), "probe"), /canonical CBOR/);
+  assert.throws(
+    () => decodeDeterministicCbor(Uint8Array.of(0x18, 0x01), "probe"),
+    /deterministic CBOR/,
+  );
   assert.throws(() => decodeCbor(Uint8Array.of(0x5f)), /indefinite CBOR lengths not supported/);
   assert.throws(() => decodeCbor(Uint8Array.of(0xf8, 0x00)), /unsupported CBOR simple value/);
   assert.throws(() => encodeCbor(undefined), /unsupported CBOR value/);
@@ -133,7 +136,7 @@ test("path validation and zip creation enforce safe relative paths", async () =>
   );
 });
 
-test("state helpers clone and reset mutable fields safely", () => {
+test("state cloning and reset preserve mutable-field isolation", () => {
   const state = createInitialState();
   const shardPayload = {
     share: Uint8Array.of(2),

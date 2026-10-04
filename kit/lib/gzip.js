@@ -15,6 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { concatByteParts } from "./bytes.js";
 import { crc32 } from "./crc32.js";
 
 const GZIP_CHUNK_MESSAGES = [
@@ -364,15 +365,4 @@ function readLittleUint32(bytes, offset) {
       (bytes[offset + 3] << 24)) >>>
     0
   );
-}
-
-function concatByteParts(parts) {
-  const total = parts.reduce((sum, part) => sum + part.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
 }

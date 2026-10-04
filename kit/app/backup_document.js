@@ -17,14 +17,18 @@
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { decodeCanonicalCbor } from "../lib/cbor.js";
+import { decodeDeterministicCbor } from "../lib/cbor.js";
 import { bytesEqual } from "../lib/bytes.js";
 import { readUvarint } from "../lib/encoding.js";
 import { gunzipBytesBounded } from "../lib/gzip.js";
-import { validateManifestPath } from "../lib/path_validation.js";
 import {
-  ENVELOPE_MAGIC,
-  ENVELOPE_VERSION,
+  validateManifestFileTree,
+  validateManifestPath,
+  validateManifestRootLabel,
+} from "../lib/path_validation.js";
+import {
+  DOCUMENT_MAGIC,
+  BACKUP_DOCUMENT_VERSION,
   MANIFEST_VERSION,
   MAX_DECOMPRESSED_PAYLOAD_BYTES,
   MAX_MANIFEST_CBOR_BYTES,
@@ -43,20 +47,21 @@ const GZIP_PAYLOAD_MESSAGES = [
   "invalid gzip payload",
 ];
 
-export function readEnvelopeVersion(bytes) {
-  if (bytes.length < 2) throw new Error("envelope too short");
-  if (bytes[0] !== ENVELOPE_MAGIC[0] || bytes[1] !== ENVELOPE_MAGIC[1]) {
-    throw new Error("invalid envelope magic");
+export function readDocumentVersion(bytes) {
+  if (bytes.length < 2) throw new Error("document too short");
+  if (bytes[0] !== DOCUMENT_MAGIC[0] || bytes[1] !== DOCUMENT_MAGIC[1]) {
+    throw new Error("invalid document magic");
   }
   return readUvarint(bytes, 2).value;
 }
 
-function decodeEnvelope(bytes) {
-  const version = readEnvelopeVersion(bytes);
+function decodeBackupDocument(bytes) {
+  const version = readDocumentVersion(bytes);
   let idx = 2;
   const versionRes = readUvarint(bytes, idx);
   idx = versionRes.offset;
-  if (version !== ENVELOPE_VERSION) throw new Error(`unsupported envelope version: ${version}`);
+  if (version !== BACKUP_DOCUMENT_VERSION)
+    throw new Error(`unsupported document version: ${version}`);
 
   const manifestLenRes = readUvarint(bytes, idx);
   const manifestLen = manifestLenRes.value;
@@ -79,7 +84,7 @@ function decodeEnvelope(bytes) {
   if (payloadEnd !== bytes.length) throw new Error("payload length mismatch");
   const payload = bytes.slice(idx, payloadEnd);
 
-  const manifest = decodeCanonicalCbor(manifestBytes, "manifest");
+  const manifest = decodeDeterministicCbor(manifestBytes, "manifest");
   return { manifest, payload };
 }
 
@@ -141,7 +146,7 @@ function parseManifest(manifest) {
   if (!Array.isArray(inputRootsRaw)) {
     throw new Error("manifest input_roots must be a list");
   }
-  const inputRoots = inputRootsRaw.map(normalizeRootLabel);
+  const inputRoots = inputRootsRaw.map((root) => validateManifestRootLabel(root));
   if (inputOrigin === "file" && inputRoots.length > 0) {
     throw new Error("manifest input_roots must be empty when input_origin is file");
   }
@@ -188,6 +193,7 @@ function parseManifest(manifest) {
     seenPaths.add(parsedEntry.path);
     entries.push(parsedEntry);
   }
+  validateManifestFileTree(seenPaths);
   if (!("payload_codec" in manifest)) {
     throw new Error("manifest payload_codec is required");
   }
@@ -234,17 +240,6 @@ function parseManifest(manifest) {
     payloadRawLen,
     entries,
   };
-}
-
-function normalizeRootLabel(root) {
-  if (typeof root !== "string") {
-    throw new Error("manifest input_root must be a non-empty string");
-  }
-  const normalized = validateManifestPath(root, "manifest input_root");
-  if (normalized.includes("/") || normalized.includes("\\")) {
-    throw new Error("manifest input_root must be a leaf label without path separators");
-  }
-  return normalized;
 }
 
 function validatePathPrefixes(value) {
@@ -348,8 +343,8 @@ async function decodePayloadFromManifest(parsedManifest, payload) {
   return decoded;
 }
 
-export async function extractFiles(envelopeBytes) {
-  const { manifest, payload } = decodeEnvelope(envelopeBytes);
+export async function extractFiles(documentBytes) {
+  const { manifest, payload } = decodeBackupDocument(documentBytes);
   const parsed = parseManifest(manifest);
   const normalizedPayload = await decodePayloadFromManifest(parsed, payload);
   const files = [];

@@ -22,7 +22,7 @@ const ROLLING_WINDOW_SIZE = 64;
 const MIN_MASK_BITS = 4;
 const GEAR_TABLE = buildGearTable();
 
-export function canonicalChunkRefsForBytes(data, chunking) {
+export function chunkRefsForBytes(data, chunking) {
   return defaultExtensionChunker(data, chunking).map((chunk) => [sha256(chunk), chunk.length]);
 }
 

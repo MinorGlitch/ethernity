@@ -118,7 +118,7 @@ export function decodeZBase32(text) {
   }
   const decoded = new Uint8Array(out);
   if (encodeZBase32(decoded) !== normalizedChars.join("")) {
-    throw new Error("invalid z-base-32 text: non-canonical tail bits");
+    throw new Error("invalid z-base-32 text: nonzero unused tail bits");
   }
   return decoded;
 }
@@ -165,7 +165,7 @@ export function readUvarint(bytes, offset) {
       const encoded = encodeUvarint(value);
       const actual = bytes.slice(offset, idx);
       if (!bytesEqual(encoded, actual)) {
-        throw new Error("non-canonical varint");
+        throw new Error("overlong varint");
       }
       if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
         throw new Error("varint too large");
@@ -178,8 +178,8 @@ export function readUvarint(bytes, offset) {
   throw new Error("truncated varint");
 }
 
-function encodeUvarint(value) {
-  let current = value;
+export function encodeUvarint(value) {
+  let current = BigInt(value);
   const out = [];
   while (true) {
     const byte = Number(current & 0x7fn);
