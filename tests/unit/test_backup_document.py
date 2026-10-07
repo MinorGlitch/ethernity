@@ -120,9 +120,7 @@ class TestBackupDocument(unittest.TestCase):
 
     def test_root_encoder_rejects_file_ancestor_paths(self) -> None:
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=True,
             signing_seed=None,
             files=tuple(
                 ManifestFile(path=path, size=1, sha256=hashlib.sha256(b"x").digest(), mtime=None)
@@ -149,31 +147,15 @@ class TestBackupDocument(unittest.TestCase):
                     files=files,
                 )
                 with self.assertRaisesRegex(ValueError, "ancestor of file"):
-                    decode_manifest(cbor2.dumps(data, canonical=True))
+                    decode_manifest(cbor2.dumps(data, canonical=True), document_version=1)
 
-    def test_encode_manifest_rejects_unsupported_manifest_version(self) -> None:
-        manifest = BackupManifest(
-            format_version=MANIFEST_VERSION + 1,
-            created_at=0.0,
-            sealed=True,
-            signing_seed=None,
-            files=(
-                ManifestFile(
-                    path="payload.bin",
-                    size=1,
-                    sha256=hashlib.sha256(b"x").digest(),
-                    mtime=None,
-                ),
-            ),
-        )
+    def test_legacy_decoder_rejects_unsupported_manifest_version(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported manifest version"):
-            encode_manifest(manifest)
+            BackupManifest.from_cbor(_make_manifest_cbor(version=2), document_version=1)
 
     def test_encode_manifest_rejects_empty_files(self) -> None:
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=True,
             signing_seed=None,
             files=(),
         )
@@ -184,9 +166,7 @@ class TestBackupDocument(unittest.TestCase):
     def test_manifest_encodes_to_map(self) -> None:
         payload = b"hello world"
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=1234.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             files=(
                 ManifestFile(
@@ -202,7 +182,8 @@ class TestBackupDocument(unittest.TestCase):
         encoded = encode_manifest(manifest)
         decoded = cbor2.loads(encoded)
         self.assertIsInstance(decoded, dict)
-        self.assertEqual(decoded["version"], MANIFEST_VERSION)
+        self.assertNotIn("version", decoded)
+        self.assertNotIn("sealed", decoded)
         self.assertEqual(decoded["payload_codec"], PAYLOAD_CODEC_RAW)
         self.assertNotIn("payload_raw_len", decoded)
         self.assertEqual(decoded["input_origin"], "file")
@@ -267,9 +248,7 @@ class TestBackupDocument(unittest.TestCase):
     ) -> None:
         dumps_deterministic.side_effect = [b"ab", b"cd"]
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=1.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             files=(
                 ManifestFile(
@@ -286,9 +265,7 @@ class TestBackupDocument(unittest.TestCase):
     def test_manifest_encoding_is_deterministic(self) -> None:
         payload = b"hello world"
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=1234.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             files=(
                 ManifestFile(
@@ -308,9 +285,7 @@ class TestBackupDocument(unittest.TestCase):
     def test_roundtrip(self) -> None:
         payload = b"hello world"
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=1234.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             files=(
                 ManifestFile(
@@ -326,15 +301,12 @@ class TestBackupDocument(unittest.TestCase):
         encoded = encode_backup_document(payload, manifest)
         decoded_manifest, decoded_payload = decode_backup_document(encoded)
         self.assertEqual(decoded_payload, payload)
-        self.assertEqual(decoded_manifest.format_version, MANIFEST_VERSION)
         self.assertEqual(decoded_manifest.files[0].path, "payload.bin")
 
     def test_invalid_magic(self) -> None:
         payload = b"data"
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             files=(
                 ManifestFile(
@@ -355,9 +327,7 @@ class TestBackupDocument(unittest.TestCase):
     def test_truncated_payload(self) -> None:
         payload = b"data"
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             files=(
                 ManifestFile(
@@ -377,9 +347,7 @@ class TestBackupDocument(unittest.TestCase):
     def test_extract_payloads_hash_mismatch(self) -> None:
         payload = b"data"
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             files=(
                 ManifestFile(
@@ -440,7 +408,7 @@ class TestBackupDocument(unittest.TestCase):
                 _make_manifest_file_entry(prefix_index=1, suffix="beta.txt", mtime=2),
             ],
         )
-        manifest = BackupManifest.from_cbor(data)
+        manifest = BackupManifest.from_cbor(data, document_version=1)
         self.assertEqual(
             [entry.path for entry in manifest.files],
             ["dir/alpha.txt", "dir/beta.txt"],
@@ -516,7 +484,7 @@ class TestBackupDocument(unittest.TestCase):
             seed=None,
             files=[_make_manifest_file_entry(path=decomposed)],
         )
-        manifest = BackupManifest.from_cbor(data)
+        manifest = BackupManifest.from_cbor(data, document_version=1)
         self.assertEqual(manifest.files[0].path, composed)
 
     def test_manifest_decoder_rejects_duplicate_paths_after_normalization(self) -> None:
@@ -531,7 +499,7 @@ class TestBackupDocument(unittest.TestCase):
             ],
         )
         with self.assertRaises(ValueError):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_decoder_rejects_absolute_paths(self) -> None:
         data = _make_manifest_cbor(
@@ -540,7 +508,7 @@ class TestBackupDocument(unittest.TestCase):
             files=[_make_manifest_file_entry(path="/abs/file.txt")],
         )
         with self.assertRaises(ValueError) as ctx:
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
         self.assertIn("relative", str(ctx.exception))
 
     def test_manifest_decoder_rejects_backslash_paths(self) -> None:
@@ -550,7 +518,7 @@ class TestBackupDocument(unittest.TestCase):
             files=[_make_manifest_file_entry(path=r"dir\file.txt")],
         )
         with self.assertRaises(ValueError) as ctx:
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
         self.assertIn("POSIX separators", str(ctx.exception))
 
     def test_manifest_decoder_rejects_dotdot_segments(self) -> None:
@@ -560,7 +528,7 @@ class TestBackupDocument(unittest.TestCase):
             files=[_make_manifest_file_entry(path="dir/../file.txt")],
         )
         with self.assertRaises(ValueError) as ctx:
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
         self.assertIn("'.' or '..'", str(ctx.exception))
 
     def test_manifest_decoder_rejects_empty_segments(self) -> None:
@@ -570,53 +538,53 @@ class TestBackupDocument(unittest.TestCase):
             files=[_make_manifest_file_entry(path="dir//file.txt")],
         )
         with self.assertRaises(ValueError) as ctx:
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
         self.assertIn("empty path segments", str(ctx.exception))
 
     def test_manifest_rejects_invalid_signing_seed(self) -> None:
         data = _make_manifest_cbor(seed="not-bytes")
         with self.assertRaises(ValueError):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_requires_input_origin(self) -> None:
         data = _make_manifest_cbor()
         del data["input_origin"]
         with self.assertRaisesRegex(ValueError, "input_origin"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_invalid_input_origin(self) -> None:
         data = _make_manifest_cbor(input_origin="archive")
         with self.assertRaisesRegex(ValueError, "input_origin"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_requires_input_roots(self) -> None:
         data = _make_manifest_cbor()
         del data["input_roots"]
         with self.assertRaisesRegex(ValueError, "input_roots"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_requires_path_encoding(self) -> None:
         data = _make_manifest_cbor()
         del data["path_encoding"]
         with self.assertRaisesRegex(ValueError, "path_encoding"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_requires_payload_codec(self) -> None:
         data = _make_manifest_cbor()
         del data["payload_codec"]
         with self.assertRaisesRegex(ValueError, "payload_codec"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_invalid_path_encoding(self) -> None:
         data = _make_manifest_cbor(path_encoding="legacy")
         with self.assertRaisesRegex(ValueError, "path_encoding"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_prefix_table_requires_path_prefixes(self) -> None:
         data = _make_manifest_cbor(path_encoding=PATH_ENCODING_PREFIX_TABLE)
         del data["path_prefixes"]
         with self.assertRaisesRegex(ValueError, "path_prefixes"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_invalid_path_prefixes_shape(self) -> None:
         data = _make_manifest_cbor(
@@ -624,7 +592,7 @@ class TestBackupDocument(unittest.TestCase):
             path_prefixes="not-a-list",
         )
         with self.assertRaisesRegex(ValueError, "path_prefixes"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_invalid_path_prefixes_values(self) -> None:
         data = _make_manifest_cbor(
@@ -633,7 +601,7 @@ class TestBackupDocument(unittest.TestCase):
             files=[_make_manifest_file_entry(prefix_index=1, suffix="payload.bin")],
         )
         with self.assertRaisesRegex(ValueError, "path_prefix"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_prefix_index_out_of_range(self) -> None:
         data = _make_manifest_cbor(
@@ -642,7 +610,7 @@ class TestBackupDocument(unittest.TestCase):
             files=[_make_manifest_file_entry(prefix_index=1, suffix="payload.bin")],
         )
         with self.assertRaisesRegex(ValueError, "prefix_index"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_legacy_map_file_entries(self) -> None:
         data = _make_manifest_cbor(
@@ -657,18 +625,16 @@ class TestBackupDocument(unittest.TestCase):
             ],
         )
         with self.assertRaisesRegex(ValueError, "array encoding"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_bool_created_timestamp(self) -> None:
         data = _make_manifest_cbor(created=True)
         with self.assertRaisesRegex(ValueError, "created"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_encode_manifest_rejects_bool_created_timestamp(self) -> None:
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=True,
-            sealed=True,
             signing_seed=None,
             input_origin="directory",
             input_roots=("payload",),
@@ -689,15 +655,13 @@ class TestBackupDocument(unittest.TestCase):
             with self.subTest(created_at=created_at):
                 data = _make_manifest_cbor(created=created_at)
                 with self.assertRaisesRegex(ValueError, "finite"):
-                    BackupManifest.from_cbor(data)
+                    BackupManifest.from_cbor(data, document_version=1)
 
     def test_encode_manifest_rejects_non_finite_created_timestamp(self) -> None:
         for created_at in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(created_at=created_at):
                 manifest = BackupManifest(
-                    format_version=MANIFEST_VERSION,
                     created_at=created_at,
-                    sealed=True,
                     signing_seed=None,
                     input_origin="directory",
                     input_roots=("payload",),
@@ -715,14 +679,11 @@ class TestBackupDocument(unittest.TestCase):
 
     def test_manifest_rejects_zero_raw_len_for_empty_gzip_payload(self) -> None:
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=True,
             signing_seed=None,
             input_origin="directory",
             input_roots=("payload",),
             payload_codec=PAYLOAD_CODEC_GZIP,
-            payload_raw_len=0,
             files=(
                 ManifestFile(
                     path="payload.bin",
@@ -732,14 +693,12 @@ class TestBackupDocument(unittest.TestCase):
                 ),
             ),
         )
-        with self.assertRaisesRegex(ValueError, "payload_raw_len"):
+        with self.assertRaisesRegex(ValueError, "gzip payload size"):
             encode_manifest(manifest)
 
     def test_encode_manifest_rejects_invalid_file_entry_fields(self) -> None:
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=True,
             signing_seed=None,
             files=(ManifestFile(path="payload.bin", size=True, sha256=b"\x00" * 31, mtime=True),),
         )
@@ -749,7 +708,7 @@ class TestBackupDocument(unittest.TestCase):
     def test_manifest_rejects_direct_file_entry_with_trailing_values(self) -> None:
         data = _make_manifest_cbor(files=[["payload.bin", 4, b"\x00" * 32, None, "extra"]])
         with self.assertRaisesRegex(ValueError, "exactly 4 items"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_prefix_file_entry_with_trailing_values(self) -> None:
         data = _make_manifest_cbor(
@@ -758,53 +717,52 @@ class TestBackupDocument(unittest.TestCase):
             files=[[0, "payload.bin", 4, b"\x00" * 32, None, "extra"]],
         )
         with self.assertRaisesRegex(ValueError, "exactly 5 items"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_invalid_input_roots_shape(self) -> None:
         data = _make_manifest_cbor(input_roots="root")
         with self.assertRaisesRegex(ValueError, "input_roots"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_invalid_input_root_label(self) -> None:
         for root in ("dir/name", "a\\b", ".", "..", "C:notes", "/abs", "bad\x01"):
             with self.subTest(root=root):
                 data = _make_manifest_cbor(input_origin="directory", input_roots=[root])
                 with self.assertRaisesRegex(ValueError, "input_root"):
-                    BackupManifest.from_cbor(data)
+                    BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_accepts_directory_and_mixed_input_origin(self) -> None:
         data = _make_manifest_cbor(input_origin="directory", input_roots=["vault"])
-        directory_manifest = BackupManifest.from_cbor(data)
+        directory_manifest = BackupManifest.from_cbor(data, document_version=1)
         self.assertEqual(directory_manifest.input_origin, "directory")
         self.assertEqual(directory_manifest.input_roots, ("vault",))
 
         data = _make_manifest_cbor(input_origin="mixed", input_roots=["vault"])
-        mixed_manifest = BackupManifest.from_cbor(data)
+        mixed_manifest = BackupManifest.from_cbor(data, document_version=1)
         self.assertEqual(mixed_manifest.input_origin, "mixed")
         self.assertEqual(mixed_manifest.input_roots, ("vault",))
 
         data = _make_manifest_cbor(input_origin="directory", input_roots=[" vault "])
-        whitespace_manifest = BackupManifest.from_cbor(data)
+        whitespace_manifest = BackupManifest.from_cbor(data, document_version=1)
         self.assertEqual(whitespace_manifest.input_roots, (" vault ",))
 
     def test_manifest_rejects_file_origin_with_input_roots(self) -> None:
         data = _make_manifest_cbor(input_origin="file", input_roots=["vault"])
         with self.assertRaisesRegex(ValueError, "input_roots"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_rejects_directory_or_mixed_without_input_roots(self) -> None:
         data = _make_manifest_cbor(input_origin="directory", input_roots=[])
         with self.assertRaisesRegex(ValueError, "input_roots"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
         data = _make_manifest_cbor(input_origin="mixed", input_roots=[])
         with self.assertRaisesRegex(ValueError, "input_roots"):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_ignores_unknown_keys(self) -> None:
         data = _make_manifest_cbor()
         data["extra"] = 123
-        manifest = BackupManifest.from_cbor(data)
-        self.assertEqual(manifest.format_version, MANIFEST_VERSION)
+        manifest = BackupManifest.from_cbor(data, document_version=1)
         self.assertEqual(manifest.signing_seed, TEST_SIGNING_SEED)
 
     def test_manifest_decoder_rejects_nondeterministic_cbor(self) -> None:
@@ -818,24 +776,22 @@ class TestBackupDocument(unittest.TestCase):
     def test_manifest_rejects_hex_sha256(self) -> None:
         data = _make_manifest_cbor(files=[_make_manifest_file_entry(hash_value="00" * 32)])
         with self.assertRaises(ValueError) as ctx:
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
         self.assertIn("hash", str(ctx.exception).lower())
 
     def test_manifest_rejects_unsupported_version(self) -> None:
         data = _make_manifest_cbor(version=4)
         with self.assertRaises(ValueError):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_requires_seed_when_unsealed(self) -> None:
         data = _make_manifest_cbor(seed=None)
         with self.assertRaises(ValueError):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_encode_manifest_respects_manifest_cbor_bound(self) -> None:
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=True,
             signing_seed=None,
             files=(
                 ManifestFile(
@@ -876,9 +832,7 @@ class TestBackupDocument(unittest.TestCase):
             for i in range(MAX_MANIFEST_FILES)
         )
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=True,
             signing_seed=None,
             files=files,
         )
@@ -897,9 +851,7 @@ class TestBackupDocument(unittest.TestCase):
             for i in range(MAX_MANIFEST_FILES + 1)
         )
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=True,
             signing_seed=None,
             files=files,
         )
@@ -909,7 +861,7 @@ class TestBackupDocument(unittest.TestCase):
     def test_manifest_rejects_seed_when_sealed(self) -> None:
         data = _make_manifest_cbor(sealed=True, seed=TEST_SIGNING_SEED)
         with self.assertRaises(ValueError):
-            BackupManifest.from_cbor(data)
+            BackupManifest.from_cbor(data, document_version=1)
 
     def test_manifest_roundtrip_with_signing_seed(self) -> None:
         payload = b"hello"
@@ -1038,9 +990,7 @@ class TestBackupDocument(unittest.TestCase):
         """Test extract_payloads with payload shorter than manifest claims."""
         payload = b"short"
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             files=(
                 ManifestFile(
@@ -1060,9 +1010,7 @@ class TestBackupDocument(unittest.TestCase):
         payload = b"extra data here"
 
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             files=(
                 ManifestFile(
@@ -1159,12 +1107,9 @@ class TestBackupDocument(unittest.TestCase):
         payload = b"hello " * 400
         compressed = gzip.compress(payload, compresslevel=9, mtime=0)
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             payload_codec=PAYLOAD_CODEC_GZIP,
-            payload_raw_len=len(payload),
             files=(
                 ManifestFile(
                     path="payload.bin",
@@ -1190,7 +1135,7 @@ class TestBackupDocument(unittest.TestCase):
             files=[_make_manifest_file_entry(path="f.bin", size=1)],
         )
         with self.assertRaisesRegex(ValueError, "payload_raw_len"):
-            decode_manifest(cbor2.dumps(manifest_data, canonical=True))
+            decode_manifest(cbor2.dumps(manifest_data, canonical=True), document_version=1)
 
     def test_manifest_gzip_requires_payload_raw_len(self) -> None:
         manifest_data = _make_manifest_cbor(
@@ -1200,7 +1145,7 @@ class TestBackupDocument(unittest.TestCase):
             files=[_make_manifest_file_entry(path="f.bin", size=1)],
         )
         with self.assertRaisesRegex(ValueError, "payload_raw_len"):
-            decode_manifest(cbor2.dumps(manifest_data, canonical=True))
+            decode_manifest(cbor2.dumps(manifest_data, canonical=True), document_version=1)
 
     def test_manifest_gzip_payload_raw_len_must_match_files(self) -> None:
         manifest_data = _make_manifest_cbor(
@@ -1211,7 +1156,7 @@ class TestBackupDocument(unittest.TestCase):
             files=[_make_manifest_file_entry(path="f.bin", size=1)],
         )
         with self.assertRaisesRegex(ValueError, "must match sum"):
-            decode_manifest(cbor2.dumps(manifest_data, canonical=True))
+            decode_manifest(cbor2.dumps(manifest_data, canonical=True), document_version=1)
 
     def test_manifest_gzip_payload_raw_len_rejects_over_max_decompressed_bound(self) -> None:
         oversize_len = MAX_DECOMPRESSED_PAYLOAD_BYTES + 1
@@ -1223,22 +1168,19 @@ class TestBackupDocument(unittest.TestCase):
             files=[_make_manifest_file_entry(path="f.bin", size=oversize_len)],
         )
         with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
-            decode_manifest(cbor2.dumps(manifest_data, canonical=True))
+            decode_manifest(cbor2.dumps(manifest_data, canonical=True), document_version=1)
 
     def test_extract_payloads_rejects_gzip_overrun(self) -> None:
         payload = b"A" * 32
         compressed = gzip.compress(payload, compresslevel=9, mtime=0)
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             payload_codec=PAYLOAD_CODEC_GZIP,
-            payload_raw_len=len(payload) - 1,
             files=(
                 ManifestFile(
                     path="payload.bin",
-                    size=len(payload),
+                    size=len(payload) - 1,
                     sha256=hashlib.sha256(payload).digest(),
                     mtime=None,
                 ),
@@ -1251,12 +1193,9 @@ class TestBackupDocument(unittest.TestCase):
         payload = b"trailing-check" * 40
         compressed = gzip.compress(payload, compresslevel=9, mtime=0)
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             payload_codec=PAYLOAD_CODEC_GZIP,
-            payload_raw_len=len(payload),
             files=(
                 ManifestFile(
                     path="payload.bin",
@@ -1273,12 +1212,9 @@ class TestBackupDocument(unittest.TestCase):
         payload = b"incomplete-stream" * 40
         compressed = gzip.compress(payload, compresslevel=9, mtime=0)
         manifest = BackupManifest(
-            format_version=MANIFEST_VERSION,
             created_at=0.0,
-            sealed=False,
             signing_seed=TEST_SIGNING_SEED,
             payload_codec=PAYLOAD_CODEC_GZIP,
-            payload_raw_len=len(payload),
             files=(
                 ManifestFile(
                     path="payload.bin",

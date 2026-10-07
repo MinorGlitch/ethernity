@@ -25,7 +25,6 @@ def manifest_summary_payload(manifest: BackupManifest) -> dict[str, object]:
     """Summarize a backup's file count, source organization, and compression."""
 
     return {
-        "format_version": manifest.format_version,
         "input_origin": manifest.input_origin,
         "input_roots": list(manifest.input_roots),
         "sealed": manifest.sealed,

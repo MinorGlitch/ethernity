@@ -212,3 +212,13 @@ def require_version(actual: int, expected: int, *, label: str) -> None:
     """Validate that version matches expected value."""
     if actual != expected:
         raise ValueError(f"unsupported {label} version: {actual}")
+
+
+def integer_text_or_default(value: object, default: int) -> int:
+    """Read an integer string without imposing the caller's numeric-type policy."""
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            pass
+    return default

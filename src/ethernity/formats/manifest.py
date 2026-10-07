@@ -30,7 +30,6 @@ from ethernity.core.validation import (
     require_dict,
     require_int,
     require_keys,
-    require_length,
     require_list,
     require_non_empty_str,
     require_non_negative_int,
@@ -39,6 +38,7 @@ from ethernity.core.validation import (
     validate_manifest_file_tree,
 )
 from ethernity.encoding.cbor import dumps_deterministic
+from ethernity.formats.document_constants import BACKUP_DOCUMENT_VERSIONS, LEGACY_VERSION, VERSION
 
 MANIFEST_VERSION = 1
 SIGNING_SEED_LEN = 32
@@ -88,22 +88,28 @@ class ManifestFile:
 class BackupManifest:
     """Metadata and file list stored in a standalone backup."""
 
-    format_version: int
     created_at: float
-    sealed: bool
     signing_seed: bytes | None
     files: tuple[ManifestFile, ...]
     input_origin: str = "file"
     input_roots: tuple[str, ...] = ()
     payload_codec: str = PAYLOAD_CODEC_RAW
-    payload_raw_len: int | None = None
+
+    @property
+    def sealed(self) -> bool:
+        return self.signing_seed is None
+
+    @property
+    def payload_raw_len(self) -> int | None:
+        return (
+            sum(entry.size for entry in self.files)
+            if self.payload_codec == PAYLOAD_CODEC_GZIP
+            else None
+        )
 
     def to_cbor(self) -> dict[str, object]:
         """Build the manifest CBOR map, selecting the shorter path representation."""
 
-        format_version = require_int(self.format_version, label="manifest version")
-        if format_version != MANIFEST_VERSION:
-            raise ValueError(f"unsupported manifest version: {format_version}")
         created_at = _require_manifest_created_at(self.created_at)
         files = tuple(
             _build_manifest_file(
@@ -123,13 +129,8 @@ class BackupManifest:
                 f"{len(files)} entries"
             )
 
-        if self.sealed:
-            if self.signing_seed is not None:
-                raise ValueError("sealed manifests must not include seed")
-        else:
-            if self.signing_seed is None:
-                raise ValueError("unsealed manifests must include seed")
-            require_length(self.signing_seed, SIGNING_SEED_LEN, label="seed")
+        if self.signing_seed is not None:
+            require_bytes(self.signing_seed, SIGNING_SEED_LEN, label="seed", prefix="manifest ")
         if self.input_origin not in {"file", "directory", "mixed"}:
             raise ValueError("manifest input_origin must be one of: file, directory, mixed")
         normalized_roots = tuple(
@@ -145,24 +146,7 @@ class BackupManifest:
         if payload_codec not in {PAYLOAD_CODEC_RAW, PAYLOAD_CODEC_GZIP}:
             raise ValueError("manifest payload_codec must be one of: raw, gzip")
         expected_raw_len = sum(entry.size for entry in files)
-        if payload_codec == PAYLOAD_CODEC_RAW:
-            if self.payload_raw_len is not None:
-                raise ValueError("manifest payload_raw_len must be null for raw payload_codec")
-        else:
-            if self.payload_raw_len is None:
-                raise ValueError("manifest payload_raw_len is required for gzip payload_codec")
-            raw_len = require_non_negative_int(
-                self.payload_raw_len, label="manifest payload_raw_len"
-            )
-            if raw_len <= 0:
-                raise ValueError("manifest payload_raw_len must be positive")
-            if raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
-                raise ValueError(
-                    "manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
-                    f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {raw_len}"
-                )
-            if raw_len != expected_raw_len:
-                raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
+        _validate_payload_size(payload_codec, expected_raw_len)
 
         seen_paths: set[str] = set()
         for entry in files:
@@ -172,16 +156,12 @@ class BackupManifest:
         validate_manifest_file_tree(seen_paths, label="manifest file paths")
 
         base_manifest: dict[str, object] = {
-            "version": format_version,
             "created": created_at,
-            "sealed": self.sealed,
             "seed": self.signing_seed,
             "input_origin": self.input_origin,
             "input_roots": list(normalized_roots),
             "payload_codec": payload_codec,
         }
-        if payload_codec == PAYLOAD_CODEC_GZIP:
-            base_manifest["payload_raw_len"] = self.payload_raw_len
 
         direct_manifest = dict(base_manifest)
         direct_manifest["path_encoding"] = PATH_ENCODING_DIRECT
@@ -203,7 +183,6 @@ class BackupManifest:
         """Return a debug-friendly dictionary form of the manifest."""
 
         return {
-            "format_version": self.format_version,
             "created_at": self.created_at,
             "sealed": self.sealed,
             "signing_seed": self.signing_seed,
@@ -215,16 +194,14 @@ class BackupManifest:
         }
 
     @classmethod
-    def from_cbor(cls, data: object) -> "BackupManifest":
+    def from_cbor(cls, data: object, *, document_version: int = VERSION) -> BackupManifest:
         """Decode and validate a manifest object from parsed CBOR."""
 
-        validated = require_dict(data, label="manifest")
+        validated, legacy = _manifest_envelope(data, document_version)
         require_keys(
             validated,
             (
-                "version",
                 "created",
-                "sealed",
                 "seed",
                 "input_origin",
                 "input_roots",
@@ -234,9 +211,7 @@ class BackupManifest:
             ),
             label="manifest",
         )
-        format_version = validated["version"]
         created_at = validated["created"]
-        sealed = validated["sealed"]
         signing_seed = validated["seed"]
         input_origin = validated["input_origin"]
         input_roots = validated["input_roots"]
@@ -244,11 +219,10 @@ class BackupManifest:
         files_raw = validated["files"]
         payload_codec_raw = validated["payload_codec"]
         payload_raw_len_raw = validated.get("payload_raw_len")
-        format_version = require_int(format_version, label="manifest version")
-        if format_version != MANIFEST_VERSION:
-            raise ValueError(f"unsupported manifest version: {format_version}")
         created_at = _require_manifest_created_at(created_at)
-        sealed = require_bool(sealed, label="manifest sealed")
+        sealed = signing_seed is None
+        if legacy:
+            sealed = require_bool(validated["sealed"], label="manifest sealed")
         input_origin = require_str(input_origin, label="manifest input_origin")
         if input_origin not in {"file", "directory", "mixed"}:
             raise ValueError("manifest input_origin must be one of: file, directory, mixed")
@@ -268,32 +242,8 @@ class BackupManifest:
             tuple(normalized_roots),
             label="manifest input_roots",
         )
-        if sealed:
-            if signing_seed is not None:
-                raise ValueError("manifest seed must be null for sealed manifests")
-            seed_bytes = None
-        else:
-            seed_bytes = require_bytes(
-                signing_seed,
-                SIGNING_SEED_LEN,
-                label="seed",
-                prefix="manifest ",
-            )
-        if not isinstance(files_raw, list) or not files_raw:
-            raise ValueError("manifest files are required")
-        if len(files_raw) > MAX_MANIFEST_FILES:
-            raise ValueError(
-                f"manifest files exceed MAX_MANIFEST_FILES ({MAX_MANIFEST_FILES}): "
-                f"{len(files_raw)} entries"
-            )
-        if path_encoding == PATH_ENCODING_DIRECT:
-            files = _decode_direct_files(files_raw)
-        else:
-            if "path_prefixes" not in validated:
-                raise ValueError("manifest path_prefixes is required for prefix_table encoding")
-            path_prefixes = _validate_path_prefixes(validated["path_prefixes"])
-            files = _decode_prefix_files(files_raw, path_prefixes)
-
+        seed_bytes = _manifest_seed(sealed, signing_seed)
+        files = _manifest_files(files_raw, path_encoding, validated)
         seen_paths: set[str] = set()
         for file_entry in files:
             if file_entry.path in seen_paths:
@@ -301,36 +251,97 @@ class BackupManifest:
             seen_paths.add(file_entry.path)
         validate_manifest_file_tree(seen_paths, label="manifest file paths")
         expected_raw_len = sum(file_entry.size for file_entry in files)
-        if payload_codec == PAYLOAD_CODEC_RAW:
-            if payload_raw_len_raw is not None:
-                raise ValueError("manifest payload_raw_len must be null for raw payload_codec")
-            payload_raw_len = None
-        else:
-            if payload_raw_len_raw is None:
-                raise ValueError("manifest payload_raw_len is required for gzip payload_codec")
-            payload_raw_len = require_non_negative_int(
-                payload_raw_len_raw, label="manifest payload_raw_len"
-            )
-            if payload_raw_len <= 0:
-                raise ValueError("manifest payload_raw_len must be positive")
-            if payload_raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
-                raise ValueError(
-                    "manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
-                    f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {payload_raw_len}"
-                )
-            if payload_raw_len != expected_raw_len:
-                raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
+        _validate_payload_size(payload_codec, expected_raw_len)
+        if legacy:
+            _validate_legacy_payload_size(payload_codec, payload_raw_len_raw, expected_raw_len)
         return cls(
-            format_version=format_version,
             created_at=created_at,
-            sealed=sealed,
             signing_seed=seed_bytes,
             input_origin=input_origin,
             input_roots=tuple(normalized_roots),
             payload_codec=payload_codec,
-            payload_raw_len=payload_raw_len,
             files=tuple(files),
         )
+
+
+def _manifest_seed(sealed: bool, signing_seed: object) -> bytes | None:
+    if sealed:
+        if signing_seed is not None:
+            raise ValueError("manifest seed must be null for sealed manifests")
+        seed_bytes = None
+    else:
+        seed_bytes = require_bytes(
+            signing_seed,
+            SIGNING_SEED_LEN,
+            label="seed",
+            prefix="manifest ",
+        )
+    return seed_bytes
+
+
+def _manifest_files(
+    files_raw: object, path_encoding: str, validated: dict[str, object]
+) -> list[ManifestFile]:
+    if not isinstance(files_raw, list) or not files_raw:
+        raise ValueError("manifest files are required")
+    if len(files_raw) > MAX_MANIFEST_FILES:
+        raise ValueError(
+            f"manifest files exceed MAX_MANIFEST_FILES ({MAX_MANIFEST_FILES}): "
+            f"{len(files_raw)} entries"
+        )
+    if path_encoding == PATH_ENCODING_DIRECT:
+        files = _decode_direct_files(files_raw)
+    else:
+        if "path_prefixes" not in validated:
+            raise ValueError("manifest path_prefixes is required for prefix_table encoding")
+        path_prefixes = _validate_path_prefixes(validated["path_prefixes"])
+        files = _decode_prefix_files(files_raw, path_prefixes)
+
+    return files
+
+
+def _manifest_envelope(data: object, document_version: int) -> tuple[dict[str, object], bool]:
+    if document_version not in BACKUP_DOCUMENT_VERSIONS:
+        raise ValueError(f"unsupported document version: {document_version}")
+    legacy = document_version == LEGACY_VERSION
+    validated = require_dict(data, label="manifest")
+    if legacy:
+        require_keys(validated, ("version", "sealed"), label="manifest")
+        version = require_int(validated["version"], label="manifest version")
+        if version != MANIFEST_VERSION:
+            raise ValueError(f"unsupported manifest version: {version}")
+    else:
+        for removed in ("version", "sealed", "payload_raw_len"):
+            if removed in validated:
+                raise ValueError(f"manifest {removed} is not allowed in document version {VERSION}")
+    return validated, legacy
+
+
+def _validate_payload_size(codec: str, raw_len: int) -> None:
+    if raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise ValueError(
+            "manifest file sizes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES "
+            f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {raw_len}"
+        )
+    if codec == PAYLOAD_CODEC_GZIP and raw_len <= 0:
+        raise ValueError("manifest gzip payload size must be positive")
+
+
+def _validate_legacy_payload_size(codec: str, stored_len: object, expected_len: int) -> None:
+    """Check released v1 redundancy before returning the shared manifest model."""
+    if codec == PAYLOAD_CODEC_RAW:
+        if stored_len is not None:
+            raise ValueError("manifest payload_raw_len must be null for raw payload_codec")
+        return
+    if stored_len is None:
+        raise ValueError("manifest payload_raw_len is required for gzip payload_codec")
+    raw_len = require_non_negative_int(stored_len, label="manifest payload_raw_len")
+    if raw_len <= 0:
+        raise ValueError("manifest payload_raw_len must be positive")
+    if raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise ValueError("manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES")
+    if raw_len != expected_len:
+        raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
 
 
 @dataclass(frozen=True)

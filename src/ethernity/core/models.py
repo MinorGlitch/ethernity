@@ -17,12 +17,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class SigningSeedMode(str, Enum):
+class SigningSeedMode(StrEnum):
     EMBEDDED = "embedded"
     SHARDED = "sharded"
+
+    def __str__(self) -> str:
+        return f"{type(self).__name__}.{self.name}"
 
 
 @dataclass(frozen=True)
@@ -33,7 +36,6 @@ class ShardingConfig:
 
 @dataclass(frozen=True)
 class DocumentPlan:
-    version: int
     sealed: bool
     signing_seed_mode: SigningSeedMode = SigningSeedMode.EMBEDDED
     sharding: ShardingConfig | None = None

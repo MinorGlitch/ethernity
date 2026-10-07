@@ -34,10 +34,9 @@ from ethernity.encoding.varint import (
     decode_uvarint as _decode_uvarint,
     encode_uvarint as _encode_uvarint,
 )
-from ethernity.formats.document_constants import MAGIC, VERSION
+from ethernity.formats.document_constants import BACKUP_DOCUMENT_VERSIONS, MAGIC, VERSION
 from ethernity.formats.extension_document import ExtensionDocument
 from ethernity.formats.manifest import (
-    MANIFEST_VERSION,
     SIGNING_SEED_LEN,
     BackupFile,
     BackupManifest,
@@ -125,9 +124,7 @@ def build_manifest_and_payload(
             )
         )
     manifest = BackupManifest(
-        format_version=MANIFEST_VERSION,
         created_at=created,
-        sealed=sealed,
         signing_seed=signing_seed_bytes,
         input_origin=input_origin,
         input_roots=tuple(input_roots),
@@ -148,7 +145,7 @@ def encode_manifest(manifest: BackupManifest) -> bytes:
     return encoded
 
 
-def decode_manifest(data: bytes) -> BackupManifest:
+def decode_manifest(data: bytes, *, document_version: int = VERSION) -> BackupManifest:
     """Decode and validate a manifest from deterministic CBOR bytes."""
 
     if len(data) > MAX_MANIFEST_CBOR_BYTES:
@@ -160,7 +157,7 @@ def decode_manifest(data: bytes) -> BackupManifest:
         decoded = loads_deterministic(data, label="manifest")
     except UnicodeDecodeError as exc:
         raise ValueError("manifest contains invalid UTF-8") from exc
-    return BackupManifest.from_cbor(decoded)
+    return BackupManifest.from_cbor(decoded, document_version=document_version)
 
 
 def encode_backup_document(payload: bytes, manifest: BackupManifest) -> bytes:
@@ -189,7 +186,7 @@ def decode_backup_document(data: bytes) -> tuple[BackupManifest, bytes]:
     idx += len(MAGIC)
 
     version, idx = _decode_uvarint(data, idx)
-    if version != VERSION:
+    if version not in BACKUP_DOCUMENT_VERSIONS:
         raise ValueError(f"unsupported document version: {version}")
 
     manifest_len, idx = _decode_uvarint(data, idx)
@@ -203,7 +200,7 @@ def decode_backup_document(data: bytes) -> tuple[BackupManifest, bytes]:
         raise ValueError("truncated manifest")
     manifest_bytes = data[idx:end_manifest]
     idx = end_manifest
-    manifest = decode_manifest(manifest_bytes)
+    manifest = decode_manifest(manifest_bytes, document_version=version)
 
     payload_len, idx = _decode_uvarint(data, idx)
     end_payload = idx + payload_len
@@ -253,7 +250,7 @@ def decode_document(
     """Decode a root backup or extension and return `(version, decoded_document)`."""
 
     version = detect_document_version(data)
-    if version == VERSION:
+    if version in BACKUP_DOCUMENT_VERSIONS:
         return version, decode_backup_document(data)
     if version == 2:
         return version, decode_extension_document(

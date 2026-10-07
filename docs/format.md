@@ -10,7 +10,7 @@ described in BCP 14 ([RFC 2119](https://www.rfc-editor.org/rfc/rfc2119),
 capitals.
 
 Scope:
-- Standalone root backup document (Version 1)
+- Standalone root backup documents (released Version 1 and current Version 3)
 - Extension document (Version 2)
 - Manifest structure and file paths
 - Frame encoding (QR and fallback)
@@ -33,10 +33,11 @@ Non-goals:
 
 | Component | Serialized version | Release status |
 | --- | --- | --- |
-| Standalone root backup document and manifest | document 1, manifest 1 | Released and supported |
+| Released standalone backup | document 1, manifest 1 | Read support retained |
+| Current standalone backup | document 3, no inner version | Written by Ethernity v1.2.0 |
 | Frame and AUTH payload | frame 1, AUTH 1 | Released and supported |
 | Shard payload | shard 1 and 2 | Version 2 released in Ethernity v1.1; version 1 remains readable |
-| Extension document and header | document 2, header 1 | Normative for Ethernity v1.2.0 |
+| Extension document | document 2, no inner version | Normative for Ethernity v1.2.0 |
 
 The Ethernity product version is not serialized into a document. The table describes release
 support; the numeric fields below determine format compatibility. The v1.2
@@ -62,14 +63,15 @@ Used for:
 - Document version, manifest length, payload length
 - Frame version, index, total, data length
 
-## 2) Backup document format (Version 1 standalone root)
+## 2) Standalone backup document format
 
-This section defines the standalone root backup document (`VERSION = 1`). Extension documents use
-`VERSION = 2` and are specified separately in Section 19.
+Standalone backups use `VERSION = 3`. Readers MUST also accept released `VERSION = 1`
+documents. Both use the same container layout below; their manifest differences are defined in
+Section 3.1. Extension documents use `VERSION = 2` and are specified in Section 19.
 
 Constants:
 - MAGIC: `0x41 0x59` ("AY")
-- VERSION: `1`
+- VERSION: `3` for new standalone backups; `1` for released backups
 
 Binary layout:
 ```
@@ -83,7 +85,7 @@ PAYLOAD_BYTES (stored payload bytes; encoded per manifest payload_codec)
 
 Rules:
 - MAGIC MUST equal `0x41 0x59`.
-- VERSION MUST equal `1`.
+- Standalone encoders MUST emit VERSION `3`; decoders MUST support VERSION `1` and `3`.
 - MANIFEST_LEN and PAYLOAD_LEN MUST match the remaining byte boundaries.
 - Decoders MUST reject backup documents where VERSION, MANIFEST_LEN, or PAYLOAD_LEN use overlong
   uvarint encoding.
@@ -104,24 +106,34 @@ These constants are used to identify formats or bind signatures:
 
 ## 2.2) Common deterministic CBOR rules
 
-Every object described as deterministic CBOR in this specification MUST use deterministic encoding
-as defined by RFC 8949 and MUST NOT contain indefinite-length items. A decoder MUST reject a
-nondeterministic encoding at the document or frame boundary before signature verification or
-field validation.
+Every object described as deterministic CBOR in this specification MUST use the **length-first
+core deterministic encoding requirements** in
+[RFC 8949, Section 4.2.3](https://www.rfc-editor.org/rfc/rfc8949.html#section-4.2.3).
+Map keys are ordered first by the byte length of their deterministic encoding, then by unsigned
+bytewise lexicographic order for keys of equal encoded length. This is the ordering already used
+by released Ethernity backups. Indefinite-length items are forbidden. A decoder MUST reject a
+nondeterministic encoding at the document or frame boundary before validating that CBOR object's
+fields or using it for signature verification.
 
-The manifest, AUTH payload, and shard payload are open versioned maps. For each supported version:
+For example, the map `{24: 0, -1: 0}` encodes as `a2 20 00 18 18 00`. The bytewise-only ordering
+`a2 18 18 00 20 00` does not conform to Ethernity's profile.
+
+The manifest, AUTH payload, and shard payload are open maps. The enclosing document version
+selects the current manifest schema. For each supported format:
 
 - decoders MUST ignore unknown map keys;
 - unknown keys are additional map data only and MUST NOT affect signature verification, whether a
   payload can be used for reconstruction, or authenticated/rescue trust labeling;
 - encoders SHOULD NOT emit keys that are not defined for that version.
 
+Removed manifest keys explicitly forbidden by Section 3.1 MUST be rejected in Version 3.
 Schemas that explicitly require exact keys, including extension header and body maps, are closed
 and MUST reject unknown keys.
 
 ## 3) Manifest format
 
-The manifest MUST be encoded as a CBOR map.
+The manifest MUST be encoded as a CBOR map. The following defines the released Version 1
+representation and shared field rules. Section 3.1 specifies the smaller Version 3 representation.
 
 Constants:
 - MANIFEST_VERSION = `1`
@@ -129,7 +141,7 @@ Constants:
 ```
 {
   "version": version,       // int, MUST equal MANIFEST_VERSION (1)
-  "created": created_at,    // deterministic encoder output: int unix epoch seconds
+  "created": created_at,    // int or finite float, Unix epoch seconds
   "sealed": sealed,         // bool
   "seed": signing_seed,     // bytes or null (Ed25519 seed, 32 bytes)
   "input_origin": origin,   // string: "file", "directory", or "mixed"
@@ -155,7 +167,7 @@ File entry (prefix-table mode):
 Manifest requirements (map keys):
 - `version`: int == MANIFEST_VERSION (1)
 - `created`: encoders SHOULD emit integer Unix epoch seconds as deterministic output
-- `created`: decoders MAY accept integer or float values
+- `created`: decoders MUST accept integer or finite float values; see Section 3.2
 - `sealed`: bool
 - `seed`:
   - if `sealed` is true, `seed` MUST be null
@@ -198,14 +210,14 @@ File entry requirements (direct mode):
 - `path`: non-empty string
 - `size`: non-negative int
 - `sha256`: 32 raw bytes (SHA-256 of file contents, not hex)
-- `mtime`: int or null
+- `mtime`: int Unix epoch seconds or null when unknown; see Section 3.2
 
 File entry requirements (prefix-table mode):
 - `prefix_index`: int in `[0, len(path_prefixes)-1]`
 - `suffix`: non-empty string
 - `size`: non-negative int
 - `sha256`: 32 raw bytes (SHA-256 of file contents, not hex)
-- `mtime`: int or null
+- `mtime`: int Unix epoch seconds or null when unknown; see Section 3.2
 - reconstructed path is `suffix` when `path_prefixes[prefix_index] == ""`,
   otherwise `path_prefixes[prefix_index] + "/" + suffix`.
 
@@ -217,6 +229,43 @@ Ordering:
 - Encoders MUST sort file entries by ordering key in ascending Unicode code point order before
   manifest creation.
 - Payload concatenation MUST follow this same ordering key order.
+
+## 3.1) Current standalone manifest (document Version 3)
+
+Version 3 uses the same fields and validation as Version 1 with exactly these changes:
+
+- `version` MUST be absent. The outer document version selects this schema.
+- `sealed` MUST be absent. A null `seed` means sealed; a 32-byte `seed` means unsealed.
+  The `seed` key remains REQUIRED. Missing, malformed, or wrong-length seeds MUST be rejected.
+- `payload_raw_len` MUST be absent. The expected uncompressed length is `sum(files[i].size)`.
+  This sum MUST be at most `MAX_DECOMPRESSED_PAYLOAD_BYTES` for either codec and positive for gzip.
+  Decompression MUST enforce that bound while producing output, not after unbounded allocation.
+
+All other fields, path encodings, file hashes, payload codecs, and cryptographic bindings retain
+their meaning. Readers MUST reject the three removed keys in Version 3. Version 1 readers MUST
+continue requiring and validating their released representations, including `sealed`/`seed`
+consistency and exact gzip `payload_raw_len`. Both representations normalize to the same recovery
+model. New writes, including Rebuild, MUST use Version 3; no migration of existing backups is needed.
+
+Backward compatibility means current readers recover released backups. Released readers reject
+Version 3; new backups MUST ship a recovery kit that supports it.
+
+## 3.2) Timestamp representation and ranges
+
+Manifest `created`, extension-header `created_at`, and file `mtime` values measure Unix seconds
+since `1970-01-01T00:00:00Z`. Negative values denote times before that epoch. A null `mtime` means
+the modification time is unknown; zero denotes the epoch.
+
+Standalone Versions 1 and 3 accept integer or finite floating-point `created` values. Fractional
+values represent fractional seconds. NaN and infinities are invalid. File `mtime` values remain
+integers or null. These standalone schemas impose no additional field-specific numeric range on
+timestamps; the `MAX_JS_SAFE_INTEGER` restriction for extensions MUST NOT be applied to them.
+Integer and floating-point encodings of `created` remain readable for backward compatibility.
+
+Version 2 extensions require integer `created_at` and integer-or-null `mtime`. Each non-null value
+MUST be within `-MAX_JS_SAFE_INTEGER..MAX_JS_SAFE_INTEGER`, inclusive, as required by Section 19.2.
+These are encoded-value rules; a destination filesystem's supported dates do not define the
+timestamp range of the format.
 
 ## 4) File paths
 
@@ -240,9 +289,11 @@ Manifest metadata determines how the backup document stores `PAYLOAD_BYTES`:
 - gzip mode:
   - `payload_codec == "gzip"`
   - stored payload bytes are gzip-compressed bytes of `raw_payload_bytes`
-  - `payload_raw_len` MUST be present and equal `sum(files[i].size)`
+  - in Version 1, `payload_raw_len` MUST be present and equal `sum(files[i].size)`
+  - in Version 3, the decompressed bound is derived from that sum (Section 3.1)
 
-Decoder extraction requirements:
+Decoder extraction requirements (`payload_raw_len` below is the validated stored value in
+Version 1 or the derived file-size sum in Version 3):
 - Decoders MUST decode stored payload bytes according to `payload_codec` before file slicing.
 - For raw mode, decoders MUST require
   `len(PAYLOAD_BYTES) == sum(files[i].size)` before file slicing.
@@ -520,14 +571,16 @@ Verification requirements:
   shard field validation, binding, and consistency requirements before using shards for
   reconstruction.
 - In a shard reconstruction set, all shard payloads MUST share the same
-  `hash`, `pub`, `type`, `threshold`, and `share_count`.
+  `hash`, `pub`, `type`, `threshold`, `share_count`, and `length`.
 - In a shard reconstruction set, all shard payloads MUST also share the same `version`.
 - If `version == 2`, all shard payloads in the reconstruction set MUST share the same `set_id`.
 - Duplicate `share_index` handling:
   - If the duplicated `share` bytes are identical, decoders SHOULD ignore the duplicate.
   - If the duplicated `share` bytes differ, decoders MUST reject.
-- Set-level consistency requirements for `hash`, `pub`, `type`, `threshold`, and `share_count`
+- Set-level consistency requirements for `hash`, `pub`, `type`, `threshold`, `share_count`, and `length`
   apply to the deduplicated reconstruction set after duplicate `share_index` resolution.
+- Matching padded share lengths are insufficient: secrets of 8 and 9 bytes both use 16-byte
+  shares, but their different declared `length` values make them an incompatible reconstruction set.
 - For `version == 2`, a mismatched `set_id` MUST be treated as an incompatible shard-set error even
   when the input contains exactly `threshold` shares.
 - Decoders MAY perform stricter validation earlier (for example, rejecting duplicate entries that
@@ -613,17 +666,16 @@ https://philzimmermann.com/docs/human-oriented-base-32-encoding.txt
 Version markers:
 - Standalone root backup document: MAGIC + VERSION
 - Extension document: MAGIC + VERSION
-- Manifest: MANIFEST_VERSION
+- Released manifest: MANIFEST_VERSION; current manifest: enclosing document version
 - Frames: MAGIC + VERSION
 - Auth: AUTH_VERSION
 - Shards: SHARD_VERSION
 
 Current version values:
-- Standalone root backup document VERSION = `1`
+- Standalone root backup document VERSION = `3`; readers also support `1`
 - Extension document VERSION = `2`
-- Extension header schema VERSION = `1`
 - Frame VERSION = `1`
-- MANIFEST_VERSION = `1`
+- Released MANIFEST_VERSION = `1`; current manifests have no inner version
 - AUTH_VERSION = `1`
 - SHARD_VERSION = `2`
 
@@ -676,6 +728,12 @@ The ciphertext MUST then be framed for QR/fallback output.
 ### 13.4) Decryption
 
 Decryptors MUST supply the exact passphrase string used at encryption time.
+
+Recovery implementations MUST inspect the public scrypt stanza before starting its KDF and
+apply fixed per-stanza and cumulative work limits. Exceeding a limit MUST stop the affected
+recovery operation before writing recovered files. These implementation resource limits do not
+change the document format or the work factor recorded in an existing backup. Ethernity's
+reference limits and worker policy are documented in `format_rationale.md`.
 
 ### 13.5) Reference
 
@@ -885,7 +943,7 @@ Unicode Normalization Forms: https://unicode.org/reports/tr15/
 
 ## 17) Resource limits
 
-This section defines mandatory Version 1 and root-plus-extension recovery resource bounds.
+This section defines mandatory standalone and root-plus-extension recovery resource bounds.
 
 Encoders MUST NOT emit documents that exceed these bounds.
 Decoders MUST reject inputs that exceed these bounds.
@@ -923,16 +981,34 @@ MUST satisfy every requirement in this section for the versions they support.
 
 ### 18.1) Required decoder validation order
 
-Decoders MUST apply validation in this order:
-1. Parse frame/document boundaries and reject overlong uvarints at each decode boundary.
-2. Enforce resource bounds (Section 17) before unbounded allocation or reconstruction.
-3. Decode CBOR payloads and reject nondeterministic CBOR at manifest/auth/shard boundaries.
-4. Validate manifest/auth/shard fields and cross-field constraints.
-5. Apply binding and consistency checks (`doc_id`/`doc_hash`, shard set consistency, payload hash
-   checks).
-6. Apply signature checks according to authenticated or rescue mode.
-7. Apply the signing public key equality checks in Section 7.2.
-8. Emit trust labeling that reflects the applied mode and verification outcome.
+Validation follows data dependencies. The manifest is encrypted and cannot be validated until the
+passphrase is available. Independent checks MAY run earlier or in parallel, but decoders MUST
+complete each prerequisite before using its result:
+
+1. Validate transport framing, shortest-form uvarints, CRCs, frame bounds, and duplicate rules.
+   Enforce the document and aggregate ciphertext limits before reassembly or decryption as
+   applicable. Derive `doc_hash` and `doc_id` from the reassembled MAIN ciphertext.
+2. Decode AUTH and any supplied shard CBOR using Section 2.2, then validate their fields and
+   ciphertext bindings. In authenticated mode, verify the required root AUTH signature and
+   establish `root_sign_pub` under Section 7.2.
+3. If recovery uses shards, apply deduplication and all shard-set consistency checks, verify the
+   required signatures and signing-key bindings, and check the threshold before reconstructing a
+   secret. A reconstructed signing seed MUST match `root_sign_pub` before use for signing.
+4. Enforce the age work limits before decryption. Once plaintext is available, validate document
+   boundaries, shortest-form uvarints, CBOR size limits and deterministic encoding, then the
+   manifest or extension fields. For an unsealed root, compare its seed-derived public key with
+   `root_sign_pub` before accepting authenticated recovery or using that key for extension replay.
+5. Enforce declared decompression and reconstruction bounds before producing file or chunk data.
+   Check exact lengths and hashes. For extensions, also enforce their AUTH bindings to
+   `root_sign_pub`, chain relationships, chunk references, and replay rules in Sections 19 and 20
+   before accepting the selected file set.
+6. Emit final trust labeling only after all checks required for the selected recovery mode and
+   version have succeeded. A verified AUTH signature alone does not establish complete recovery
+   or independent trust in its signing key.
+
+At every stage, resource limits apply before the bounded operation they protect. Section 7.1
+defines the only permitted rescue-mode exceptions; encrypted manifest checks are never a
+prerequisite for verifying the shards needed to decrypt that manifest.
 
 ### 18.2) Required valid-input scenarios
 
@@ -981,7 +1057,8 @@ A conforming decoder MUST reject at least these scenarios:
 ## 19) Extension chain format (extension document)
 
 The extension document is an authenticated append-only document derived from a standalone root
-backup. The root backup remains a Version 1 backup document. Each extension is a separately
+backup. The root may be a released Version 1 or current Version 3 standalone document. Each
+extension is a separately
 encrypted MAIN document whose ciphertext has its own `doc_hash` and `doc_id` under Section 7.
 The extension document uses outer document `VERSION = 2`.
 
@@ -1031,25 +1108,24 @@ ciphertext after Section 8 deduplication:
 
 ### 19.2) Extension header
 
-The extension header MUST be a CBOR map with exactly these integer keys:
+The extension header MUST be a CBOR map with these integer keys. All keys are required.
 
 ```text
-1 -> version
 2 -> index
 4 -> parent_doc_hash
 5 -> root_doc_hash
 7 -> created_at
 10 -> chunking
-11 -> input_origin
-12 -> input_roots
+13 -> update_mode
 ```
 
 Requirements:
-- `version`: int == `1`
+- `update_mode`: `"cumulative"` or `"incremental"`. The mode is required and authenticated
+  with the rest of the document.
 - `index`: int in `1..MAX_EXTENSION_INDEX`
 - `parent_doc_hash`: 32 bytes
 - `root_doc_hash`: 32 bytes
-- `created_at`: int
+- `created_at`: int Unix epoch seconds; see Section 3.2
 - `chunking`: list `[algorithm_id, target_size, min_size, max_size]`
   - all values MUST be positive ints
   - `target_size`, `min_size`, and `max_size` MUST each be
@@ -1060,20 +1136,9 @@ Requirements:
     algorithm
   - encoders and replay logic MUST honor all four settings; they MUST NOT treat `target_size` as a
     fixed-size slicing width
-- `input_origin`: `"file"`, `"directory"`, or `"mixed"`
-- `input_roots`:
-  - each root MUST be a non-empty UTF-8 leaf label that passes manifest path validation as a single
-    segment
-  - roots are NFC-normalized but otherwise preserved exactly; decoders MUST NOT trim leading or
-    trailing whitespace
-  - roots MUST NOT contain `/` or `\`
-  - roots MUST NOT contain Unicode General Category `Cc` code points, MUST NOT be `.` or `..`, MUST
-    NOT use absolute path syntax, and MUST NOT use drive-prefix syntax
-  - MUST be empty when `input_origin == "file"`
-  - MUST be non-empty when `input_origin` is `"directory"` or `"mixed"`
 
 Unknown header keys MUST be rejected.
-Header keys `3`, `6`, `8`, and `9` are not part of the Version 2 extension schema and MUST be
+Header keys `1`, `3`, `6`, `8`, `9`, `11`, and `12` are not part of the Version 2 extension schema and MUST be
 rejected.
 
 Every integer encoded in a Version 2 extension header or body MUST be within
@@ -1090,7 +1155,9 @@ The extension body MUST be a CBOR map with exactly these integer keys:
 2 -> chunks
 ```
 
-`files` MUST be a non-empty array of file entries. `chunks` MUST be an array of newly introduced
+`files` MUST be an array of file entries, non-empty for incremental updates. A cumulative update
+MAY have no file entries when its complete resulting state equals the root state.
+`chunks` MUST be an array of newly introduced
 chunk records and MAY be empty. Each chunk record in `chunks` MUST be referenced by at least one
 file entry in the same extension body.
 
@@ -1108,7 +1175,7 @@ Requirements:
 - `path`: normalized manifest path per Section 16
 - `size`: non-negative int
 - `sha256`: 32 bytes
-- `mtime`: int or null
+- `mtime`: int Unix epoch seconds or null when unknown; see Section 3.2
 - `chunk_refs`: array of chunk references
   - zero-length files MUST have an empty `chunk_refs` array
   - non-empty files MUST have a non-empty `chunk_refs` array
@@ -1298,7 +1365,8 @@ Requirements:
 
 ### 19.4) Extension chain rules
 
-A valid extension chain is a standalone root Version 1 backup plus zero or more authenticated
+A valid extension chain is a standalone root Version 1 or Version 3 backup plus zero or more
+authenticated
 extension documents selected from imported carriers and ordered by decrypted chain metadata
 (Section 20).
 
@@ -1315,7 +1383,7 @@ NOT trust a caller-supplied or serialized `chain_id` value to establish chain me
 
 Requirements:
 - every extension ciphertext in one chain MUST decrypt with the same passphrase as the root backup
-- an appendable root MUST be unsealed and carry its signing seed in the encrypted Version 1
+- an appendable root MUST be unsealed and carry its signing seed in the encrypted standalone
   manifest; possession of the root carriers plus a passphrase or sufficient recovery sheets is
   therefore sufficient to create an authenticated extension
 - chain validation MUST start from the authenticated root `doc_hash`
@@ -1323,13 +1391,18 @@ Requirements:
   to its ciphertext `doc_hash`
 - in authenticated mode, each extension AUTH payload MUST verify successfully and its `pub` MUST
   match `root_sign_pub` from Section 7.2
-- extension `index` values MUST be sequential from `1`
+- writers MUST start extension indexes at `1` and increment the selected head index by one
 - for each link:
-  - `header.index` MUST equal the expected next extension index
   - `header.root_doc_hash` MUST equal the root backup `doc_hash`
-  - `header.parent_doc_hash` MUST equal the exact previous validated document hash
-- the first validated extension locks the chain chunking settings
-- every later extension in the same chain MUST carry the exact same chunking settings
+  - incremental replay MUST have sequential indexes from `1`; `header.parent_doc_hash` MUST
+    equal the exact previous validated document hash, or the root hash at index 1
+  - cumulative replay MAY omit earlier updates; supplied indexes MUST be strictly increasing
+    and `header.parent_doc_hash` MUST equal the root hash at every index
+- the first published extension locks the update mode and chunking settings
+- every supplied extension in the same series MUST carry the same mode and chunking settings;
+  readers MUST reject mixing.
+- each cumulative update repeats these settings, so root plus the selected cumulative update
+  suffices. Validation cannot establish the settings or contents of absent historical documents.
 - the signing key for every extension is derived from the embedded signing seed of the unsealed
   root backup; it is not embedded in the extension header
 
@@ -1348,7 +1421,7 @@ Append publication also MUST preserve standalone rebuildability. Before publishi
 writers MUST prepare the complete resulting file set with the same standalone encoding used by
 Rebuild: its file metadata, automatic payload compression, inherited passphrase, sealed state,
 unsealed root signing seed, and encryption overhead. The resulting standalone backup document MUST
-satisfy every applicable Version 1 bound, including `MAX_CIPHERTEXT_BYTES`. A raw-byte sum,
+satisfy every applicable standalone backup bound, including `MAX_CIPHERTEXT_BYTES`. A raw-byte sum,
 compression estimate, or the extension ciphertext size alone is insufficient. The publisher MUST
 reject an update that fails this preparation without publishing a new extension.
 Capacity preparation MUST reserve the maximum supported encoded width of publication-time
@@ -1362,11 +1435,17 @@ standalone backup document.
 An update to such a chain MAY be published when its resulting state satisfies standalone
 rebuildability, for example after replacing a large file with smaller content.
 
-Append writers MUST preserve the rule that a chunk record is introduced at most once over
+Incremental writers MUST preserve the rule that a chunk record is introduced at most once over
 the complete chain. They MAY bound working memory by retaining raw chunk bytes only for the latest
 file set and tracking older introduced chunks by `chunk_id`. When selected input contains bytes
 whose `SHA-256` matches such an older `chunk_id`, the writer MUST emit a reference to that
 historical chunk rather than reintroducing it inline.
+
+Cumulative writers MUST instead compare the resulting file set against the original root.
+They MUST carry every added file and every root file whose bytes or mtime differ. Unchanged root
+files MAY be omitted. Files added by earlier updates MUST be retained, even when outside the current
+input selection. Chunk references MUST resolve using only root chunks and chunks in this update.
+Chunks introduced by earlier cumulative updates MUST be repeated when still needed.
 
 Operational rescue modes that tolerate unsigned or invalid extension AUTH are outside the
 authenticated format described in this section. Readers MUST NOT describe replay of an
@@ -1374,23 +1453,27 @@ unsigned or invalidly signed extension as conforming to this format.
 
 ### 19.5) Extension replay
 
-Replay produces the latest file set by starting from the root Version 1 manifest and payload
-and then applying validated extensions in order.
+Incremental replay starts from the root and applies validated extensions in order. Cumulative
+replay starts afresh from the root for each supplied update. The selected update determines the
+result; earlier cumulative file states and chunk maps MUST NOT contribute to that result.
 
 Replay rules:
-- paths omitted from an extension keep their previous file content
+- paths omitted from an incremental extension keep their previous file content; paths omitted
+  from a cumulative extension use the original root content, if that path exists in the root
 - paths present in an extension replace the previous file content for that path
-- extensions cannot represent deletion; a path that existed in the root or an earlier
-  extension remains recoverable unless a later extension replaces it with new file content
+- Add Files MUST NOT delete paths. Incremental replay retains earlier added paths; cumulative
+  writers MUST carry earlier added paths forward. Readers with root plus one cumulative update
+  cannot verify the contents of absent earlier updates.
 - an extension is therefore an add-or-replace operation, not filesystem synchronization; encoding a
   renamed path adds the new path without removing the old path
 - each chunk reference MUST resolve to either:
-  - a newly introduced chunk in the current or earlier validated extension, or
+  - a newly introduced chunk in the current extension, or an earlier validated extension for
+    incremental mode only, or
   - a chunk derived from a root file using the locked chain chunking settings, keyed by the
     `SHA-256` of its bytes and available throughout the chain
 - a chunk record carried by the current extension's `chunks` array MUST be newly introduced at
-  that extension index; replay MUST reject it if the same `chunk_id` is already available from the
-  chunks derived from root files or an earlier validated extension
+  that extension's base; replay MUST reject it if the same `chunk_id` is already available from the
+  root, or from any earlier validated extension in incremental mode
 - replacing a root path changes the latest file content for that path, but does not remove the
   corresponding root payload bytes from the chunks available for replay
 - replay MUST reject unresolved `chunk_id` references
@@ -1399,10 +1482,9 @@ Replay rules:
 - total reconstructed file bytes MUST remain `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
 - the normalized merged file paths MUST satisfy Section 16.1, including its prohibition on a
   file path being an ancestor of another file path; replay MUST reject a conflicting state
-- when replay emits a Version 1 manifest for a reconstructed extension version, it
+- when replay constructs a normalized manifest for a reconstructed extension version, it
   MUST identify the file source with `input_origin == "directory"` and
-  `input_roots == ["reconstructed-state"]`; it MUST NOT inherit the root input source or the latest
-  extension header's input source fields
+  `input_roots == ["reconstructed-state"]`; it MUST NOT inherit the root input source
 - manifests for reconstructed files MUST preserve the root sealed/unsealed state and, for an
   unsealed root, the exact root signing seed
 
@@ -1421,7 +1503,7 @@ Selection rules:
 - the document's `doc_id` and `doc_hash` MUST be derived from recovered ciphertext;
 - AUTH frames MUST be matched by frame `doc_id` and verified against the derived ciphertext
   `doc_hash`;
-- decrypted document version 1 identifies a root-backup candidate;
+- decrypted document version 1 or 3 identifies a root-backup candidate;
 - decrypted document version 2 identifies an extension candidate;
 - a session that imports a chain MUST select exactly one root backup or reject the input as
   ambiguous;
@@ -1443,11 +1525,14 @@ appends from one authenticated head can form distinct valid forks. Either fork M
 supplying conflicting forks for one selection MUST fail as ambiguous.
 
 In this format, `latest` means the latest valid authenticated version among the supplied carriers.
-No online head registry is consulted. Under the v1.2 extension publication rules, Add Files and
-browser recovery MUST NOT silently use that target: they require a manually entered expected head
-or an explicit acknowledgement that freshness beyond the supplied
-pages is unknown. The offline browser recovery kit is reusable and does not carry a backup-specific
-head pin.
+No online head registry is consulted. The
+[version-check rules](extension_publication_rules.md#restore-and-version-checks) define which
+operations require an expected full version hash or an explicit acknowledgement that newer
+documents may exist elsewhere. Desktop Restore permits recovery without that reference or
+acknowledgement and MUST describe the result as limited to the supplied documents. The offline
+browser recovery kit is reusable and does not carry a backup-specific head pin.
+Its printed-software transport is separate from backup frame encoding; see
+[offline browser recovery kit](extension_publication_rules.md#offline-browser-recovery-kit).
 
 A matching independently trusted full extension-head hash fixes the selected ciphertext and,
 after complete authenticated replay, the root hash committed by that extension. The unsealed root

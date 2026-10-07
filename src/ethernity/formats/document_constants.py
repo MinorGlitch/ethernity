@@ -19,4 +19,6 @@
 from __future__ import annotations
 
 MAGIC = b"AY"
-VERSION = 1
+LEGACY_VERSION = 1
+VERSION = 3
+BACKUP_DOCUMENT_VERSIONS = frozenset({LEGACY_VERSION, VERSION})
