@@ -19,50 +19,6 @@ _GEOMETRY_EPSILON_MM = 0.01
 
 
 @dataclass(frozen=True)
-class Insets:
-    """Physical inset distances from the four edges of a rectangle."""
-
-    top_mm: float
-    right_mm: float
-    bottom_mm: float
-    left_mm: float
-
-    def __post_init__(self) -> None:
-        for field_name, value in (
-            ("top_mm", self.top_mm),
-            ("right_mm", self.right_mm),
-            ("bottom_mm", self.bottom_mm),
-            ("left_mm", self.left_mm),
-        ):
-            _require_finite_non_negative(value, field_name=field_name)
-
-    @classmethod
-    def uniform(cls, value_mm: float) -> "Insets":
-        """Build equal insets on all four edges."""
-
-        return cls(value_mm, value_mm, value_mm, value_mm)
-
-    @property
-    def horizontal_mm(self) -> float:
-        return self.left_mm + self.right_mm
-
-    @property
-    def vertical_mm(self) -> float:
-        return self.top_mm + self.bottom_mm
-
-
-@dataclass(frozen=True)
-class PageRegions:
-    """Measured header, body, and footer regions inside one page safe area."""
-
-    page: PdfRect
-    safe: PdfRect
-    header: PdfRect
-    body: PdfRect
-    footer: PdfRect
-
-
-@dataclass(frozen=True)
 class GridPolicy:
     """Constraints and preferences used to resolve a responsive rectangular grid."""
 
@@ -175,68 +131,6 @@ class ResolvedGrid:
                 )
             )
         return tuple(rects)
-
-
-def inset_rect(rect: PdfRect, insets: Insets) -> PdfRect:
-    """Inset a rectangle, failing when no positive area remains."""
-
-    width_mm = rect.width_mm - insets.horizontal_mm
-    height_mm = rect.height_mm - insets.vertical_mm
-    if width_mm <= _GEOMETRY_EPSILON_MM or height_mm <= _GEOMETRY_EPSILON_MM:
-        raise ValueError(
-            "insets leave no usable rectangle: "
-            f"rect={rect.width_mm:.3f}x{rect.height_mm:.3f}mm, "
-            f"insets={insets.horizontal_mm:.3f}x{insets.vertical_mm:.3f}mm"
-        )
-    return PdfRect(
-        rect.x_mm + insets.left_mm,
-        rect.y_mm + insets.top_mm,
-        width_mm,
-        height_mm,
-    )
-
-
-def resolve_page_regions(
-    page: PdfRect,
-    *,
-    safe_insets: Insets,
-    header_height_mm: float,
-    footer_height_mm: float,
-    header_body_gap_mm: float = 0.0,
-    body_footer_gap_mm: float = 0.0,
-) -> PageRegions:
-    """Measure stable header/body/footer regions from physical page dimensions."""
-
-    for field_name, value in (
-        ("header_height_mm", header_height_mm),
-        ("footer_height_mm", footer_height_mm),
-    ):
-        _require_finite_non_negative(value, field_name=field_name)
-    for field_name, value in (
-        ("header_body_gap_mm", header_body_gap_mm),
-        ("body_footer_gap_mm", body_footer_gap_mm),
-    ):
-        _require_finite_non_negative(value, field_name=field_name)
-
-    safe = inset_rect(page, safe_insets)
-    body_y_mm = safe.y_mm + header_height_mm + header_body_gap_mm
-    footer_y_mm = safe.bottom_mm - footer_height_mm
-    body_bottom_mm = footer_y_mm - body_footer_gap_mm
-    body_height_mm = body_bottom_mm - body_y_mm
-    if body_height_mm <= _GEOMETRY_EPSILON_MM:
-        raise ValueError(
-            "page regions leave no usable body: "
-            f"safe_height={safe.height_mm:.3f}mm, header={header_height_mm:.3f}mm, "
-            f"footer={footer_height_mm:.3f}mm, "
-            f"gaps={header_body_gap_mm + body_footer_gap_mm:.3f}mm"
-        )
-    return PageRegions(
-        page=page,
-        safe=safe,
-        header=PdfRect(safe.x_mm, safe.y_mm, safe.width_mm, header_height_mm),
-        body=PdfRect(safe.x_mm, body_y_mm, safe.width_mm, body_height_mm),
-        footer=PdfRect(safe.x_mm, footer_y_mm, safe.width_mm, footer_height_mm),
-    )
 
 
 def resolve_grid(container: PdfRect, policy: GridPolicy) -> ResolvedGrid:
@@ -354,10 +248,6 @@ def _require_finite_non_negative(value: float, *, field_name: str) -> None:
 __all__ = [
     "GridDistribution",
     "GridPolicy",
-    "Insets",
-    "PageRegions",
     "ResolvedGrid",
-    "inset_rect",
     "resolve_grid",
-    "resolve_page_regions",
 ]

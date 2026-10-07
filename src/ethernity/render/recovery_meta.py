@@ -19,8 +19,8 @@ from __future__ import annotations
 import json
 import re
 import string
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 _SIGNING_PUB_GROUP_SIZE = 4
 _SIGNING_PUB_LINE_LENGTH = 40
@@ -113,26 +113,30 @@ def decode_printed_passphrase(lines: Sequence[str], *, print_mode: str) -> str:
             raise ValueError("JSON passphrase representation must decode to a string")
         return decoded
     if print_mode == PASSPHRASE_PRINT_MODE_JSON_PARTS:
-        if not lines:
-            raise ValueError("JSON passphrase parts representation cannot be empty")
-        decoded_parts: list[str] = []
-        expected_total = len(lines)
-        for expected_number, line in enumerate(lines, start=1):
-            part_label, separator, encoded_part = line.partition(" ")
-            if not separator or not encoded_part:
-                raise ValueError("JSON passphrase part is missing its numbered prefix")
-            label_match = re.fullmatch(r"(\d+)/(\d+)", part_label)
-            if label_match is None:
-                raise ValueError("JSON passphrase part has an invalid numbered prefix")
-            part_number, total_parts = (int(value) for value in label_match.groups())
-            if part_number != expected_number or total_parts != expected_total:
-                raise ValueError("JSON passphrase part numbering is incomplete or out of order")
-            decoded_part = json.loads(encoded_part)
-            if not isinstance(decoded_part, str):
-                raise ValueError("JSON passphrase part must decode to a string")
-            decoded_parts.append(decoded_part)
-        return "".join(decoded_parts)
+        return _decode_passphrase_parts(lines)
     raise ValueError(f"unsupported passphrase print mode: {print_mode!r}")
+
+
+def _decode_passphrase_parts(lines: Sequence[str]) -> str:
+    if not lines:
+        raise ValueError("JSON passphrase parts representation cannot be empty")
+    decoded_parts: list[str] = []
+    expected_total = len(lines)
+    for expected_number, line in enumerate(lines, start=1):
+        part_label, separator, encoded_part = line.partition(" ")
+        if not separator or not encoded_part:
+            raise ValueError("JSON passphrase part is missing its numbered prefix")
+        label_match = re.fullmatch(r"(\d+)/(\d+)", part_label)
+        if label_match is None:
+            raise ValueError("JSON passphrase part has an invalid numbered prefix")
+        part_number, total_parts = (int(value) for value in label_match.groups())
+        if part_number != expected_number or total_parts != expected_total:
+            raise ValueError("JSON passphrase part numbering is incomplete or out of order")
+        decoded_part = json.loads(encoded_part)
+        if not isinstance(decoded_part, str):
+            raise ValueError("JSON passphrase part must decode to a string")
+        decoded_parts.append(decoded_part)
+    return "".join(decoded_parts)
 
 
 def recovery_passphrase_display(meta: RecoveryMeta) -> RecoveryPassphraseDisplay:

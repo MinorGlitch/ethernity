@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.types import PdfRect
+from ethernity.render.types import SeparationCheck as SeparationCheck
 
 _GEOMETRY_EPSILON_MM = 0.01
 
@@ -98,19 +100,6 @@ class SeparationConstraint:
             raise ValueError("minimum_clearance_mm must be finite")
         if self.minimum_clearance_mm < 0:
             raise ValueError("minimum_clearance_mm must be non-negative")
-
-
-@dataclass(frozen=True)
-class SeparationCheck:
-    """Result of validating one page separation constraint."""
-
-    constraint_id: str
-    first_region_id: str
-    second_region_id: str
-    minimum_clearance_mm: float
-    measured_clearance_mm: float
-    checked_pair_count: int
-    satisfied: bool
 
 
 @dataclass(frozen=True)

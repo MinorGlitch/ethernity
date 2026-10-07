@@ -23,19 +23,7 @@ def measured_grouped_line_length(
     ``line_length`` required by fallback text formatting.
     """
 
-    if not isinstance(alphabet, str) or not alphabet:
-        raise ValueError("alphabet must be a non-empty string")
-    if any(character.isspace() for character in alphabet):
-        raise ValueError("alphabet must not contain whitespace")
-    if not isinstance(group_size, int) or isinstance(group_size, bool) or group_size <= 0:
-        raise ValueError("group_size must be a positive integer")
-    if not math.isfinite(max_width_mm) or max_width_mm <= 0:
-        raise ValueError("max_width_mm must be finite and positive")
-    if not math.isfinite(safety_mm) or safety_mm < 0:
-        raise ValueError("safety_mm must be finite and non-negative")
-    if safety_mm >= max_width_mm:
-        raise ValueError("safety_mm must leave a positive usable width")
-
+    _validate_grouped_measurement(alphabet, group_size, max_width_mm, safety_mm)
     glyph_widths = {
         character: _measured_width(surface, character, style=style) for character in alphabet
     }
@@ -68,6 +56,23 @@ def measured_grouped_line_length(
             upper_group_count = candidate_group_count
 
     return len(candidate(lower_group_count))
+
+
+def _validate_grouped_measurement(
+    alphabet: str, group_size: int, max_width_mm: float, safety_mm: float
+) -> None:
+    if not isinstance(alphabet, str) or not alphabet:
+        raise ValueError("alphabet must be a non-empty string")
+    if any(character.isspace() for character in alphabet):
+        raise ValueError("alphabet must not contain whitespace")
+    if not isinstance(group_size, int) or isinstance(group_size, bool) or group_size <= 0:
+        raise ValueError("group_size must be a positive integer")
+    if not math.isfinite(max_width_mm) or max_width_mm <= 0:
+        raise ValueError("max_width_mm must be finite and positive")
+    if not math.isfinite(safety_mm) or safety_mm < 0:
+        raise ValueError("safety_mm must be finite and non-negative")
+    if safety_mm >= max_width_mm:
+        raise ValueError("safety_mm must leave a positive usable width")
 
 
 def _measured_width(surface: PdfSurface, text: str, *, style: TextStyle) -> float:

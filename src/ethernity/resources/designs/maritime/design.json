@@ -10,10 +10,10 @@
     "kit"
   ],
   "page_support": {
-    "main": { "minimum_width_mm": 200.0, "minimum_height_mm": 270.0 },
-    "recovery": { "minimum_width_mm": 200.0, "minimum_height_mm": 270.0 },
-    "shard": { "minimum_width_mm": 200.0, "minimum_height_mm": 270.0 },
-    "signing_key_shard": { "minimum_width_mm": 200.0, "minimum_height_mm": 270.0 },
-    "kit": { "minimum_width_mm": 200.0, "minimum_height_mm": 270.0 }
+    "main": { "minimum_width_mm": 148.0, "minimum_height_mm": 210.0 },
+    "recovery": { "minimum_width_mm": 148.0, "minimum_height_mm": 210.0 },
+    "shard": { "minimum_width_mm": 148.0, "minimum_height_mm": 210.0 },
+    "signing_key_shard": { "minimum_width_mm": 148.0, "minimum_height_mm": 210.0 },
+    "kit": { "minimum_width_mm": 148.0, "minimum_height_mm": 210.0 }
   }
 }

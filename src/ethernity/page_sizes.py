@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Final, Mapping, TypeAlias
+from typing import Final, TypeAlias
 
 PaperSizeName: TypeAlias = str
 
 A4_WIDTH_MM = 210.0
 A4_HEIGHT_MM = 297.0
+A5_WIDTH_MM = 148.0
+A5_HEIGHT_MM = 210.0
 LETTER_WIDTH_MM = 215.9
 LETTER_HEIGHT_MM = 279.4
 
@@ -58,6 +61,7 @@ _REGISTERED_PAPER_SIZES: Final[tuple[PaperSize, ...]] = (
         width_mm=LETTER_WIDTH_MM,
         height_mm=LETTER_HEIGHT_MM,
     ),
+    PaperSize(name="A5", display_name="A5", width_mm=A5_WIDTH_MM, height_mm=A5_HEIGHT_MM),
 )
 
 PAPER_SIZES: Final[Mapping[str, PaperSize]] = MappingProxyType(
@@ -107,6 +111,8 @@ def is_registered_paper_size(value: str) -> bool:
 __all__ = [
     "A4_HEIGHT_MM",
     "A4_WIDTH_MM",
+    "A5_HEIGHT_MM",
+    "A5_WIDTH_MM",
     "DEFAULT_PAPER_SIZE_NAME",
     "LETTER_HEIGHT_MM",
     "LETTER_WIDTH_MM",

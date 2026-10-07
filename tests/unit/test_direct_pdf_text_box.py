@@ -187,37 +187,7 @@ class TestDirectPdfTextBox(unittest.TestCase):
         for path in sorted(_DIRECT_PDF_ROOT.glob("*.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
-                configured_values: list[tuple[str, float]] = []
-                if isinstance(node, ast.keyword) and _is_font_size_config_name(node.arg):
-                    configured_values.extend(
-                        (node.arg or "", value) for value in _numeric_config_values(node.value)
-                    )
-                elif isinstance(node, ast.Assign | ast.AnnAssign):
-                    value_node = node.value
-                    if value_node is not None:
-                        for name in _assigned_names(node):
-                            if _is_font_size_config_name(name):
-                                configured_values.extend(
-                                    (name, value) for value in _numeric_config_values(value_node)
-                                )
-                elif isinstance(node, ast.FunctionDef):
-                    positional = (*node.args.posonlyargs, *node.args.args)
-                    default_names = positional[len(positional) - len(node.args.defaults) :]
-                    for argument, default in zip(default_names, node.args.defaults, strict=True):
-                        if _is_font_size_config_name(argument.arg):
-                            configured_values.extend(
-                                (argument.arg, value) for value in _numeric_config_values(default)
-                            )
-                    for argument, default in zip(
-                        node.args.kwonlyargs,
-                        node.args.kw_defaults,
-                        strict=True,
-                    ):
-                        if default is not None and _is_font_size_config_name(argument.arg):
-                            configured_values.extend(
-                                (argument.arg, value) for value in _numeric_config_values(default)
-                            )
-                for name, value in configured_values:
+                for name, value in _font_size_literals(node):
                     if value < _MINIMUM_TEXT_FONT_SIZE_PT:
                         violations.append(
                             f"{path.relative_to(_DIRECT_PDF_ROOT)}:{node.lineno} {name}={value:g}pt"
@@ -291,3 +261,43 @@ class TestDirectPdfTextBox(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _font_size_literals(node: ast.AST) -> list[tuple[str, float]]:
+    configured_values: list[tuple[str, float]] = []
+    if isinstance(node, ast.keyword) and _is_font_size_config_name(node.arg):
+        configured_values.extend(
+            (node.arg or "", value) for value in _numeric_config_values(node.value)
+        )
+    elif isinstance(node, ast.Assign | ast.AnnAssign):
+        value_node = node.value
+        if value_node is not None:
+            for name in _assigned_names(node):
+                if _is_font_size_config_name(name):
+                    configured_values.extend(
+                        (name, value) for value in _numeric_config_values(value_node)
+                    )
+    elif isinstance(node, ast.FunctionDef):
+        configured_values.extend(_function_font_size_literals(node))
+    return configured_values
+
+
+def _function_font_size_literals(node: ast.FunctionDef) -> list[tuple[str, float]]:
+    configured_values: list[tuple[str, float]] = []
+    positional = (*node.args.posonlyargs, *node.args.args)
+    default_names = positional[len(positional) - len(node.args.defaults) :]
+    for argument, default in zip(default_names, node.args.defaults, strict=True):
+        if _is_font_size_config_name(argument.arg):
+            configured_values.extend(
+                (argument.arg, value) for value in _numeric_config_values(default)
+            )
+    for argument, default in zip(
+        node.args.kwonlyargs,
+        node.args.kw_defaults,
+        strict=True,
+    ):
+        if default is not None and _is_font_size_config_name(argument.arg):
+            configured_values.extend(
+                (argument.arg, value) for value in _numeric_config_values(default)
+            )
+    return configured_values

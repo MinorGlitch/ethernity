@@ -3,5 +3,804 @@
   "capabilities": {
     "recovery_first_page_single_section": true,
     "recovery_kit_index_document": true
+  },
+  "template": {
+    "styles": {
+      "document-title": {"family": "Times", "size_pt": 27, "style": "B", "color": "#0f172a"},
+      "document-subtitle": {"family": "Helvetica", "size_pt": 9, "color": "#475569"},
+      "header-guidance": {"family": "Helvetica", "size_pt": 6, "color": "#64748b"},
+      "classification-label": {"family": "Courier", "size_pt": 6, "style": "B", "color": "#0f172a"},
+      "header-id": {"family": "Courier", "size_pt": 6.2, "color": "#475569"},
+      "header-meta": {"family": "Courier", "size_pt": 6, "color": "#475569"},
+      "section-heading": {"family": "Times", "size_pt": 13.5, "style": "B", "color": "#0f172a"},
+      "directive-icon": {"family": "Material Symbols Outlined", "size_pt": 17, "color": "#1e293b"},
+      "directive-body": {"family": "Helvetica", "size_pt": 9, "color": "#334155"},
+      "qr-label": {"family": "Courier", "size_pt": 8.5, "style": "B", "color": "#0f172a"},
+      "footer-caption": {"family": "Courier", "size_pt": 6, "color": "#64748b"},
+      "continuation-label": {"family": "Helvetica", "size_pt": 7.5, "style": "B", "color": "#475569"},
+      "warning-icon-blue": {"family": "Material Symbols Outlined", "size_pt": 15, "color": "#1976d2"},
+      "warning-introduction": {"family": "Helvetica", "size_pt": 11, "color": "#1e293b"},
+      "kit-qr-label": {"family": "Courier", "size_pt": 6.6, "style": "B", "color": "#0f172a"},
+      "kit-title": {"family": "Times", "size_pt": 19, "style": "B", "color": "#0f172a"},
+      "kit-subtitle": {"family": "Helvetica", "size_pt": 10.8, "color": "#334155"},
+      "kit-section-icon": {"family": "Material Symbols Outlined", "size_pt": 15.5, "color": "#1e293b"},
+      "kit-section-label": {"family": "Helvetica", "size_pt": 8.8, "style": "B", "color": "#0f172a"},
+      "kit-bullet-icon": {"family": "Material Symbols Outlined", "size_pt": 16, "color": "#0f172a"},
+      "kit-step-body": {"family": "Helvetica", "size_pt": 10.7, "color": "#1e293b"},
+      "callout-title": {"family": "Helvetica", "size_pt": 8.1, "style": "B", "color": "#0f172a"},
+      "callout-body": {"family": "Helvetica", "size_pt": 10.6, "color": "#1e293b"},
+      "checklist-icon": {"family": "Material Symbols Outlined", "size_pt": 15, "color": "#1e293b"},
+      "checklist-title": {"family": "Helvetica", "size_pt": 8, "style": "B", "color": "#0f172a"},
+      "checkbox": {"family": "Material Symbols Outlined", "size_pt": 16, "color": "#1e293b"},
+      "checklist-body": {"family": "Helvetica", "size_pt": 9.4, "color": "#1e293b"},
+      "kit-footer-kind": {"family": "Helvetica", "size_pt": 8, "color": "#334155"},
+      "kit-footer-id": {"family": "Courier", "size_pt": 7, "color": "#334155"},
+      "recovery-warning-icon": {"family": "Material Symbols Outlined", "size_pt": 13, "color": "#0f172a"},
+      "recovery-warning-title": {"family": "Helvetica", "size_pt": 9, "style": "B", "color": "#0f172a"},
+      "recovery-warning-body": {"family": "Helvetica", "size_pt": 9, "color": "#1e293b"},
+      "recovery-section-heading": {"family": "Helvetica", "size_pt": 10.5, "style": "B", "color": "#0f172a"},
+      "recovery-instructions": {"family": "Helvetica", "size_pt": 10.5, "color": "#1e293b"},
+      "fallback-number": {"family": "Courier", "size_pt": 10.5, "color": "#64748b"},
+      "recovery-value": {"family": "Courier", "size_pt": 9, "color": "#1e293b"},
+      "recovery-label": {"family": "Helvetica", "size_pt": 9, "style": "B", "color": "#475569"},
+      "fallback-body": {"family": "Courier", "size_pt": 7, "color": "#1e293b"},
+      "continuation-hint": {"family": "Helvetica", "size_pt": 8, "color": "#475569"},
+      "recovery-guidance": {"family": "Helvetica", "size_pt": 6.4, "color": "#475569"},
+      "header-kicker": {"family": "Helvetica", "size_pt": 7.2, "style": "B", "color": "#64748b"},
+      "sheet-warning-icon": {"family": "Material Symbols Outlined", "size_pt": 10, "color": "#ffffff"},
+      "sheet-warning-title": {"family": "Helvetica", "size_pt": 9.5, "style": "B", "color": "#0f172a"},
+      "sheet-warning-body": {"family": "Helvetica", "size_pt": 7.6, "color": "#1e293b"},
+      "sheet-stat-label": {"family": "Helvetica", "size_pt": 6.5, "style": "B", "color": "#1e293b"},
+      "sheet-stat-value": {"family": "Courier", "size_pt": 9, "style": "B", "color": "#0f172a"},
+      "sheet-date-value": {"family": "Courier", "size_pt": 7.2, "style": "B", "color": "#0f172a"},
+      "date-placeholder": {"family": "Courier", "size_pt": 7.2, "color": "#0f172a"},
+      "signature-label": {"family": "Helvetica", "size_pt": 6, "style": "B", "color": "#0f172a"},
+      "sheet-fallback-label": {"family": "Helvetica", "size_pt": 6, "style": "B", "color": "#475569"},
+      "sheet-fallback-title": {"family": "Helvetica", "size_pt": 6, "style": "B", "color": "#64748b"},
+      "sheet-fallback-body": {"family": "Courier", "size_pt": 6, "color": "#0f172a"},
+      "signing-warning-icon": {"family": "Material Symbols Outlined", "size_pt": 10, "color": "#1976d2"},
+      "signing-warning-body": {"family": "Helvetica", "size_pt": 7, "color": "#1e293b"},
+      "signing-warning-instructions": {"family": "Helvetica", "size_pt": 6.2, "color": "#334155"},
+      "signing-section-label": {"family": "Helvetica", "size_pt": 7, "style": "B", "color": "#0f172a"},
+      "shard-id": {"family": "Courier", "size_pt": 6, "style": "B", "color": "#334155"},
+      "payload-label": {"family": "Helvetica", "size_pt": 6, "style": "B", "color": "#1e293b"},
+      "reference-title": {"family": "Helvetica", "size_pt": 6.2, "style": "B", "color": "#0f172a"},
+      "fingerprint-value": {"family": "Courier", "size_pt": 7, "style": "B", "color": "#0f172a"},
+      "reference-guidance": {"family": "Helvetica", "size_pt": 6, "color": "#334155"},
+      "reference-body": {"family": "Courier", "size_pt": 6, "color": "#1e293b"},
+      "index-header-icon": {"family": "Material Symbols Outlined", "size_pt": 14, "color": "#0f172a"},
+      "index-stat-label": {"family": "Helvetica", "size_pt": 9, "style": "B", "color": "#1e293b"},
+      "index-stat-value": {"family": "Courier", "size_pt": 8.8, "color": "#0f172a"},
+      "index-warning-title": {"family": "Helvetica", "size_pt": 10, "style": "B", "color": "#0f172a"},
+      "index-warning-body": {"family": "Helvetica", "size_pt": 8.4, "color": "#1e293b"},
+      "index-section-icon": {"family": "Material Symbols Outlined", "size_pt": 15, "color": "#0f172a"},
+      "index-section-title": {"family": "Helvetica", "size_pt": 14, "style": "B", "color": "#0f172a"},
+      "inventory-heading": {"family": "Helvetica", "size_pt": 9.2, "style": "B", "color": "#0f172a"},
+      "inventory-detail": {"family": "Courier", "size_pt": 6.4, "color": "#334155"},
+      "inventory-status": {"family": "Helvetica", "size_pt": 6.6, "color": "#1e293b"},
+      "index-instruction-body": {"family": "Helvetica", "size_pt": 8.6, "style": "B", "color": "#1e293b"},
+      "protocol-label": {"family": "Helvetica", "size_pt": 7.6, "color": "#0f172a"},
+      "session-id": {"family": "Helvetica", "size_pt": 7.4, "color": "#0f172a"},
+      "verification-icon": {"family": "Material Symbols Outlined", "size_pt": 12, "color": "#0f172a"},
+      "verification-caption": {"family": "Courier", "size_pt": 6.2, "color": "#1e293b"}
+    },
+    "documents": {
+      "main": {
+        "first": {
+          "elements": [
+            {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "main-introduction"},
+            {"key": "qr-0", "kind": "group", "box": [15, 104.5, 0, 0], "ref": "qr-card", "qr_slot": 0},
+            {"key": "qr-1", "kind": "group", "box": [76.4166666667, 104.5, 0, 0], "ref": "qr-card", "qr_slot": 1},
+            {"key": "qr-2", "kind": "group", "box": [137.8333333333, 104.5, 0, 0], "ref": "qr-card", "qr_slot": 2},
+            {"key": "qr-3", "kind": "group", "box": [15, 194.5, 0, 0], "ref": "qr-card", "qr_slot": 3},
+            {"key": "qr-4", "kind": "group", "box": [76.4166666667, 194.5, 0, 0], "ref": "qr-card", "qr_slot": 4},
+            {"key": "qr-5", "kind": "group", "box": [137.8333333333, 194.5, 0, 0], "ref": "qr-card", "qr_slot": 5},
+            {"key": "artwork-7", "kind": "group", "box": [0, 0, 0, 0], "ref": "footer"}
+          ],
+          "qr_capacity": 6,
+          "grid": {
+            "box": [15, 104.5, 180, 155],
+            "columns": 3,
+            "rows": 2,
+            "card_size": [57.1666666667, 65],
+            "gap": [4.25, 4.25],
+            "horizontal": "space_between",
+            "vertical": "space_between",
+            "reserve_rows": true
+          }
+        },
+        "continuation": {
+          "elements": [
+            {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "continuation-header"},
+            {"key": "qr-0", "kind": "group", "box": [15, 56, 0, 0], "ref": "qr-card", "qr_slot": 0},
+            {"key": "qr-1", "kind": "group", "box": [76.4166666667, 56, 0, 0], "ref": "qr-card", "qr_slot": 1},
+            {"key": "qr-2", "kind": "group", "box": [137.8333333333, 56, 0, 0], "ref": "qr-card", "qr_slot": 2},
+            {"key": "qr-3", "kind": "group", "box": [15, 125.25, 0, 0], "ref": "qr-card", "qr_slot": 3},
+            {"key": "qr-4", "kind": "group", "box": [76.4166666667, 125.25, 0, 0], "ref": "qr-card", "qr_slot": 4},
+            {"key": "qr-5", "kind": "group", "box": [137.8333333333, 125.25, 0, 0], "ref": "qr-card", "qr_slot": 5},
+            {"key": "qr-6", "kind": "group", "box": [15, 194.5, 0, 0], "ref": "qr-card", "qr_slot": 6},
+            {"key": "qr-7", "kind": "group", "box": [76.4166666667, 194.5, 0, 0], "ref": "qr-card", "qr_slot": 7},
+            {"key": "qr-8", "kind": "group", "box": [137.8333333333, 194.5, 0, 0], "ref": "qr-card", "qr_slot": 8},
+            {"key": "artwork-10", "kind": "group", "box": [0, 0, 0, 0], "ref": "footer"}
+          ],
+          "qr_capacity": 9,
+          "grid": {
+            "box": [15, 56, 180, 203.5],
+            "columns": 3,
+            "rows": 3,
+            "card_size": [57.1666666667, 65],
+            "gap": [4.25, 4.25],
+            "horizontal": "space_between",
+            "vertical": "space_between",
+            "reserve_rows": true
+          }
+        }
+      },
+      "kit": {
+        "first": {
+          "elements": [
+            {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "kit-introduction"},
+            {"key": "qr-0", "kind": "group", "box": [15, 78.5, 0, 0], "ref": "kit-qr-card", "qr_slot": 0},
+            {"key": "qr-1", "kind": "group", "box": [76.3333333333, 78.5, 0, 0], "ref": "kit-qr-card", "qr_slot": 1},
+            {"key": "qr-2", "kind": "group", "box": [137.6666666667, 78.5, 0, 0], "ref": "kit-qr-card", "qr_slot": 2},
+            {"key": "qr-3", "kind": "group", "box": [15, 192.5, 0, 0], "ref": "kit-qr-card", "qr_slot": 3},
+            {"key": "qr-4", "kind": "group", "box": [76.3333333333, 192.5, 0, 0], "ref": "kit-qr-card", "qr_slot": 4},
+            {"key": "qr-5", "kind": "group", "box": [137.6666666667, 192.5, 0, 0], "ref": "kit-qr-card", "qr_slot": 5},
+            {"key": "artwork-7", "kind": "group", "box": [0, 0, 0, 0], "ref": "footer"}
+          ],
+          "qr_capacity": 6,
+          "grid": {
+            "box": [15, 78.5, 180, 181],
+            "columns": 3,
+            "rows": 2,
+            "card_size": [57.3333333333, 67],
+            "gap": [4, 4],
+            "horizontal": "space_between",
+            "vertical": "space_between",
+            "reserve_rows": true
+          }
+        },
+        "trailing": [
+          {
+            "elements": [
+              {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "kit-instructions"}
+            ]
+          }
+        ]
+      },
+      "recovery": {
+        "first": {
+          "elements": [
+            {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "recovery-introduction"}
+          ]
+        },
+        "continuation": {
+          "elements": [
+            {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "recovery-continuation"}
+          ]
+        },
+        "recovery": {
+          "first": {
+            "box": [15, 124.0097041667, 180, 75.8302958333],
+            "row_height": 6.4,
+            "body_style": "fallback-body",
+            "number_style": "fallback-number",
+            "left": 6.8,
+            "right": 1.8,
+            "number_gap": 1.5,
+            "number_width": 8.5,
+            "number_padding": 0.8,
+            "columns": 2,
+            "column_gap": 12,
+            "title": [
+              {"key": "fallback-title-0", "kind": "text", "box": [5, 1.1, 170, 4.6], "text": "{title}", "style": "continuation-label"}
+            ],
+            "row": [
+              {"key": "fallback-line-number-1", "kind": "text", "box": [5, 1.7, 8.5, 4.8], "text": "{number:02d}.", "style": "fallback-number", "align": "right", "min_size": 6.5},
+              {"key": "fallback-line-box-1", "kind": "panel", "box": [15, 0.7, 69, 5.6], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.15},
+              {"key": "fallback-line-text-1", "kind": "text", "box": [16.8, 1.7, 65.4, 4.4], "text": "{payload}", "style": "recovery-value", "fit": "shrink", "min_size": 6.8, "max_lines": 1}
+            ]
+          },
+          "continuation": {
+            "box": [15, 73.0097041667, 180, 186.4902958333],
+            "row_height": 6.4,
+            "body_style": "fallback-body",
+            "number_style": "fallback-number",
+            "left": 6.8,
+            "right": 1.8,
+            "number_gap": 1.5,
+            "number_width": 8.5,
+            "number_padding": 0.8,
+            "columns": 2,
+            "column_gap": 12,
+            "title": [
+              {"key": "fallback-title-0", "kind": "text", "box": [5, 1.1, 170, 4.6], "text": "{title}", "style": "continuation-label"}
+            ],
+            "row": [
+              {"key": "fallback-line-number-0", "kind": "text", "box": [5, 1.7, 8.5, 4.8], "text": "{number:02d}.", "style": "fallback-number", "align": "right", "min_size": 6.5},
+              {"key": "fallback-line-box-0", "kind": "panel", "box": [15, 0.7, 69, 5.6], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.15},
+              {"key": "fallback-line-text-0", "kind": "text", "box": [16.8, 1.7, 65.4, 4.4], "text": "{payload}", "style": "recovery-value", "fit": "shrink", "min_size": 6.8, "max_lines": 1}
+            ]
+          },
+          "passphrase": {
+            "page": {
+              "elements": [
+                {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "passphrase-continuation"}
+              ]
+            },
+            "style": "recovery-value",
+            "guidance_style": "recovery-guidance",
+            "width": 174,
+            "height": 15.24,
+            "continuation_box": [18, 70, 174, 166.4902958333],
+            "line_height": 1.2
+          },
+          "metadata": {
+            "flow": "boxes",
+            "box": [15, 215.84, 180, 0],
+            "reference_bottom": 259.5,
+            "gap": 3,
+            "bottom_anchor": true,
+            "label_style": "recovery-label",
+            "value_style": "recovery-value",
+            "guidance_style": "recovery-guidance",
+            "border": "#cbd5e1",
+            "fill": "#f8fafc",
+            "shift_start": 203.84,
+            "shift_end": 215.84
+          }
+        }
+      },
+      "shard": {
+        "first": {
+          "elements": [
+            {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "sheet-introduction"},
+            {"key": "qr-0", "kind": "group", "box": [20, 62, 0, 0], "ref": "sheet-qr", "qr_slot": 0},
+            {"key": "artwork-2", "kind": "group", "box": [0, 0, 0, 0], "ref": "sheet-signoff"}
+          ],
+          "qr_capacity": 1
+        },
+        "sheet": {
+          "box": [15, 127, 180, 132.5],
+          "bottom_anchor": false,
+          "padding": 4,
+          "top": 7,
+          "safety": 0,
+          "numbering": "none",
+          "body_style": "sheet-fallback-body",
+          "profiles": [
+            {
+              "row_height": 3.25,
+              "font_size": 6,
+              "title_size": 6
+            },
+            {
+              "columns": 2,
+              "row_height": 2.65,
+              "font_size": 6,
+              "title_size": 6
+            }
+          ],
+          "decoration": [
+            {"key": "fallback-panel", "kind": "panel", "box": [0, 0, 180, 132.5], "stroke": "#cbd5e1", "fill": "#f8fafc", "stretch_y": true},
+            {"key": "fallback-label", "kind": "text", "box": [3, 1.5, 174, 4.5], "text": "{copy_manual_transcription_label_upper}", "style": "sheet-fallback-label", "fit": "shrink"}
+          ],
+          "title": [
+            {"key": "fallback-title-0", "kind": "text", "box": [4, 0, 172, 3.25], "text": "{title}", "style": "sheet-fallback-title", "stretch_x": true}
+          ],
+          "row": [
+            {"key": "fallback-line-1", "kind": "text", "box": [4, 0, 172, 3.25], "text": "{payload}", "style": "sheet-fallback-body", "max_lines": 1, "stretch_x": true}
+          ]
+        }
+      },
+      "signing_key_shard": {
+        "first": {
+          "elements": [
+            {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "signing-sheet-introduction"},
+            {"key": "qr-0", "kind": "group", "box": [20, 62, 0, 0], "ref": "sheet-qr", "qr_slot": 0},
+            {"key": "artwork-2", "kind": "group", "box": [0, 0, 0, 0], "ref": "signing-sheet-reference"}
+          ],
+          "qr_capacity": 1
+        },
+        "sheet": {
+          "box": [15, 127, 180, 128],
+          "bottom_anchor": false,
+          "padding": 4,
+          "top": 7,
+          "safety": 0,
+          "numbering": "none",
+          "body_style": "sheet-fallback-body",
+          "profiles": [
+            {
+              "row_height": 3,
+              "font_size": 6,
+              "title_size": 6
+            },
+            {
+              "columns": 2,
+              "row_height": 2.65,
+              "font_size": 6,
+              "title_size": 6
+            }
+          ],
+          "title": [
+            {"key": "payload-static-label", "kind": "text", "box": [4, 0, 172, 3], "text": "{title}", "style": "payload-label", "stretch_x": true}
+          ],
+          "row": [
+            {"key": "payload-line-0", "kind": "text", "box": [4, 0, 172, 3], "text": "{payload}", "style": "sheet-fallback-body", "max_lines": 1, "stretch_x": true}
+          ]
+        }
+      },
+      "kit_index": {
+        "first": {
+          "elements": [
+            {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "inventory-introduction"}
+          ],
+          "inventory": {
+            "top": 138.5,
+            "row_height": 18.5,
+            "capacity": 3,
+            "row": [
+              {"key": "inventory-row-0", "kind": "panel", "box": [15, 0, 180, 18.5], "stroke": "#e2e8f0", "fill": "#ffffff", "line_width": 0.12},
+              {"key": "inventory-component-0", "kind": "text", "box": [18, 4, 46, 5], "text": "{identifier}", "style": "sheet-stat-value", "fit": "shrink", "min_size": 6.5},
+              {"key": "inventory-detail-0", "kind": "text", "box": [18, 9.7, 46, 7.3], "text": "{detail}", "style": "inventory-detail", "fit": "wrap", "line_height": 1},
+              {"key": "inventory-custodian-line-0", "kind": "rule", "box": [70, 12.3, 39, 0.25], "fill": "#cbd5e1"},
+              {"key": "inventory-location-line-0", "kind": "rule", "box": [115, 12.3, 42, 0.25], "fill": "#cbd5e1"},
+              {"key": "inventory-status-pill-0", "kind": "panel", "box": [163.5, 6.2, 28, 6], "stroke": "#e2e8f0", "fill": "#eff6ff", "line_width": 0.12},
+              {"key": "inventory-status-0", "kind": "text", "box": [164.5, 7.3, 26, 3.8], "text": "{status}", "style": "inventory-status", "align": "center", "fit": "shrink"}
+            ]
+          }
+        },
+        "continuation": {
+          "elements": [
+            {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "inventory-continuation"}
+          ],
+          "inventory": {
+            "top": 89.5097041667,
+            "row_height": 18.5,
+            "capacity": 9,
+            "row": [
+              {"key": "inventory-row-0", "kind": "panel", "box": [15, 0, 180, 18.5], "stroke": "#e2e8f0", "fill": "#ffffff", "line_width": 0.12},
+              {"key": "inventory-component-0", "kind": "text", "box": [18, 4, 46, 5], "text": "{identifier}", "style": "sheet-stat-value", "fit": "shrink", "min_size": 6.5},
+              {"key": "inventory-detail-0", "kind": "text", "box": [18, 9.7, 46, 7.3], "text": "{detail}", "style": "inventory-detail", "fit": "wrap", "line_height": 1},
+              {"key": "inventory-custodian-line-0", "kind": "rule", "box": [70, 12.3, 39, 0.25], "fill": "#cbd5e1"},
+              {"key": "inventory-location-line-0", "kind": "rule", "box": [115, 12.3, 42, 0.25], "fill": "#cbd5e1"},
+              {"key": "inventory-status-pill-0", "kind": "panel", "box": [163.5, 6.2, 28, 6], "stroke": "#e2e8f0", "fill": "#eff6ff", "line_width": 0.12},
+              {"key": "inventory-status-0", "kind": "text", "box": [164.5, 7.3, 26, 3.8], "text": "{status}", "style": "inventory-status", "align": "center", "fit": "shrink"}
+            ]
+          }
+        }
+      }
+    },
+    "components": {
+      "qr-card": [
+        {"key": "qr-card", "kind": "panel", "box": [0, 0, 57.1666666667, 65], "stroke": "#cbd5e1", "fill": "#ffffff"},
+        {"key": "qr-card-rule", "kind": "rule", "box": [3, 9.2, 51.1666666667, 0.35], "fill": "#f1f5f9"},
+        {"key": "qr-label", "kind": "text", "box": [3, 3, 51.1666666667, 5], "text": "SEGMENT {segment_number:02d}", "style": "qr-label"},
+        {"key": "qr-image", "kind": "image", "box": [3.1833333333, 10.6, 50.8, 50.8]}
+      ],
+      "kit-qr-card": [
+        {"key": "qr-card", "kind": "panel", "box": [0, 0, 57.3333333333, 67], "stroke": "#cbd5e1", "fill": "#ffffff"},
+        {"key": "qr-card-rule", "kind": "rule", "box": [3, 9, 51.3333333333, 0.35], "fill": "#f1f5f9"},
+        {"key": "qr-label", "kind": "text", "box": [3, 3, 51.3333333333, 5], "text": "{copy_segment_prefix_upper} {segment_number:02d}", "style": "kit-qr-label"},
+        {"key": "qr-image-backdrop", "kind": "panel", "box": [3.9666666667, 12.3, 49.4, 49.4], "fill": "#0f172a"},
+        {"key": "qr-image", "kind": "image", "box": [5.1666666667, 13.5, 47, 47]}
+      ],
+      "sheet-qr": [
+        {"key": "qr-image", "kind": "image", "box": [0, 0, 54, 54]}
+      ],
+      "main-introduction": [
+        {"key": "main-header", "kind": "group", "ref": "main-header", "box": [0, 0, 0, 0]},
+        {"key": "directives-title", "kind": "text", "box": [15, 51, 62, 7.5], "text": "{copy_directives_label}", "style": "section-heading"},
+        {"key": "directive-card-0", "kind": "panel", "box": [15, 62, 41.8125, 27], "fill": "#f8fafc", "line_width": 0.18},
+        {"key": "directive-icon-0", "kind": "text", "box": [18, 64.8, 10, 7.2], "text": "\ue8f5", "style": "directive-icon"},
+        {"key": "directive-text-0", "kind": "text", "box": [18, 74, 35.8125, 12.6], "text": "{instruction_0}", "style": "directive-body", "fit": "shrink", "line_height": 1.15},
+        {"key": "directive-card-1", "kind": "panel", "box": [61.0625, 62, 41.8125, 27], "fill": "#f8fafc", "line_width": 0.18},
+        {"key": "directive-icon-1", "kind": "text", "box": [64.0625, 64.8, 10, 7.2], "text": "\ue899", "style": "directive-icon"},
+        {"key": "directive-text-1", "kind": "text", "box": [64.0625, 74, 35.8125, 12.6], "text": "{instruction_1}", "style": "directive-body", "fit": "shrink", "line_height": 1.15},
+        {"key": "directive-card-2", "kind": "panel", "box": [107.125, 62, 41.8125, 27], "fill": "#f8fafc", "line_width": 0.18},
+        {"key": "directive-icon-2", "kind": "text", "box": [110.125, 64.8, 10, 7.2], "text": "\ue9b0", "style": "directive-icon"},
+        {"key": "directive-text-2", "kind": "text", "box": [110.125, 74, 35.8125, 12.6], "text": "{instruction_2}", "style": "directive-body", "fit": "shrink", "line_height": 1.15},
+        {"key": "directive-card-3", "kind": "panel", "box": [153.1875, 62, 41.8125, 27], "fill": "#f8fafc", "line_width": 0.18},
+        {"key": "directive-icon-3", "kind": "text", "box": [156.1875, 64.8, 10, 7.2], "text": "\ue873", "style": "directive-icon"},
+        {"key": "directive-text-3", "kind": "text", "box": [156.1875, 74, 35.8125, 12.6], "text": "Store this QR document separately from the recovery document.", "style": "directive-body", "fit": "shrink", "line_height": 1.15},
+        {"key": "directives-rule", "kind": "rule", "box": [15, 95.6, 180, 0.35], "fill": "#e2e8f0"}
+      ],
+      "footer": [
+        {"key": "footer-rule", "kind": "rule", "box": [15, 263, 180, 0.35], "fill": "#cbd5e1"},
+        {"key": "footer-left", "kind": "text", "box": [15, 269, 60, 5.5], "text": "{generator_upper}", "style": "footer-caption", "fit": "shrink"},
+        {"key": "footer-page", "kind": "text", "box": [82, 269, 46, 5.5], "text": "PAGE {page_number} / {page_count}", "style": "footer-caption", "align": "center"},
+        {"key": "footer-right", "kind": "text", "box": [130, 269, 65, 5.5], "text": "{copy_header_guidance_upper}", "style": "footer-caption", "align": "right", "fit": "shrink"}
+      ],
+      "continuation-header": [
+        {"key": "main-header", "kind": "group", "ref": "main-header", "box": [0, 0, 0, 0]},
+        {"key": "continuation-panel", "kind": "panel", "box": [15, 47, 180, 8], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.18},
+        {"key": "continuation-hint", "kind": "text", "box": [18, 49, 174, 4.8], "text": "{copy_continuation_hint}", "style": "continuation-label", "align": "center", "fit": "shrink"}
+      ],
+      "kit-introduction": [
+        {"key": "heading-frame", "kind": "group", "ref": "heading-frame", "box": [0, 0, 0, 0]},
+        {"key": "classification-text", "kind": "text", "box": [146, 15.9, 48, 3.8], "text": "OFFLINE PROCESSING REQUIRED", "style": "classification-label", "align": "center", "fit": "shrink"},
+        {"key": "document-identity", "kind": "group", "ref": "document-identity", "box": [0, 0, 0, 0]},
+        {"key": "header-rule", "kind": "rule", "box": [15, 43.8, 180, 1.05], "fill": "#0f172a"},
+        {"key": "warning-panel", "kind": "panel", "box": [15, 55, 180, 15], "fill": "#eff6ff", "line_width": 0.18},
+        {"key": "warning-accent", "kind": "rule", "box": [15, 55, 1, 15], "fill": "#1976d2"},
+        {"key": "warning-icon", "kind": "text", "box": [20, 60, 8, 7], "text": "\ue002", "style": "warning-icon-blue"},
+        {"key": "warning-text", "kind": "text", "box": [29, 61, 158, 5.5], "text": "{copy_continuation_hint}", "style": "warning-introduction", "fit": "shrink", "min_size": 8.5}
+      ],
+      "kit-instructions": [
+        {"key": "instruction-shell", "kind": "panel", "box": [15, 15, 180, 267], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.5},
+        {"key": "instruction-title", "kind": "text", "box": [22, 22, 166, 10], "text": "HOW TO REBUILD THE RECOVERY KIT", "style": "kit-title", "fit": "shrink", "min_size": 17.5},
+        {"key": "instruction-subtitle", "kind": "text", "box": [22, 34.5, 146, 6], "text": "{copy_guide_intro}", "style": "kit-subtitle"},
+        {"key": "instruction-rule", "kind": "rule", "box": [22, 42, 166, 0.45], "fill": "#cbd5e1"},
+        {"key": "instruction-badge-1", "kind": "panel", "box": [22, 43.5, 43.5, 9], "stroke": "#0f172a", "line_width": 0.25},
+        {"key": "instruction-badge-icon-1", "kind": "text", "box": [25, 44.7, 6, 7], "text": "\ue9f4", "style": "kit-section-icon", "line_height": 1},
+        {"key": "instruction-section-title-1", "kind": "text", "box": [33.5, 46, 29.5, 4.2], "text": "SCAN + ASSEMBLE", "style": "kit-section-label", "fit": "shrink", "min_size": 7},
+        {"key": "instruction-bullet-icon-1-0", "kind": "text", "box": [22, 57.5, 7, 7], "text": "\ue39e", "style": "kit-bullet-icon", "line_height": 1},
+        {"key": "instruction-line-1-0", "kind": "text", "box": [30, 57.5, 71, 10], "text": "{copy_guide_scan_steps_0}", "style": "kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-bullet-icon-1-1", "kind": "text", "box": [22, 68.5, 7, 7], "text": "\ue39e", "style": "kit-bullet-icon", "line_height": 1},
+        {"key": "instruction-line-1-1", "kind": "text", "box": [30, 68.5, 71, 10], "text": "{copy_guide_scan_steps_1}", "style": "kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-bullet-icon-1-2", "kind": "text", "box": [22, 79.5, 7, 7], "text": "\ue39e", "style": "kit-bullet-icon", "line_height": 1},
+        {"key": "instruction-line-1-2", "kind": "text", "box": [30, 79.5, 71, 10], "text": "{copy_guide_scan_steps_2}", "style": "kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-bullet-icon-1-3", "kind": "text", "box": [22, 90.5, 7, 7], "text": "\ue39e", "style": "kit-bullet-icon", "line_height": 1},
+        {"key": "instruction-line-1-3", "kind": "text", "box": [30, 90.5, 71, 10], "text": "{copy_guide_scan_steps_3}", "style": "kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-badge-2", "kind": "panel", "box": [22, 102, 38.4, 9], "stroke": "#0f172a", "line_width": 0.25},
+        {"key": "instruction-badge-icon-2", "kind": "text", "box": [25, 103.2, 6, 7], "text": "\ue894", "style": "kit-section-icon", "line_height": 1},
+        {"key": "instruction-section-title-2", "kind": "text", "box": [33.5, 104.5, 24.4, 4.2], "text": "OPEN THE KIT", "style": "kit-section-label", "fit": "shrink", "min_size": 7},
+        {"key": "instruction-bullet-icon-2-0", "kind": "text", "box": [22, 116, 7, 7], "text": "\ue39e", "style": "kit-bullet-icon", "line_height": 1},
+        {"key": "instruction-line-2-0", "kind": "text", "box": [30, 116, 71, 10], "text": "{copy_guide_open_steps_0}", "style": "kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-bullet-icon-2-1", "kind": "text", "box": [22, 127, 7, 7], "text": "\ue39e", "style": "kit-bullet-icon", "line_height": 1},
+        {"key": "instruction-line-2-1", "kind": "text", "box": [30, 127, 71, 10], "text": "{copy_guide_open_steps_1}", "style": "kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-bullet-icon-2-2", "kind": "text", "box": [22, 138, 7, 7], "text": "\ue39e", "style": "kit-bullet-icon", "line_height": 1},
+        {"key": "instruction-line-2-2", "kind": "text", "box": [30, 138, 71, 10], "text": "{copy_guide_open_steps_2}", "style": "kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-badge-3", "kind": "panel", "box": [22, 151, 43.5, 9], "stroke": "#0f172a", "line_width": 0.25},
+        {"key": "instruction-badge-icon-3", "kind": "text", "box": [25, 152.2, 6, 7], "text": "\ue869", "style": "kit-section-icon", "line_height": 1},
+        {"key": "instruction-section-title-3", "kind": "text", "box": [33.5, 153.5, 29.5, 4.2], "text": "TROUBLESHOOTING", "style": "kit-section-label", "fit": "shrink", "min_size": 7},
+        {"key": "instruction-disc-3-0", "kind": "panel", "box": [22.8, 168.1, 1, 1], "fill": "#1e293b", "line_width": 0.18},
+        {"key": "instruction-line-3-0", "kind": "text", "box": [30, 165, 71, 10], "text": "{copy_guide_help_steps_0}", "style": "kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-disc-3-1", "kind": "panel", "box": [22.8, 179.1, 1, 1], "fill": "#1e293b", "line_width": 0.18},
+        {"key": "instruction-line-3-1", "kind": "text", "box": [30, 176, 71, 10], "text": "{copy_guide_help_steps_1}", "style": "kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-disc-3-2", "kind": "panel", "box": [22.8, 190.1, 1, 1], "fill": "#1e293b", "line_width": 0.18},
+        {"key": "instruction-line-3-2", "kind": "text", "box": [30, 187, 71, 10], "text": "{copy_guide_help_steps_2}", "style": "kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "summary-card-0", "kind": "panel", "box": [109, 43.5, 79, 34], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.22},
+        {"key": "summary-title-0", "kind": "text", "box": [112.5, 47.5, 72, 4.5], "text": "VERIFY", "style": "callout-title"},
+        {"key": "summary-body-0-0", "kind": "text", "box": [112.5, 56, 72, 10.5], "text": "{copy_guide_verify_0}", "style": "callout-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "summary-body-0-1", "kind": "text", "box": [112.5, 66.7, 72, 10.5], "text": "{copy_guide_verify_1}", "style": "callout-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "summary-card-1", "kind": "panel", "box": [109, 81, 79, 36.5], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.22},
+        {"key": "summary-title-1", "kind": "text", "box": [112.5, 85, 72, 4.5], "text": "STORAGE", "style": "callout-title"},
+        {"key": "summary-body-1-0", "kind": "text", "box": [112.5, 93.5, 72, 10.5], "text": "{copy_guide_storage_0}", "style": "callout-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "summary-body-1-1", "kind": "text", "box": [112.5, 104.2, 72, 10.5], "text": "{copy_guide_storage_1}", "style": "callout-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "summary-card-2", "kind": "panel", "box": [109, 121.5, 79, 38], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.22},
+        {"key": "summary-title-2", "kind": "text", "box": [112.5, 125.5, 72, 4.5], "text": "SECURITY", "style": "callout-title"},
+        {"key": "summary-body-2-0", "kind": "text", "box": [112.5, 134, 72, 10.5], "text": "{copy_guide_security_0}", "style": "callout-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "summary-body-2-1", "kind": "text", "box": [112.5, 144.7, 72, 10.5], "text": "{copy_guide_security_1}", "style": "callout-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "checklist-card", "kind": "panel", "box": [109, 161.5, 79, 98], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.22},
+        {"key": "checklist-icon", "kind": "text", "box": [112.5, 165.3, 6, 7], "text": "\ue8e8", "style": "checklist-icon", "line_height": 1},
+        {"key": "checklist-title", "kind": "text", "box": [120, 166.5, 64.5, 4.5], "text": "{copy_checklist_label_upper}", "style": "checklist-title", "fit": "shrink", "min_size": 6.6},
+        {"key": "checklist-box-0", "kind": "text", "box": [113, 177.5, 6, 7], "text": "\ue835", "style": "checkbox", "line_height": 1},
+        {"key": "checklist-line-0", "kind": "text", "box": [121, 177.5, 63, 9.8923444444], "text": "{copy_guide_checklist_0}", "style": "checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "checklist-box-1", "kind": "text", "box": [113, 187.3923444444, 6, 7], "text": "\ue835", "style": "checkbox", "line_height": 1},
+        {"key": "checklist-line-1", "kind": "text", "box": [121, 187.3923444444, 63, 13], "text": "{copy_guide_checklist_1}", "style": "checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "checklist-box-2", "kind": "text", "box": [113, 201.2308611111, 6, 7], "text": "\ue835", "style": "checkbox", "line_height": 1},
+        {"key": "checklist-line-2", "kind": "text", "box": [121, 201.2308611111, 63, 9.8923444444], "text": "{copy_guide_checklist_2}", "style": "checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "checklist-box-3", "kind": "text", "box": [113, 211.1232055556, 6, 7], "text": "\ue835", "style": "checkbox", "line_height": 1},
+        {"key": "checklist-line-3", "kind": "text", "box": [121, 211.1232055556, 63, 9.8923444444], "text": "{copy_guide_checklist_3}", "style": "checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "checklist-box-4", "kind": "text", "box": [113, 221.01555, 6, 7], "text": "\ue835", "style": "checkbox", "line_height": 1},
+        {"key": "checklist-line-4", "kind": "text", "box": [121, 221.01555, 63, 9], "text": "{copy_guide_checklist_4}", "style": "checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "checklist-box-5", "kind": "text", "box": [113, 230.01555, 6, 7], "text": "\ue835", "style": "checkbox", "line_height": 1},
+        {"key": "checklist-line-5", "kind": "text", "box": [121, 230.01555, 63, 13], "text": "{copy_guide_checklist_5}", "style": "checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "instruction-footer-rule", "kind": "rule", "box": [22, 263, 166, 0.25], "fill": "#cbd5e1"},
+        {"key": "instruction-footer-kind", "kind": "text", "box": [22, 268, 72, 5], "text": "RECOVERY KIT: OFFLINE HTML BUNDLE", "style": "kit-footer-kind"},
+        {"key": "instruction-footer-doc-id", "kind": "text", "box": [102, 268, 86, 5], "text": "{document_id_label_upper}: {doc_id}", "style": "kit-footer-id", "align": "right", "fit": "shrink"},
+        {"key": "instruction-footer-page", "kind": "text", "box": [84, 268, 42, 5], "text": "PAGE {page_number} / {page_count}", "style": "kit-footer-id", "align": "center"}
+      ],
+      "recovery-introduction": [
+        {"key": "recovery-header", "kind": "group", "ref": "recovery-header", "box": [0, 0, 0, 0]},
+        {"key": "warning-panel", "kind": "panel", "box": [15, 58.0097041667, 180, 21], "stroke": "#cbd5e1", "fill": "#f1f5f9", "line_width": 0.25},
+        {"key": "warning-icon", "kind": "text", "box": [20, 63.0097041667, 15, 7], "text": "\ue002", "style": "recovery-warning-icon", "fit": "shrink", "min_size": 8},
+        {"key": "warning-title", "kind": "text", "box": [38, 61.0097041667, 128, 5.2], "text": "{copy_warning_title_upper}", "style": "recovery-warning-title"},
+        {"key": "warning-body", "kind": "text", "box": [38, 67.0097041667, 146, 9.2], "text": "{copy_warning_body}", "style": "recovery-warning-body", "fit": "wrap"},
+        {"key": "instructions-title", "kind": "text", "box": [17, 88.0097041667, 52, 6], "text": "{instructions_label_upper}", "style": "recovery-section-heading"},
+        {"key": "instructions-title-rule", "kind": "rule", "box": [17, 95.5097041667, 29, 0.35], "fill": "#0f172a"},
+        {"key": "instructions-body", "kind": "text", "box": [17, 101.0097041667, 168, 16.5], "text": "1. {instruction_0}\n2. {instruction_1}\n3. {instruction_2}", "style": "recovery-instructions", "fit": "wrap"},
+        {"key": "metadata-rule", "kind": "rule", "box": [15, 203.84, 180, 0.75], "fill": "#0f172a"},
+        {"key": "metadata-title", "kind": "text", "box": [17, 208.84, 75, 6], "text": "EXTENDED METADATA", "style": "recovery-section-heading"},
+        {"key": "footer", "kind": "group", "ref": "footer", "box": [0, 0, 0, 0]}
+      ],
+      "recovery-continuation": [
+        {"key": "recovery-header", "kind": "group", "ref": "recovery-header", "box": [0, 0, 0, 0]},
+        {"key": "continuation-panel", "kind": "panel", "box": [15, 58.0097041667, 180, 12], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.18},
+        {"key": "continuation-hint", "kind": "text", "box": [19, 61.5097041667, 172, 5], "text": "{copy_continuation_hint}", "style": "continuation-hint", "align": "center", "fit": "shrink"},
+        {"key": "footer", "kind": "group", "ref": "footer", "box": [0, 0, 0, 0]}
+      ],
+      "passphrase-continuation": [
+        {"key": "recovery-heading-frame", "kind": "group", "ref": "recovery-heading-frame", "box": [0, 0, 0, 0]},
+        {"key": "classification-text", "kind": "text", "box": [146, 15.9, 48, 3.8], "text": "PASSPHRASE METADATA", "style": "classification-label", "align": "center", "fit": "shrink"},
+        {"key": "document-identity", "kind": "group", "ref": "document-identity", "box": [0, 0, 0, 0]},
+        {"key": "header-rule", "kind": "rule", "box": [15, 54.9597041667, 180, 1.05], "fill": "#0f172a"},
+        {"key": "passphrase-continuation-title", "kind": "text", "box": [15, 58.0097041667, 180, 5], "text": "PASSPHRASE CONTINUATION {continuation_index} / {continuation_count}", "style": "recovery-section-heading"},
+        {"key": "passphrase-continuation-instructions", "kind": "text", "box": [15, 65.0097041667, 180, 15], "text": "{continuation_instructions}", "style": "continuation-hint", "fit": "wrap"},
+        {"key": "passphrase-continuation-panel", "kind": "panel", "box": [15, 85.0097041667, 180, 170.4902958333], "stroke": "#cbd5e1", "fill": "#f8fafc"},
+        {"key": "passphrase-continuation-value", "kind": "text", "box": [18, 87.0097041667, 174, 166.4902958333], "text": "{continuation_text}", "style": "recovery-value", "metadata": "recovery_passphrase"},
+        {"key": "footer", "kind": "group", "ref": "footer", "box": [0, 0, 0, 0]}
+      ],
+      "sheet-introduction": [
+        {"key": "header-kicker", "kind": "text", "box": [15, 15.2, 100, 4.6], "text": "THE FORGE // SECURE OFFLINE STORAGE", "style": "header-kicker"},
+        {"key": "header-title", "kind": "text", "box": [15, 20.5, 106, 23.5], "text": "{copy_title_upper}", "style": "document-title", "fit": "shrink", "min_size": 17},
+        {"key": "header-subtitle", "kind": "text", "box": [15, 33.8061625, 106, 5.6], "after": "header-title", "gap_after": 2.1, "text": "{copy_subtitle}", "style": "document-subtitle", "fit": "shrink"},
+        {"key": "header-guidance", "kind": "text", "box": [15, 39.7002875, 106, 4], "after": "header-subtitle", "gap_after": 2.1, "text": "{copy_header_guidance_upper}", "style": "header-guidance", "fit": "shrink"},
+        {"key": "classification-pill", "kind": "panel", "box": [145, 15, 50, 5.5], "stroke": "#0f172a", "fill": "#ffffff"},
+        {"key": "classification-text", "kind": "text", "box": [146, 15.9, 48, 3.8], "text": "CONFIDENTIAL", "style": "classification-label", "align": "center", "fit": "shrink"},
+        {"key": "document-identity", "kind": "group", "ref": "document-identity", "box": [0, 0, 0, 0]},
+        {"key": "header-rule", "kind": "rule", "box": [15, 50.4, 180, 1.05], "fill": "#0f172a"},
+        {"key": "warning-panel", "kind": "panel", "box": [87, 57, 108, 36], "stroke": "#0f172a", "fill": "#f1f5f9", "line_width": 0.5},
+        {"key": "warning-icon-box", "kind": "panel", "box": [91, 61, 9, 9], "fill": "#0f172a"},
+        {"key": "warning-icon", "kind": "text", "box": [91, 61.7, 9, 7.5], "text": "\ue002", "style": "sheet-warning-icon", "align": "center", "fit": "shrink", "min_size": 8},
+        {"key": "warning-title", "kind": "text", "box": [104, 61.5, 87, 5], "text": "{copy_warning_title_upper}", "style": "sheet-warning-title", "fit": "shrink", "min_size": 7},
+        {"key": "warning-body", "kind": "text", "box": [91, 72, 100, 16], "text": "{copy_warning_body}", "style": "sheet-warning-body", "fit": "wrap", "line_height": 1.18},
+        {"key": "total-label", "kind": "text", "box": [87, 98, 37.8, 3.5], "text": "TOTAL SHARDS", "style": "sheet-stat-label"},
+        {"key": "total-value", "kind": "text", "box": [87, 102, 37.8, 5], "text": "{shard_total}", "style": "sheet-stat-value", "fit": "shrink", "min_size": 8},
+        {"key": "generated-label", "kind": "text", "box": [128.04, 98, 66.96, 3.5], "text": "GENERATED", "style": "sheet-stat-label", "align": "right"},
+        {"key": "generated-value", "kind": "text", "box": [123.72, 102, 71.28, 5], "text": "{created_timestamp}", "style": "sheet-date-value", "align": "right", "fit": "shrink"},
+        {"key": "stats-rule", "kind": "rule", "box": [87, 110.5, 108, 0.35], "fill": "#0f172a"},
+        {"key": "qr-frame", "kind": "panel", "box": [15, 57, 64, 64], "stroke": "#0f172a", "fill": "#ffffff", "line_width": 0.9}
+      ],
+      "sheet-signoff": [
+        {"key": "validator-line", "kind": "rule", "box": [15, 271.5, 80, 0.35], "fill": "#0f172a"},
+        {"key": "date-line", "kind": "rule", "box": [142, 271.5, 53, 0.35], "fill": "#0f172a"},
+        {"key": "date-placeholder", "kind": "text", "box": [125, 266, 70, 4], "text": "____ / ____ / ________", "style": "date-placeholder", "align": "right"},
+        {"key": "validator-label", "kind": "text", "box": [15, 273.5, 70, 2.6], "text": "VALIDATOR SIGNATURE", "style": "signature-label"},
+        {"key": "date-label", "kind": "text", "box": [130, 273.5, 65, 2.6], "text": "DATE VERIFIED", "style": "signature-label", "align": "right"}
+      ],
+      "signing-sheet-introduction": [
+        {"key": "heading-frame", "kind": "group", "ref": "heading-frame", "box": [0, 0, 0, 0]},
+        {"key": "classification-text", "kind": "text", "box": [146, 15.9, 48, 3.8], "text": "RESTRICTED ACCESS", "style": "classification-label", "align": "center", "fit": "shrink"},
+        {"key": "document-identity", "kind": "group", "ref": "document-identity", "box": [0, 0, 0, 0]},
+        {"key": "header-rule", "kind": "rule", "box": [15, 43.8, 180, 1.05], "fill": "#0f172a"},
+        {"key": "warning-panel-bg", "kind": "panel", "box": [87, 57, 108, 31], "stroke": "#cbd5e1", "fill": "#f8fafc"},
+        {"key": "warning-dash-top-0", "kind": "rule", "box": [87, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-0", "kind": "rule", "box": [87, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-1", "kind": "rule", "box": [90.2, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-1", "kind": "rule", "box": [90.2, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-2", "kind": "rule", "box": [93.4, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-2", "kind": "rule", "box": [93.4, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-3", "kind": "rule", "box": [96.6, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-3", "kind": "rule", "box": [96.6, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-4", "kind": "rule", "box": [99.8, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-4", "kind": "rule", "box": [99.8, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-5", "kind": "rule", "box": [103, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-5", "kind": "rule", "box": [103, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-6", "kind": "rule", "box": [106.2, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-6", "kind": "rule", "box": [106.2, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-7", "kind": "rule", "box": [109.4, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-7", "kind": "rule", "box": [109.4, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-8", "kind": "rule", "box": [112.6, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-8", "kind": "rule", "box": [112.6, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-9", "kind": "rule", "box": [115.8, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-9", "kind": "rule", "box": [115.8, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-10", "kind": "rule", "box": [119, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-10", "kind": "rule", "box": [119, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-11", "kind": "rule", "box": [122.2, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-11", "kind": "rule", "box": [122.2, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-12", "kind": "rule", "box": [125.4, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-12", "kind": "rule", "box": [125.4, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-13", "kind": "rule", "box": [128.6, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-13", "kind": "rule", "box": [128.6, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-14", "kind": "rule", "box": [131.8, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-14", "kind": "rule", "box": [131.8, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-15", "kind": "rule", "box": [135, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-15", "kind": "rule", "box": [135, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-16", "kind": "rule", "box": [138.2, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-16", "kind": "rule", "box": [138.2, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-17", "kind": "rule", "box": [141.4, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-17", "kind": "rule", "box": [141.4, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-18", "kind": "rule", "box": [144.6, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-18", "kind": "rule", "box": [144.6, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-19", "kind": "rule", "box": [147.8, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-19", "kind": "rule", "box": [147.8, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-20", "kind": "rule", "box": [151, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-20", "kind": "rule", "box": [151, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-21", "kind": "rule", "box": [154.2, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-21", "kind": "rule", "box": [154.2, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-22", "kind": "rule", "box": [157.4, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-22", "kind": "rule", "box": [157.4, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-23", "kind": "rule", "box": [160.6, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-23", "kind": "rule", "box": [160.6, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-24", "kind": "rule", "box": [163.8, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-24", "kind": "rule", "box": [163.8, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-25", "kind": "rule", "box": [167, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-25", "kind": "rule", "box": [167, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-26", "kind": "rule", "box": [170.2, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-26", "kind": "rule", "box": [170.2, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-27", "kind": "rule", "box": [173.4, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-27", "kind": "rule", "box": [173.4, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-28", "kind": "rule", "box": [176.6, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-28", "kind": "rule", "box": [176.6, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-29", "kind": "rule", "box": [179.8, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-29", "kind": "rule", "box": [179.8, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-30", "kind": "rule", "box": [183, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-30", "kind": "rule", "box": [183, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-31", "kind": "rule", "box": [186.2, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-31", "kind": "rule", "box": [186.2, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-32", "kind": "rule", "box": [189.4, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-32", "kind": "rule", "box": [189.4, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-top-33", "kind": "rule", "box": [192.6, 57, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-bottom-33", "kind": "rule", "box": [192.6, 87.75, 1.8, 0.25], "fill": "#94a3b8"},
+        {"key": "warning-dash-left-0", "kind": "rule", "box": [87, 57, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-right-0", "kind": "rule", "box": [194.75, 57, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-left-1", "kind": "rule", "box": [87, 60.2, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-right-1", "kind": "rule", "box": [194.75, 60.2, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-left-2", "kind": "rule", "box": [87, 63.4, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-right-2", "kind": "rule", "box": [194.75, 63.4, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-left-3", "kind": "rule", "box": [87, 66.6, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-right-3", "kind": "rule", "box": [194.75, 66.6, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-left-4", "kind": "rule", "box": [87, 69.8, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-right-4", "kind": "rule", "box": [194.75, 69.8, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-left-5", "kind": "rule", "box": [87, 73, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-right-5", "kind": "rule", "box": [194.75, 73, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-left-6", "kind": "rule", "box": [87, 76.2, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-right-6", "kind": "rule", "box": [194.75, 76.2, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-left-7", "kind": "rule", "box": [87, 79.4, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-right-7", "kind": "rule", "box": [194.75, 79.4, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-left-8", "kind": "rule", "box": [87, 82.6, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-right-8", "kind": "rule", "box": [194.75, 82.6, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-left-9", "kind": "rule", "box": [87, 85.8, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-dash-right-9", "kind": "rule", "box": [194.75, 85.8, 0.25, 1.8], "fill": "#94a3b8"},
+        {"key": "warning-icon", "kind": "text", "box": [91, 61, 7, 6], "text": "\uf686", "style": "signing-warning-icon"},
+        {"key": "warning-title", "kind": "text", "box": [100, 60.5, 91, 4.5], "text": "{copy_warning_title_upper}", "style": "checklist-title", "fit": "shrink"},
+        {"key": "warning-body", "kind": "text", "box": [91, 68, 100, 11], "text": "{copy_warning_body}", "style": "signing-warning-body", "fit": "wrap", "line_height": 1.12},
+        {"key": "warning-instructions", "kind": "text", "box": [91, 79.5, 100, 7.5], "text": "{instruction_0} | {instruction_1} | {instruction_2}", "style": "signing-warning-instructions", "fit": "wrap", "line_height": 1.05},
+        {"key": "payload-panel", "kind": "panel", "box": [15, 127, 180, 128], "stroke": "#0f172a", "fill": "#ffffff", "line_width": 0.5},
+        {"key": "qr-paper", "kind": "panel", "box": [15, 57, 64, 64], "stroke": "#0f172a", "fill": "#ffffff", "line_width": 0.5}
+      ],
+      "signing-sheet-reference": [
+        {"key": "key-section-title", "kind": "text", "box": [19, 129, 92, 4], "text": "01. KEY SHARE", "style": "signing-section-label"},
+        {"key": "payload-shard-meta", "kind": "text", "box": [117, 129, 74, 4], "text": "SHARD {shard_index} / {shard_total} // QR + TEXT", "style": "shard-id", "align": "right"},
+        {"key": "payload-corner-tl", "kind": "panel", "box": [15, 127, 3.2, 3.2], "stroke": "#0f172a", "fill": "#0f172a"},
+        {"key": "payload-corner-tr", "kind": "panel", "box": [191.8, 127, 3.2, 3.2], "stroke": "#0f172a", "fill": "#0f172a"},
+        {"key": "payload-corner-bl", "kind": "panel", "box": [15, 251.8, 3.2, 3.2], "stroke": "#0f172a", "fill": "#0f172a"},
+        {"key": "payload-corner-br", "kind": "panel", "box": [191.8, 251.8, 3.2, 3.2], "stroke": "#0f172a", "fill": "#0f172a"},
+        {"key": "reference-panel", "kind": "panel", "box": [87, 92, 52, 29], "stroke": "#cbd5e1", "fill": "#f8fafc"},
+        {"key": "reference-title", "kind": "text", "box": [90, 95, 46, 3.2], "text": "02. PUBLIC REFERENCE", "style": "reference-title"},
+        {"key": "fingerprint-value", "kind": "text", "box": [90, 102, 46, 4], "text": "{doc_id}", "style": "fingerprint-value", "fit": "shrink"},
+        {"key": "fingerprint-guidance", "kind": "text", "box": [90, 109, 46, 8], "text": "Match this ID to the backup document.", "style": "reference-guidance", "fit": "wrap", "line_height": 1.05},
+        {"key": "specs-table", "kind": "panel", "box": [143, 92, 52, 29], "stroke": "#cbd5e1", "fill": "#ffffff"},
+        {"key": "specs-title", "kind": "text", "box": [146, 95, 46, 3.2], "text": "03. SPECIFICATIONS", "style": "reference-title"},
+        {"key": "specs-summary", "kind": "text", "box": [146, 101, 46, 16], "text": "SCHEMA: SHAMIR\nTHRESHOLD: {shard_threshold} OF {shard_total}\nENCODING: QR + Z-BASE-32", "style": "reference-body", "fit": "wrap", "line_height": 1.08},
+        {"key": "intact-notice", "kind": "text", "box": [40, 256.5, 130, 3], "text": "Valid only if physically intact. Verify checksums before restoration.", "style": "reference-guidance", "align": "center"},
+        {"key": "footer", "kind": "group", "ref": "footer", "box": [0, 0, 0, 0]}
+      ],
+      "inventory-introduction": [
+        {"key": "inventory-header", "kind": "group", "ref": "inventory-header", "box": [0, 0, 0, 0]},
+        {"key": "qr-pages-label", "kind": "text", "box": [15, 68.8, 55, 5.5], "text": "QR PAGES", "style": "index-stat-label"},
+        {"key": "qr-pages-value", "kind": "text", "box": [15, 77, 55, 5.5], "text": "{kit_qr_page_count}", "style": "index-stat-value"},
+        {"key": "qr-chunks-label", "kind": "text", "box": [105, 68.8, 55, 5.5], "text": "QR CHUNKS", "style": "index-stat-label"},
+        {"key": "qr-chunks-value", "kind": "text", "box": [105, 77, 55, 5.5], "text": "{kit_qr_chunk_count}", "style": "index-stat-value"},
+        {"key": "warning-panel", "kind": "panel", "box": [15, 88, 180, 20.8], "fill": "#eff6ff", "line_width": 0.18},
+        {"key": "warning-accent", "kind": "rule", "box": [15, 88, 1, 20.8], "fill": "#1976d2"},
+        {"key": "warning-icon", "kind": "text", "box": [20, 94.5, 8, 7], "text": "\ue002", "style": "warning-icon-blue"},
+        {"key": "warning-title", "kind": "text", "box": [29, 93.6, 94, 5.5], "text": "{copy_warning_title_upper}", "style": "index-warning-title"},
+        {"key": "warning-body", "kind": "text", "box": [29, 100.4, 158, 7.6], "text": "{copy_warning_body}", "style": "index-warning-body", "fit": "wrap", "line_height": 1.05},
+        {"key": "inventory-icon", "kind": "text", "box": [15, 116.2, 8, 7], "text": "\ue1a1", "style": "index-section-icon"},
+        {"key": "inventory-title", "kind": "text", "box": [24, 114.7, 100, 7.5], "text": "{copy_hardware_inventory_label_upper}", "style": "index-section-title"},
+        {"key": "inventory-title-rule", "kind": "rule", "box": [15, 123.9, 180, 0.35], "fill": "#e2e8f0"},
+        {"key": "inventory-header", "kind": "panel", "box": [15, 128.5, 180, 10], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.15},
+        {"key": "inventory-header-0", "kind": "text", "box": [18, 131.3, 46, 5], "text": "COMPONENT ID", "style": "inventory-heading"},
+        {"key": "inventory-header-1", "kind": "text", "box": [70, 131.3, 39, 5], "text": "CUSTODIAN", "style": "inventory-heading"},
+        {"key": "inventory-header-2", "kind": "text", "box": [115, 131.3, 42, 5], "text": "LOCATION", "style": "inventory-heading"},
+        {"key": "inventory-header-3", "kind": "text", "box": [163, 131.3, 29, 5], "text": "STATUS", "style": "inventory-heading"},
+        {"key": "kit-instructions-icon", "kind": "text", "box": [15, 200, 8, 7], "text": "\ue8e8", "style": "index-section-icon"},
+        {"key": "kit-instructions-title", "kind": "text", "box": [24, 198.5, 96, 7.5], "text": "{instructions_label_upper}", "style": "index-section-title"},
+        {"key": "kit-instructions-title-rule", "kind": "rule", "box": [15, 208.5, 180, 0.35], "fill": "#e2e8f0"},
+        {"key": "kit-instructions-card-0", "kind": "panel", "box": [15, 215, 89, 21.5], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.12},
+        {"key": "kit-instructions-check-0", "kind": "panel", "box": [18.5, 219.2, 5.8, 5.8], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.25},
+        {"key": "kit-instructions-line-0", "kind": "text", "box": [28, 219.3, 70, 13.5], "text": "{instruction_0}", "style": "index-instruction-body", "fit": "wrap", "line_height": 1.18},
+        {"key": "kit-instructions-card-1", "kind": "panel", "box": [106, 215, 89, 21.5], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.12},
+        {"key": "kit-instructions-check-1", "kind": "panel", "box": [109.5, 219.2, 5.8, 5.8], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.25},
+        {"key": "kit-instructions-line-1", "kind": "text", "box": [119, 219.3, 70, 13.5], "text": "{instruction_1}", "style": "index-instruction-body", "fit": "wrap", "line_height": 1.18},
+        {"key": "kit-instructions-card-2", "kind": "panel", "box": [15, 238, 89, 21.5], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.12},
+        {"key": "kit-instructions-check-2", "kind": "panel", "box": [18.5, 242.2, 5.8, 5.8], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.25},
+        {"key": "kit-instructions-line-2", "kind": "text", "box": [28, 242.3, 70, 13.5], "text": "{instruction_2}", "style": "index-instruction-body", "fit": "wrap", "line_height": 1.18},
+        {"key": "kit-instructions-card-3", "kind": "panel", "box": [106, 238, 89, 21.5], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.12},
+        {"key": "kit-instructions-check-3", "kind": "panel", "box": [109.5, 242.2, 5.8, 5.8], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.25},
+        {"key": "kit-instructions-line-3", "kind": "text", "box": [119, 242.3, 70, 13.5], "text": "{instruction_3}", "style": "index-instruction-body", "fit": "wrap", "line_height": 1.18},
+        {"key": "inventory-footer", "kind": "group", "ref": "inventory-footer", "box": [0, 0, 0, 0]}
+      ],
+      "inventory-continuation": [
+        {"key": "inventory-header", "kind": "group", "ref": "inventory-header", "box": [0, 0, 0, 0]},
+        {"key": "continuation-panel", "kind": "panel", "box": [15, 63.5097041667, 180, 9], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.18},
+        {"key": "continuation-text", "kind": "text", "box": [19, 66.0097041667, 172, 4.5], "text": "Inventory continued", "style": "kit-footer-kind", "align": "center", "fit": "shrink"},
+        {"key": "inventory-icon", "kind": "text", "box": [15, 67.2097041667, 8, 7], "text": "\ue1a1", "style": "index-section-icon"},
+        {"key": "inventory-title", "kind": "text", "box": [24, 65.7097041667, 100, 7.5], "text": "{copy_hardware_inventory_label_upper}", "style": "index-section-title"},
+        {"key": "inventory-title-rule", "kind": "rule", "box": [15, 74.9097041667, 180, 0.35], "fill": "#e2e8f0"},
+        {"key": "inventory-header", "kind": "panel", "box": [15, 79.5097041667, 180, 10], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.15},
+        {"key": "inventory-header-0", "kind": "text", "box": [18, 82.3097041667, 46, 5], "text": "COMPONENT ID", "style": "inventory-heading"},
+        {"key": "inventory-header-1", "kind": "text", "box": [70, 82.3097041667, 39, 5], "text": "CUSTODIAN", "style": "inventory-heading"},
+        {"key": "inventory-header-2", "kind": "text", "box": [115, 82.3097041667, 42, 5], "text": "LOCATION", "style": "inventory-heading"},
+        {"key": "inventory-header-3", "kind": "text", "box": [163, 82.3097041667, 29, 5], "text": "STATUS", "style": "inventory-heading"},
+        {"key": "inventory-footer", "kind": "group", "ref": "inventory-footer", "box": [0, 0, 0, 0]}
+      ],
+      "document-identity": [
+        {"key": "header-doc-id", "kind": "text", "box": [123, 22.3, 72, 4.6], "text": "{short_id_label}: {doc_id}", "style": "header-id", "align": "right", "fit": "shrink"},
+        {"key": "header-generated", "kind": "text", "box": [123, 27.2, 72, 4.5], "text": "GENERATED (UTC): {created_timestamp}", "style": "header-meta", "align": "right", "fit": "shrink"},
+        {"key": "header-page-label", "kind": "text", "box": [145, 32, 50, 4.5], "text": "PAGE {page_number} / {page_count}", "style": "header-meta", "align": "right"}
+      ],
+      "heading-frame": [
+        {"key": "header-title", "kind": "text", "box": [15, 15, 106, 23.5], "text": "{copy_title_upper}", "style": "document-title", "fit": "shrink", "min_size": 17},
+        {"key": "header-subtitle", "kind": "text", "box": [15, 28.3061625, 106, 5.6], "after": "header-title", "gap_after": 2.1, "text": "{copy_subtitle}", "style": "document-subtitle", "fit": "shrink"},
+        {"key": "header-guidance", "kind": "text", "box": [15, 34.2002875, 106, 4], "after": "header-subtitle", "gap_after": 2.1, "text": "{copy_header_guidance_upper}", "style": "header-guidance", "fit": "shrink"},
+        {"key": "classification-pill", "kind": "panel", "box": [145, 15, 50, 5.5], "stroke": "#0f172a", "fill": "#ffffff"}
+      ],
+      "inventory-header": [
+        {"key": "header-kicker", "kind": "text", "box": [15, 15.2, 100, 4.6], "text": "THE FORGE // SECURE OFFLINE STORAGE", "style": "header-kicker"},
+        {"key": "header-title", "kind": "text", "box": [15, 20.5, 106, 23.5], "text": "{copy_title_upper}", "style": "document-title", "fit": "shrink", "min_size": 17},
+        {"key": "header-subtitle", "kind": "text", "box": [15, 45.2361625, 106, 5.6], "after": "header-title", "gap_after": 2.1, "text": "{copy_subtitle}", "style": "document-subtitle", "fit": "shrink"},
+        {"key": "header-guidance", "kind": "text", "box": [15, 51.1302875, 106, 4], "after": "header-subtitle", "gap_after": 2.1, "text": "{copy_header_guidance_upper}", "style": "header-guidance", "fit": "shrink"},
+        {"key": "header-icon-box", "kind": "panel", "box": [130.5, 15, 10.6, 10.6], "stroke": "#0f172a", "fill": "#f8fafc"},
+        {"key": "header-icon", "kind": "text", "box": [130.5, 15.8, 10.6, 9], "text": "\ue1a1", "style": "index-header-icon", "align": "center", "fit": "shrink", "min_size": 8},
+        {"key": "classification-pill", "kind": "panel", "box": [145, 15, 50, 5.5], "stroke": "#0f172a", "fill": "#ffffff"},
+        {"key": "classification-text", "kind": "text", "box": [146, 15.9, 48, 3.8], "text": "AUTHORIZED PERSONNEL ONLY", "style": "classification-label", "align": "center", "fit": "shrink"},
+        {"key": "document-identity", "kind": "group", "ref": "document-identity", "box": [0, 0, 0, 0]},
+        {"key": "header-rule", "kind": "rule", "box": [15, 60.4597041667, 180, 1.05], "fill": "#0f172a"}
+      ],
+      "inventory-footer": [
+        {"key": "index-footer-rule", "kind": "rule", "box": [15, 263, 180, 0.35], "fill": "#e2e8f0"},
+        {"key": "protocol-label", "kind": "text", "box": [15, 266, 64, 4.5], "text": "Ethernity Forge Security Protocols v2.1", "style": "protocol-label", "fit": "shrink"},
+        {"key": "session-id", "kind": "text", "box": [15, 273, 86, 4.5], "text": "Printed from secure session ID: {doc_id}", "style": "session-id", "fit": "shrink"},
+        {"key": "signature-label", "kind": "text", "box": [132, 266, 63, 4.5], "text": "CUSTODIAN SIGNATURE", "style": "signing-section-label", "align": "right"},
+        {"key": "signature-line", "kind": "rule", "box": [145, 273, 50, 0.3], "fill": "#cbd5e1"},
+        {"key": "verification-lock", "kind": "text", "box": [156, 274.5, 6, 6], "text": "\ue88d", "style": "verification-icon"},
+        {"key": "verification-complete", "kind": "text", "box": [163, 275.5, 32, 4], "text": "Verification Complete", "style": "verification-caption"},
+        {"key": "index-footer-page", "kind": "text", "box": [86, 266, 38, 4.5], "text": "PAGE {page_number} / {page_count}", "style": "verification-caption", "align": "center"}
+      ],
+      "recovery-heading-frame": [
+        {"key": "header-title", "kind": "text", "box": [15, 15, 106, 23.5], "text": "{copy_title_upper}", "style": "document-title", "fit": "shrink", "min_size": 17},
+        {"key": "header-subtitle", "kind": "text", "box": [15, 39.7361625, 106, 5.6], "after": "header-title", "gap_after": 2.1, "text": "{copy_subtitle}", "style": "document-subtitle", "fit": "shrink"},
+        {"key": "header-guidance", "kind": "text", "box": [15, 45.6302875, 106, 4], "after": "header-subtitle", "gap_after": 2.1, "text": "{copy_header_guidance_upper}", "style": "header-guidance", "fit": "shrink"},
+        {"key": "classification-pill", "kind": "panel", "box": [145, 15, 50, 5.5], "stroke": "#0f172a", "fill": "#ffffff"}
+      ],
+      "main-header": [
+        {"key": "heading-frame", "kind": "group", "ref": "heading-frame", "box": [0, 0, 0, 0]},
+        {"key": "classification-text", "kind": "text", "box": [146, 15.9, 48, 3.8], "text": "MASTER KEY", "style": "classification-label", "align": "center", "fit": "shrink"},
+        {"key": "document-identity", "kind": "group", "ref": "document-identity", "box": [0, 0, 0, 0]},
+        {"key": "header-rule", "kind": "rule", "box": [15, 43.8, 180, 1.05], "fill": "#0f172a"}
+      ],
+      "recovery-header": [
+        {"key": "recovery-heading-frame", "kind": "group", "ref": "recovery-heading-frame", "box": [0, 0, 0, 0]},
+        {"key": "classification-text", "kind": "text", "box": [146, 15.9, 48, 3.8], "text": "MANUAL ENTRY ONLY", "style": "classification-label", "align": "center", "fit": "shrink"},
+        {"key": "document-identity", "kind": "group", "ref": "document-identity", "box": [0, 0, 0, 0]},
+        {"key": "header-rule", "kind": "rule", "box": [15, 54.9597041667, 180, 1.05], "fill": "#0f172a"}
+      ]
+    }
+  },
+  "compact_layout": {
+    "source": "compact.json",
+    "below_width_mm": 210,
+    "below_height_mm": 279.4,
+    "styles": {
+      "compact-title": {"source": "document-title", "size_pt": 23},
+      "compact-body": {"source": "directive-body", "size_pt": 8.5},
+      "compact-small": {"source": "footer-caption", "size_pt": 7.5},
+      "compact-mono": {"source": "recovery-value", "size_pt": 7.3},
+      "compact-label": {"source": "recovery-label", "size_pt": 7},
+      "compact-heading": {"source": "document-title", "size_pt": 10},
+      "compact-fallback": {"source": "fallback-body", "size_pt": 8},
+      "compact-number": {"source": "fallback-number", "size_pt": 7.1},
+      "compact-footer": {"source": "footer-caption", "size_pt": 6.5},
+      "compact-phrase": {"source": "recovery-value", "size_pt": 8.5}
+    },
+    "components": {
+      "compact-paper": [
+        {"key": "paper", "kind": "panel", "box": [0, 0, 148, 210], "fill": "#ffffff"}
+      ],
+      "compact-note-decoration": [
+        {"key": "note", "kind": "panel", "box": [10, 43, 128, 14], "fill": "#f1f5f9"}
+      ],
+      "compact-card-decoration": [
+        {"key": "card", "kind": "panel", "box": [0, 0, 60, 65], "fill": "#ffffff", "stroke": "#cbd5e1"}
+      ],
+      "compact-header-decoration": [
+        {"key": "rule", "kind": "rule", "box": [10, 31, 128, 0.6], "fill": "#0f172a"}
+      ]
+    }
   }
 }

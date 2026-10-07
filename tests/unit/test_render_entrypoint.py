@@ -15,11 +15,16 @@
 
 import tempfile
 import unittest
+from itertools import product
 from pathlib import Path
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
+from ethernity.formats.extension_mode import UpdateMode
 from ethernity.render import DocumentOrigin, RenderInputs, render_frames_to_pdf
-from ethernity.render.checks import validate_pdf_has_pages
+from ethernity.render.checks import extract_pdf_text, validate_pdf_has_pages
+from ethernity.render.recovery_meta import build_recovery_meta
+from ethernity.render.types import FallbackSection
+from ethernity.render.validation import validate_rendered_pdf_document
 
 
 def _frame() -> Frame:
@@ -34,6 +39,64 @@ def _frame() -> Frame:
 
 
 class TestRenderEntrypoint(unittest.TestCase):
+    def test_all_designs_print_update_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for design, mode, doc_type, paper_size in product(
+                ("sentinel", "forge", "archive", "ledger", "maritime"),
+                UpdateMode,
+                ("main", "recovery"),
+                ("A4", "Letter", "A5"),
+            ):
+                with self.subTest(design=design, mode=mode, doc_type=doc_type, paper=paper_size):
+                    output_path = Path(tmpdir) / f"{design}-{mode}-{doc_type}.pdf"
+                    recovery = doc_type == "recovery"
+                    inputs = RenderInputs(
+                        frames=(_frame(),),
+                        output_path=output_path,
+                        context={"paper_size": paper_size},
+                        doc_type=doc_type,
+                        design_name=design,
+                        origin=DocumentOrigin(
+                            kind="extension",
+                            extension_index=3,
+                            update_mode=mode,
+                            root_doc_id="0123456789abcdef",
+                        ),
+                        render_qr=not recovery,
+                        render_fallback=recovery,
+                        recovery_meta=build_recovery_meta(
+                            passphrase=None,
+                            quorum_threshold=2,
+                            quorum_shares=3,
+                            signing_pub=b"\x31" * 32,
+                        )
+                        if recovery
+                        else None,
+                        fallback_sections=(FallbackSection(label="MAIN FRAME", frame=_frame()),)
+                        if recovery
+                        else (),
+                    )
+                    result = render_frames_to_pdf(inputs)
+                    validate_rendered_pdf_document(
+                        inputs=inputs,
+                        result=result,
+                        document_label=f"{design} {mode} {doc_type}",
+                    )
+                    reader = validate_pdf_has_pages(output_path)
+                    text = " ".join(extract_pdf_text(reader).lower().split())
+                    required = (
+                        "original backup and this update; earlier updates are not required"
+                        if mode == UpdateMode.CUMULATIVE
+                        else "original backup and every update through this one"
+                    )
+                    self.assertIn(required, text)
+                    for page in reader.pages:
+                        page_text = " ".join(page.extract_text().lower().split())
+                        self.assertIn("original backup id: 0123456789abcdef", page_text)
+                        self.assertIn("update 03", page_text)
+                        self.assertIn("update id", page_text)
+                        self.assertIn("5555555555555555", page_text)
+
     def test_render_frames_to_pdf_writes_direct_pdf_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "out.pdf"

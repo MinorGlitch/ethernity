@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol
 
 from ethernity.render.direct_pdf.surface import PdfSurface
@@ -19,12 +19,15 @@ from ethernity.render.types import RenderTextMetadata
 MINIMUM_TEXT_SIZE_PT = 6.0
 
 
-class TextAlign(str, Enum):
+class TextAlign(StrEnum):
     """Horizontal text alignment inside a measured text box."""
 
     LEFT = "left"
     CENTER = "center"
     RIGHT = "right"
+
+    def __str__(self) -> str:
+        return f"{type(self).__name__}.{self.name}"
 
 
 class PdfComponent(Protocol):
@@ -401,6 +404,7 @@ class TextBox:
     min_size_pt: float | None = None
     line_height_multiplier: float = 1.2
     text_metadata: RenderTextMetadata | None = None
+    max_lines: int | None = None
 
     def __post_init__(self) -> None:
         _validate_component_id(self.component_id)
@@ -432,6 +436,7 @@ class TextBox:
                 self.style,
                 max_width_mm=rect.width_mm,
                 max_height_mm=rect.height_mm,
+                max_lines=self.max_lines,
                 policy=self.policy,
                 min_size_pt=(
                     self.min_size_pt if self.min_size_pt is not None else MINIMUM_TEXT_SIZE_PT
@@ -467,11 +472,17 @@ class TextBox:
         )
         ink_metrics = [surface.text_ink_metrics(line.text, fit.style) for line in lines]
         used_top_mm = min(
-            (line.baseline_y_mm - metrics.ascent_mm for line, metrics in zip(lines, ink_metrics)),
+            (
+                line.baseline_y_mm - metrics.ascent_mm
+                for line, metrics in zip(lines, ink_metrics, strict=True)
+            ),
             default=rect.y_mm,
         )
         used_bottom_mm = max(
-            (line.baseline_y_mm + metrics.descent_mm for line, metrics in zip(lines, ink_metrics)),
+            (
+                line.baseline_y_mm + metrics.descent_mm
+                for line, metrics in zip(lines, ink_metrics, strict=True)
+            ),
             default=used_top_mm,
         )
         used_rect = PdfRect(

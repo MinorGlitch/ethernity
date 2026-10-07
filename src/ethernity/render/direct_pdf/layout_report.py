@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from ethernity.render.direct_pdf.components import TextBoxPlan
 from ethernity.render.direct_pdf.page import (
     DirectPdfPagePlan,
     PaintPlan,
-    SeparationCheck as DirectSeparationCheck,
 )
 from ethernity.render.direct_pdf.types import PdfRect
 from ethernity.render.types import (
@@ -17,7 +17,6 @@ from ethernity.render.types import (
     PageLayout,
     RenderRect,
     RenderTextLine,
-    SeparationCheck,
 )
 
 DIRECT_PDF_BACKEND_NAME = "direct_pdf"
@@ -48,9 +47,7 @@ def _page_layout(page_plan: DirectPdfPagePlan) -> PageLayout:
         overflow_component_ids=layout.overflow_component_ids,
         out_of_bounds_component_ids=layout.out_of_bounds_component_ids,
         components=tuple(_component_layout(plan) for plan in page_plan.plans),
-        separation_constraints=tuple(
-            _separation_check(constraint) for constraint in layout.separation_constraints
-        ),
+        separation_constraints=layout.separation_constraints,
     )
 
 
@@ -85,20 +82,6 @@ def _component_layout(plan: PaintPlan) -> ComponentLayout:
             else ()
         ),
         text_metadata=plan.text_metadata if isinstance(plan, TextBoxPlan) else None,
-    )
-
-
-def _separation_check(
-    check: DirectSeparationCheck,
-) -> SeparationCheck:
-    return SeparationCheck(
-        constraint_id=check.constraint_id,
-        first_region_id=check.first_region_id,
-        second_region_id=check.second_region_id,
-        minimum_clearance_mm=check.minimum_clearance_mm,
-        measured_clearance_mm=check.measured_clearance_mm,
-        checked_pair_count=check.checked_pair_count,
-        satisfied=check.satisfied,
     )
 
 

@@ -152,7 +152,7 @@ class TestRenderDesigns(unittest.TestCase):
             with self.subTest(design_name=design_name):
                 self.assertEqual(
                     supported_paper_size_names(design_name),
-                    ("A4", "LETTER"),
+                    ("A4", "LETTER", "A5"),
                 )
 
 

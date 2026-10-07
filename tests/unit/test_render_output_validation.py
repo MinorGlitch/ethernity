@@ -25,6 +25,7 @@ from ethernity.render.checks import (
 )
 from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.surface import FpdfSurface
+from ethernity.render.direct_pdf.types import TextStyle
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 from ethernity.render.validation import validate_rendered_pdf_document
@@ -93,10 +94,10 @@ def test_invisible_recovery_text_is_rejected(tmp_path: Path, design: str, invisi
 
 
 @pytest.mark.parametrize("design", _DESIGNS)
+@pytest.mark.parametrize("secret", ("Recovery Document", "Keep it separate"))
 def test_prose_and_headings_cannot_supply_the_printed_passphrase(
-    tmp_path: Path, design: str
+    tmp_path: Path, design: str, secret: str
 ) -> None:
-    secret = "RECOVERY DOCUMENT" if design == "sentinel" else "Keep it separate"
     inputs = replace(
         _inputs(tmp_path, design, "recovery"),
         recovery_meta=build_recovery_meta(
@@ -104,16 +105,39 @@ def test_prose_and_headings_cannot_supply_the_printed_passphrase(
         ),
     )
     draw_text = FpdfSurface.draw_text
+    begin = FpdfSurface.begin_text_metadata
+    end = FpdfSurface.end_text_metadata
+    marked = False
+
+    def begin_metadata(surface, metadata):
+        nonlocal marked
+        marked = metadata.role == "recovery_passphrase"
+        begin(surface, metadata)
+
+    def end_metadata(surface):
+        nonlocal marked
+        was_secret = marked
+        marked = False
+        end(surface)
+        if was_secret:
+            draw_text(surface, 15, 282, secret, TextStyle("Helvetica", 8))
 
     def substitute(surface, x, y, text, style):
-        if text == secret and (design != "sentinel" or style.family == "Roboto Mono"):
+        if marked:
             text = "wrong words"
         draw_text(surface, x, y, text, style)
 
-    with mock.patch.object(FpdfSurface, "draw_text", substitute):
+    with (
+        mock.patch.object(FpdfSurface, "draw_text", substitute),
+        mock.patch.object(FpdfSurface, "begin_text_metadata", begin_metadata),
+        mock.patch.object(FpdfSurface, "end_text_metadata", end_metadata),
+    ):
         result = render_frames_to_pdf(inputs)
+    # Leave a decoy outside the marked value. Matching prose must never replace a secret.
     assert secret in extract_pdf_text(PdfReader(inputs.output_path))
-    with pytest.raises(RenderValidationError, match="recovery passphrase"):
+    with pytest.raises(
+        RenderValidationError, match="recovery passphrase|painted text does not match"
+    ):
         _validate(inputs, result)
 
 
@@ -205,7 +229,9 @@ def test_blank_pdf_with_original_layouts_and_resources_is_rejected(tmp_path: Pat
         page[NameObject("/Contents")] = DecodedStreamObject()
         writer.add_page(page)
     writer.write(inputs.output_path)
-    with pytest.raises(RenderValidationError, match="painted text"):
+    with pytest.raises(
+        RenderValidationError, match="painted text|missing or incorrect recovery passphrase"
+    ):
         _validate(inputs, result)
 
 
@@ -271,7 +297,9 @@ def test_omitted_passphrase_with_original_layout_is_rejected(tmp_path: Path, des
 
     with mock.patch.object(FpdfSurface, "draw_text", omit_secret):
         result = render_frames_to_pdf(inputs)
-    with pytest.raises(RenderValidationError, match="painted text"):
+    with pytest.raises(
+        RenderValidationError, match="painted text|missing or incorrect recovery passphrase"
+    ):
         _validate(inputs, result)
 
 
@@ -295,7 +323,9 @@ def test_substituted_passphrase_is_rejected_even_when_line_count_matches(
 
     with mock.patch.object(FpdfSurface, "draw_text", substitute):
         result = render_frames_to_pdf(inputs)
-    with pytest.raises(RenderValidationError, match="recovery passphrase"):
+    with pytest.raises(
+        RenderValidationError, match="recovery passphrase|painted text does not match"
+    ):
         _validate(inputs, result)
 
 
@@ -318,7 +348,8 @@ def test_missing_recovery_metadata_value_is_rejected(
     draw_text = FpdfSurface.draw_text
 
     def omit_value(surface, x, y, text, style):
-        draw_text(surface, x, y, text.replace(value, ""), style)
+        # Preserve the field's text geometry while removing its recovery value.
+        draw_text(surface, x, y, text.replace(value, "-" * len(value)), style)
 
     with mock.patch.object(FpdfSurface, "draw_text", omit_value):
         result = render_frames_to_pdf(inputs)

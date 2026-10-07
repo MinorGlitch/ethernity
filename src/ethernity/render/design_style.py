@@ -14,234 +14,160 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Load and validate the live per-design capabilities from ``style.json``."""
+"""Load validated template settings and document capabilities from style.json."""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    ValidationError,
-    ValidationInfo,
-    field_validator,
-    model_validator,
-)
+from pydantic import Field, ValidationError
 
+from ethernity.config.paths import DESIGNS_RESOURCE_ROOT
+from ethernity.page_sizes import PaperSize
 from ethernity.render.designs import resolve_design_directory
-
-_STYLE_CONTEXT_PATH = "path"
-_STYLE_TOP_LEVEL_KEYS = frozenset({"name", "capabilities"})
-_BOOL_CAPABILITY_FIELDS = (
-    "recovery_first_page_single_section",
-    "recovery_kit_index_document",
-)
-_CAPABILITY_KEYS = frozenset({*_BOOL_CAPABILITY_FIELDS, "main_qr_grid_size_mm"})
+from ethernity.render.template import DocumentArtwork, LayoutElement, Template, TemplateModel
 
 
-@dataclass(frozen=True)
-class DesignCapabilities:
-    """Design-specific behavior still consumed by the active render pipeline."""
+class LayoutStyle(TemplateModel):
+    """Reuse a design's type and color, with an optional physical font size."""
 
+    source: str
+    size_pt: float | None = Field(default=None, ge=6)
+
+
+class CompactLayout(TemplateModel):
+    source: str = Field(pattern=r"^[a-zA-Z0-9_-]+\.json$")
+    below_width_mm: float = Field(gt=0)
+    below_height_mm: float = Field(gt=0)
+    styles: dict[str, LayoutStyle]
+    components: dict[str, tuple[LayoutElement, ...]] = Field(default_factory=dict)
+    documents: dict[str, DocumentArtwork] = Field(default_factory=dict)
+
+    def applies_to(self, page: PaperSize) -> bool:
+        return page.width_mm < self.below_width_mm or page.height_mm < self.below_height_mm
+
+
+class DesignCapabilities(TemplateModel):
     recovery_first_page_single_section: bool = False
     recovery_kit_index_document: bool = False
-    main_qr_grid_size_mm: float | None = None
 
 
-@dataclass(frozen=True)
-class DesignStyle:
-    """Validated style metadata for one render design."""
-
-    name: str
-    capabilities: DesignCapabilities
-
-
-class _DesignCapabilitiesData(BaseModel):
-    """Parsed and validated values from the optional ``capabilities`` object."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    recovery_first_page_single_section: bool = False
-    recovery_kit_index_document: bool = False
-    main_qr_grid_size_mm: float | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _validate_object(cls, value: object, info: ValidationInfo) -> object:
-        path = _context_path(info)
-        if value is None:
-            return {}
-        if not isinstance(value, dict):
-            raise ValueError(f"invalid 'capabilities' object in {path}")
-        _reject_unknown_keys(
-            value,
-            allowed_keys=_CAPABILITY_KEYS,
-            section="capabilities",
-            path=path,
-        )
-        return value
-
-    @field_validator(*_BOOL_CAPABILITY_FIELDS, mode="before")
-    @classmethod
-    def _validate_bool(cls, value: object, info: ValidationInfo) -> bool:
-        if isinstance(value, bool):
-            return value
-        raise ValueError(f"missing or invalid '{info.field_name}' boolean in {_context_path(info)}")
-
-    @field_validator("main_qr_grid_size_mm", mode="before")
-    @classmethod
-    def _validate_optional_positive_number(
-        cls,
-        value: object,
-        info: ValidationInfo,
-    ) -> float | None:
-        if value is None:
-            return None
-        return _require_positive_number_value(
-            value,
-            key=info.field_name,
-            path=_context_path(info),
-        )
-
-    def to_public(self) -> DesignCapabilities:
-        return DesignCapabilities(
-            recovery_first_page_single_section=self.recovery_first_page_single_section,
-            recovery_kit_index_document=self.recovery_kit_index_document,
-            main_qr_grid_size_mm=self.main_qr_grid_size_mm,
-        )
-
-
-class _DesignStyleData(BaseModel):
-    """Parsed and validated ``style.json`` content."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    name: str
-    capabilities: _DesignCapabilitiesData = Field(default_factory=_DesignCapabilitiesData)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _validate_object(cls, value: object, info: ValidationInfo) -> object:
-        path = _context_path(info)
-        if not isinstance(value, dict):
-            raise ValueError(f"design style must be a JSON object: {path}")
-        _reject_unknown_keys(
-            value,
-            allowed_keys=_STYLE_TOP_LEVEL_KEYS,
-            section="design style",
-            path=path,
-        )
-        return value
-
-    @field_validator("name", mode="before")
-    @classmethod
-    def _validate_name(cls, value: object, info: ValidationInfo) -> str:
-        if isinstance(value, str) and value.strip():
-            return value
-        raise ValueError(f"missing or invalid 'name' string in {_context_path(info)}")
-
-    @field_validator("capabilities", mode="before")
-    @classmethod
-    def _validate_capabilities(cls, value: object, info: ValidationInfo) -> object:
-        if value is None:
-            return {}
-        if not isinstance(value, dict):
-            raise ValueError(f"invalid 'capabilities' object in {_context_path(info)}")
-        return value
-
-    def to_public(self) -> DesignStyle:
-        return DesignStyle(name=self.name, capabilities=self.capabilities.to_public())
+class DesignStyle(TemplateModel):
+    name: str = Field(min_length=1, pattern=r"\S")
+    component_sources: tuple[Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]+\.json$")], ...] = ()
+    capabilities: DesignCapabilities = Field(default_factory=DesignCapabilities)
+    template: Template
+    compact_layout: CompactLayout | None = None
 
 
 def load_design_style(design: str | Path) -> DesignStyle:
-    """Load the style for a render design name, directory, or design definition path."""
+    """Load a built-in name, template directory, or design definition path."""
+    return _load_style_for_dir(resolve_design_directory(design))
 
-    design_dir = resolve_design_directory(design)
-    return _load_style_for_dir(design_dir)
+
+def load_page_template(design: str | Path, page: PaperSize) -> Template:
+    """Select composition once; all document builders use the same resolved template."""
+    directory = resolve_design_directory(design)
+    style = _load_style_for_dir(directory)
+    if style.compact_layout is not None and style.compact_layout.applies_to(page):
+        return _load_compact_template(directory)
+    return style.template
+
+
+@lru_cache(maxsize=32)
+def _load_compact_template(directory: Path) -> Template:
+    style = _load_style_for_dir(directory)
+    layout = style.compact_layout
+    assert layout is not None
+    path = directory / layout.source
+    if not path.is_file():
+        path = DESIGNS_RESOURCE_ROOT / "_shared" / layout.source
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("layout must be an object")
+        base_styles = {name: value.model_dump() for name, value in style.template.styles.items()}
+        styles = dict(base_styles)
+        for name, override in layout.styles.items():
+            if override.source not in base_styles:
+                raise ValueError(f"unknown style source: {override.source}")
+            styles[name] = {**base_styles[override.source], "char_spacing_pt": 0}
+            if override.size_pt is not None:
+                styles[name]["size_pt"] = override.size_pt
+        data["styles"] = {**data.get("styles", {}), **styles}
+        data["components"] = {
+            **{
+                name: [e.model_dump() for e in elements]
+                for name, elements in style.template.components.items()
+            },
+            **data.get("components", {}),
+            **{
+                name: [e.model_dump() for e in elements]
+                for name, elements in layout.components.items()
+            },
+        }
+        data["documents"] = {
+            **data.get("documents", {}),
+            **{name: doc.model_dump() for name, doc in layout.documents.items()},
+        }
+        return Template.model_validate_json(json.dumps(data))
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError(f"{path}: invalid compact layout: {exc}") from exc
 
 
 @lru_cache(maxsize=32)
 def _load_style_for_dir(design_dir: Path) -> DesignStyle:
-    """Load and validate ``style.json`` for a design directory."""
-
-    style_path = design_dir / "style.json"
-    if not style_path.is_file():
-        raise ValueError(f"missing design style file: {style_path}")
-
+    path = design_dir / "style.json"
+    if not path.is_file():
+        raise ValueError(f"missing design style file: {path}")
     try:
-        raw = style_path.read_text(encoding="utf-8")
+        raw = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ValueError(f"unable to read design style file: {style_path}") from exc
-
+        raise ValueError(f"unable to read design style file: {path}") from exc
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid JSON in design style file: {style_path}") from exc
-
-    return _load_style_data(data, path=style_path).to_public()
-
-
-def _load_style_data(data: object, *, path: Path) -> _DesignStyleData:
-    if not isinstance(data, dict):
-        raise ValueError(f"design style must be a JSON object: {path}")
-    try:
-        return _DesignStyleData.model_validate(data, context={_STYLE_CONTEXT_PATH: path})
+        if isinstance(data, dict) and "component_sources" in data:
+            imported = _library_components(design_dir, data["component_sources"])
+            data["template"]["components"] = imported | data["template"].get("components", {})
+        return DesignStyle.model_validate_json(json.dumps(data))
     except ValidationError as exc:
-        raise ValueError(_style_validation_message(exc, path=path)) from exc
+        error = exc.errors()[0]
+        field = ".".join(str(part) for part in error["loc"]) or "style"
+        raise ValueError(f"{path}: {field}: {error['msg']}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: Invalid JSON: {exc}") from exc
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(f"{path}: invalid component_sources: {exc}") from exc
 
 
-def _context_path(info: ValidationInfo) -> Path:
-    context = info.context
-    if isinstance(context, dict):
-        value = context.get(_STYLE_CONTEXT_PATH)
-        if isinstance(value, Path):
-            return value
-    return Path("style.json")
+class ComponentLibrary(TemplateModel):
+    """Reusable artwork; the importing design supplies its styles and decorations."""
+
+    components: dict[str, tuple[LayoutElement, ...]]
 
 
-def _style_validation_message(exc: ValidationError, *, path: Path) -> str:
-    error = exc.errors()[0]
-    context_error = error.get("ctx", {}).get("error")
-    if isinstance(context_error, ValueError):
-        return str(context_error)
-
-    loc = tuple(error.get("loc", ()))
-    field = str(loc[-1]) if loc else "design style"
-    if field == "main_qr_grid_size_mm":
-        return f"missing or invalid '{field}' positive number in {path}"
-    if field == "name":
-        return f"missing or invalid 'name' string in {path}"
-    if field == "capabilities":
-        return f"invalid 'capabilities' object in {path}"
-    return f"invalid design style in {path}"
-
-
-def _require_positive_number_value(value: object, *, key: str | None, path: Path) -> float:
-    if key is None:
-        key = "number"
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise ValueError(f"missing or invalid '{key}' positive number in {path}")
-    return float(value)
+def _library_components(design_dir: Path, sources: object) -> dict[str, list[dict[str, object]]]:
+    if not isinstance(sources, list):
+        raise ValueError("component_sources must be a list of JSON filenames")
+    imported = {}
+    for source in sources:
+        if not isinstance(source, str) or not re.fullmatch(r"[a-zA-Z0-9_-]+\.json", source):
+            raise ValueError("component_sources must contain JSON filenames")
+        path = design_dir / source
+        if not path.is_file():
+            path = DESIGNS_RESOURCE_ROOT / "_shared" / source
+        library = ComponentLibrary.model_validate_json(path.read_text(encoding="utf-8"))
+        imported.update(
+            {
+                name: [element.model_dump() for element in elements]
+                for name, elements in library.components.items()
+            }
+        )
+    return imported
 
 
-def _reject_unknown_keys(
-    data: dict[str, object],
-    *,
-    allowed_keys: frozenset[str],
-    section: str,
-    path: Path,
-) -> None:
-    """Reject unknown keys in a style section."""
-
-    unknown = sorted(key for key in data if key not in allowed_keys)
-    if unknown:
-        unknown_text = ", ".join(unknown)
-        raise ValueError(f"unknown key(s) in {section} ({unknown_text}) in {path}")
-
-
-__all__ = ["DesignCapabilities", "DesignStyle", "load_design_style"]
+__all__ = ["DesignCapabilities", "DesignStyle", "load_design_style", "load_page_template"]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from ethernity.encoding.framing import encode_frame
 from ethernity.qr.codec import QrConfig, qr_bytes
@@ -39,11 +39,10 @@ class DocumentRenderContext:
     values: dict[str, object]
     capabilities: DesignCapabilities
 
-    @property
-    def created_date(self) -> str:
-        """Return the normalized creation date used by document headers."""
+    def document_id_label(self, default: str = "Document ID") -> str:
+        """Distinguish an update's own identity from its original backup."""
 
-        return str(self.values.get("created_date") or "")
+        return "Update ID" if self.origin.kind == "extension" else default
 
 
 @dataclass(frozen=True)
@@ -57,14 +56,6 @@ class QrPayloadItem:
     @property
     def label_index(self) -> int:
         return self.payload_index + 1
-
-
-@dataclass(frozen=True)
-class QrPage:
-    """One page of QR payload cards."""
-
-    page_number: int
-    items: tuple[QrPayloadItem, ...]
 
 
 def build_document_render_context(inputs: RenderInputs, *, doc_type: str) -> DocumentRenderContext:
@@ -235,65 +226,12 @@ def qr_image(payload: bytes | str, *, config: QrConfig) -> bytes:
     )
 
 
-def paginate_qr_items(
-    items: Sequence[QrPayloadItem],
-    *,
-    capacity: int,
-    first_page_capacity: int | None = None,
-) -> tuple[QrPage, ...]:
-    """Paginate QR payload items with an optional smaller first-page capacity."""
-
-    if not items:
-        raise ValueError("direct PDF renderer has no QR payloads to render")
-    if capacity <= 0:
-        raise ValueError("QR page capacity must be positive")
-    if first_page_capacity is not None and first_page_capacity <= 0:
-        raise ValueError("QR first-page capacity must be positive")
-
-    pages: list[QrPage] = []
-    cursor = 0
-    while cursor < len(items):
-        page_capacity = first_page_capacity if not pages and first_page_capacity else capacity
-        page_items = tuple(items[cursor : cursor + page_capacity])
-        pages.append(
-            QrPage(
-                page_number=len(pages) + 1,
-                items=page_items,
-            )
-        )
-        cursor += len(page_items)
-    return tuple(pages)
-
-
-def component_prefix(component_base: str, page_number: int) -> str:
-    """Return a stable component id prefix for a page."""
-
-    return f"{component_base}-p{page_number}"
-
-
 def non_negative_int(value: object, *, default: int) -> int:
     """Parse an integer value, falling back for non-integers and clamping below zero."""
 
     if isinstance(value, bool) or not isinstance(value, int):
         return default
     return max(0, value)
-
-
-def positive_int(value: object, *, default: int) -> int:
-    """Parse a positive integer value with a default fallback."""
-
-    if isinstance(value, bool):
-        return default
-    if isinstance(value, int):
-        parsed = value
-    elif isinstance(value, str):
-        try:
-            parsed = int(value)
-        except ValueError:
-            return default
-    else:
-        return default
-    return parsed if parsed > 0 else default
 
 
 def resolve_created_timestamp(base_context: dict[str, object]) -> str:
@@ -306,14 +244,14 @@ def resolve_created_timestamp(base_context: dict[str, object]) -> str:
     created_timestamp_utc = None
     if isinstance(created_value, datetime):
         if created_value.tzinfo is None:
-            created_value = created_value.replace(tzinfo=timezone.utc)
-        created_dt = created_value.astimezone(timezone.utc)
+            created_value = created_value.replace(tzinfo=UTC)
+        created_dt = created_value.astimezone(UTC)
     elif isinstance(created_value, date):
-        created_dt = datetime.combine(created_value, datetime.min.time(), tzinfo=timezone.utc)
+        created_dt = datetime.combine(created_value, datetime.min.time(), tzinfo=UTC)
     elif isinstance(created_value, str):
         created_timestamp_utc, created_dt = timestamp_from_string(created_value)
     if created_timestamp_utc is None:
-        created_dt = created_dt or datetime.now(timezone.utc)
+        created_dt = created_dt or datetime.now(UTC)
         created_timestamp_utc = created_dt.strftime("%Y-%m-%d %H:%M UTC")
     base_context["created_timestamp_utc"] = created_timestamp_utc
     if created_dt is not None:
@@ -349,8 +287,8 @@ def timestamp_from_string(value: str) -> tuple[str | None, datetime | None]:
         parsed_dt = None
     if parsed_dt is not None:
         if parsed_dt.tzinfo is None:
-            parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-        return None, parsed_dt.astimezone(timezone.utc)
+            parsed_dt = parsed_dt.replace(tzinfo=UTC)
+        return None, parsed_dt.astimezone(UTC)
     if "UTC" in created_value or created_value.endswith("Z"):
         return created_value, None
     return f"{created_value} UTC", None
@@ -359,10 +297,15 @@ def timestamp_from_string(value: str) -> tuple[str | None, datetime | None]:
 def origin_payload(origin: DocumentOrigin) -> dict[str, object]:
     """Convert render origin to the mapping expected by copy catalogs."""
 
-    return {
+    payload: dict[str, object] = {
         "kind": origin.kind,
         "extension_index": origin.extension_index,
     }
+    if origin.kind == "extension":
+        payload["update_mode"] = origin.update_mode.value
+        if origin.root_doc_id is not None:
+            payload["root_doc_id"] = origin.root_doc_id
+    return payload
 
 
 def generator_label(ethernity_version: str) -> str:
@@ -375,16 +318,12 @@ def generator_label(ethernity_version: str) -> str:
 
 
 __all__ = [
-    "QrPage",
     "QrPayloadItem",
     "DocumentRenderContext",
     "build_document_render_context",
-    "component_prefix",
     "generator_label",
     "origin_payload",
     "non_negative_int",
-    "paginate_qr_items",
-    "positive_int",
     "qr_image",
     "qr_payload_items",
     "resolved_qr_payloads",

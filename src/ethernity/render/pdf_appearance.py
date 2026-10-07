@@ -105,7 +105,7 @@ def _validate_text_objects(
         for line in component.text_lines
         if line.text
     )
-    for obj, (component, line) in zip(objects, expected):
+    for obj, (component, line) in zip(objects, expected, strict=False):
         matrix = obj.get_matrix().get()
         x_mm = matrix[4] * _POINT_TO_MM
         baseline_y_mm = (height_pt - matrix[5]) * _POINT_TO_MM
@@ -114,7 +114,10 @@ def _validate_text_objects(
         if (
             abs(x_mm - line.x_mm) > _POSITION_TOLERANCE_MM
             or abs(baseline_y_mm - line.baseline_y_mm) > _POSITION_TOLERANCE_MM
-            or any(abs(value - target) > 1e-5 for value, target in zip(matrix[:4], (1, 0, 0, 1)))
+            or any(
+                abs(value - target) > 1e-5
+                for value, target in zip(matrix[:4], (1, 0, 0, 1), strict=True)
+            )
             or component.font_size_pt is None
             or abs(obj.get_font_size() - component.font_size_pt) > 0.01
         ):

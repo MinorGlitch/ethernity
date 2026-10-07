@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import encode_frame
 from ethernity.encoding.zbase32 import ZBASE32_ALPHABET, encode_zbase32
+from ethernity.render.recovery_lines import format_grouped_lines
 from ethernity.render.types import FallbackSection
 
 __all__ = ["fallback_lines_from_sections", "fallback_section_title", "format_zbase32_lines"]
@@ -84,20 +85,7 @@ def format_zbase32_lines(
         encoded_chars.append(lower)
 
     encoded = "".join(encoded_chars)
-    groups = [encoded[i : i + group_size] for i in range(0, len(encoded), group_size)]
-
-    lines: list[str] = []
-    current = ""
-    for group in groups:
-        candidate = group if not current else f"{current} {group}"
-        if len(candidate) > line_length:
-            lines.append(current)
-            current = group
-        else:
-            current = candidate
-
-    if current:
-        lines.append(current)
+    lines = format_grouped_lines(encoded, group_size=group_size, line_length=line_length)
 
     if line_count is not None and len(lines) > line_count:
         raise ValueError("fallback text exceeds line_count")

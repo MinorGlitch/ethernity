@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from ethernity.render.direct_pdf.layout_report import build_direct_layout_report
 from ethernity.render.direct_pdf.page import DirectPdfPagePlan

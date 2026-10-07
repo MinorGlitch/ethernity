@@ -6,44 +6,12 @@ from hypothesis import given, strategies as st
 
 from ethernity.render.direct_pdf.responsive_layout import (
     GridPolicy,
-    Insets,
-    inset_rect,
     resolve_grid,
-    resolve_page_regions,
 )
 from ethernity.render.direct_pdf.types import PdfRect
 
 
 class TestDirectPdfResponsiveLayout(unittest.TestCase):
-    def test_page_regions_follow_arbitrary_page_dimensions(self) -> None:
-        regions = resolve_page_regions(
-            PdfRect(0.0, 0.0, 203.0, 254.0),
-            safe_insets=Insets(top_mm=11.0, right_mm=13.0, bottom_mm=17.0, left_mm=19.0),
-            header_height_mm=24.0,
-            footer_height_mm=12.0,
-            header_body_gap_mm=3.0,
-            body_footer_gap_mm=5.0,
-        )
-
-        self.assertEqual(regions.safe, PdfRect(19.0, 11.0, 171.0, 226.0))
-        self.assertEqual(regions.header, PdfRect(19.0, 11.0, 171.0, 24.0))
-        self.assertEqual(regions.body, PdfRect(19.0, 38.0, 171.0, 182.0))
-        self.assertEqual(regions.footer, PdfRect(19.0, 225.0, 171.0, 12.0))
-
-    def test_page_regions_fail_when_fixed_regions_exhaust_body(self) -> None:
-        with self.assertRaisesRegex(ValueError, "leave no usable body"):
-            resolve_page_regions(
-                PdfRect(0.0, 0.0, 100.0, 80.0),
-                safe_insets=Insets.uniform(10.0),
-                header_height_mm=35.0,
-                footer_height_mm=25.0,
-                header_body_gap_mm=1.0,
-            )
-
-    def test_inset_rect_fails_instead_of_returning_zero_area(self) -> None:
-        with self.assertRaisesRegex(ValueError, "leave no usable rectangle"):
-            inset_rect(PdfRect(0.0, 0.0, 20.0, 20.0), Insets.uniform(10.0))
-
     def test_grid_maximizes_capacity_before_item_size(self) -> None:
         grid = resolve_grid(
             PdfRect(10.0, 20.0, 182.0, 225.0),

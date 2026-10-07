@@ -8,11 +8,6 @@ from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, en
 from ethernity.page_sizes import PaperSize, resolve_paper_size
 from ethernity.render import render_frames_to_pdf
 from ethernity.render.designs import list_design_definitions
-from ethernity.render.direct_pdf.fallback_layout import (
-    FallbackSectionLines,
-    fallback_entries,
-    paginate_fallback_entries,
-)
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
@@ -143,70 +138,6 @@ class TestFallbackRenderBounds(unittest.TestCase):
                                     )
                         with self.assertRaises(StopIteration):
                             next(emitted)
-
-    def test_fallback_line_numbers_reset_per_page_and_section(self) -> None:
-        frame = Frame(
-            version=VERSION,
-            frame_type=FrameType.AUTH,
-            doc_id=b"\x01" * DOC_ID_LEN,
-            index=0,
-            total=1,
-            data=b"auth",
-        )
-        sections = (
-            FallbackSectionLines(
-                section_index=0,
-                title="AUTH FRAME",
-                lines=("a", "b", "c"),
-                frame=frame,
-            ),
-            FallbackSectionLines(
-                section_index=1,
-                title="MAIN FRAME",
-                lines=("d", "e"),
-                frame=frame,
-            ),
-        )
-
-        pages = paginate_fallback_entries(fallback_entries(sections), capacity=3)
-
-        self.assertEqual(
-            tuple(entry.display_line_number for entry in pages[0].entries),
-            (None, 1, 2),
-        )
-        self.assertEqual(
-            tuple(entry.display_line_number for entry in pages[1].entries),
-            (1, None, 1),
-        )
-        self.assertEqual(
-            tuple(entry.display_line_number for entry in pages[2].entries),
-            (1,),
-        )
-
-    def test_fallback_continuation_keeps_title_with_first_line(self) -> None:
-        frame = _maximum_main_frame()
-        sections = (
-            FallbackSectionLines(0, "AUTH", ("a", "b", "c"), frame),
-            FallbackSectionLines(1, "MAIN", ("d", "e"), frame),
-        )
-
-        pages = paginate_fallback_entries(
-            fallback_entries(sections),
-            capacity=3,
-            continuation_capacity=2,
-        )
-
-        self.assertEqual(len(pages), 4)
-        for page in pages:
-            if page.entries and page.entries[-1].display_line_number is None:
-                self.fail("fallback page ended with an orphan section title")
-
-    def test_fallback_title_page_with_one_row_capacity_fails_fast(self) -> None:
-        frame = _maximum_main_frame()
-        sections = (FallbackSectionLines(0, "AUTH", ("a",), frame),)
-
-        with self.assertRaisesRegex(ValueError, "keep a section title"):
-            paginate_fallback_entries(fallback_entries(sections), capacity=1)
 
 
 if __name__ == "__main__":

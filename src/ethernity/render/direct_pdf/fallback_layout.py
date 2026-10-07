@@ -52,21 +52,13 @@ FallbackEntry = FallbackTitleEntry | FallbackLineEntry
 
 
 @dataclass(frozen=True)
-class FallbackColumnPlacement:
-    """One fallback entry placed in a column-major single-page grid."""
-
-    entry: FallbackEntry
-    row_index: int
-    column_index: int
-
-
-@dataclass(frozen=True)
 class FallbackPageEntry:
     """One fallback entry placed on a page row."""
 
     entry: FallbackEntry
     row_index: int
     display_line_number: int | None
+    column_index: int = 0
 
 
 @dataclass(frozen=True)
@@ -93,6 +85,8 @@ class ResponsiveFallbackSpec:
     number_padding_mm: float = 0.0
     inline_number: bool = False
     safety_mm: float = 0.2
+    columns: int = 1
+    column_gap_mm: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -131,34 +125,6 @@ class _EncodedFallbackSection:
     encoded: str
 
 
-def fallback_sections(
-    sections: Sequence[FallbackSection],
-    *,
-    group_size: int,
-    line_length: int,
-) -> tuple[FallbackSectionLines, ...]:
-    """Encode fallback sections into grouped z-base-32 text lines."""
-
-    resolved: list[FallbackSectionLines] = []
-    for index, section in enumerate(sections):
-        encoded = encode_zbase32(encode_frame(section.frame))
-        lines = format_zbase32_lines(
-            encoded,
-            group_size=group_size,
-            line_length=line_length,
-            line_count=MAX_FALLBACK_LINES,
-        )
-        resolved.append(
-            FallbackSectionLines(
-                section_index=index,
-                title=fallback_section_title(section.label),
-                lines=tuple(lines),
-                frame=section.frame,
-            )
-        )
-    return tuple(resolved)
-
-
 def fallback_entries(sections: Sequence[FallbackSectionLines]) -> tuple[FallbackEntry, ...]:
     """Flatten fallback section titles and lines into page entries."""
 
@@ -177,124 +143,6 @@ def fallback_entries(sections: Sequence[FallbackSectionLines]) -> tuple[Fallback
                 )
             )
     return tuple(entries)
-
-
-def paginate_fallback_entries(
-    entries: Sequence[FallbackEntry],
-    *,
-    capacity: int,
-    continuation_capacity: int | None = None,
-) -> tuple[FallbackPage, ...]:
-    """Paginate preformatted entries with distinct first/continuation capacities."""
-
-    if not entries:
-        raise ValueError("direct renderer has no fallback entries to render")
-    if capacity <= 0:
-        raise ValueError("fallback first page must fit at least one entry")
-    resolved_continuation_capacity = (
-        capacity if continuation_capacity is None else continuation_capacity
-    )
-    if resolved_continuation_capacity <= 0:
-        raise ValueError("fallback continuation page must fit at least one entry")
-    pages: list[FallbackPage] = []
-    remaining = tuple(entries)
-    page_number = 1
-    while remaining:
-        page_capacity = capacity if page_number == 1 else resolved_continuation_capacity
-        consumed = min(page_capacity, len(remaining))
-        if (
-            consumed < len(remaining)
-            and isinstance(remaining[consumed - 1], FallbackTitleEntry)
-            and isinstance(remaining[consumed], FallbackLineEntry)
-        ):
-            consumed -= 1
-        if consumed <= 0:
-            raise ValueError(
-                "fallback page capacity cannot keep a section title with its first data line"
-            )
-        page_entries: list[FallbackPageEntry] = []
-        display_line_number = 0
-        for row_index, entry in enumerate(remaining[:consumed]):
-            if isinstance(entry, FallbackTitleEntry):
-                display_line_number = 0
-                displayed = None
-            else:
-                display_line_number += 1
-                displayed = display_line_number
-            page_entries.append(
-                FallbackPageEntry(
-                    entry=entry,
-                    row_index=row_index,
-                    display_line_number=displayed,
-                )
-            )
-        pages.append(FallbackPage(page_number=page_number, entries=tuple(page_entries)))
-        remaining = remaining[consumed:]
-        page_number += 1
-    return tuple(pages)
-
-
-def build_fallback_summary_from_entry_groups(
-    inputs: RenderInputs,
-    sections: Sequence[FallbackSectionLines],
-    entry_groups: Sequence[Sequence[FallbackEntry]],
-) -> FallbackSummary:
-    """Build a layout from renderer-placed entry groups without owning their geometry."""
-
-    pages: list[FallbackPage] = []
-    for page_number, entries in enumerate(entry_groups, start=1):
-        page_entries: list[FallbackPageEntry] = []
-        display_line_number = 0
-        for row_index, entry in enumerate(entries):
-            if isinstance(entry, FallbackTitleEntry):
-                display_line_number = 0
-                displayed = None
-            else:
-                display_line_number += 1
-                displayed = display_line_number
-            page_entries.append(
-                FallbackPageEntry(
-                    entry=entry,
-                    row_index=row_index,
-                    display_line_number=displayed,
-                )
-            )
-        pages.append(FallbackPage(page_number=page_number, entries=tuple(page_entries)))
-    return build_fallback_summary(inputs, sections, pages)
-
-
-def paginate_single_page_fallback_columns(
-    entries: Sequence[FallbackEntry],
-    *,
-    column_count: int,
-    rows_per_column: int,
-    renderer_label: str,
-) -> tuple[FallbackColumnPlacement, ...]:
-    """Place fallback entries column-first within one bounded page."""
-
-    if not entries:
-        raise ValueError(f"{renderer_label} has no fallback entries to render")
-    if column_count <= 0:
-        raise ValueError("fallback column count must be positive")
-    if rows_per_column <= 0:
-        raise ValueError("fallback grid must fit at least one row per column")
-
-    capacity = column_count * rows_per_column
-    if len(entries) > capacity:
-        raise ValueError(
-            f"{renderer_label} exceeds the single-page capacity: "
-            f"{len(entries)} rows > {capacity} rows"
-        )
-
-    placement_rows = math.ceil(len(entries) / column_count)
-    return tuple(
-        FallbackColumnPlacement(
-            entry=entry,
-            row_index=entry_index % placement_rows,
-            column_index=entry_index // placement_rows,
-        )
-        for entry_index, entry in enumerate(entries)
-    )
 
 
 def fallback_capacity(
@@ -321,6 +169,8 @@ def resolve_responsive_fallback_pagination(
     *,
     first_profile: ResponsiveFallbackPageProfile,
     continuation_profile: ResponsiveFallbackPageProfile,
+    first_page_single_section: bool = False,
+    section_gap_rows: int = 0,
 ) -> ResponsiveFallbackPagination:
     """Measure, reflow, and paginate each page class against its own geometry.
 
@@ -331,6 +181,8 @@ def resolve_responsive_fallback_pagination(
 
     if not sections:
         raise ValueError("direct renderer has no fallback sections to render")
+    if type(section_gap_rows) is not int or section_gap_rows < 0:
+        raise ValueError("fallback section gap must be a non-negative number of rows")
     if first_profile.spec.group_size != continuation_profile.spec.group_size:
         raise ValueError("fallback page profiles must use the same encoded group size")
     encoded_sections = tuple(
@@ -362,6 +214,9 @@ def resolve_responsive_fallback_pagination(
             continuation_capacity=continuation_metrics.capacity,
             first_line_length=first_metrics.line_length,
             continuation_line_length=continuation_metrics.line_length,
+            first_page_single_section=first_page_single_section,
+            columns=first_profile.spec.columns,
+            section_gap_rows=section_gap_rows,
         )
         next_first_maximum = max(
             first_maximum_display_number,
@@ -448,6 +303,9 @@ def _paginate_profiled_sections(
     continuation_capacity: int,
     first_line_length: int,
     continuation_line_length: int,
+    first_page_single_section: bool = False,
+    columns: int = 1,
+    section_gap_rows: int = 0,
 ) -> tuple[tuple[FallbackSectionLines, ...], tuple[FallbackPage, ...]]:
     emitted_lines: list[list[str]] = [[] for _ in sections]
     section_index = 0
@@ -469,14 +327,14 @@ def _paginate_profiled_sections(
             line_length=line_length,
         )
         page_entries: list[FallbackPageEntry] = []
-        display_line_number = 0
+        slot = 0
 
-        while len(page_entries) < capacity and section_index < len(sections):
+        while slot < capacity * columns and section_index < len(sections):
             if not section_started:
-                display_line_number = 0
                 title = sections[section_index].title
                 if title:
-                    if capacity - len(page_entries) < 2:
+                    slot = math.ceil(slot / columns) * columns
+                    if capacity * columns - slot < columns + 1:
                         break
                     page_entries.append(
                         FallbackPageEntry(
@@ -484,23 +342,17 @@ def _paginate_profiled_sections(
                                 section_index=section_index,
                                 title=title,
                             ),
-                            row_index=len(page_entries),
+                            row_index=slot // columns,
                             display_line_number=None,
                         )
                     )
+                    slot += columns
                 section_started = True
 
             encoded = sections[section_index].encoded
             chunk = encoded[section_offset : section_offset + encoded_chars_per_line]
-            if not chunk:
-                raise ValueError("fallback section produced no encoded payload characters")
-            if section_line_number >= MAX_FALLBACK_LINES:
-                raise ValueError("fallback text exceeds line_count")
-            text = " ".join(
-                chunk[index : index + group_size] for index in range(0, len(chunk), group_size)
-            )
+            text = _grouped_payload_line(chunk, group_size, section_line_number)
             section_line_number += 1
-            display_line_number += 1
             emitted_lines[section_index].append(text)
             page_entries.append(
                 FallbackPageEntry(
@@ -509,16 +361,21 @@ def _paginate_profiled_sections(
                         line_number=section_line_number,
                         text=text,
                     ),
-                    row_index=len(page_entries),
-                    display_line_number=display_line_number,
+                    row_index=slot // columns,
+                    display_line_number=section_line_number,
+                    column_index=slot % columns,
                 )
             )
+            slot += 1
             section_offset += len(chunk)
             if section_offset >= len(encoded):
                 section_index += 1
                 section_offset = 0
                 section_line_number = 0
                 section_started = False
+                slot = _after_section_gap(slot, columns, section_gap_rows)
+                if first_page_single_section and page_number == 1:
+                    break
 
         if not page_entries:
             raise ValueError(
@@ -536,6 +393,20 @@ def _paginate_profiled_sections(
         for index, section in enumerate(sections)
     )
     return resolved_sections, tuple(pages)
+
+
+def _after_section_gap(slot: int, columns: int, gap_rows: int) -> int:
+    if gap_rows == 0:
+        return slot
+    return (math.ceil(slot / columns) + gap_rows) * columns
+
+
+def _grouped_payload_line(chunk: str, group_size: int, section_line_number: int) -> str:
+    if not chunk:
+        raise ValueError("fallback section produced no encoded payload characters")
+    if section_line_number >= MAX_FALLBACK_LINES:
+        raise ValueError("fallback text exceeds line_count")
+    return " ".join(chunk[index : index + group_size] for index in range(0, len(chunk), group_size))
 
 
 def _maximum_display_number(pages: Sequence[FallbackPage]) -> int:
@@ -564,7 +435,10 @@ def _validate_spec(spec: ResponsiveFallbackSpec) -> None:
         raise ValueError("fallback group size must be positive")
     if not math.isfinite(spec.row_height_mm) or spec.row_height_mm <= 0:
         raise ValueError("fallback row height must be finite and positive")
+    if spec.columns < 1 or spec.columns > 2:
+        raise ValueError("fallback column count must be one or two")
     non_negative_values = {
+        "column gap": spec.column_gap_mm,
         "left content inset": spec.content_left_inset_mm,
         "right content inset": spec.content_right_inset_mm,
         "reserved vertical space": spec.vertical_reserved_mm,
@@ -596,7 +470,7 @@ def _payload_width(
             surface.measure_text_width(number_label, spec.number_style) + spec.number_padding_mm,
         )
     payload_width_mm = (
-        area.width_mm
+        (area.width_mm - (spec.columns - 1) * spec.column_gap_mm) / spec.columns
         - spec.content_left_inset_mm
         - number_width_mm
         - spec.number_gap_mm
@@ -680,6 +554,42 @@ def _validate_complete_fallback_pages(
     if len(resolved_sections) != len(source_sections):
         raise ValueError("fallback layout section count does not match render inputs")
 
+    _validate_fallback_section_fidelity(resolved_sections, source_sections)
+    resolved_pages = tuple(pages)
+    if not resolved_pages:
+        raise ValueError("fallback layout requires at least one populated page")
+    if any(not page.entries for page in resolved_pages):
+        raise ValueError("fallback layout pages cannot be empty")
+    if tuple(page.page_number for page in resolved_pages) != tuple(
+        range(1, len(resolved_pages) + 1)
+    ):
+        raise ValueError("fallback layout page numbers must be contiguous and ordered")
+
+    expected_entries = fallback_entries(resolved_sections)
+    emitted_entries = tuple(
+        page_entry.entry for page in resolved_pages for page_entry in page.entries
+    )
+    if emitted_entries != expected_entries:
+        raise ValueError("fallback layout pages do not exactly consume section entries")
+
+    _validate_fallback_display_numbers(resolved_pages)
+
+
+def _validate_fallback_display_numbers(resolved_pages: Sequence[FallbackPage]) -> None:
+    for page in resolved_pages:
+        for page_entry in page.entries:
+            expected_display_number = (
+                page_entry.entry.line_number
+                if isinstance(page_entry.entry, FallbackLineEntry)
+                else None
+            )
+            if page_entry.display_line_number != expected_display_number:
+                raise ValueError("fallback layout page display numbers are not sequential")
+
+
+def _validate_fallback_section_fidelity(
+    resolved_sections: Sequence[FallbackSectionLines], source_sections: Sequence[FallbackSection]
+) -> None:
     for index, (resolved, source) in enumerate(
         zip(resolved_sections, source_sections, strict=True)
     ):
@@ -705,38 +615,8 @@ def _validate_complete_fallback_pages(
                 f"fallback layout section {index + 1} lines do not encode its source frame"
             )
 
-    resolved_pages = tuple(pages)
-    if not resolved_pages:
-        raise ValueError("fallback layout requires at least one populated page")
-    if any(not page.entries for page in resolved_pages):
-        raise ValueError("fallback layout pages cannot be empty")
-    if tuple(page.page_number for page in resolved_pages) != tuple(
-        range(1, len(resolved_pages) + 1)
-    ):
-        raise ValueError("fallback layout page numbers must be contiguous and ordered")
-
-    expected_entries = fallback_entries(resolved_sections)
-    emitted_entries = tuple(
-        page_entry.entry for page in resolved_pages for page_entry in page.entries
-    )
-    if emitted_entries != expected_entries:
-        raise ValueError("fallback layout pages do not exactly consume section entries")
-
-    for page in resolved_pages:
-        display_line_number = 0
-        for page_entry in page.entries:
-            if isinstance(page_entry.entry, FallbackTitleEntry):
-                display_line_number = 0
-                expected_display_number = None
-            else:
-                display_line_number += 1
-                expected_display_number = display_line_number
-            if page_entry.display_line_number != expected_display_number:
-                raise ValueError("fallback layout page display numbers are not sequential")
-
 
 __all__ = [
-    "FallbackColumnPlacement",
     "FallbackEntry",
     "FallbackLineEntry",
     "FallbackPage",
@@ -747,12 +627,36 @@ __all__ = [
     "ResponsiveFallbackPagination",
     "ResponsiveFallbackSpec",
     "build_fallback_summary",
-    "build_fallback_summary_from_entry_groups",
     "fallback_capacity",
     "fallback_entries",
-    "fallback_sections",
     "measured_fallback_number_width",
-    "paginate_fallback_entries",
-    "paginate_single_page_fallback_columns",
     "resolve_responsive_fallback_pagination",
 ]
+
+
+def fallback_sections(
+    sections: Sequence[FallbackSection],
+    *,
+    group_size: int,
+    line_length: int,
+) -> tuple[FallbackSectionLines, ...]:
+    """Encode fallback sections into grouped z-base-32 text lines."""
+
+    resolved: list[FallbackSectionLines] = []
+    for index, section in enumerate(sections):
+        encoded = encode_zbase32(encode_frame(section.frame))
+        lines = format_zbase32_lines(
+            encoded,
+            group_size=group_size,
+            line_length=line_length,
+            line_count=MAX_FALLBACK_LINES,
+        )
+        resolved.append(
+            FallbackSectionLines(
+                section_index=index,
+                title=fallback_section_title(section.label),
+                lines=tuple(lines),
+                frame=section.frame,
+            )
+        )
+    return tuple(resolved)

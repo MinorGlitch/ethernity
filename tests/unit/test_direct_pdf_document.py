@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from dataclasses import dataclass, replace
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -61,6 +61,25 @@ def _planning_failure(surface: PdfSurface, inputs: RenderInputs) -> document.Dir
     raise RuntimeError("planning failed")
 
 
+def test_render_reports_real_page_count_and_can_stop_before_output(tmp_path: Path) -> None:
+    calls = []
+    path = tmp_path / "progress.pdf"
+    inputs = replace(_inputs(path), on_page=lambda *args: calls.append(args))
+    document.render_document_plan(inputs, style_name="sentinel", builder=_plan)
+    assert calls == [("kit_index", 0, 1), ("kit_index", 1, 1)]
+    assert len(PdfReader(path).pages) == 1
+    original = path.read_bytes()
+
+    def stop(*_args) -> None:
+        raise InterruptedError("stop rendering")
+
+    with pytest.raises(InterruptedError):
+        document.render_document_plan(
+            replace(inputs, on_page=stop), style_name="sentinel", builder=_plan
+        )
+    assert path.read_bytes() == original
+
+
 def _painting_failure(surface: PdfSurface, inputs: RenderInputs) -> document.DirectPdfDocumentPlan:
     return _plan(surface, inputs, broken_painter=True)
 
@@ -82,11 +101,11 @@ def test_failed_render_preserves_existing_output(
 @pytest.mark.parametrize(
     ("created", "expected"),
     (
-        ("2026-07-06 12:00 UTC", datetime(2026, 7, 6, 12, tzinfo=timezone.utc)),
-        (date(2026, 7, 6), datetime(2026, 7, 6, tzinfo=timezone.utc)),
+        ("2026-07-06 12:00 UTC", datetime(2026, 7, 6, 12, tzinfo=UTC)),
+        (date(2026, 7, 6), datetime(2026, 7, 6, tzinfo=UTC)),
         (
             datetime(2026, 7, 6, 14, tzinfo=timezone(timedelta(hours=2))),
-            datetime(2026, 7, 6, 12, tzinfo=timezone.utc),
+            datetime(2026, 7, 6, 12, tzinfo=UTC),
         ),
     ),
 )

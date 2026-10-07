@@ -24,6 +24,10 @@ from ethernity.render.types import RenderTextMetadata
 _POINT_TO_MM = 25.4 / 72.0
 
 
+class _PdfContentStream(Protocol):
+    def _out(self, value: str) -> None: ...
+
+
 class PdfSurface(Protocol):
     """Minimal drawing and measurement interface for direct PDF rendering."""
 
@@ -171,10 +175,10 @@ class FpdfSurface:
 
     def begin_text_metadata(self, metadata: RenderTextMetadata) -> None:
         # Marked-content tags carry structure without changing page appearance.
-        getattr(self._pdf, "_out")(f"/{metadata.role} BMC")
+        cast(_PdfContentStream, self._pdf)._out(f"/{metadata.role} BMC")
 
     def end_text_metadata(self) -> None:
-        getattr(self._pdf, "_out")("EMC")
+        cast(_PdfContentStream, self._pdf)._out("EMC")
 
     def draw_rect(
         self,

@@ -149,20 +149,13 @@ def paginate_recovery_passphrase(
     entering a non-progressing pagination loop.
     """
 
-    if max_width_mm <= 0:
-        raise ValueError("recovery passphrase printable width must be positive")
-    resolved_continuation_width_mm = (
-        max_width_mm if continuation_width_mm is None else continuation_width_mm
+    resolved_continuation_width_mm = _validate_passphrase_geometry(
+        max_width_mm,
+        continuation_width_mm,
+        inline_height_mm,
+        continuation_height_mm,
+        guidance_value_gap_mm,
     )
-    if resolved_continuation_width_mm <= 0:
-        raise ValueError("recovery passphrase continuation width must be positive")
-    if inline_height_mm <= 0:
-        raise ValueError("recovery passphrase inline height must be positive")
-    if continuation_height_mm <= 0:
-        raise ValueError("recovery passphrase continuation height must be positive")
-    if guidance_value_gap_mm < 0:
-        raise ValueError("recovery passphrase guidance gap must be non-negative")
-
     if meta.passphrase is None and not meta.passphrase_lines:
         return RecoveryPassphrasePagination(inline_meta=meta)
 
@@ -189,6 +182,151 @@ def paginate_recovery_passphrase(
 
     raw_passphrase = _raw_passphrase(meta)
     existing_lines = meta.passphrase_lines or ((meta.passphrase or ""),)
+    literal = _paginate_literal_passphrase(
+        surface,
+        meta,
+        style=style,
+        raw_passphrase=raw_passphrase,
+        existing_lines=existing_lines,
+        existing_inline_capacity=existing_inline_capacity,
+        max_width_mm=max_width_mm,
+        resolved_continuation_width_mm=resolved_continuation_width_mm,
+        line_height_multiplier=line_height_multiplier,
+        resolved_guidance_style=resolved_guidance_style,
+        line_height_mm=line_height_mm,
+        inline_height_mm=inline_height_mm,
+        guidance_line_height_multiplier=guidance_line_height_multiplier,
+        guidance_value_gap_mm=guidance_value_gap_mm,
+        continuation_capacity=continuation_capacity,
+    )
+    if literal is not None:
+        return literal
+    existing_fits = len(existing_lines) <= existing_inline_capacity and all(
+        surface.measure_text_width(line, style) <= max_width_mm for line in existing_lines
+    )
+    if existing_fits:
+        return RecoveryPassphrasePagination(inline_meta=meta)
+
+    return _paginate_json_passphrase(
+        surface,
+        meta,
+        style=style,
+        raw_passphrase=raw_passphrase,
+        max_width_mm=max_width_mm,
+        resolved_continuation_width_mm=resolved_continuation_width_mm,
+        resolved_guidance_style=resolved_guidance_style,
+        line_height_mm=line_height_mm,
+        inline_height_mm=inline_height_mm,
+        guidance_line_height_multiplier=guidance_line_height_multiplier,
+        guidance_value_gap_mm=guidance_value_gap_mm,
+        continuation_capacity=continuation_capacity,
+    )
+
+
+def _paginate_json_passphrase(
+    surface: PdfSurface,
+    meta: RecoveryMeta,
+    *,
+    style: TextStyle,
+    raw_passphrase: str,
+    max_width_mm: float,
+    resolved_continuation_width_mm: float,
+    resolved_guidance_style: TextStyle,
+    line_height_mm: float,
+    inline_height_mm: float,
+    guidance_line_height_multiplier: float,
+    guidance_value_gap_mm: float,
+    continuation_capacity: int,
+) -> RecoveryPassphrasePagination:
+    json_parts_inline_capacity = _inline_value_capacity(
+        surface,
+        guidance=PASSPHRASE_PARTS_INSTRUCTIONS,
+        guidance_style=resolved_guidance_style,
+        value_line_height_mm=line_height_mm,
+        inline_height_mm=inline_height_mm,
+        max_width_mm=max_width_mm,
+        guidance_line_height_multiplier=guidance_line_height_multiplier,
+        guidance_value_gap_mm=guidance_value_gap_mm,
+    )
+    if json_parts_inline_capacity < 1:
+        raise ValueError("recovery passphrase inline area must fit guidance and one value line")
+
+    encoded_fragments, inline_fragment_count = _split_json_fragments(
+        surface,
+        raw_passphrase,
+        style=style,
+        inline_width_mm=max_width_mm,
+        continuation_width_mm=resolved_continuation_width_mm,
+        inline_fragment_capacity=json_parts_inline_capacity,
+    )
+    total_parts = len(encoded_fragments)
+    parts = tuple(
+        RecoveryPassphrasePart(
+            part_number=index,
+            total_parts=total_parts,
+            encoded_json=encoded,
+        )
+        for index, encoded in enumerate(encoded_fragments, start=1)
+    )
+    inline_parts = parts[:inline_fragment_count]
+    overflow_parts = parts[inline_fragment_count:]
+    if any(
+        surface.measure_text_width(part.line_text, style) > max_width_mm for part in inline_parts
+    ):
+        raise ValueError("numbered inline recovery passphrase part exceeds the printable width")
+    if any(
+        surface.measure_text_width(part.line_text, style) > resolved_continuation_width_mm
+        for part in overflow_parts
+    ):
+        raise ValueError("numbered recovery passphrase continuation part exceeds printable width")
+    page_parts = tuple(
+        overflow_parts[index : index + continuation_capacity]
+        for index in range(0, len(overflow_parts), continuation_capacity)
+    )
+    continuation_pages = tuple(
+        RecoveryPassphraseContinuationPage(
+            page_index=index,
+            total_pages=len(page_parts),
+            print_mode=PASSPHRASE_PRINT_MODE_JSON_PARTS,
+            parts=chunk,
+        )
+        for index, chunk in enumerate(page_parts, start=1)
+    )
+    inline_meta = replace(
+        meta,
+        passphrase_lines=tuple(part.line_text for part in inline_parts),
+        passphrase_label=PASSPHRASE_JSON_PARTS_LABEL,
+        passphrase_print_mode=PASSPHRASE_PRINT_MODE_JSON_PARTS,
+        passphrase_instructions=PASSPHRASE_PARTS_INSTRUCTIONS,
+    )
+    pagination = RecoveryPassphrasePagination(
+        inline_meta=inline_meta,
+        inline_parts=inline_parts,
+        continuation_pages=continuation_pages,
+    )
+    if pagination.decoded_passphrase() != raw_passphrase:
+        raise ValueError("recovery passphrase pagination failed its lossless round-trip layout")
+    return pagination
+
+
+def _paginate_literal_passphrase(
+    surface: PdfSurface,
+    meta: RecoveryMeta,
+    *,
+    style: TextStyle,
+    raw_passphrase: str,
+    existing_lines: tuple[str, ...],
+    existing_inline_capacity: int,
+    max_width_mm: float,
+    resolved_continuation_width_mm: float,
+    line_height_multiplier: float,
+    resolved_guidance_style: TextStyle,
+    line_height_mm: float,
+    inline_height_mm: float,
+    guidance_line_height_multiplier: float,
+    guidance_value_gap_mm: float,
+    continuation_capacity: int,
+) -> RecoveryPassphrasePagination | None:
     if meta.passphrase_print_mode == PASSPHRASE_PRINT_MODE_LITERAL:
         literal_tokens_fit = all(
             surface.measure_text_width(token, style) <= max_width_mm
@@ -266,81 +404,31 @@ def paginate_recovery_passphrase(
                 )
             return pagination
 
-    existing_fits = len(existing_lines) <= existing_inline_capacity and all(
-        surface.measure_text_width(line, style) <= max_width_mm for line in existing_lines
-    )
-    if existing_fits:
-        return RecoveryPassphrasePagination(inline_meta=meta)
+    return None
 
-    json_parts_inline_capacity = _inline_value_capacity(
-        surface,
-        guidance=PASSPHRASE_PARTS_INSTRUCTIONS,
-        guidance_style=resolved_guidance_style,
-        value_line_height_mm=line_height_mm,
-        inline_height_mm=inline_height_mm,
-        max_width_mm=max_width_mm,
-        guidance_line_height_multiplier=guidance_line_height_multiplier,
-        guidance_value_gap_mm=guidance_value_gap_mm,
-    )
-    if json_parts_inline_capacity < 1:
-        raise ValueError("recovery passphrase inline area must fit guidance and one value line")
 
-    encoded_fragments, inline_fragment_count = _split_json_fragments(
-        surface,
-        raw_passphrase,
-        style=style,
-        inline_width_mm=max_width_mm,
-        continuation_width_mm=resolved_continuation_width_mm,
-        inline_fragment_capacity=json_parts_inline_capacity,
+def _validate_passphrase_geometry(
+    max_width_mm: float,
+    continuation_width_mm: float | None,
+    inline_height_mm: float,
+    continuation_height_mm: float,
+    guidance_value_gap_mm: float,
+) -> float:
+    if max_width_mm <= 0:
+        raise ValueError("recovery passphrase printable width must be positive")
+    resolved_continuation_width_mm = (
+        max_width_mm if continuation_width_mm is None else continuation_width_mm
     )
-    total_parts = len(encoded_fragments)
-    parts = tuple(
-        RecoveryPassphrasePart(
-            part_number=index,
-            total_parts=total_parts,
-            encoded_json=encoded,
-        )
-        for index, encoded in enumerate(encoded_fragments, start=1)
-    )
-    inline_parts = parts[:inline_fragment_count]
-    overflow_parts = parts[inline_fragment_count:]
-    if any(
-        surface.measure_text_width(part.line_text, style) > max_width_mm for part in inline_parts
-    ):
-        raise ValueError("numbered inline recovery passphrase part exceeds the printable width")
-    if any(
-        surface.measure_text_width(part.line_text, style) > resolved_continuation_width_mm
-        for part in overflow_parts
-    ):
-        raise ValueError("numbered recovery passphrase continuation part exceeds printable width")
-    page_parts = tuple(
-        overflow_parts[index : index + continuation_capacity]
-        for index in range(0, len(overflow_parts), continuation_capacity)
-    )
-    continuation_pages = tuple(
-        RecoveryPassphraseContinuationPage(
-            page_index=index,
-            total_pages=len(page_parts),
-            print_mode=PASSPHRASE_PRINT_MODE_JSON_PARTS,
-            parts=chunk,
-        )
-        for index, chunk in enumerate(page_parts, start=1)
-    )
-    inline_meta = replace(
-        meta,
-        passphrase_lines=tuple(part.line_text for part in inline_parts),
-        passphrase_label=PASSPHRASE_JSON_PARTS_LABEL,
-        passphrase_print_mode=PASSPHRASE_PRINT_MODE_JSON_PARTS,
-        passphrase_instructions=PASSPHRASE_PARTS_INSTRUCTIONS,
-    )
-    pagination = RecoveryPassphrasePagination(
-        inline_meta=inline_meta,
-        inline_parts=inline_parts,
-        continuation_pages=continuation_pages,
-    )
-    if pagination.decoded_passphrase() != raw_passphrase:
-        raise ValueError("recovery passphrase pagination failed its lossless round-trip layout")
-    return pagination
+    if resolved_continuation_width_mm <= 0:
+        raise ValueError("recovery passphrase continuation width must be positive")
+    if inline_height_mm <= 0:
+        raise ValueError("recovery passphrase inline height must be positive")
+    if continuation_height_mm <= 0:
+        raise ValueError("recovery passphrase continuation height must be positive")
+    if guidance_value_gap_mm < 0:
+        raise ValueError("recovery passphrase guidance gap must be non-negative")
+
+    return resolved_continuation_width_mm
 
 
 def _raw_passphrase(meta: RecoveryMeta) -> str:

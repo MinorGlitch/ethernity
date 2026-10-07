@@ -18,11 +18,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Sequence
+from typing import Literal
 
 from ethernity.encoding.framing import Frame
+from ethernity.formats.extension_mode import UpdateMode
 from ethernity.page_sizes import (
     DEFAULT_PAPER_SIZE_NAME,
     PaperSize,
@@ -45,6 +47,8 @@ class DocumentOrigin:
         "recovery_kit",
     ]
     extension_index: int | None = None
+    update_mode: UpdateMode = UpdateMode.INCREMENTAL
+    root_doc_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +78,7 @@ class RenderInputs:
     recovery_meta: RecoveryMeta | None = None
     layout_debug_json_path: str | Path | None = None
     page_size: PaperSize | None = None
+    on_page: Callable[[str, int, int], None] | None = None
 
     def __post_init__(self) -> None:
         if self.origin is None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import unittest
 from dataclasses import replace
+from itertools import pairwise
 from unittest import mock
 
 import ethernity.render.direct_pdf.fallback_layout as fallback_layout_module
@@ -16,11 +17,6 @@ from ethernity.render.direct_pdf.fallback_layout import (
     ResponsiveFallbackPageProfile,
     ResponsiveFallbackSpec,
     build_fallback_summary,
-    build_fallback_summary_from_entry_groups,
-    fallback_entries,
-    fallback_sections,
-    paginate_fallback_entries,
-    paginate_single_page_fallback_columns,
     resolve_responsive_fallback_pagination,
 )
 from ethernity.render.direct_pdf.surface import FpdfSurface
@@ -41,6 +37,78 @@ class TestResponsiveFallbackPagination(unittest.TestCase):
             data=b"x" * 4_000,
         )
         self.sections = (FallbackSection(label="MAIN FRAME", frame=frame),)
+
+    def test_section_gaps_use_capacity_without_losing_payload_or_orphaning_titles(self) -> None:
+        sections = tuple(
+            FallbackSection(label=f"FRAME {i}", frame=replace(self.sections[0].frame, data=b"x"))
+            for i in range(5)
+        )
+        for columns in (1, 2):
+            spec = ResponsiveFallbackSpec(
+                4,
+                4,
+                self.style,
+                self.style,
+                3,
+                3,
+                0,
+                2,
+                number_minimum_width_mm=7,
+                columns=columns,
+            )
+            profile = ResponsiveFallbackPageProfile(PdfRect(10, 40, 240, 24), spec)
+            baseline = resolve_responsive_fallback_pagination(
+                self.surface, sections, first_profile=profile, continuation_profile=profile
+            )
+            for gap in (1, 3):
+                with self.subTest(columns=columns, gap=gap):
+                    result = resolve_responsive_fallback_pagination(
+                        self.surface,
+                        sections,
+                        first_profile=profile,
+                        continuation_profile=profile,
+                        section_gap_rows=gap,
+                    )
+                    self.assertEqual(result.sections, baseline.sections)
+                    self.assertGreaterEqual(len(result.pages), len(baseline.pages))
+                    for page in result.pages:
+                        self.assertEqual(page.entries[0].row_index, 0)
+                        self.assertLess(page.entries[-1].row_index, result.first_capacity)
+                        for previous, current in pairwise(page.entries):
+                            if previous.entry.section_index != current.entry.section_index:
+                                self.assertGreaterEqual(
+                                    current.row_index - previous.row_index, gap + 1
+                                )
+                        self.assertIsInstance(page.entries[-1].entry, FallbackLineEntry)
+
+    def test_small_pages_continue_numbers_and_keep_section_titles_with_data(self) -> None:
+        spec = ResponsiveFallbackSpec(
+            4, 4, self.style, self.style, 3, 3, 6, 2, number_minimum_width_mm=7
+        )
+        profile = ResponsiveFallbackPageProfile(PdfRect(10, 40, 180, 18), spec)
+        sections = (
+            self.sections[0],
+            replace(self.sections[0], label="SECOND FRAME"),
+        )
+        result = resolve_responsive_fallback_pagination(
+            self.surface, sections, first_profile=profile, continuation_profile=profile
+        )
+        number = 0
+        for page in result.pages:
+            for index, placed in enumerate(page.entries):
+                if isinstance(placed.entry, FallbackTitleEntry):
+                    number = 0
+                    self.assertLess(index + 1, len(page.entries))
+                    self.assertIsNone(placed.display_line_number)
+                else:
+                    number += 1
+                    self.assertEqual(placed.display_line_number, number)
+
+        one_row = replace(profile, area=PdfRect(10, 40, 180, 10))
+        with self.assertRaisesRegex(ValueError, "keep a section title"):
+            resolve_responsive_fallback_pagination(
+                self.surface, sections, first_profile=one_row, continuation_profile=one_row
+            )
 
     def test_measures_reflows_and_paginates_from_both_page_areas(self) -> None:
         spec = ResponsiveFallbackSpec(
@@ -241,6 +309,29 @@ class TestResponsiveFallbackPagination(unittest.TestCase):
                     continuation_profile=profile,
                 )
 
+    def test_continuation_gutter_grows_for_three_digit_section_numbers(self) -> None:
+        spec = ResponsiveFallbackSpec(4, 4, self.style, self.style, 2, 2, 0, 0, inline_number=True)
+        profile = ResponsiveFallbackPageProfile(PdfRect(10, 40, 120, 80), spec)
+        section = replace(
+            self.sections[0], frame=replace(self.sections[0].frame, data=b"x" * 12000)
+        )
+        result = resolve_responsive_fallback_pagination(
+            self.surface, (section,), first_profile=profile, continuation_profile=profile
+        )
+        numbers = [
+            entry.display_line_number
+            for page in result.pages
+            for entry in page.entries
+            if isinstance(entry.entry, FallbackLineEntry)
+        ]
+        self.assertGreater(len(numbers), 100)
+        self.assertEqual(numbers, list(range(1, len(numbers) + 1)))
+        self.assertLess(result.continuation_payload_width_mm, result.first_payload_width_mm)
+        self.assertEqual(
+            "".join(line.replace(" ", "") for line in result.sections[0].lines),
+            encode_zbase32(encode_frame(section.frame)),
+        )
+
     def test_profiled_pagination_keeps_titles_with_first_lines_and_resets_numbers(self) -> None:
         spec = ResponsiveFallbackSpec(
             group_size=4,
@@ -311,40 +402,6 @@ class TestResponsiveFallbackPagination(unittest.TestCase):
                     self.assertEqual(next_entry.display_line_number, 1)
 
 
-class TestSinglePageFallbackColumns(unittest.TestCase):
-    def test_places_entries_column_first(self) -> None:
-        entries = tuple(
-            FallbackLineEntry(section_index=0, line_number=index + 1, text=str(index + 1))
-            for index in range(5)
-        )
-
-        placements = paginate_single_page_fallback_columns(
-            entries,
-            column_count=2,
-            rows_per_column=3,
-            renderer_label="test fallback",
-        )
-
-        self.assertEqual(
-            tuple((placement.row_index, placement.column_index) for placement in placements),
-            ((0, 0), (1, 0), (2, 0), (0, 1), (1, 1)),
-        )
-
-    def test_rejects_entries_beyond_single_page_capacity(self) -> None:
-        entries = tuple(
-            FallbackLineEntry(section_index=0, line_number=index + 1, text=str(index + 1))
-            for index in range(5)
-        )
-
-        with self.assertRaisesRegex(ValueError, "test fallback exceeds the single-page capacity"):
-            paginate_single_page_fallback_columns(
-                entries,
-                column_count=2,
-                rows_per_column=2,
-                renderer_label="test fallback",
-            )
-
-
 class TestFallbackSummaryValidation(unittest.TestCase):
     def _fixture(
         self,
@@ -373,9 +430,16 @@ class TestFallbackSummaryValidation(unittest.TestCase):
             render_fallback=True,
             fallback_sections=source_sections,
         )
-        sections = fallback_sections(source_sections, group_size=4, line_length=19)
-        pages = paginate_fallback_entries(fallback_entries(sections), capacity=1_000)
-        return inputs, sections, pages
+        surface = FpdfSurface(page_width_mm=210, page_height_mm=297)
+        style = TextStyle(family="Courier", size_pt=7)
+        profile = ResponsiveFallbackPageProfile(
+            PdfRect(10, 40, 180, 220),
+            ResponsiveFallbackSpec(4, 4, style, style, 3, 3, 6, 2, number_minimum_width_mm=7),
+        )
+        pagination = resolve_responsive_fallback_pagination(
+            surface, source_sections, first_profile=profile, continuation_profile=profile
+        )
+        return inputs, pagination.sections, pagination.pages
 
     def test_build_fallback_summary_accepts_exact_page_entries(self) -> None:
         inputs, sections, pages = self._fixture()
@@ -388,28 +452,6 @@ class TestFallbackSummaryValidation(unittest.TestCase):
             summary.emitted_fallback_lines,
             tuple(line for section in sections for line in section.lines),
         )
-
-    def test_build_fallback_summary_accepts_renderer_entry_groups(self) -> None:
-        inputs, sections, pages = self._fixture()
-
-        summary = build_fallback_summary_from_entry_groups(
-            inputs,
-            sections,
-            tuple(tuple(page_entry.entry for page_entry in page.entries) for page in pages),
-        )
-
-        self.assertTrue(summary.fully_consumed)
-        self.assertEqual(
-            summary.emitted_fallback_lines,
-            tuple(line for section in sections for line in section.lines),
-        )
-
-    def test_renderer_entry_groups_must_match_encoded_sections(self) -> None:
-        inputs, sections, pages = self._fixture()
-        entries = tuple(page_entry.entry for page_entry in pages[0].entries)
-
-        with self.assertRaisesRegex(ValueError, "exactly consume section entries"):
-            build_fallback_summary_from_entry_groups(inputs, sections, (entries[:-1],))
 
     def test_build_fallback_summary_rejects_omitted_entry(self) -> None:
         inputs, sections, pages = self._fixture()

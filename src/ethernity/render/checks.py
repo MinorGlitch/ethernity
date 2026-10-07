@@ -42,7 +42,7 @@ from ethernity.render.types import (
     RenderInputs,
 )
 
-_NUMBERED_FALLBACK_PREFIX = re.compile(r"(?<!\d)\d{1,4}\.\s*")
+_NUMBERED_FALLBACK_PREFIX = re.compile(r"(?<!\d)\d{1,5}\.\s*")
 _ZBASE32_CHARS = frozenset(ZBASE32_ALPHABET)
 _UNNUMBERED_FALLBACK_ANCHORS = frozenset(
     {
@@ -242,6 +242,22 @@ def validate_rendered_document_summary(
                 "recorded_qr_payload_count": len(recorded_qr_payload_digests),
             },
         )
+    _validate_summary_qr_placements(
+        inputs,
+        document_summary,
+        document_label,
+        expected_encoded_payload_count,
+        expected_qr_payload_digests,
+    )
+
+
+def _validate_summary_qr_placements(
+    inputs: RenderInputs,
+    document_summary: RenderedDocumentSummary,
+    document_label: str,
+    expected_encoded_payload_count: int,
+    expected_qr_payload_digests: tuple[str, ...],
+) -> None:
     if not inputs.render_qr and document_summary.physical_qr_count != 0:
         raise RenderValidationError(
             f"{document_label} summary physical QR count does not match render inputs",
@@ -638,6 +654,20 @@ def _fallback_section_regions(
             f"{document_label} fallback section labels are reordered",
             details={"section_positions": tuple(positions)},
         )
+    _validate_fallback_continuations(lines, labels, positions, section_label_groups, document_label)
+    return tuple(
+        tuple(lines[start + 1 : positions[index + 1] if index + 1 < len(positions) else None])
+        for index, start in enumerate(positions)
+    )
+
+
+def _validate_fallback_continuations(
+    lines: Sequence[str],
+    labels: Sequence[str | None],
+    positions: Sequence[int],
+    section_label_groups: Sequence[tuple[tuple[int, ...], ...]],
+    document_label: str,
+) -> None:
     for section_index, match_groups in enumerate(section_label_groups):
         next_section_start = (
             positions[section_index + 1] if section_index + 1 < len(positions) else len(lines)
@@ -656,10 +686,6 @@ def _fallback_section_regions(
                     "fallback section label",
                     details={"section_label": label, "label_group_index": group_index},
                 )
-    return tuple(
-        tuple(lines[start + 1 : positions[index + 1] if index + 1 < len(positions) else None])
-        for index, start in enumerate(positions)
-    )
 
 
 def _normalize_section_title(value: str) -> str:
@@ -688,13 +714,8 @@ def _extract_numbered_fallback_payload(
     encoded_length = 0
     complete = False
     for line in lines:
-        matches = tuple(_NUMBERED_FALLBACK_PREFIX.finditer(line))
         line_has_payload = False
-        for match_index, match in enumerate(matches):
-            end = matches[match_index + 1].start() if match_index + 1 < len(matches) else len(line)
-            payload = _normalize_extracted_payload(line[match.end() : end])
-            if payload is None:
-                continue
+        for payload in _numbered_line_payloads(line):
             line_has_payload = True
             if complete:
                 return ""
@@ -702,11 +723,9 @@ def _extract_numbered_fallback_payload(
                 return ""
             numbered.append(payload)
             encoded_length += len(payload)
-            if expected_encoded_length is not None:
-                if encoded_length > expected_encoded_length:
-                    return ""
-                if encoded_length == expected_encoded_length:
-                    complete = True
+            if expected_encoded_length is not None and encoded_length > expected_encoded_length:
+                return ""
+            complete = encoded_length == expected_encoded_length
         if complete and not line_has_payload and line.strip():
             break
     if not numbered:
@@ -916,3 +935,14 @@ def fallback_line_present(
         return True
     compact = compact_fallback_text(line)
     return bool(compact and compact in compact_extracted_text)
+
+
+def _numbered_line_payloads(line: str) -> tuple[str, ...]:
+    matches = tuple(_NUMBERED_FALLBACK_PREFIX.finditer(line))
+    payloads: list[str] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(line)
+        payload = _normalize_extracted_payload(line[match.end() : end])
+        if payload is not None:
+            payloads.append(payload)
+    return tuple(payloads)

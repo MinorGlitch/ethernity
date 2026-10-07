@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 
 from ethernity.render.direct_pdf.assets import packaged_direct_pdf_assets
 from ethernity.render.direct_pdf.debug import write_direct_layout_debug_json
@@ -65,8 +65,12 @@ def render_document_plan(
         layout_report=layout_report,
     )
 
-    for page_plan in plan.page_plans:
+    for index, page_plan in enumerate(plan.page_plans):
+        if inputs.on_page is not None:
+            inputs.on_page(inputs.doc_type, index, len(plan.page_plans))
         page_plan.paint(surface)
+    if inputs.on_page is not None:
+        inputs.on_page(inputs.doc_type, len(plan.page_plans), len(plan.page_plans))
     surface.output(inputs.output_path)
     return RenderResult(
         fallback_summary=plan.fallback_summary,
@@ -84,13 +88,13 @@ def explicit_creation_date(inputs: RenderInputs) -> datetime | None:
     if isinstance(value, datetime):
         resolved = value
     elif isinstance(value, date):
-        resolved = datetime.combine(value, time.min, tzinfo=timezone.utc)
+        resolved = datetime.combine(value, time.min, tzinfo=UTC)
     elif isinstance(value, str):
         normalized = value.strip()
         resolved = None
         for pattern in ("%Y-%m-%d %H:%M UTC", "%Y-%m-%d"):
             try:
-                resolved = datetime.strptime(normalized, pattern).replace(tzinfo=timezone.utc)
+                resolved = datetime.strptime(normalized, pattern).replace(tzinfo=UTC)
                 break
             except ValueError:
                 continue
@@ -99,8 +103,8 @@ def explicit_creation_date(inputs: RenderInputs) -> datetime | None:
     else:
         return None
     if resolved.tzinfo is None:
-        return resolved.replace(tzinfo=timezone.utc)
-    return resolved.astimezone(timezone.utc)
+        return resolved.replace(tzinfo=UTC)
+    return resolved.astimezone(UTC)
 
 
 __all__ = [

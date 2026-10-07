@@ -34,6 +34,7 @@ from ethernity.render.pdf_appearance import validate_pdf_appearance
 from ethernity.render.pdf_content import validate_painted_content
 from ethernity.render.recovery_meta import (
     PASSPHRASE_PRINT_MODE_LITERAL,
+    RecoveryMeta,
     decode_printed_passphrase,
 )
 from ethernity.render.types import (
@@ -101,18 +102,7 @@ def validate_rendered_pdf_document(
         render_qr=inputs.render_qr,
         document_label=document_label,
     )
-    if inputs.render_qr:
-        expected_payloads = expected_physical_qr_payloads(inputs, document_summary)
-        if Counter(decoded) != Counter(expected_payloads):
-            raise RenderValidationError(f"{document_label} QR payloads do not match render inputs")
-        if inputs.doc_type == DOC_TYPE_KIT and (
-            document_summary.physical_qr_payload_indexes
-            != tuple(range(document_summary.encoded_payload_count))
-            or decoded != expected_payloads
-        ):
-            raise RenderValidationError(
-                f"{document_label} QR payloads are not in kit reading order"
-            )
+    _validate_emitted_qr_payloads(inputs, document_summary, decoded, document_label)
     if inputs.recovery_meta is not None:
         _validate_recovery_metadata_in_pdf(
             inputs=inputs, layout=result.layout_report, document_label=document_label
@@ -125,6 +115,26 @@ def validate_rendered_pdf_document(
             details_key="missing_component_ids",
             missing_message=f"{document_label} is missing expected inventory rows",
         )
+
+
+def _validate_emitted_qr_payloads(
+    inputs: RenderInputs,
+    document_summary: RenderedDocumentSummary,
+    decoded: tuple[bytes, ...],
+    document_label: str,
+) -> None:
+    if inputs.render_qr:
+        expected_payloads = expected_physical_qr_payloads(inputs, document_summary)
+        if Counter(decoded) != Counter(expected_payloads):
+            raise RenderValidationError(f"{document_label} QR payloads do not match render inputs")
+        if inputs.doc_type == DOC_TYPE_KIT and (
+            document_summary.physical_qr_payload_indexes
+            != tuple(range(document_summary.encoded_payload_count))
+            or decoded != expected_payloads
+        ):
+            raise RenderValidationError(
+                f"{document_label} QR payloads are not in kit reading order"
+            )
 
 
 def expected_physical_qr_payloads(
@@ -149,6 +159,62 @@ def _validate_recovery_metadata_in_pdf(
     meta = inputs.recovery_meta
     if meta is None:
         return
+    values = _recovery_value_placements(layout, document_label)
+    quorum = values.get("recovery_quorum", {}).get(0)
+    if meta.quorum_value and (quorum is None or " ".join(quorum[1]) != meta.quorum_value):
+        raise RenderValidationError(
+            f"{document_label} is missing or has an incorrect recovery quorum"
+        )
+    signing = values.get("recovery_signing_public_key", {}).get(0)
+    if meta.signing_pub_lines and (
+        signing is None
+        or "".join("".join(signing[1]).split()) != "".join("".join(meta.signing_pub_lines).split())
+    ):
+        raise RenderValidationError(
+            f"{document_label} is missing or has an incorrect recovery signing public key"
+        )
+    if not meta.passphrase and not meta.passphrase_lines:
+        return
+    passphrase = values.get("recovery_passphrase", {})
+    if not passphrase or list(passphrase) != list(range(len(passphrase))):
+        raise RenderValidationError(f"{document_label} is missing recovery passphrase placements")
+    modes = {value[0] for value in passphrase.values()}
+    if len(modes) != 1 or None in modes:
+        raise RenderValidationError(
+            f"{document_label} has inconsistent recovery passphrase print modes"
+        )
+    _validate_printed_passphrase_value(meta, passphrase, document_label)
+
+
+def _validate_printed_passphrase_value(
+    meta: RecoveryMeta,
+    passphrase: dict[int, tuple[str | None, tuple[str, ...]]],
+    document_label: str,
+) -> None:
+    print_mode = passphrase[0][0]
+    if print_mode is None:
+        raise RenderValidationError(
+            f"{document_label} is missing the recovery passphrase print mode"
+        )
+    lines = tuple(line for index in sorted(passphrase) for line in passphrase[index][1])
+    try:
+        decoded = decode_printed_passphrase(lines, print_mode=print_mode)
+        expected = meta.passphrase
+        if expected is None:
+            expected = decode_printed_passphrase(
+                meta.passphrase_lines, print_mode=meta.passphrase_print_mode
+            )
+    except ValueError as exc:
+        raise RenderValidationError(
+            f"{document_label} has incomplete recovery passphrase parts"
+        ) from exc
+    if decoded != expected:
+        raise RenderValidationError(f"{document_label} has an incorrect recovery passphrase")
+
+
+def _recovery_value_placements(
+    layout: LayoutReport, document_label: str
+) -> dict[str, dict[int, tuple[str | None, tuple[str, ...]]]]:
     values: dict[str, dict[int, tuple[str | None, tuple[str, ...]]]] = {}
     for page in layout.pages:
         for component in page.components:
@@ -178,48 +244,7 @@ def _validate_recovery_metadata_in_pdf(
                     f"{document_label} has inconsistent repeated recovery values"
                 )
 
-    quorum = values.get("recovery_quorum", {}).get(0)
-    if meta.quorum_value and (quorum is None or " ".join(quorum[1]) != meta.quorum_value):
-        raise RenderValidationError(
-            f"{document_label} is missing or has an incorrect recovery quorum"
-        )
-    signing = values.get("recovery_signing_public_key", {}).get(0)
-    if meta.signing_pub_lines and (
-        signing is None
-        or "".join("".join(signing[1]).split()) != "".join("".join(meta.signing_pub_lines).split())
-    ):
-        raise RenderValidationError(
-            f"{document_label} is missing or has an incorrect recovery signing public key"
-        )
-    if not meta.passphrase and not meta.passphrase_lines:
-        return
-    passphrase = values.get("recovery_passphrase", {})
-    if not passphrase or list(passphrase) != list(range(len(passphrase))):
-        raise RenderValidationError(f"{document_label} is missing recovery passphrase placements")
-    modes = {value[0] for value in passphrase.values()}
-    if len(modes) != 1 or None in modes:
-        raise RenderValidationError(
-            f"{document_label} has inconsistent recovery passphrase print modes"
-        )
-    print_mode = passphrase[0][0]
-    if print_mode is None:
-        raise RenderValidationError(
-            f"{document_label} is missing the recovery passphrase print mode"
-        )
-    lines = tuple(line for index in sorted(passphrase) for line in passphrase[index][1])
-    try:
-        decoded = decode_printed_passphrase(lines, print_mode=print_mode)
-        expected = meta.passphrase
-        if expected is None:
-            expected = decode_printed_passphrase(
-                meta.passphrase_lines, print_mode=meta.passphrase_print_mode
-            )
-    except ValueError as exc:
-        raise RenderValidationError(
-            f"{document_label} has incomplete recovery passphrase parts"
-        ) from exc
-    if decoded != expected:
-        raise RenderValidationError(f"{document_label} has an incorrect recovery passphrase")
+    return values
 
 
 __all__ = ["expected_physical_qr_payloads", "validate_rendered_pdf_document"]

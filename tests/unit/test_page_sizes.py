@@ -14,7 +14,7 @@ from ethernity.page_sizes import (
 
 class TestPageSizes(unittest.TestCase):
     def test_registry_is_stable_and_case_insensitive_at_resolution_boundary(self) -> None:
-        self.assertEqual(paper_size_names(), ("A4", "LETTER"))
+        self.assertEqual(paper_size_names(), ("A4", "LETTER", "A5"))
         self.assertEqual(DEFAULT_PAPER_SIZE_NAME, "A4")
         self.assertEqual(resolve_paper_size(" letter ").name, "LETTER")
         self.assertEqual(paper_size_display_name("letter"), "Letter")

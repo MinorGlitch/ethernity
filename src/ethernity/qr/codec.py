@@ -17,15 +17,16 @@
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
 from typing import Any
 
 import segno
 from PIL import ImageColor
+from pydantic import BaseModel, ConfigDict
 
 
-@dataclass(frozen=True)
-class QrConfig:
+class QrConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     error: str = "M"
     scale: int = 4
     border: int = 4

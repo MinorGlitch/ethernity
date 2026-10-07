@@ -18,9 +18,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from ethernity.config import AppConfig
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS
@@ -47,6 +47,7 @@ class RenderService:
     """Construct render inputs from config and frames."""
 
     config: AppConfig
+    on_page: Callable[[str, int, int], None] | None = None
 
     def base_context(self, extra: dict[str, object] | None = None) -> dict[str, object]:
         """Build a document context and merge caller-provided fields."""
@@ -276,4 +277,5 @@ class RenderService:
             layout_debug_json_path=layout_debug_json_path,
             origin=origin,
             page_size=resolve_paper_size(self.config.paper_size),
+            on_page=self.on_page,
         )

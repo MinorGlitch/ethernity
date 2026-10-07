@@ -47,7 +47,7 @@ class TestDirectPdfPageGeometry(unittest.TestCase):
         self.assertAlmostEqual(geometry.height_mm, 279.4)
 
     def test_default_resolution_accepts_every_registered_size(self) -> None:
-        self.assertEqual(registered_paper_sizes(), frozenset({"a4", "letter"}))
+        self.assertEqual(registered_paper_sizes(), frozenset({"a4", "letter", "a5"}))
 
         for paper_size in registered_paper_sizes():
             with self.subTest(paper_size=paper_size):
@@ -63,7 +63,7 @@ class TestDirectPdfPageGeometry(unittest.TestCase):
             )
 
     def test_unknown_size_reports_the_central_registry(self) -> None:
-        with self.assertRaisesRegex(ValueError, "registered paper sizes: A4, LETTER"):
+        with self.assertRaisesRegex(ValueError, "registered paper sizes: A4, LETTER, A5"):
             page_geometry("TABLOID")
 
     def test_explicit_dimensions_support_future_unregistered_page_sizes(self) -> None:

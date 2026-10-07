@@ -433,16 +433,19 @@ class TestRenderSummarys(unittest.TestCase):
         )
         lines = _rendered_fallback_lines(frame, line_length=24)
         self.assertGreater(len(lines), 10)
-        reader = _reader_with_text(
-            "Main Frame\n"
-            + "\n".join(f"{index:02d}. {line}" for index, line in enumerate(lines, start=1))
-        )
-
-        validate_fallback_text_in_pdf(
-            document_label="rendered recovery document",
-            reader=reader,
-            fallback_sections=(FallbackSection(label="Main Frame", frame=frame),),
-        )
+        for start in (1, 9990, 50000 - len(lines) + 1):
+            with self.subTest(start=start):
+                reader = _reader_with_text(
+                    "Main Frame\n"
+                    + "\n".join(
+                        f"{index:02d}. {line}" for index, line in enumerate(lines, start=start)
+                    )
+                )
+                validate_fallback_text_in_pdf(
+                    document_label="rendered recovery document",
+                    reader=reader,
+                    fallback_sections=(FallbackSection(label="Main Frame", frame=frame),),
+                )
 
     def test_nonfallback_pdf_lines_do_not_consume_fallback_line_budget(self) -> None:
         frame = Frame(

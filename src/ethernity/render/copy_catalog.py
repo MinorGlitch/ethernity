@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from ethernity.core.validation import integer_text_or_default
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_KIT_INDEX,
@@ -42,11 +43,27 @@ class InstructionCopy:
 def build_copy_bundle(*, doc_type: str, context: Mapping[str, object]) -> dict[str, object]:
     normalized_doc_type = doc_type.strip().lower()
     if normalized_doc_type == DOC_TYPE_MAIN:
-        return _main_document_copy(context=context)
+        instructions = (
+            "Scan every QR code in any order; check that all segment numbers are present.",
+            "If scanning fails, use the Recovery Document's text fallback.",
+        )
+        if _origin_kind(context) == "extension":
+            instructions = (_extension_dependencies(context), *instructions)
+        return {
+            **_main_document_copy(context=context),
+            "scan_instructions": "\n".join(instructions),
+        }
     if normalized_doc_type == DOC_TYPE_RECOVERY:
         return _recovery_document_copy(context=context)
     if normalized_doc_type == DOC_TYPE_KIT:
-        return _kit_document_copy(context=context)
+        return {
+            **_kit_document_copy(context=context),
+            **_kit_guide_copy(),
+            "segment_prefix": "Part",
+            "scan_instructions": build_instruction_copy(doc_type=doc_type, context=context).lines[
+                0
+            ],
+        }
     if normalized_doc_type == DOC_TYPE_SHARD:
         return _shard_document_copy(context=context)
     if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
@@ -78,36 +95,38 @@ def build_instruction_copy(
         )
     elif normalized_doc_type in {DOC_TYPE_KIT, DOC_TYPE_KIT_INDEX}:
         lines = (
-            "Scan every QR code left to right, top to bottom.",
-            (
-                "QR #1 is the shell. Paste it first, then paste every remaining QR in "
-                "order (no separators)."
-            ),
-            "Save the result as recovery_kit.bundle.html.",
-            "Open that file in a browser (offline) to run the kit.",
+            "Copy QR 1, then QR 2 into one plain-text file.",
+            "Save as start.html and open it in a browser.",
+            "Paste QR 3 onwards into the page in any order.",
+            "Choose Save recovery kit, then open the downloaded HTML.",
         )
     elif normalized_doc_type in {DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD}:
-        shard_index = _int_value(context.get("shard_index"), default=1)
         shard_total = _int_value(context.get("shard_total"), default=1)
         shard_threshold = _int_value(context.get("shard_threshold"), default=shard_total)
         secret = "signing key" if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD else "secret"
         recovery_notice = _shard_recovery_notice(shard_threshold, secret=secret)
         if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD and shard_threshold == 1:
             lines = (
-                f"Shard {shard_index} of {shard_total}. {recovery_notice}",
+                recovery_notice,
                 "This shard alone can authorize future extensions. Keep it secure.",
                 f"Recovery requires {shard_threshold}/{shard_total} shards. "
                 "Store apart from passphrase documents.",
             )
         else:
             lines = (
-                f"Shard {shard_index} of {shard_total}. {recovery_notice}",
+                recovery_notice,
                 f"Recovery requires {shard_threshold}/{shard_total} shards. "
                 "Keep each shard secure.",
                 "Keep it apart from recovery documents and other shards.",
             )
     else:
         raise ValueError(f"unsupported render doc_type for instruction copy: {doc_type!r}")
+
+    if (
+        normalized_doc_type in {DOC_TYPE_MAIN, DOC_TYPE_RECOVERY}
+        and _origin_kind(context) == "extension"
+    ):
+        lines = (_extension_dependencies(context), *lines[1:])
 
     return InstructionCopy(label="Instructions", lines=lines)
 
@@ -121,12 +140,7 @@ def _int_value(value: object, *, default: int) -> int:
         return value
     if isinstance(value, float):
         return int(value)
-    if isinstance(value, str):
-        try:
-            return int(value)
-        except ValueError:
-            return default
-    return default
+    return integer_text_or_default(value, default)
 
 
 def _origin_mapping(context: Mapping[str, object]) -> Mapping[str, object]:
@@ -157,6 +171,24 @@ def _extension_label(index: int | None) -> str:
     return f"Extension {index:02d}"
 
 
+def _extension_subtitle(context: Mapping[str, object], *, fallback: str) -> str:
+    root_doc_id = _origin_mapping(context).get("root_doc_id")
+    index = _origin_extension_index(context)
+    if isinstance(root_doc_id, str) and root_doc_id and index is not None:
+        return f"Update {index:02d} | Original backup ID: {root_doc_id}"
+    return fallback
+
+
+def _extension_dependencies(context: Mapping[str, object], *, compact: bool = False) -> str:
+    if _origin_mapping(context).get("update_mode") == "cumulative":
+        if compact:
+            return "Keep original + this update"
+        return "Keep the original backup and this update; earlier updates are not required."
+    if compact:
+        return "Keep original + all updates through this one"
+    return "Keep the original backup and every update through this one."
+
+
 def _origin_label(context: Mapping[str, object]) -> str | None:
     kind = _origin_kind(context)
     if kind == "extension":
@@ -177,10 +209,12 @@ def _main_document_copy(*, context: Mapping[str, object]) -> dict[str, object]:
         if origin_label is None:
             raise ValueError("extension origin label is required")
         return {
-            "title": "Extension Main Document",
-            "subtitle": f"{origin_label} - Added and replaced files",
-            "header_guidance": "Use with the matching extension recovery document and root backup",
-            "footer_guidance": "Use with the matching extension recovery document and root backup",
+            "title": "Update Document",
+            "subtitle": _extension_subtitle(
+                context, fallback=f"{origin_label} - Added and replaced files"
+            ),
+            "header_guidance": _extension_dependencies(context, compact=True),
+            "footer_guidance": _extension_dependencies(context, compact=True),
             "directives_label": "Directives",
             "security_notice_label": "Security Notice",
             "security_notice_body": (
@@ -241,9 +275,11 @@ def _recovery_document_copy(*, context: Mapping[str, object]) -> dict[str, objec
             raise ValueError("extension origin label is required")
         return {
             "title": "Recovery Document",
-            "subtitle": f"{origin_label} - Keys + Text Fallback",
-            "header_guidance": "Transcribe exactly; keep with the root backup set",
-            "footer_guidance": "Transcribe exactly; keep with the root backup set",
+            "subtitle": _extension_subtitle(
+                context, fallback=f"{origin_label} - Keys + Text Fallback"
+            ),
+            "header_guidance": _extension_dependencies(context, compact=True),
+            "footer_guidance": _extension_dependencies(context, compact=True),
             "warning_title": "Critical Security Warning",
             "warning_body": (
                 f"This sheet belongs to {origin_label}. Operate in an air-gapped "
@@ -259,7 +295,7 @@ def _recovery_document_copy(*, context: Mapping[str, object]) -> dict[str, objec
                 "[ ] Network radios off (Wi-Fi / Ethernet / Bluetooth).",
                 "[ ] No phone or camera in the recovery area.",
                 "[ ] Only required recovery sheets are on the desk.",
-                "[ ] Recovery sheet stays with the root backup and extension set.",
+                f"[ ] {_extension_dependencies(context)}",
             ),
             "completion_checklist": (
                 "[ ] Restored output opened and format looks correct.",
@@ -340,14 +376,71 @@ def _recovery_document_copy(*, context: Mapping[str, object]) -> dict[str, objec
     }
 
 
+def _kit_guide_copy() -> dict[str, object]:
+    scan = (
+        "Scan QR 1, then QR 2.",
+        "Copy both scans, in that order, into one plain-text file.",
+        "Save as start.html and open it in a browser.",
+        "Paste QR 3 onwards into the page in any order.",
+    )
+    open_steps = (
+        "When all parts are collected, choose Save recovery kit.",
+        "Open the downloaded HTML file.",
+        "Disconnect before adding your backup and recovery secrets.",
+    )
+    help_steps = (
+        "Missing or damaged parts: rescan the QR numbers shown on the page.",
+        "Startup fails: recopy QR 1 and QR 2.",
+        "Browser support error: try a newer browser.",
+    )
+    storage = (
+        "Keep the HTML file to reuse the kit without scanning.",
+        "Keep the printed kit in case the digital copy is lost.",
+    )
+    security = (
+        "Disconnect before entering recovery secrets.",
+        "Use a computer you trust.",
+    )
+    return {
+        "guide_title": "REBUILD THE RECOVERY KIT",
+        "guide_intro": "Rebuild the app from these QR pages, then use it to restore your backup.",
+        "guide_scan_steps": scan,
+        "guide_open_steps": open_steps,
+        "guide_help_steps": help_steps,
+        "guide_verify": (
+            "The browser should show Ethernity Recovery Kit.",
+            "Open it offline before relying on this copy.",
+        ),
+        "guide_storage": storage,
+        "guide_security": security,
+        "guide_checklist": (
+            "Both startup codes saved in start.html.",
+            "Assembly page reports all parts collected.",
+            "Recovery kit downloaded as HTML.",
+            "Kit opens without errors.",
+            "Kit works while offline.",
+            "Recovered files saved and checked.",
+        ),
+        "guide_scan": scan[0],
+        "guide_paste": " ".join(scan[1:3]),
+        "guide_save": scan[3],
+        "guide_open": " ".join(open_steps[:2]),
+        "guide_offline": " ".join(security),
+        "guide_help_text": help_steps[1],
+        "guide_help_parts": help_steps[0],
+        "guide_help_browser": help_steps[2],
+        "guide_keep": " ".join(storage),
+    }
+
+
 def _kit_document_copy(*, context: Mapping[str, object]) -> dict[str, object]:
     origin_kind = _origin_kind(context)
     if origin_kind == "recovery_kit":
         return {
             "title": "Recovery Kit",
             "subtitle": "Standalone offline HTML bundle",
-            "header_guidance": "Scan left-to-right, top-to-bottom during offline recovery",
-            "footer_guidance": "Scan left-to-right, top-to-bottom during offline recovery",
+            "header_guidance": "Start with QR 1 and QR 2; add remaining scans in any order",
+            "footer_guidance": "Start with QR 1 and QR 2; add remaining scans in any order",
             "warning_title": "Critical Security Warning",
             "warning_body": (
                 "Perform kit reconstruction in an offline environment. This standalone kit "
@@ -355,22 +448,22 @@ def _kit_document_copy(*, context: Mapping[str, object]) -> dict[str, object]:
             ),
             "checklist_label": "Security Verification Checklist",
             "continuation_hint": (
-                "Scan every QR code left to right, top to bottom before continuing."
+                "Create start.html from QR 1 and QR 2; paste the rest into that page."
             ),
             "origin_badge": "Recovery Kit",
         }
     return {
         "title": "Recovery Kit",
         "subtitle": "Offline HTML bundle",
-        "header_guidance": "Scan left-to-right, top-to-bottom during offline recovery",
-        "footer_guidance": "Scan left-to-right, top-to-bottom during offline recovery",
+        "header_guidance": "Start with QR 1 and QR 2; add remaining scans in any order",
+        "footer_guidance": "Start with QR 1 and QR 2; add remaining scans in any order",
         "warning_title": "Critical Security Warning",
         "warning_body": (
             "Perform kit reconstruction in an offline environment. Keep this document "
             "separate from shard and recovery documents."
         ),
         "checklist_label": "Security Verification Checklist",
-        "continuation_hint": "Scan every QR code left to right, top to bottom before continuing.",
+        "continuation_hint": "Create start.html from QR 1 and QR 2; paste the rest into that page.",
     }
 
 
@@ -398,6 +491,7 @@ def _shard_document_copy(*, context: Mapping[str, object]) -> dict[str, object]:
     copy: dict[str, object] = {
         "title": f"{prefix}Shard Document",
         "subtitle": f"{prefix}Shard {shard_index} of {shard_total}",
+        "qr_caption": f"Shard {shard_index} of {shard_total}",
         "header_guidance": guidance,
         "footer_guidance": guidance,
         "handling_guidance": f"Passphrase Shard // Store Separately // {guidance}",
@@ -444,6 +538,7 @@ def _signing_key_shard_document_copy(*, context: Mapping[str, object]) -> dict[s
         "subtitle": f"{prefix.rstrip()} - Signing key shard {shard_index} of {shard_total}"
         if prefix
         else f"Signing key shard {shard_index} of {shard_total}",
+        "qr_caption": f"Shard {shard_index} of {shard_total}",
         "header_guidance": guidance,
         "footer_guidance": guidance,
         "warning_title": "Critical Security Notice",

@@ -32,13 +32,10 @@ class TestCopyCatalog(unittest.TestCase):
                 "Fallback includes AUTH + MAIN sections; keep the labels when transcribing.",
             ),
             "kit": (
-                "Scan every QR code left to right, top to bottom.",
-                (
-                    "QR #1 is the shell. Paste it first, then paste every remaining QR in "
-                    "order (no separators)."
-                ),
-                "Save the result as recovery_kit.bundle.html.",
-                "Open that file in a browser (offline) to run the kit.",
+                "Copy QR 1, then QR 2 into one plain-text file.",
+                "Save as start.html and open it in a browser.",
+                "Paste QR 3 onwards into the page in any order.",
+                "Choose Save recovery kit, then open the downloaded HTML.",
             ),
         }
 
@@ -61,7 +58,7 @@ class TestCopyCatalog(unittest.TestCase):
                 self.assertEqual(
                     instructions.lines,
                     (
-                        f"Shard 2 of 5. This shard alone cannot recover the {secret}.",
+                        f"This shard alone cannot recover the {secret}.",
                         "Recovery requires 3/5 shards. Keep each shard secure.",
                         "Keep it apart from recovery documents and other shards.",
                     ),
@@ -79,10 +76,10 @@ class TestCopyCatalog(unittest.TestCase):
             doc_type="main",
             context={"origin": {"kind": "extension", "extension_index": 2}},
         )
-        self.assertEqual(copy["title"], "Extension Main Document")
+        self.assertEqual(copy["title"], "Update Document")
         self.assertEqual(copy["subtitle"], "Extension 02 - Added and replaced files")
         self.assertEqual(copy["origin_badge"], "Extension 02")
-        self.assertIn("root backup", copy["header_guidance"])
+        self.assertEqual(copy["header_guidance"], "Keep original + all updates through this one")
 
     def test_extension_recovery_bundle_describes_encoded_fallback(self) -> None:
         copy = build_copy_bundle(

@@ -1,0 +1,40 @@
+{
+  "components": {
+    "kit-guide-intro": [
+      {"key": "title", "kind": "text", "box": [0, 0, 0, 8], "text": "{copy_guide_title}", "style": "guide-title", "fit": "wrap", "stretch_x": true, "line_height": 1.15},
+      {"key": "intro", "kind": "text", "box": [0, 0, 0, 13], "text": "{copy_guide_intro}", "style": "guide-body", "fit": "wrap", "stretch_x": true, "line_height": 1.15, "after": "title", "gap_after": 2}
+    ],
+    "kit-guide-scan": [
+      {"key": "heading", "kind": "text", "box": [0, 0, 0, 6], "text": "1. SCAN AND SAVE", "style": "guide-heading", "fit": "wrap", "stretch_x": true, "line_height": 1.15},
+      {"key": "scan", "kind": "text", "box": [0, 0, 0, 22], "text": "{copy_guide_scan}", "style": "guide-body", "fit": "wrap", "stretch_x": true, "line_height": 1.15, "after": "heading", "gap_after": 2},
+      {"key": "paste", "kind": "text", "box": [0, 0, 0, 22], "text": "{copy_guide_paste}", "style": "guide-body", "fit": "wrap", "stretch_x": true, "line_height": 1.15, "after": "scan", "gap_after": 2},
+      {"key": "save", "kind": "text", "box": [0, 0, 0, 22], "text": "{copy_guide_save}", "style": "guide-body", "fit": "wrap", "stretch_x": true, "line_height": 1.15, "after": "paste", "gap_after": 2}
+    ],
+    "kit-guide-open": [
+      {"key": "heading", "kind": "text", "box": [0, 0, 0, 6], "text": "2. OPEN AND RECOVER", "style": "guide-heading", "fit": "wrap", "stretch_x": true, "line_height": 1.15},
+      {"key": "open", "kind": "text", "box": [0, 0, 0, 22], "text": "{copy_guide_open}", "style": "guide-body", "fit": "wrap", "stretch_x": true, "line_height": 1.15, "after": "heading", "gap_after": 2},
+      {"key": "offline", "kind": "text", "box": [0, 0, 0, 22], "text": "{copy_guide_offline}", "style": "guide-body", "fit": "wrap", "stretch_x": true, "line_height": 1.15, "after": "open", "gap_after": 2}
+    ],
+    "kit-guide-help": [
+      {"key": "heading", "kind": "text", "box": [0, 0, 0, 6], "text": "IF IT DOES NOT OPEN", "style": "guide-heading", "fit": "wrap", "stretch_x": true, "line_height": 1.15},
+      {"key": "text", "kind": "text", "box": [0, 0, 0, 32], "text": "{copy_guide_help_text}", "style": "guide-body", "fit": "wrap", "stretch_x": true, "line_height": 1.15, "after": "heading", "gap_after": 2},
+      {"key": "parts", "kind": "text", "box": [0, 0, 0, 32], "text": "{copy_guide_help_parts}", "style": "guide-body", "fit": "wrap", "stretch_x": true, "line_height": 1.15, "after": "text", "gap_after": 2},
+      {"key": "browser", "kind": "text", "box": [0, 0, 0, 32], "text": "{copy_guide_help_browser}", "style": "guide-body", "fit": "wrap", "stretch_x": true, "line_height": 1.15, "after": "parts", "gap_after": 2}
+    ],
+    "kit-guide-keep": [
+      {"key": "heading", "kind": "text", "box": [0, 0, 0, 6], "text": "KEEP A WORKING COPY", "style": "guide-heading", "fit": "wrap", "stretch_x": true, "line_height": 1.15},
+      {"key": "keep", "kind": "text", "box": [0, 0, 0, 22], "text": "{copy_guide_keep}", "style": "guide-body", "fit": "wrap", "stretch_x": true, "line_height": 1.15, "after": "heading", "gap_after": 2}
+    ],
+    "kit-guide-compact": [
+      {"key": "intro", "kind": "group", "box": [0, 0, 128, 0], "ref": "kit-guide-intro"},
+      {"key": "scan-card", "kind": "group", "box": [0, 21, 128, 43], "ref": "kit-guide-card"},
+      {"key": "scan", "kind": "group", "box": [4, 24, 120, 0], "ref": "kit-guide-scan"},
+      {"key": "open-card", "kind": "group", "box": [0, 68, 128, 31], "ref": "kit-guide-card"},
+      {"key": "open", "kind": "group", "box": [4, 71, 120, 0], "ref": "kit-guide-open"},
+      {"key": "help-card", "kind": "group", "box": [0, 103, 128, 44], "ref": "kit-guide-card"},
+      {"key": "help", "kind": "group", "box": [4, 106, 120, 0], "ref": "kit-guide-help"},
+      {"key": "keep-card", "kind": "group", "box": [0, 151, 128, 20], "ref": "kit-guide-card"},
+      {"key": "keep", "kind": "group", "box": [4, 154, 120, 0], "ref": "kit-guide-keep"}
+    ]
+  }
+}

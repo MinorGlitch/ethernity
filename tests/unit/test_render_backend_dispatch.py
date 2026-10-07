@@ -5,8 +5,8 @@ from tempfile import TemporaryDirectory
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.page_sizes import PaperSize
 from ethernity.render import render_frames_to_pdf
-from ethernity.render.backend_dispatch import DIRECT_PDF_DESIGN_REGISTRY
 from ethernity.render.checks import validate_pdf_has_pages, validate_rendered_document_summary
+from ethernity.render.designs import list_design_definitions
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_KIT_INDEX,
@@ -47,11 +47,11 @@ class TestRenderBackendDispatch(unittest.TestCase):
             "sentinel": expected_default_doc_types | {DOC_TYPE_KIT_INDEX},
         }
 
-        self.assertEqual(set(DIRECT_PDF_DESIGN_REGISTRY), set(expected_doc_types_by_design))
+        self.assertEqual(set(list_design_definitions()), set(expected_doc_types_by_design))
         for design_name, expected_doc_types in expected_doc_types_by_design.items():
-            design = DIRECT_PDF_DESIGN_REGISTRY[design_name]
-            self.assertEqual(design.style_name, design_name)
-            self.assertEqual(set(design.builders), expected_doc_types)
+            design = list_design_definitions()[design_name]
+            self.assertEqual(design.name, design_name)
+            self.assertEqual(set(design.documents), expected_doc_types)
 
     def test_direct_backend_routes_supported_forge_recovery_render(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -452,8 +452,8 @@ class TestRenderBackendDispatch(unittest.TestCase):
         inputs = RenderInputs(
             frames=(frame,),
             output_path="ignored.pdf",
-            context={"paper_size": "A5"},
-            page_size=PaperSize("A5", "A5", 148.0, 210.0),
+            context={"paper_size": "A6"},
+            page_size=PaperSize("A6", "A6", 105.0, 148.0),
             doc_type=DOC_TYPE_MAIN,
             design_name="sentinel",
             origin=DocumentOrigin(kind="root_backup"),

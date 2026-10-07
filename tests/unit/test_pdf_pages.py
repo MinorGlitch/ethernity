@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,7 +34,7 @@ class TestPdfPageCount(unittest.TestCase):
                 doc_id=doc_id,
                 index=i,
                 total=13,
-                data=f"payload-{i}".encode("utf-8"),
+                data=f"payload-{i}".encode(),
             )
             for i in range(13)
         ]
@@ -48,13 +49,18 @@ class TestPdfPageCount(unittest.TestCase):
                 output_path=output_path,
                 context=context,
                 doc_type="main",
+                design_name="sentinel",
                 origin=DocumentOrigin(kind="root_backup"),
                 render_fallback=False,
             )
             render_frames_to_pdf(inputs)
 
             reader = PdfReader(str(output_path))
+            # Sentinel has four slots on its first page and nine on continuations.
             self.assertEqual(len(reader.pages), 2)
+            for page, expected in zip(reader.pages, (range(1, 5), range(5, 14)), strict=True):
+                labels = re.findall(r"\bSEGMENT (\d+)\b", page.extract_text().upper())
+                self.assertEqual([int(label) for label in labels], list(expected))
 
 
 if __name__ == "__main__":

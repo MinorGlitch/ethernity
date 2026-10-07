@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from enum import Enum
+from enum import StrEnum
 from math import floor
-from typing import Sequence
 
 from ethernity.render.direct_pdf.surface import PdfSurface
 from ethernity.render.direct_pdf.types import TextStyle
@@ -15,13 +15,16 @@ _DEFAULT_MIN_SIZE_RATIO = 0.75
 _DEFAULT_MIN_SIZE_PT = 4.0
 
 
-class TextFitPolicy(str, Enum):
+class TextFitPolicy(StrEnum):
     """Explicit choices for handling text that may exceed a layout box."""
 
     FAIL = "fail"
     WRAP = "wrap"
     SHRINK = "shrink"
     SPLIT = "split"
+
+    def __str__(self) -> str:
+        return f"{type(self).__name__}.{self.name}"
 
 
 class TextFitError(ValueError):

@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import Mapping
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
