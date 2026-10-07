@@ -11,7 +11,7 @@ from pypdf import PdfReader
 from ethernity.app.backup_estimate_controller import BackupEstimateController
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.backup_estimate import BackupEstimate, estimate_backup
-from ethernity.workflows.execution import BackupRequest
+from ethernity.workflows.shared.requests import BackupRequest
 
 
 def test_backup_estimate_counts_nested_files_and_uses_compression_without_encryption(

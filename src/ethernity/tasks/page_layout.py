@@ -74,10 +74,21 @@ def require_workflow_page_size(
     )
 
 
+def validate_backup_print_options(
+    design: str | None, paper_size: str | None, qr_chunk_size: int | None
+) -> None:
+    """Validate an explicit page choice and any custom QR capacity."""
+    if design is not None and paper_size is not None:
+        require_workflow_page_size(design, paper_size, candidate_doc_types=BACKUP_RENDER_DOC_TYPES)
+    if qr_chunk_size is not None and qr_chunk_size < 1:
+        raise ValueError("QR chunk size must be positive")
+
+
 __all__ = [
     "BACKUP_RENDER_DOC_TYPES",
     "KIT_RENDER_DOC_TYPES",
     "ValidatedPaperSizeName",
     "require_workflow_page_size",
+    "validate_backup_print_options",
     "with_print_layout",
 ]

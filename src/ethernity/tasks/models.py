@@ -22,6 +22,8 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ethernity.core.failures import FailureInfo
+
 TaskSectionStatus = Literal["missing", "ready", "optional", "warning", "blocked"]
 TaskIssueSeverity = Literal["info", "warning", "error"]
 
@@ -44,6 +46,15 @@ class TaskIssue(BaseModel):
     message: str
     severity: TaskIssueSeverity = "error"
     section: str | None = None
+
+
+class TaskValidationError(ValueError):
+    """A task issue with an explicit editing destination."""
+
+    def __init__(self, issue: TaskIssue) -> None:
+        super().__init__(issue.message)
+        self.code = issue.code
+        self.section = issue.section
 
 
 def optional_section_status(
@@ -85,6 +96,12 @@ class TaskValidation(BaseModel):
     def ready(self) -> bool:
         return not any(issue.severity == "error" for issue in self.issues)
 
+    def require_ready(self, message: str) -> None:
+        if self.ready:
+            return
+        issue = next((issue for issue in self.issues if issue.severity == "error"), None)
+        raise TaskValidationError(issue or TaskIssue(code="TASK_NOT_READY", message=message))
+
 
 class TaskExecutionPlan(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -109,9 +126,10 @@ class TaskResultDetail(BaseModel):
 class TaskExecutionResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    status: Literal["succeeded", "partially_succeeded", "failed"]
+    status: Literal["succeeded", "partially_succeeded", "failed", "cancelled"]
     message: str
     output_paths: tuple[Path, ...] = Field(default_factory=tuple)
+    failure: FailureInfo | None = None
     recovery_check_paths: tuple[Path, ...] = Field(
         default_factory=tuple,
         description="Generated QR-bearing documents to use for a disposable recovery check.",
@@ -121,7 +139,7 @@ class TaskExecutionResult(BaseModel):
 
     @property
     def ok(self) -> bool:
-        return self.status != "failed"
+        return self.status in {"succeeded", "partially_succeeded"}
 
 
 class TaskDiagnosticBlock(BaseModel):

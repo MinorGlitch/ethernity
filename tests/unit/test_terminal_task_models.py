@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from ethernity.config import get_api_config_snapshot
+from ethernity.config import get_config_snapshot
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
@@ -68,7 +68,7 @@ def test_backup_task_reports_missing_required_sections() -> None:
         ("advanced", "optional"),
     ]
     output_section = next(section for section in validation.sections if section.key == "output")
-    assert output_section.summary == "Automatic folder named for backup ID"
+    assert output_section.summary == "backup-<id>"
 
 
 def test_backup_task_preview_uses_beginner_language() -> None:
@@ -288,7 +288,7 @@ def test_backup_task_exposes_and_validates_advanced_signing_key_options() -> Non
     args = state.to_backup_request()
 
     assert validation.ready
-    assert "5 key sheets, any 3 required" in validation.sections[-1].summary
+    assert "5 key sheets; any 3 can recover the key" in validation.sections[-1].summary
     assert [item.label for item in preview.items] == [
         "Backup pages",
         "Recovery guide",
@@ -408,23 +408,6 @@ def test_restore_task_exposes_unsigned_legacy_recovery_policy() -> None:
     assert args.allow_unsigned
 
 
-def test_restore_task_exposes_resource_intensive_compatibility_policy() -> None:
-    state = RestoreTaskState(
-        source_paths=[Path("scans")],
-        passphrase="secret",
-        output_path=Path("recovered"),
-        resource_intensive_compatibility_recovery=True,
-    )
-
-    preview = state.preview()
-    args = state.to_recovery_request()
-
-    assert args.resource_intensive_compatibility_recovery
-    assert any(
-        warning.code == "RESTORE_RESOURCE_INTENSIVE_COMPATIBILITY" for warning in preview.warnings
-    )
-
-
 def test_restore_task_exposes_signature_source_inputs() -> None:
     state = RestoreTaskState(
         source_paths=[Path("scans")],
@@ -507,7 +490,6 @@ def test_add_files_task_reports_missing_required_sections() -> None:
         "ADD_FILES_SOURCE_REQUIRED",
         "ADD_FILES_INPUT_REQUIRED",
         "ADD_FILES_UNLOCK_REQUIRED",
-        "ADD_FILES_OUTPUT_REQUIRED",
     ]
 
 
@@ -566,7 +548,7 @@ def test_add_files_requires_freshness_for_every_document_source(source) -> None:
     assert state.validate_task().ready
 
 
-def test_add_files_documents_do_not_supply_an_implicit_destination() -> None:
+def test_add_files_automatic_destination_is_deferred_until_verified_review() -> None:
     state = AddFilesTaskState(
         source_paths=[Path("documents")],
         input_paths=[Path("new-file.txt")],
@@ -574,7 +556,10 @@ def test_add_files_documents_do_not_supply_an_implicit_destination() -> None:
         allow_stale_head=True,
     )
 
-    assert [issue.code for issue in state.validate_task().issues] == ["ADD_FILES_OUTPUT_REQUIRED"]
+    assert state.validate_task().ready
+    assert state.resolved_output_dir() is None
+    assert state.to_add_files_request().output_dir is None
+    assert state.execution_plan().output_paths == ()
 
 
 def test_add_files_task_decodes_pasted_text_and_forwards_signature_source() -> None:
@@ -647,6 +632,7 @@ def test_add_files_task_exposes_advanced_update_options() -> None:
         "Backup version",
         "Verification source",
         "Recovery sheets",
+        "Update mode",
         "New documents",
         "QR density",
     ]
@@ -902,7 +888,7 @@ def test_replace_recovery_docs_signing_key_recovery_outputs_preview_and_args() -
 
 
 def test_settings_task_reports_unsupported_design() -> None:
-    snapshot = get_api_config_snapshot(DEFAULT_CONFIG_PATH)
+    snapshot = get_config_snapshot(DEFAULT_CONFIG_PATH)
     values = copy.deepcopy(snapshot.values)
     values["render"]["style"] = "unknown"
     state = SettingsTaskState(
@@ -916,8 +902,8 @@ def test_settings_task_reports_unsupported_design() -> None:
     assert [issue.code for issue in validation.issues] == ["SETTINGS_UNSUPPORTED_VALUE"]
 
 
-def test_settings_descriptors_cover_config_api_snapshot() -> None:
-    snapshot = get_api_config_snapshot(DEFAULT_CONFIG_PATH)
+def test_settings_descriptors_cover_config_snapshot() -> None:
+    snapshot = get_config_snapshot(DEFAULT_CONFIG_PATH)
     state = SettingsTaskState.from_current(DEFAULT_CONFIG_PATH)
 
     descriptor_paths = {descriptor.path for descriptor in state.descriptors()}
@@ -925,8 +911,8 @@ def test_settings_descriptors_cover_config_api_snapshot() -> None:
     assert descriptor_paths == _leaf_paths(snapshot.values)
 
 
-def test_settings_enum_descriptors_reference_config_api_options() -> None:
-    snapshot = get_api_config_snapshot(DEFAULT_CONFIG_PATH)
+def test_settings_enum_descriptors_reference_config_options() -> None:
+    snapshot = get_config_snapshot(DEFAULT_CONFIG_PATH)
     state = SettingsTaskState.from_current(DEFAULT_CONFIG_PATH)
 
     for descriptor in state.descriptors():
@@ -974,7 +960,7 @@ def test_settings_task_writes_common_defaults(tmp_path) -> None:
     state.set_setting_value("backup_output_dir", "backup-out")
 
     result = state.execute()
-    snapshot = get_api_config_snapshot(config_path)
+    snapshot = get_config_snapshot(config_path)
 
     assert result.message == "Settings saved."
     assert result.output_paths == (config_path,)

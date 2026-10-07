@@ -18,9 +18,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, model_validator
 
 from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME
+from ethernity.tasks.common_sections import (
+    advanced_section,
+    backup_destination_section,
+    confirmed_source_section,
+    destination_preview,
+    qr_density_warnings,
+    stale_source_warnings,
+    unchanged_backup_preview,
+    unlock_section,
+)
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
@@ -31,43 +41,36 @@ from ethernity.tasks.models import (
     TaskResultDetail,
     TaskSection,
     TaskValidation,
-    optional_section_status,
 )
 from ethernity.tasks.output_checks import (
-    existing_output_summary,
-    existing_output_warning,
-    selected_output_status,
+    BACKUP_OUTPUT_NOTE,
+    backup_destination_issues,
+    generated_output_paths,
+    generated_recovery_check_paths,
+    planned_backup_output,
 )
 from ethernity.tasks.page_layout import (
-    BACKUP_RENDER_DOC_TYPES,
     ValidatedPaperSizeName,
-    require_workflow_page_size,
+    validate_backup_print_options,
 )
 from ethernity.tasks.presentation.recovery import signature_source_summary, unlock_input_summary
 from ethernity.tasks.recovery_inputs import has_unlock_inputs
 from ethernity.tasks.source_assessment import (
-    SourceAssessableTaskState,
+    RecoveryTaskState,
     SourceAssessmentRequest,
     folder_or_scans_source_request,
 )
-from ethernity.workflows.execution import RebuildRequest, execute_rebuild
+from ethernity.workflows.execution import execute_rebuild
+from ethernity.workflows.shared.requests import RebuildRequest
 
 
-class RebuildTaskState(SourceAssessableTaskState):
+class RebuildTaskState(RecoveryTaskState):
     """Beginner-facing state for rebuilding a backup from its latest recoverable state."""
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
     backup_folder: Path | None = None
-    config_path: Path | None = None
-    source_paths: list[Path] = Field(default_factory=list)
     output_dir: Path | None = None
-    passphrase: str | None = None
-    recovery_documents: list[Path] = Field(default_factory=list)
-    recovery_payload_files: list[Path] = Field(default_factory=list)
-    auth_text_file: Path | None = None
-    auth_payloads_file: Path | None = None
-    expected_head_doc_hash: str | None = None
     allow_stale_head: bool = False
     paper_size: ValidatedPaperSizeName = DEFAULT_PAPER_SIZE_NAME
     design: str = "sentinel"
@@ -75,13 +78,7 @@ class RebuildTaskState(SourceAssessableTaskState):
 
     @model_validator(mode="after")
     def _validate_qr_chunk_size(self) -> RebuildTaskState:
-        require_workflow_page_size(
-            self.design,
-            self.paper_size,
-            candidate_doc_types=BACKUP_RENDER_DOC_TYPES,
-        )
-        if self.qr_chunk_size is not None and self.qr_chunk_size < 1:
-            raise ValueError("QR chunk size must be positive")
+        validate_backup_print_options(self.design, self.paper_size, self.qr_chunk_size)
         return self
 
     def sections(self) -> tuple[TaskSection, ...]:
@@ -93,44 +90,13 @@ class RebuildTaskState(SourceAssessableTaskState):
                 summary=self._source_summary(),
                 action_label="Choose backup folder...",
             ),
-            TaskSection(
-                key="unlock",
-                title="Unlock backup",
-                status="ready" if has_unlock_inputs(self) else "missing",
-                summary=unlock_input_summary(self),
-                action_label="Set unlock method...",
+            unlock_section(self, "Unlock backup"),
+            confirmed_source_section(
+                self.expected_head_doc_hash, self.allow_stale_head, self._freshness_summary()
             ),
-            TaskSection(
-                key="freshness",
-                title="Backup version",
-                status=(
-                    "ready"
-                    if self.expected_head_doc_hash is not None or self.allow_stale_head
-                    else "missing"
-                ),
-                summary=self._freshness_summary(),
-                action_label="Confirm source",
-            ),
-            TaskSection(
-                key="output",
-                title="Save rebuilt backup to",
-                status=selected_output_status(self.output_dir),
-                summary=existing_output_summary(
-                    self.output_dir,
-                    target="output_folder",
-                    missing_summary="No output folder selected.",
-                ),
-                action_label="Choose output folder...",
-            ),
-            TaskSection(
-                key="advanced",
-                title="Advanced",
-                status=optional_section_status(
-                    self._advanced_issues(),
-                    self._advanced_warnings(),
-                ),
-                summary=self._advanced_summary(),
-                action_label="Review advanced options",
+            backup_destination_section(self.output_dir, "Save rebuilt backup to", required=True),
+            advanced_section(
+                self._advanced_issues(), self._advanced_warnings(), self._advanced_summary()
             ),
         )
 
@@ -176,10 +142,8 @@ class RebuildTaskState(SourceAssessableTaskState):
                 )
             )
         issues.extend(self._advanced_issues())
-        return TaskValidation(
-            sections=self.sections(),
-            issues=self.source_assessment_issues(issues),
-        )
+        issues.extend(backup_destination_issues(self.output_dir))
+        return self.validation_with_source_issues(issues)
 
     def source_assessment_request(self) -> SourceAssessmentRequest | None:
         return folder_or_scans_source_request(
@@ -193,11 +157,6 @@ class RebuildTaskState(SourceAssessableTaskState):
 
     def preview(self) -> TaskPreview:
         warnings = (
-            *existing_output_warning(
-                self.output_dir,
-                code="REBUILD_OUTPUT_EXISTS",
-                target="output_folder",
-            ),
             *self._freshness_warnings(),
             *self._advanced_warnings(),
         )
@@ -209,16 +168,10 @@ class RebuildTaskState(SourceAssessableTaskState):
                 label="Verification source",
                 detail=signature_source_summary(self.auth_text_file, self.auth_payloads_file),
             ),
-            PreviewItem(
-                label="Destination",
-                detail=(
-                    display_path(self.output_dir) if self.output_dir is not None else "Not selected"
-                ),
+            destination_preview(
+                planned_backup_output(self.output_dir) if self.output_dir is not None else None
             ),
-            PreviewItem(
-                label="Existing backup files",
-                detail="Left unchanged",
-            ),
+            unchanged_backup_preview(),
             PreviewItem(
                 label="Credentials",
                 detail="Same passphrase; embedded signing key preserved",
@@ -237,16 +190,14 @@ class RebuildTaskState(SourceAssessableTaskState):
         )
 
     def execution_plan(self) -> TaskExecutionPlan:
-        outputs = (self.output_dir,) if self.output_dir is not None else ()
+        output = planned_backup_output(self.output_dir) if self.output_dir is not None else None
+        outputs = (output,) if output is not None else ()
         return TaskExecutionPlan(
-            summary=f"Rebuild backup into {self.output_dir or 'missing output'}",
+            summary=f"Rebuild backup into {display_path(output) if output else 'missing output'}",
             read_paths=self._read_paths(),
             output_paths=outputs,
             writes_files=True,
-            safety_notes=(
-                "Ethernity will create the folder if needed and write the rebuilt PDFs inside it.",
-                "Existing backup files stay unchanged.",
-            ),
+            safety_notes=(BACKUP_OUTPUT_NOTE,),
             trust_notes=(
                 f"Backup version: {self._freshness_summary()}",
                 "Latest means the newest valid version in the documents you loaded.",
@@ -263,20 +214,10 @@ class RebuildTaskState(SourceAssessableTaskState):
 
     def execute(self) -> TaskExecutionResult:
         validation = self.validate_task()
-        if not validation.ready:
-            first_issue = validation.issues[0] if validation.issues else None
-            message = first_issue.message if first_issue is not None else "Rebuild is not ready."
-            raise ValueError(message)
+        validation.require_ready("Rebuild is not ready.")
 
         result = execute_rebuild(self.to_rebuild_request())
-        output_paths = (
-            result.qr_path,
-            result.recovery_path,
-            *result.shard_paths,
-            *result.signing_key_shard_paths,
-        )
-        if result.kit_index_path is not None:
-            output_paths = (*output_paths, Path(result.kit_index_path))
+        output_paths = generated_output_paths(result)
         signing_note = "An embedded signing key is preserved."
         if result.signing_key_preserved is True:
             signing_note = "The signing key is preserved."
@@ -286,11 +227,7 @@ class RebuildTaskState(SourceAssessableTaskState):
             status="succeeded",
             message="Rebuilt backup documents created.",
             output_paths=output_paths,
-            recovery_check_paths=(
-                result.qr_path,
-                *result.shard_paths,
-                *result.signing_key_shard_paths,
-            ),
+            recovery_check_paths=generated_recovery_check_paths(result),
             details=(
                 (
                     TaskResultDetail(
@@ -316,33 +253,23 @@ class RebuildTaskState(SourceAssessableTaskState):
             backup_folder=self.backup_folder,
             scan_paths=tuple(self.source_paths),
             output_dir=self.output_dir,
-            passphrase=self.passphrase,
-            shard_scan_paths=tuple(self.recovery_documents),
-            shard_payload_files=tuple(self.recovery_payload_files),
-            auth_text_file=self.auth_text_file,
-            auth_payloads_file=self.auth_payloads_file,
+            **self.unlock_request_fields(),
             expected_head_doc_hash=self.expected_head_doc_hash,
             allow_stale_head=self.allow_stale_head,
             paper_size=self.paper_size,
             design=self.design,
             qr_chunk_size=self.qr_chunk_size,
+            quiet=True,
         )
 
     def _has_exactly_one_source(self) -> bool:
         return (self.backup_folder is not None) != bool(self.source_paths)
 
     def _read_paths(self) -> tuple[Path, ...]:
-        paths = [
-            *self.source_paths,
-            *self.recovery_documents,
-            *self.recovery_payload_files,
-        ]
-        if self.backup_folder is not None:
-            paths.insert(0, self.backup_folder)
-        for path in (self.auth_text_file, self.auth_payloads_file):
-            if path is not None:
-                paths.append(path)
-        return tuple(paths)
+        paths = self.recovery_read_paths(
+            trailing_paths=(self.auth_text_file, self.auth_payloads_file)
+        )
+        return (self.backup_folder, *paths) if self.backup_folder is not None else paths
 
     def _source_summary(self) -> str:
         if self.backup_folder is not None and self.source_paths:
@@ -367,16 +294,7 @@ class RebuildTaskState(SourceAssessableTaskState):
         return ", ".join(parts)
 
     def _advanced_warnings(self) -> tuple[TaskIssue, ...]:
-        if self.qr_chunk_size is None:
-            return ()
-        return (
-            TaskIssue(
-                code="REBUILD_CUSTOM_QR_DENSITY",
-                message="Custom QR density can change page count and make codes harder to scan.",
-                severity="warning",
-                section="advanced",
-            ),
-        )
+        return qr_density_warnings(self.qr_chunk_size, "REBUILD_CUSTOM_QR_DENSITY")
 
     def _advanced_issues(self) -> tuple[TaskIssue, ...]:
         if self.auth_text_file is not None and self.auth_payloads_file is not None:
@@ -397,13 +315,4 @@ class RebuildTaskState(SourceAssessableTaskState):
         return "Confirm the loaded documents contain the latest version"
 
     def _freshness_warnings(self) -> tuple[TaskIssue, ...]:
-        if not self.allow_stale_head:
-            return ()
-        return (
-            TaskIssue(
-                code="REBUILD_STALE_SOURCE_ACCEPTED",
-                message="The loaded documents may omit a newer backup version.",
-                severity="warning",
-                section="freshness",
-            ),
-        )
+        return stale_source_warnings(self.allow_stale_head, "REBUILD_STALE_SOURCE_ACCEPTED")

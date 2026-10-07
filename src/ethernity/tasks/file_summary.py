@@ -91,3 +91,12 @@ def _direct_file_size(input_paths: list[Path], input_dirs: list[Path]) -> int | 
         except OSError:
             return None
     return total
+
+
+def selected_items_summary(file_count: int, folder_count: int, *, separator: str = " and ") -> str:
+    parts = []
+    if file_count:
+        parts.append(format_count(file_count, "file"))
+    if folder_count:
+        parts.append(format_count(folder_count, "folder"))
+    return separator.join(parts) if parts else "Nothing selected"

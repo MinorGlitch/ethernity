@@ -113,16 +113,13 @@ def _prepare_debug_document(
         input_origin=prepared.input_origin,
         input_roots=prepared.input_roots,
     )
-    encoded_payload, payload_codec, payload_raw_len = (
-        payload_codec_module.encode_payload_for_manifest(
-            payload,
-            mode=prepared.config.cli_defaults.backup.payload_codec,
-        )
+    encoded_payload, payload_codec = payload_codec_module.encode_payload_for_manifest(
+        payload,
+        mode=prepared.config.cli_defaults.backup.payload_codec,
     )
     manifest = replace(
         manifest,
         payload_codec=payload_codec,
-        payload_raw_len=payload_raw_len,
     )
     manifest_bytes = document_codec.encode_manifest(manifest)
     document = document_codec.encode_backup_document(encoded_payload, manifest)

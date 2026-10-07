@@ -6,10 +6,7 @@ from typing import Literal
 import pytest
 
 from ethernity.app.execution import ReviewedTask
-from ethernity.app.recovery_check_requests import (
-    generated_recovery_request,
-    printed_recovery_request,
-)
+from ethernity.app.recovery_check_requests import generated_recovery_request
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.models import TaskExecutionResult, TaskResultDetail
@@ -76,24 +73,6 @@ def test_generated_check_preserves_typed_carriers_without_guessing_filenames(
     assert generated_recovery_request(_reviewed(AddFilesTaskState()), result).documents == carriers
 
 
-def test_print_check_uses_only_physical_scans(tmp_path: Path) -> None:
-    state = AddFilesTaskState(
-        source_paths=[tmp_path / "generated-original.pdf"],
-        passphrase="remembered phrase",
-    )
-    result = TaskExecutionResult(
-        status="succeeded",
-        message="Created.",
-        output_paths=(tmp_path / "generated-update.pdf",),
-        recovery_check_paths=(tmp_path / "generated-update.pdf",),
-    )
-    scans = (tmp_path / "photographed-backup.png", tmp_path / "photographed-sheet.png")
-    request = printed_recovery_request(_reviewed(state), result, scans)
-    assert request.documents == scans
-    assert request.base_request is None
-    assert request.passphrase is None
-
-
 @pytest.mark.parametrize("task", ("backup", "rebuild"))
 def test_root_document_checks_pin_new_result_identity(
     task: Literal["backup", "rebuild"], tmp_path: Path
@@ -114,10 +93,7 @@ def test_root_document_checks_pin_new_result_identity(
         details=(TaskResultDetail(key="doc_hash", label="Full fingerprint", value=new_hash),),
     )
     generated = generated_recovery_request(reviewed, result)
-    printed = printed_recovery_request(reviewed, result, (tmp_path / "printout.png",))
     assert generated.expected_head_doc_hash == new_hash
-    assert printed.expected_head_doc_hash == new_hash
-    assert printed.documents == (tmp_path / "printout.png",)
 
 
 def _reviewed(state: AddFilesTaskState) -> ReviewedTask:

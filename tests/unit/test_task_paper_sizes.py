@@ -25,7 +25,7 @@ def test_task_paper_sizes_normalize_on_load_assignment_and_json_round_trip(
     state = state_type.model_validate({"paper_size": " letter "})
 
     assert state.model_dump()["paper_size"] == "LETTER"
-    setattr(state, "paper_size", " a4 ")
+    state.paper_size = " a4 "
     assert state.model_dump()["paper_size"] == "A4"
 
     restored = state_type.model_validate_json(state.model_dump_json())

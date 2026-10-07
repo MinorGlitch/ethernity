@@ -151,8 +151,7 @@ class PrintKitTaskState(BaseModel):
 
     def execute(self) -> TaskExecutionResult:
         validation = self.validate_task()
-        if not validation.ready:
-            raise ValueError(validation.issues[0].message)
+        validation.require_ready("Recovery kit is not ready.")
 
         result = create_kit(
             KitRequest(

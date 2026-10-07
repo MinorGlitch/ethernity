@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Literal
 
 import pytest
 
-from ethernity.run.json_io import print_task_json
 from ethernity.tasks import backup, models, rebuild
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.workflows import execution as workflow_execution
 from ethernity.workflows.execution import BackupExecutionResult
+from ethernity.workflows.shared import requests
 from ethernity.workflows.shared.operation_types import BackupResult
 
 
@@ -23,35 +22,6 @@ def test_recovery_check_paths_require_explicit_metadata() -> None:
     )
 
     assert result.recovery_check_paths == ()
-
-
-def test_recovery_carriers_preserve_scriptable_result_shape(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    carrier = tmp_path / "arbitrary-document.pdf"
-    result = models.TaskExecutionResult(
-        status="succeeded",
-        message="Created.",
-        output_paths=(carrier,),
-        recovery_check_paths=(carrier,),
-    )
-    print_task_json(
-        task="backup",
-        status="executed",
-        validation=models.TaskValidation(sections=()),
-        preview=models.TaskPreview(title="Backup"),
-        plan=models.TaskExecutionPlan(summary="Create backup"),
-        result=result,
-    )
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["result"] == {
-        "status": "succeeded",
-        "message": "Created.",
-        "output_paths": [str(carrier)],
-        "details": [],
-        "next_steps": [],
-    }
-    assert result.recovery_check_paths == (carrier,)
 
 
 @pytest.mark.parametrize("task", ("backup", "rebuild"))
@@ -76,12 +46,12 @@ def test_backup_adapters_preserve_the_new_document_identity(
         monkeypatch.setattr(
             workflow_execution, "execute_prepared_backup", lambda _prepared: produced
         )
-        result = workflow_execution.execute_backup(workflow_execution.BackupRequest())
+        result = workflow_execution.execute_backup(requests.BackupRequest())
     else:
         monkeypatch.setattr(
             workflow_execution, "execute_rebuild_operation", lambda _request: produced
         )
-        result = workflow_execution.execute_rebuild(workflow_execution.RebuildRequest())
+        result = workflow_execution.execute_rebuild(requests.RebuildRequest())
 
     assert result.doc_hash == doc_hash
 

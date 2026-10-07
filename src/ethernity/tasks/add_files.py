@@ -23,7 +23,15 @@ from pathlib import Path
 from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
 from ethernity.config import load_cli_defaults, resolve_config_snapshot_path
+from ethernity.formats.extension_mode import UpdateMode
 from ethernity.tasks.backup_inputs import has_selected_inputs
+from ethernity.tasks.common_sections import (
+    advanced_section,
+    confirmed_source_section,
+    qr_density_warnings,
+    stale_source_warnings,
+    unlock_section,
+)
 from ethernity.tasks.file_summary import (
     display_path,
     selected_paths_summary,
@@ -38,12 +46,10 @@ from ethernity.tasks.models import (
     TaskSection,
     TaskSectionStatus,
     TaskValidation,
-    optional_section_status,
 )
 from ethernity.tasks.page_layout import (
-    BACKUP_RENDER_DOC_TYPES,
     ValidatedPaperSizeName,
-    require_workflow_page_size,
+    validate_backup_print_options,
 )
 from ethernity.tasks.presentation.recovery import (
     signature_source_summary,
@@ -56,10 +62,10 @@ from ethernity.tasks.recovery_inputs import (
     recovery_text_frames,
 )
 from ethernity.tasks.source_assessment import (
-    SourceAssessableTaskState,
+    ContentRecoveryTaskState,
     SourceAssessmentRequest,
-    recovery_source_request,
 )
+from ethernity.workflows.add_files.errors import AddFilesWorkflowError
 from ethernity.workflows.add_files.request import (
     AddFilesRequest,
     validate_recovery_sheet_counts,
@@ -70,7 +76,7 @@ from ethernity.workflows.add_files.service import (
     assess_add_files,
     execute_add_files,
 )
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 
 
 @dataclass(frozen=True)
@@ -80,19 +86,12 @@ class _AssessmentCache:
     issue: TaskIssue | None = None
 
 
-class AddFilesTaskState(SourceAssessableTaskState):
+class AddFilesTaskState(ContentRecoveryTaskState):
     """Beginner-facing state for adding files to an existing backup."""
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
-    source_paths: list[Path] = Field(default_factory=list)
-    recovery_text: str | None = None
-    recovery_text_file: Path | None = None
-    payloads_file: Path | None = None
-    auth_text_file: Path | None = None
-    auth_payloads_file: Path | None = None
     output_dir: Path | None = None
-    config_path: Path | None = None
     input_paths: list[Path] = Field(default_factory=list)
     input_dirs: list[Path] = Field(default_factory=list)
     base_dir: Path | None = None
@@ -101,6 +100,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
     recovery_payload_files: list[Path] = Field(default_factory=list)
     expected_head_doc_hash: str | None = None
     allow_stale_head: bool = False
+    update_mode: UpdateMode | None = None
     paper_size: ValidatedPaperSizeName | None = None
     design: str | None = None
     qr_chunk_size: int | None = None
@@ -112,18 +112,12 @@ class AddFilesTaskState(SourceAssessableTaskState):
 
     @model_validator(mode="after")
     def _validate_advanced_options(self) -> AddFilesTaskState:
-        if self.design is not None and self.paper_size is not None:
-            require_workflow_page_size(
-                self.design,
-                self.paper_size,
-                candidate_doc_types=BACKUP_RENDER_DOC_TYPES,
-            )
-        if self.qr_chunk_size is not None and self.qr_chunk_size < 1:
-            raise ValueError("QR chunk size must be positive")
+        validate_backup_print_options(self.design, self.paper_size, self.qr_chunk_size)
         validate_recovery_sheet_counts(self.recovery_threshold, self.recovery_sheet_count)
         return self
 
     def sections(self) -> tuple[TaskSection, ...]:
+        output_dir = self.resolved_output_dir()
         sections = (
             TaskSection(
                 key="source",
@@ -141,43 +135,20 @@ class AddFilesTaskState(SourceAssessableTaskState):
                 summary=self._input_summary(),
                 action_label="Choose files...",
             ),
-            TaskSection(
-                key="unlock",
-                title="Unlock backup",
-                status="ready" if has_unlock_inputs(self) else "missing",
-                summary=unlock_input_summary(self),
-                action_label="Set unlock method...",
-            ),
-            TaskSection(
-                key="freshness",
-                title="Backup version",
-                status=(
-                    "ready"
-                    if self.expected_head_doc_hash is not None or self.allow_stale_head
-                    else "missing"
-                ),
-                summary=self._freshness_summary(),
-                action_label="Confirm source",
+            unlock_section(self, "Unlock backup"),
+            confirmed_source_section(
+                self.expected_head_doc_hash, self.allow_stale_head, self._freshness_summary()
             ),
             TaskSection(
                 key="output",
                 title="Save update to",
-                status="ready" if self.output_dir is not None else "missing",
-                summary=display_path(self.output_dir)
-                if self.output_dir is not None
-                else "Choose an output folder.",
+                status="ready",
+                summary=display_path(output_dir)
+                if output_dir is not None
+                else "Automatic folder in the current directory",
                 action_label="Choose output folder...",
             ),
-            TaskSection(
-                key="advanced",
-                title="Advanced",
-                status=optional_section_status(
-                    (),
-                    self._advanced_warnings(),
-                ),
-                summary=self._advanced_summary(),
-                action_label="Review options",
-            ),
+            advanced_section((), self._advanced_warnings(), self._advanced_summary()),
         )
         cache = self._current_assessment_cache()
         if cache is None or cache.issue is None:
@@ -200,21 +171,12 @@ class AddFilesTaskState(SourceAssessableTaskState):
         cache = self._current_assessment_cache()
         if not issues and cache is not None and cache.issue is not None:
             issues.append(cache.issue)
-        return TaskValidation(
-            sections=self.sections(),
-            issues=self.source_assessment_issues(issues),
-        )
+        return self.validation_with_source_issues(issues)
 
     def source_assessment_request(self) -> SourceAssessmentRequest | None:
-        return recovery_source_request(
-            issue_section="source",
-            scan_paths=self.source_paths,
-            recovery_text=self.recovery_text,
-            recovery_text_file=self.recovery_text_file,
-            payloads_file=self.payloads_file,
+        return self.content_source_request(
             auth_text_file=self.auth_text_file,
             auth_payloads_file=self.auth_payloads_file,
-            config_path=self.config_path,
         )
 
     def prepare_review(self, *, force: bool = False) -> None:
@@ -270,7 +232,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
         if not has_selected_inputs(self.input_paths, self.input_dirs):
             issues.append(
                 TaskIssue(
-                    code=api_codes.ADD_FILES_INPUT_REQUIRED,
+                    code=issue_codes.ADD_FILES_INPUT_REQUIRED,
                     message="Choose at least one file or folder to add.",
                     section="files",
                 )
@@ -298,17 +260,21 @@ class AddFilesTaskState(SourceAssessableTaskState):
                     section="freshness",
                 )
             )
-        if self.output_dir is None:
-            issues.append(
-                TaskIssue(
-                    code="ADD_FILES_OUTPUT_REQUIRED",
-                    message="Choose where the new update documents will be saved.",
-                    section="output",
-                )
-            )
         return tuple(issues)
 
+    def resolved_output_dir(self) -> Path | None:
+        """Return the custom destination or the automatic destination approved in review."""
+
+        if self.output_dir is not None:
+            return self.output_dir
+        cache = self._current_assessment_cache()
+        assessment = cache.assessment if cache is not None else None
+        if assessment is not None and assessment.request.output_dir is not None:
+            return Path(assessment.request.output_dir)
+        return None
+
     def preview(self) -> TaskPreview:
+        output_dir = self.resolved_output_dir()
         cache = self._current_assessment_cache()
         assessment = cache.assessment if cache is not None else None
         assessed = assessment.assessed if assessment is not None else None
@@ -319,9 +285,9 @@ class AddFilesTaskState(SourceAssessableTaskState):
             PreviewItem(label="Unlock", detail=unlock_input_summary(self)),
             PreviewItem(
                 label="Destination",
-                detail=display_path(self.output_dir)
-                if self.output_dir is not None
-                else "Not selected",
+                detail=display_path(output_dir)
+                if output_dir is not None
+                else "Automatic folder named for the original backup and update number",
             ),
             PreviewItem(label="Backup version", detail=self._freshness_summary()),
             PreviewItem(
@@ -329,6 +295,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
                 detail=signature_source_summary(self.auth_text_file, self.auth_payloads_file),
             ),
             PreviewItem(label="Recovery sheets", detail=self.recovery_sheet_summary()),
+            PreviewItem(label="Update mode", detail=self.update_mode_summary()),
             PreviewItem(
                 label="New documents",
                 detail="Backup update and recovery guide",
@@ -365,7 +332,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
                     PreviewItem(label="New fingerprint", detail=encrypted.doc_hash.hex()),
                     PreviewItem(
                         label="Update folder",
-                        detail=str(self.output_dir),
+                        detail=str(output_dir),
                     ),
                     PreviewItem(
                         label="Print layout",
@@ -394,7 +361,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
         )
 
     def execution_plan(self) -> TaskExecutionPlan:
-        output_folder = self.output_dir
+        output_folder = self.resolved_output_dir()
         cache = self._current_assessment_cache()
         assessment = cache.assessment if cache is not None else None
         assessed = assessment.assessed if assessment is not None else None
@@ -403,7 +370,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
         summary = (
             f"Create backup update {assessed.prepared.next_index:02d} in {output_folder}"
             if assessed is not None
-            else f"Add files to {output_folder or 'missing output folder'}"
+            else f"Add files to {output_folder or 'an automatic update folder'}"
         )
         return TaskExecutionPlan(
             summary=summary,
@@ -431,10 +398,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
         if self._current_assessment_cache() is None:
             self.prepare_review()
         validation = self.validate_task()
-        if not validation.ready:
-            first_issue = validation.issues[0] if validation.issues else None
-            message = first_issue.message if first_issue is not None else "The update is not ready."
-            raise ValueError(message)
+        validation.require_ready("The update is not ready.")
 
         cache = self._current_assessment_cache()
         if cache is None or cache.assessment is None:
@@ -445,7 +409,9 @@ class AddFilesTaskState(SourceAssessableTaskState):
         )
         if not execution.ok or execution.executed is None:
             issue = execution.issues[0]
-            raise ValueError(issue.message)
+            raise AddFilesWorkflowError(
+                code=issue.code, message=issue.message, details=issue.details
+            )
         executed = execution.executed
         result = executed.result
         output_paths = (
@@ -456,6 +422,11 @@ class AddFilesTaskState(SourceAssessableTaskState):
         encrypted = executed.publish.encrypted
         stats = encrypted.built.stats
         details = (
+            TaskResultDetail(
+                key="update_mode",
+                label="Update mode",
+                value=prepared.plan.update_mode.value,
+            ),
             TaskResultDetail(key="index", label="Update index", value=result.index),
             TaskResultDetail(key="doc_id", label="Document ID", value=result.doc_id.hex()),
             TaskResultDetail(
@@ -495,7 +466,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
             ),
             TaskResultDetail(
                 key="file_bytes",
-                label="Changed logical bytes",
+                label="Included file bytes",
                 value=stats.file_bytes,
             ),
             TaskResultDetail(key="new_chunks", label="New chunks", value=stats.new_chunks),
@@ -516,10 +487,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
             ),
         )
         next_steps = (
-            (
-                "Keep the original backup, every update through "
-                f"{result.index:02d}, and the recovery kit."
-            ),
+            self._chain_recovery_guidance(result.index),
             "Use Rebuild when you want a new standalone backup instead of the full update chain.",
             "Save the new fingerprint as the expected latest version before the next update.",
         )
@@ -607,6 +575,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
             shard_payload_files=tuple(str(path) for path in self.recovery_payload_files),
             expected_head_doc_hash=self.expected_head_doc_hash,
             allow_stale_head=self.allow_stale_head,
+            update_mode=self.update_mode,
             create_recovery_sheets=self.create_recovery_sheets,
             recovery_threshold=self.recovery_threshold,
             recovery_sheet_count=self.recovery_sheet_count,
@@ -622,7 +591,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
             config_path = resolve_config_snapshot_path(self.config_path)
             config_payload = config_path.read_bytes()
         except OSError as exc:
-            config_payload = f"{type(exc).__qualname__}:{exc}".encode("utf-8")
+            config_payload = f"{type(exc).__qualname__}:{exc}".encode()
         return hashlib.sha256(state_payload + b"\0" + config_payload).digest()
 
     def _current_assessment_cache(self) -> _AssessmentCache | None:
@@ -641,22 +610,11 @@ class AddFilesTaskState(SourceAssessableTaskState):
         return "Choose backup documents, recovery text, or exported payloads."
 
     def _read_paths(self) -> tuple[Path, ...]:
-        paths = [
-            *self.source_paths,
-            *self.input_paths,
-            *self.input_dirs,
-            *self.recovery_documents,
-            *self.recovery_payload_files,
-        ]
-        for path in (
-            self.recovery_text_file,
-            self.payloads_file,
-            self.auth_text_file,
-            self.auth_payloads_file,
-        ):
-            if path is not None:
-                paths.append(path)
-        return tuple(paths)
+        return self.content_read_paths(
+            auth_text_file=self.auth_text_file,
+            auth_payloads_file=self.auth_payloads_file,
+            content_paths=(*self.input_paths, *self.input_dirs),
+        )
 
     def _freshness_summary(self) -> str:
         if self.expected_head_doc_hash is not None:
@@ -666,16 +624,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
         return "Confirm the loaded documents contain the latest version"
 
     def _freshness_warnings(self) -> tuple[TaskIssue, ...]:
-        if not self.allow_stale_head:
-            return ()
-        return (
-            TaskIssue(
-                code="ADD_FILES_STALE_SOURCE_ACCEPTED",
-                message="The loaded documents may omit a newer backup version.",
-                severity="warning",
-                section="freshness",
-            ),
-        )
+        return stale_source_warnings(self.allow_stale_head, "ADD_FILES_STALE_SOURCE_ACCEPTED")
 
     def _input_summary(self) -> str:
         base_dir = self.base_dir
@@ -715,19 +664,7 @@ class AddFilesTaskState(SourceAssessableTaskState):
         return ", ".join(parts)
 
     def _advanced_warnings(self) -> tuple[TaskIssue, ...]:
-        warnings: list[TaskIssue] = []
-        if self.qr_chunk_size is not None:
-            warnings.append(
-                TaskIssue(
-                    code="ADD_FILES_CUSTOM_QR_DENSITY",
-                    message=(
-                        "Custom QR density can change page count and make codes harder to scan."
-                    ),
-                    severity="warning",
-                    section="advanced",
-                )
-            )
-        return tuple(warnings)
+        return qr_density_warnings(self.qr_chunk_size, "ADD_FILES_CUSTOM_QR_DENSITY")
 
     def recovery_sheet_summary(self) -> str:
         if not self.create_recovery_sheets:
@@ -746,8 +683,32 @@ class AddFilesTaskState(SourceAssessableTaskState):
             f"{self.recovery_sheet_count} passphrase recovery sheets bound to the new head."
         )
 
-    @staticmethod
-    def _chain_recovery_guidance(next_index: int | None) -> str:
+    def resolved_update_mode(self) -> UpdateMode | None:
+        cache = self._current_assessment_cache()
+        assessed = cache.assessment.assessed if cache and cache.assessment else None
+        if assessed is not None:
+            return assessed.prepared.plan.update_mode
+        source = self.current_source_assessment()
+        if source is not None and source.has_updates:
+            return None
+        return self.update_mode or UpdateMode.CUMULATIVE
+
+    def update_mode_summary(self) -> str:
+        mode = self.resolved_update_mode()
+        if mode is None:
+            return "Detected from existing series"
+        return mode.value.capitalize()
+
+    def _chain_recovery_guidance(self, next_index: int | None) -> str:
+        mode = self.resolved_update_mode()
+        if mode is None:
+            return "Required documents will be listed after the backup is unlocked."
+        if mode == UpdateMode.CUMULATIVE:
+            label = f"update {next_index:02d}" if next_index is not None else "the latest update"
+            return (
+                f"Keep the original backup and {label}, plus your recovery sheets and kit. "
+                "Earlier updates are only needed to restore earlier versions."
+            )
         if next_index is None:
             return (
                 "Recovery requires the original backup and every update. Rebuild creates a new "
@@ -769,18 +730,18 @@ def _assessment_issue_section(issue: AddFilesIssue) -> str:
     code = issue.code
     if code in {
         "DELETE_NOT_SUPPORTED",
-        api_codes.ADD_FILES_INPUT_REQUIRED,
-        api_codes.ADD_FILES_NO_CHANGES,
-        api_codes.ADD_FILES_NOT_REBUILDABLE,
-        api_codes.EXTENSION_TOO_LARGE,
-        api_codes.ADD_FILES_RECOVERY_OUTPUT_EXISTS,
+        issue_codes.ADD_FILES_INPUT_REQUIRED,
+        issue_codes.ADD_FILES_NO_CHANGES,
+        issue_codes.ADD_FILES_NOT_REBUILDABLE,
+        issue_codes.EXTENSION_TOO_LARGE,
+        issue_codes.ADD_FILES_RECOVERY_OUTPUT_EXISTS,
     }:
-        return "advanced" if code == api_codes.ADD_FILES_RECOVERY_OUTPUT_EXISTS else "files"
-    if code in {api_codes.EXTENSION_PUBLISH_TARGET_INVALID, api_codes.OUTPUT_REQUIRED}:
+        return "advanced" if code == issue_codes.ADD_FILES_RECOVERY_OUTPUT_EXISTS else "files"
+    if code in {issue_codes.EXTENSION_PUBLISH_TARGET_INVALID, issue_codes.OUTPUT_REQUIRED}:
         return "output"
     if code == "ADD_FILES_HEAD_TRUST_REQUIRED":
         return "freshness"
-    if code == api_codes.RECOVERY_HEAD_UNTRUSTED and (
+    if code == issue_codes.RECOVERY_HEAD_UNTRUSTED and (
         "expected_head_doc_hash" in issue.details or "freshness_scope" in issue.details
     ):
         return "freshness"

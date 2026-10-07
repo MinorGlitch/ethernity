@@ -18,9 +18,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME
+from ethernity.tasks.common_sections import (
+    destination_preview,
+    freshness_section,
+    unchanged_backup_preview,
+    unlock_section,
+)
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
@@ -32,18 +38,17 @@ from ethernity.tasks.models import (
     TaskSectionStatus,
     TaskValidation,
 )
-from ethernity.tasks.output_checks import (
-    existing_output_summary,
-    existing_output_warning,
-    selected_output_status,
-)
 from ethernity.tasks.page_layout import (
     BACKUP_RENDER_DOC_TYPES,
     ValidatedPaperSizeName,
     require_workflow_page_size,
 )
 from ethernity.tasks.presentation.recovery import recovery_text_summary, unlock_input_summary
-from ethernity.tasks.quorum import validate_optional_shard_count, validate_required_shard_count
+from ethernity.tasks.quorum import (
+    OptionalSigningDocumentCount,
+    RecoveryDocumentCount,
+    validate_required_shard_count,
+)
 from ethernity.tasks.recovery_inputs import (
     has_recovery_source,
     has_unlock_inputs,
@@ -51,15 +56,15 @@ from ethernity.tasks.recovery_inputs import (
     recovery_text_frames,
 )
 from ethernity.tasks.source_assessment import (
-    SourceAssessableTaskState,
+    ContentRecoveryTaskState,
     SourceAssessmentRequest,
-    recovery_source_request,
     source_freshness_status,
 )
-from ethernity.workflows.execution import (
-    ReplacementRecoveryRequest,
-    execute_replacement_recovery,
+from ethernity.workflows.execution import execute_replacement_recovery
+from ethernity.workflows.replacement_recovery.service import (
+    require_replacement_recovery_output_available,
 )
+from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
 
 SIGNING_KEY_RECOVERY_OFF_WARNING = (
     "No separate signing-key recovery sheets will be created. The replacement documents "
@@ -67,43 +72,24 @@ SIGNING_KEY_RECOVERY_OFF_WARNING = (
 )
 
 
-class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
+class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
     """Beginner-facing state for creating replacement recovery sheets."""
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
-    source_paths: list[Path] = Field(default_factory=list)
-    recovery_text: str | None = None
-    recovery_text_file: Path | None = None
-    payloads_file: Path | None = None
-    config_path: Path | None = None
     output_dir: Path | None = None
-    passphrase: str | None = None
-    recovery_documents: list[Path] = Field(default_factory=list)
-    recovery_payload_files: list[Path] = Field(default_factory=list)
     signing_key_recovery_payload_files: list[Path] = Field(default_factory=list)
-    expected_head_doc_hash: str | None = None
     allow_stale_head: bool = False
-    recovery_threshold: int = 2
-    recovery_document_count: int = 3
+    recovery_threshold: RecoveryDocumentCount = 2
+    recovery_document_count: RecoveryDocumentCount = 3
     create_passphrase_recovery: bool = True
     create_signing_key_recovery: bool = False
-    signing_key_recovery_threshold: int | None = None
-    signing_key_recovery_count: int | None = None
+    signing_key_recovery_threshold: OptionalSigningDocumentCount = None
+    signing_key_recovery_count: OptionalSigningDocumentCount = None
     passphrase_replacement_count: int | None = None
     signing_key_replacement_count: int | None = None
     paper_size: ValidatedPaperSizeName = DEFAULT_PAPER_SIZE_NAME
     design: str = "sentinel"
-
-    @field_validator("recovery_threshold", "recovery_document_count")
-    @classmethod
-    def _validate_recovery_shard_count(cls, value: int) -> int:
-        return validate_required_shard_count(value, label="recovery document count")
-
-    @field_validator("signing_key_recovery_threshold", "signing_key_recovery_count")
-    @classmethod
-    def _validate_signing_key_recovery_count(cls, value: int | None) -> int | None:
-        return validate_optional_shard_count(value, label="signing key recovery document count")
 
     @model_validator(mode="after")
     def _validate_recovery_document_counts(self) -> ReplaceRecoveryDocsTaskState:
@@ -134,52 +120,18 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
     def sections(self) -> tuple[TaskSection, ...]:
         source_error = recovery_text_error(self.recovery_text)
         return (
-            TaskSection(
-                key="source",
-                title="Existing backup",
-                status=(
-                    "blocked"
-                    if source_error is not None
-                    else "ready"
-                    if has_recovery_source(self)
-                    else "missing"
-                ),
-                summary=(
-                    "Pasted recovery text is not valid recovery text."
-                    if source_error is not None
-                    else self._source_summary()
-                ),
-                action_label="Load backup...",
-            ),
-            TaskSection(
-                key="unlock",
-                title="Unlock existing backup",
-                status="ready" if has_unlock_inputs(self) else "missing",
-                summary=unlock_input_summary(self),
-                action_label="Set unlock method...",
-            ),
-            TaskSection(
-                key="freshness",
-                title="Scan version",
-                status=source_freshness_status(
+            self.source_section("Existing backup", source_error, self._source_summary()),
+            unlock_section(self, "Unlock existing backup"),
+            freshness_section(
+                source_freshness_status(
                     self.source_paths,
                     expected_head_doc_hash=self.expected_head_doc_hash,
                     allow_stale_head=self.allow_stale_head,
                 ),
-                summary=self._freshness_summary(),
-                action_label="Confirm source",
+                self._freshness_summary(),
+                "Scan version",
             ),
-            TaskSection(
-                key="output",
-                title="Save replacement sheets to",
-                status=selected_output_status(self.output_dir),
-                summary=existing_output_summary(
-                    self.output_dir,
-                    target="output_folder",
-                    missing_summary="No output folder selected.",
-                ),
-                action_label="Choose output folder...",
-            ),
+            self._output_section(),
             TaskSection(
                 key="signature",
                 title="Signing-key recovery",
@@ -223,14 +175,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                     section="source",
                 )
             )
-        if self.recovery_text and recovery_text_error(self.recovery_text) is not None:
-            issues.append(
-                TaskIssue(
-                    code="REPLACE_RECOVERY_TEXT_INVALID",
-                    message="Pasted recovery text is not valid recovery text.",
-                    section="source",
-                )
-            )
+        issues.extend(self.recovery_text_issues("REPLACE_RECOVERY_TEXT_INVALID"))
         if not has_unlock_inputs(self):
             issues.append(
                 TaskIssue(
@@ -252,14 +197,46 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                     section="freshness",
                 )
             )
+        issues.extend(self._output_issues())
+        issues.extend(self._replacement_option_issues())
+        return self.validation_with_source_issues(issues)
+
+    def _output_issues(self) -> tuple[TaskIssue, ...]:
         if self.output_dir is None:
-            issues.append(
+            return (
                 TaskIssue(
                     code="REPLACE_RECOVERY_OUTPUT_REQUIRED",
                     message="Choose where replacement recovery sheets will be saved.",
                     section="output",
-                )
+                ),
             )
+        try:
+            require_replacement_recovery_output_available(self.output_dir)
+        except ValueError as exc:
+            return (
+                TaskIssue(
+                    code="REPLACE_RECOVERY_OUTPUT_EXISTS",
+                    message=str(exc),
+                    section="output",
+                ),
+            )
+        return ()
+
+    def _output_section(self) -> TaskSection:
+        issues = self._output_issues()
+        return TaskSection(
+            key="output",
+            title="Save replacement sheets to",
+            status="missing" if self.output_dir is None else "blocked" if issues else "ready",
+            summary=display_path(self.output_dir)
+            if self.output_dir
+            else "No output folder selected.",
+            detail=issues[0].message if issues else None,
+            action_label="Choose folder...",
+        )
+
+    def _replacement_option_issues(self) -> list[TaskIssue]:
+        issues: list[TaskIssue] = []
         if (
             self.signing_key_recovery_threshold is not None
             or self.signing_key_recovery_count is not None
@@ -310,35 +287,17 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                     section="signature",
                 )
             )
-        return TaskValidation(
-            sections=self.sections(),
-            issues=self.source_assessment_issues(issues),
-        )
+        return issues
 
     def source_assessment_request(self) -> SourceAssessmentRequest | None:
-        return recovery_source_request(
-            issue_section="source",
-            scan_paths=self.source_paths,
-            recovery_text=self.recovery_text,
-            recovery_text_file=self.recovery_text_file,
-            payloads_file=self.payloads_file,
-            config_path=self.config_path,
-        )
+        return self.content_source_request()
 
     def preview(self) -> TaskPreview:
         items = [
             PreviewItem(label="Existing backup", detail=self._source_summary()),
             PreviewItem(label="Unlock", detail=unlock_input_summary(self)),
-            PreviewItem(
-                label="Destination",
-                detail=(
-                    display_path(self.output_dir) if self.output_dir is not None else "Not selected"
-                ),
-            ),
-            PreviewItem(
-                label="Existing backup files",
-                detail="Left unchanged",
-            ),
+            destination_preview(self.output_dir),
+            unchanged_backup_preview(),
         ]
         if self.create_passphrase_recovery:
             if self.passphrase_replacement_count is not None:
@@ -370,13 +329,6 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
                 )
             )
         warnings: list[TaskIssue] = []
-        warnings.extend(
-            existing_output_warning(
-                self.output_dir,
-                code="REPLACE_RECOVERY_OUTPUT_EXISTS",
-                target="output_folder",
-            )
-        )
         warnings.extend(self._freshness_warnings())
         warnings.extend(self._recovery_warnings())
         if not self._creates_signing_key_recovery():
@@ -404,8 +356,8 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             output_paths=outputs,
             writes_files=True,
             safety_notes=(
-                "Ethernity will create the folder if needed and write the replacement PDFs "
-                "inside it.",
+                "Ethernity will create a new folder and write the replacement PDFs inside it. "
+                "The selected output path must not already exist.",
                 "Existing backup files stay unchanged.",
             ),
             trust_notes=(f"Scan version: {self._freshness_summary()}",),
@@ -421,14 +373,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
 
     def execute(self) -> TaskExecutionResult:
         validation = self.validate_task()
-        if not validation.ready:
-            first_issue = validation.issues[0] if validation.issues else None
-            message = (
-                first_issue.message
-                if first_issue is not None
-                else "Replacement recovery sheets are not ready."
-            )
-            raise ValueError(message)
+        validation.require_ready("Replacement recovery sheets are not ready.")
 
         result = execute_replacement_recovery(self.to_replacement_recovery_request())
         output_paths = (
@@ -449,11 +394,7 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             config_path=self.config_path,
             paper_size=self.paper_size,
             design=self.design,
-            recovery_text_file=(
-                self.recovery_text_file
-                if self.recovery_text_file is not None and not self.recovery_text
-                else None
-            ),
+            recovery_text_file=self.external_recovery_text_file,
             payloads_file=self.payloads_file,
             frames=tuple(recovery_text_frames(self.recovery_text, quiet=True) or ()),
             input_label="Pasted recovery text" if self.recovery_text else None,
@@ -474,19 +415,18 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             signing_key_replacement_count=self.signing_key_replacement_count,
             create_passphrase_shards=self.create_passphrase_recovery,
             create_signing_key_shards=self._creates_signing_key_recovery(),
+            quiet=True,
         )
 
     def _read_paths(self) -> tuple[Path, ...]:
-        paths = [
-            *self.source_paths,
-            *self.recovery_documents,
-            *self.recovery_payload_files,
-            *self.signing_key_recovery_payload_files,
-        ]
-        for path in (self.recovery_text_file, self.payloads_file):
-            if path is not None:
-                paths.append(path)
-        return tuple(paths)
+        return self.recovery_read_paths(
+            content_paths=(),
+            trailing_paths=(
+                *self.signing_key_recovery_payload_files,
+                self.recovery_text_file,
+                self.payloads_file,
+            ),
+        )
 
     def _creates_signing_key_recovery(self) -> bool:
         return bool(
@@ -496,11 +436,16 @@ class ReplaceRecoveryDocsTaskState(SourceAssessableTaskState):
             or self.signing_key_recovery_count is not None
         )
 
+    def signing_key_recovery_quorum(self) -> tuple[int, int]:
+        return (
+            self.signing_key_recovery_threshold or self.recovery_threshold,
+            self.signing_key_recovery_count or self.recovery_document_count,
+        )
+
     def _signing_key_recovery_summary(self) -> str:
         if self.signing_key_replacement_count is not None:
             return format_count(self.signing_key_replacement_count, "replacement sheet")
-        threshold = self.signing_key_recovery_threshold or self.recovery_threshold
-        count = self.signing_key_recovery_count or self.recovery_document_count
+        threshold, count = self.signing_key_recovery_quorum()
         return f"{count} key sheets; any {threshold} can recover the key"
 
     def _signing_key_section_summary(self) -> str:

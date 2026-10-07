@@ -8,10 +8,14 @@ from tempfile import TemporaryDirectory
 
 from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload
 from ethernity.encoding.framing import Frame
-from ethernity.workflows.execution import RecoveryRequest, execute_recovery, inspect_recovery
+from ethernity.workflows.execution import (
+    execute_recovery,
+    inspect_recovery,
+)
 from ethernity.workflows.recovery import frame_inputs, inputs as recovery_inputs
 from ethernity.workflows.recovery.models import RecoveryInspection
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.requests import RecoveryRequest
 
 __all__ = [
     "GeneratedRecoveryCheckRequest",
@@ -48,7 +52,7 @@ def check_generated_recovery(
     if not request.documents:
         raise ValueError("Choose backup documents to check.")
     scanned_frames = frame_inputs.frames_from_scan([str(path) for path in request.documents])
-    base = request.base_request or RecoveryRequest()
+    base = request.base_request or RecoveryRequest(quiet=True)
     config_path = request.config_path if request.config_path is not None else base.config_path
     expected_head = (
         request.expected_head_doc_hash
@@ -86,6 +90,7 @@ def check_generated_recovery(
                 extension_doc_hash=base.extension_doc_hash,
                 expected_head_doc_hash=expected_head,
                 output_path=Path(temporary_directory) / "recovered",
+                quiet=True,
             )
         )
         if not recovered.written_paths:
@@ -101,7 +106,7 @@ def _require_ready_inspection(inspection: RecoveryInspection) -> None:
     other_issues = [
         issue
         for issue in inspection.blocking_issues
-        if issue.get("code") != api_codes.PASSPHRASE_REQUIRED
+        if issue.get("code") != issue_codes.PASSPHRASE_REQUIRED
     ]
     if other_issues:
         raise ValueError(str(other_issues[0].get("message", "Document recovery check failed.")))

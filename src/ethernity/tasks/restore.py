@@ -19,8 +19,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict
 
+from ethernity.tasks.common_sections import unlock_section
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.models import (
     PreviewItem,
@@ -44,11 +45,11 @@ from ethernity.tasks.recovery_inputs import (
     recovery_text_frames,
 )
 from ethernity.tasks.source_assessment import (
-    SourceAssessableTaskState,
+    ContentRecoveryTaskState,
     SourceAssessmentRequest,
-    recovery_source_request,
 )
-from ethernity.workflows.execution import RecoveryRequest, execute_recovery
+from ethernity.workflows.execution import execute_recovery
+from ethernity.workflows.shared.requests import RecoveryRequest
 
 RestoreTarget = Literal["latest", "original", "specific_update"]
 RESTORE_DESTINATION_NON_EMPTY_WARNING = (
@@ -57,28 +58,16 @@ RESTORE_DESTINATION_NON_EMPTY_WARNING = (
 )
 
 
-class RestoreTaskState(SourceAssessableTaskState):
+class RestoreTaskState(ContentRecoveryTaskState):
     """Beginner-facing state for restoring files."""
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
-    source_paths: list[Path] = Field(default_factory=list)
-    recovery_text: str | None = None
-    recovery_text_file: Path | None = None
-    payloads_file: Path | None = None
-    auth_text_file: Path | None = None
-    auth_payloads_file: Path | None = None
-    config_path: Path | None = None
-    passphrase: str | None = None
-    recovery_documents: list[Path] = Field(default_factory=list)
-    recovery_payload_files: list[Path] = Field(default_factory=list)
     target: RestoreTarget = "latest"
     extension_index: int | None = None
     extension_doc_hash: str | None = None
-    expected_head_doc_hash: str | None = None
     output_path: Path | None = None
     allow_unsigned: bool = False
-    resource_intensive_compatibility_recovery: bool = False
 
     def sections(self) -> tuple[TaskSection, ...]:
         destination_warning = self._destination_warning()
@@ -87,32 +76,12 @@ class RestoreTaskState(SourceAssessableTaskState):
             allow_invalid_auth=self.allow_unsigned,
         )
         return (
-            TaskSection(
-                key="source",
-                title="Backup source",
-                status=(
-                    "blocked"
-                    if source_error is not None
-                    else "ready"
-                    if has_recovery_source(self)
-                    else "missing"
-                ),
-                summary=(
-                    "Pasted recovery text is not valid recovery text."
-                    if source_error is not None
-                    else self._source_summary()
-                    if has_recovery_source(self)
-                    else "Choose backup documents."
-                ),
-                action_label="Load backup...",
+            self.source_section(
+                "Backup source",
+                source_error,
+                self._source_summary() if has_recovery_source(self) else "Choose backup documents.",
             ),
-            TaskSection(
-                key="unlock",
-                title="Unlock",
-                status="ready" if has_unlock_inputs(self) else "missing",
-                summary=unlock_input_summary(self),
-                action_label="Set unlock method...",
-            ),
+            unlock_section(self, "Unlock"),
             TaskSection(
                 key="target",
                 title="Version",
@@ -149,21 +118,11 @@ class RestoreTaskState(SourceAssessableTaskState):
                     section="source",
                 )
             )
-        if (
-            self.recovery_text
-            and recovery_text_error(
-                self.recovery_text,
-                allow_invalid_auth=self.allow_unsigned,
+        issues.extend(
+            self.recovery_text_issues(
+                "RESTORE_RECOVERY_TEXT_INVALID", allow_unsigned=self.allow_unsigned
             )
-            is not None
-        ):
-            issues.append(
-                TaskIssue(
-                    code="RESTORE_RECOVERY_TEXT_INVALID",
-                    message="Pasted recovery text is not valid recovery text.",
-                    section="source",
-                )
-            )
+        )
         if not has_unlock_inputs(self):
             issues.append(
                 TaskIssue(
@@ -200,25 +159,13 @@ class RestoreTaskState(SourceAssessableTaskState):
                     section="source",
                 )
             )
-        return TaskValidation(
-            sections=self.sections(),
-            issues=self.source_assessment_issues(issues),
-        )
+        return self.validation_with_source_issues(issues)
 
     def source_assessment_request(self) -> SourceAssessmentRequest | None:
-        return recovery_source_request(
-            issue_section="source",
-            scan_paths=self.source_paths,
-            recovery_text=self.recovery_text,
-            recovery_text_file=self.recovery_text_file,
-            payloads_file=self.payloads_file,
+        return self.content_source_request(
             auth_text_file=self.auth_text_file,
             auth_payloads_file=self.auth_payloads_file,
-            config_path=self.config_path,
             allow_unsigned=self.allow_unsigned,
-            resource_intensive_compatibility_recovery=(
-                self.resource_intensive_compatibility_recovery
-            ),
         )
 
     def preview(self) -> TaskPreview:
@@ -228,15 +175,6 @@ class RestoreTaskState(SourceAssessableTaskState):
                 TaskIssue(
                     code="RESTORE_UNSIGNED_ALLOWED",
                     message="Unsigned legacy recovery is allowed; signatures will not be required.",
-                    severity="warning",
-                    section="authentication",
-                )
-            )
-        if self.resource_intensive_compatibility_recovery:
-            warnings.append(
-                TaskIssue(
-                    code="RESTORE_RESOURCE_INTENSIVE_COMPATIBILITY",
-                    message=("Higher recovery limits are enabled for this attempt."),
                     severity="warning",
                     section="authentication",
                 )
@@ -286,10 +224,7 @@ class RestoreTaskState(SourceAssessableTaskState):
 
     def execute(self) -> TaskExecutionResult:
         validation = self.validate_task()
-        if not validation.ready:
-            first_issue = validation.issues[0] if validation.issues else None
-            message = first_issue.message if first_issue is not None else "Restore is not ready."
-            raise ValueError(message)
+        validation.require_ready("Restore is not ready.")
 
         result = execute_recovery(self.to_recovery_request())
         return TaskExecutionResult(
@@ -362,43 +297,24 @@ class RestoreTaskState(SourceAssessableTaskState):
                 )
                 or ()
             ),
-            recovery_text_file=(
-                self.recovery_text_file
-                if self.recovery_text_file is not None and not self.recovery_text
-                else None
-            ),
+            recovery_text_file=self.external_recovery_text_file,
             payloads_file=self.payloads_file,
             scan_paths=tuple(self.source_paths),
-            passphrase=self.passphrase,
-            shard_scan_paths=tuple(self.recovery_documents),
-            shard_payload_files=tuple(self.recovery_payload_files),
-            auth_text_file=self.auth_text_file,
-            auth_payloads_file=self.auth_payloads_file,
+            **self.unlock_request_fields(),
             extension_index=self._recover_extension_index(),
             extension_doc_hash=self.extension_doc_hash,
             expected_head_doc_hash=self.expected_head_doc_hash,
             output_path=self.output_path,
             allow_unsigned=self.allow_unsigned,
-            resource_intensive_compatibility_recovery=(
-                self.resource_intensive_compatibility_recovery
-            ),
+            quiet=True,
         )
 
     def _read_paths(self) -> tuple[Path, ...]:
-        paths = [
-            *self.source_paths,
-            *self.recovery_documents,
-            *self.recovery_payload_files,
-        ]
-        for path in (
-            self.recovery_text_file,
-            self.payloads_file,
-            self.auth_text_file,
-            self.auth_payloads_file,
-        ):
-            if path is not None:
-                paths.append(path)
-        return tuple(paths)
+        return self.content_read_paths(
+            auth_text_file=self.auth_text_file,
+            auth_payloads_file=self.auth_payloads_file,
+            content_paths=(),
+        )
 
     def _source_summary(self) -> str:
         request = self.source_assessment_request()

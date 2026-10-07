@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -29,8 +30,12 @@ from ethernity.tasks.recovery_check import (
     GeneratedRecoveryPassphraseRequired,
     check_generated_recovery,
 )
-from ethernity.workflows.execution import RecoveryExecutionResult, RecoveryRequest, execute_recovery
+from ethernity.workflows.execution import (
+    RecoveryExecutionResult,
+    execute_recovery,
+)
 from ethernity.workflows.recovery.frame_inputs import frames_from_payloads
+from ethernity.workflows.shared.requests import RecoveryRequest
 
 _FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 _PASSPHRASE = "generated-document-check-passphrase"
@@ -248,6 +253,7 @@ def test_generated_check_preserves_root_and_update_ancestry_from_payload_inputs(
     monkeypatch: pytest.MonkeyPatch, temporary_checks, tmp_path: Path
 ) -> None:
     chain = _FIXTURES / "v1_2/extension_golden/raw/large_raw_two_extension_chain"
+    snapshot = json.loads((chain / "snapshot.json").read_text(encoding="utf-8"))
     new_frames = tuple(frames_from_payloads(str(chain / "extension_02_payloads.txt")))
     _scan_frames(monkeypatch, new_frames)
     base_frames = tuple(frames_from_payloads(str(chain / "extension_01_payloads.txt")))
@@ -263,7 +269,7 @@ def test_generated_check_preserves_root_and_update_ancestry_from_payload_inputs(
                 shard_frames=sheets,
                 output_path=permanent_destination,
             ),
-            expected_head_doc_hash="92bf1d9d4cbc3b3431baa6b8601c13b392bff313468620151b4c3bcf63883c2b",
+            expected_head_doc_hash=snapshot["extension_doc_hashes"]["extension_02"],
         )
     )
 

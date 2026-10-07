@@ -13,7 +13,8 @@ from ethernity.qr.capacity import choose_frame_chunk_size
 from ethernity.render.backend_dispatch import plan_document_summary
 from ethernity.render.service import RenderService
 from ethernity.render.types import DocumentOrigin
-from ethernity.workflows.execution import BackupRequest, prepare_backup
+from ethernity.workflows.execution import prepare_backup
+from ethernity.workflows.shared.requests import BackupRequest
 from ethernity.workflows.shared.standalone import encode_standalone_backup
 
 

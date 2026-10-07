@@ -5,34 +5,31 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TypedDict
 
-from pydantic import BaseModel, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr
 
 from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.encoding.framing import FrameType
 from ethernity.tasks.file_summary import display_path
-from ethernity.tasks.models import TaskIssue, TaskSectionStatus
+from ethernity.tasks.models import TaskIssue, TaskSection, TaskSectionStatus, TaskValidation
 from ethernity.tasks.presentation.recovery import pasted_text_summary
-from ethernity.tasks.recovery_resources import recovery_resource_retry
+from ethernity.tasks.recovery_inputs import has_recovery_source, recovery_text_error
+from ethernity.tasks.source_types import SourceDescription, SourceKind
 from ethernity.workflows.execution import (
-    RecoveryRequest,
     WorkflowExecutionError,
     inspect_recovery,
 )
 from ethernity.workflows.recovery.frame_inputs import frames_from_fallback_text
 from ethernity.workflows.recovery.models import RecoveryInspection
-from ethernity.workflows.shared import api_codes
-
-SourceKind = Literal[
-    "backup_folder", "scanned_pages", "recovery_text", "payload_files", "recovery_inputs"
-]
+from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.requests import RecoveryRequest
 
 _UNLOCK_ONLY_BLOCKERS = frozenset(
     {
-        api_codes.PASSPHRASE_REQUIRED,
-        api_codes.PASSPHRASE_SHARDS_UNDER_QUORUM,
-        api_codes.PASSPHRASE_SHARDS_INVALID,
+        issue_codes.PASSPHRASE_REQUIRED,
+        issue_codes.PASSPHRASE_SHARDS_UNDER_QUORUM,
+        issue_codes.PASSPHRASE_SHARDS_INVALID,
     }
 )
 
@@ -67,7 +64,6 @@ class SourceAssessmentRequest:
     auth_payloads_file: Path | None = None
     config_path: Path | None = None
     allow_unsigned: bool = False
-    resource_intensive_compatibility_recovery: bool = False
 
     @property
     def key(self) -> str:
@@ -82,23 +78,15 @@ class SourceAssessmentRequest:
             "auth_payloads_file": _path_text(self.auth_payloads_file),
             "config_path": _path_text(self.config_path),
             "allow_unsigned": self.allow_unsigned,
-            "resource_intensive_compatibility_recovery": (
-                self.resource_intensive_compatibility_recovery
-            ),
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
-class SourceAssessment:
+class SourceAssessment(SourceDescription):
     """Decoded source details and errors found without writing any data."""
 
-    source_kind: SourceKind
-    source_label: str
-    source_summary: str
-    backup_identity: str = ""
-    version_summary: str = ""
     issue: TaskIssue | None = None
     document_summary: str = ""
     unlock_summary: str = ""
@@ -170,6 +158,137 @@ class SourceAssessableTaskState(BaseModel):
         return tuple(merged)
 
 
+class RecoveryUnlockRequestFields(TypedDict):
+    passphrase: str | None
+    shard_scan_paths: tuple[Path, ...]
+    shard_payload_files: tuple[Path, ...]
+    auth_text_file: Path | None
+    auth_payloads_file: Path | None
+
+
+class RecoveryTaskState(SourceAssessableTaskState):
+    """Input selections shared by tasks that read and unlock an existing backup."""
+
+    source_paths: list[Path] = Field(default_factory=list)
+    config_path: Path | None = None
+    passphrase: str | None = None
+    recovery_documents: list[Path] = Field(default_factory=list)
+    recovery_payload_files: list[Path] = Field(default_factory=list)
+    expected_head_doc_hash: str | None = None
+    auth_text_file: Path | None = None
+    auth_payloads_file: Path | None = None
+
+    def unlock_request_fields(self) -> RecoveryUnlockRequestFields:
+        return RecoveryUnlockRequestFields(
+            passphrase=self.passphrase,
+            shard_scan_paths=tuple(self.recovery_documents),
+            shard_payload_files=tuple(self.recovery_payload_files),
+            auth_text_file=self.auth_text_file,
+            auth_payloads_file=self.auth_payloads_file,
+        )
+
+    def validation_with_source_issues(self, issues: list[TaskIssue]) -> TaskValidation:
+        return TaskValidation(
+            sections=self.sections(), issues=self.source_assessment_issues(issues)
+        )
+
+    def sections(self) -> tuple[TaskSection, ...]:
+        raise NotImplementedError
+
+    def recovery_read_paths(
+        self, *, content_paths: Sequence[Path] = (), trailing_paths: Sequence[Path | None] = ()
+    ) -> tuple[Path, ...]:
+        return (
+            *self.source_paths,
+            *content_paths,
+            *self.recovery_documents,
+            *self.recovery_payload_files,
+            *(path for path in trailing_paths if path is not None),
+        )
+
+
+class ContentRecoveryTaskState(RecoveryTaskState):
+    """Recovery tasks supporting scanned pages, fallback text, and exported payloads."""
+
+    recovery_text: str | None = None
+    recovery_text_file: Path | None = None
+    payloads_file: Path | None = None
+
+    @property
+    def external_recovery_text_file(self) -> Path | None:
+        return self.recovery_text_file if not self.recovery_text else None
+
+    def content_read_paths(
+        self,
+        *,
+        auth_text_file: Path | None,
+        auth_payloads_file: Path | None,
+        content_paths: Sequence[Path] = (),
+    ) -> tuple[Path, ...]:
+        return self.recovery_read_paths(
+            content_paths=content_paths,
+            trailing_paths=(
+                self.recovery_text_file,
+                self.payloads_file,
+                auth_text_file,
+                auth_payloads_file,
+            ),
+        )
+
+    def source_section(self, title: str, source_error: str | None, summary: str) -> TaskSection:
+        status = (
+            "blocked"
+            if source_error is not None
+            else "ready"
+            if has_recovery_source(self)
+            else "missing"
+        )
+        return TaskSection(
+            key="source",
+            title=title,
+            status=status,
+            summary="Pasted recovery text is not valid recovery text."
+            if source_error is not None
+            else summary,
+            action_label="Load backup...",
+        )
+
+    def recovery_text_issues(
+        self, code: str, *, allow_unsigned: bool = False
+    ) -> tuple[TaskIssue, ...]:
+        if (
+            not self.recovery_text
+            or recovery_text_error(self.recovery_text, allow_invalid_auth=allow_unsigned) is None
+        ):
+            return ()
+        return (
+            TaskIssue(
+                code=code,
+                message="Pasted recovery text is not valid recovery text.",
+                section="source",
+            ),
+        )
+
+    def content_source_request(
+        self,
+        *,
+        auth_text_file: Path | None = None,
+        auth_payloads_file: Path | None = None,
+        allow_unsigned: bool = False,
+    ) -> SourceAssessmentRequest | None:
+        return recovery_source_request(
+            issue_section="source",
+            scan_paths=self.source_paths,
+            recovery_text=self.recovery_text,
+            recovery_text_file=self.recovery_text_file,
+            payloads_file=self.payloads_file,
+            auth_text_file=auth_text_file,
+            auth_payloads_file=auth_payloads_file,
+            config_path=self.config_path,
+            allow_unsigned=allow_unsigned,
+        )
+
+
 def recovery_source_request(
     *,
     issue_section: str,
@@ -181,7 +300,6 @@ def recovery_source_request(
     auth_payloads_file: Path | None = None,
     config_path: Path | None = None,
     allow_unsigned: bool = False,
-    resource_intensive_compatibility_recovery: bool = False,
 ) -> SourceAssessmentRequest | None:
     """Describe selected backup documents, payloads, and fallback text."""
 
@@ -215,7 +333,6 @@ def recovery_source_request(
         auth_payloads_file=auth_payloads_file,
         config_path=config_path,
         allow_unsigned=allow_unsigned,
-        resource_intensive_compatibility_recovery=resource_intensive_compatibility_recovery,
     )
 
 
@@ -260,30 +377,12 @@ def assess_source_request(request: SourceAssessmentRequest) -> SourceAssessment:
     """Inspect source documents through the existing recovery and extension planners."""
 
     try:
-        with recovery_kdf_budget(
-            allow_resource_intensive_compatibility=(
-                request.resource_intensive_compatibility_recovery
-            )
-        ):
+        with recovery_kdf_budget():
             inspection = inspect_recovery(_recovery_request(request))
             return _assessment_from_recovery(request, inspection)
     except WorkflowExecutionError as exc:
         return _failed_assessment(request, code=exc.code, message=exc.message)
     except (OSError, RuntimeError, ValueError) as exc:
-        retry = recovery_resource_retry(exc)
-        if retry is not None:
-            return SourceAssessment(
-                source_kind=request.source_kind,
-                source_label=request.source_label,
-                source_summary=request.source_summary,
-                issue=TaskIssue(
-                    code="RECOVERY_HIGHER_LIMITS_NEEDED",
-                    message="Unlocking exceeds the normal recovery work limit. "
-                    "You can retry with higher limits after the restore stops.",
-                    severity="warning",
-                    section=request.issue_section,
-                ),
-            )
         return _failed_assessment(
             request,
             code="SOURCE_ASSESSMENT_FAILED",
@@ -307,9 +406,7 @@ def _recovery_request(request: SourceAssessmentRequest) -> RecoveryRequest:
         auth_text_file=request.auth_text_file,
         auth_payloads_file=request.auth_payloads_file,
         allow_unsigned=request.allow_unsigned,
-        resource_intensive_compatibility_recovery=(
-            request.resource_intensive_compatibility_recovery
-        ),
+        quiet=True,
     )
 
 

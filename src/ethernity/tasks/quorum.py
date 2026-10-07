@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from functools import partial
+from typing import Annotated
+
+from pydantic import AfterValidator
+
 from ethernity.crypto.sharding import MAX_SHARES
 
 
@@ -22,3 +27,14 @@ def validate_optional_shard_count(
     if allow_zero and value == 0:
         return value
     return validate_required_shard_count(value, label=label)
+
+
+RecoveryDocumentCount = Annotated[
+    int, AfterValidator(partial(validate_required_shard_count, label="recovery document count"))
+]
+OptionalSigningDocumentCount = Annotated[
+    int | None,
+    AfterValidator(
+        partial(validate_optional_shard_count, label="signing key recovery document count")
+    ),
+]
