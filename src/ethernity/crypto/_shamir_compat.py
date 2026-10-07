@@ -24,8 +24,8 @@ for missing indices without importing any underscore-prefixed private symbols.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 BLOCK_SIZE = 16
 _GF128_IRREDUCIBLE = 1 + 2 + 4 + 128 + 2**128
