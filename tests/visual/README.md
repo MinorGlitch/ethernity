@@ -13,18 +13,18 @@ dependency.
 
 ## Review workflow
 
-1. Run `uv run pytest tests/visual -v`.
+1. Run `uv run pytest tests/visual -n 2 -v`.
 2. On a mismatch, open the reported `*.received.svg` next to its reviewed baseline and compare the
    complete terminal at the target size. A changed snapshot is not automatically an improvement.
 3. Check hierarchy, focus, wrapping, clipping, horizontal overflow, sticky actions, and non-color
    status cues. Inspect every target size rather than approving from a diff alone.
 4. Only after that review, run
    `uv run pytest tests/visual -v --update-tui-snapshots` to replace the baselines.
-5. Run `uv run pytest tests/visual -v` again without the update flag.
+5. Run `uv run pytest tests/visual -n 2 -v` again without the update flag.
 
 The fixtures seed typed `BackupEstimate` and `SourceAssessment` results through task cache APIs.
 They do not invoke format parsing, cryptography, filesystem discovery, or workflow execution.
-The production suite renders the real `EthernityApp` shell and workflow widgets at `160x48`,
+The production suite renders the real `EthernityApp` shell and workflow widgets at `220x48`, `160x48`,
 `120x32`, and `80x24`. It covers empty and configured tasks, expanded file lists, Unlock and Version
 sections, a dense Replacement configuration, and Settings at all three sizes.
 Backup Files, Recovery, and Print setup are captured separately. The workbench rail becomes a
@@ -44,7 +44,7 @@ Additional snapshots cover themes, reviews, and results:
   Geometry checks require each task's review details to be visible without scrolling.
 - Results include Restore success and failure at `120x32`, Backup success at `160x48` and `80x24`,
   and a partial Rebuild failure at `80x24`. They cover remediation, reviewed destinations, partial
-  outputs, copy/open actions, fingerprints, PDF page counts, and generated-document and printed-page
+  outputs, copy/open actions, fingerprints, PDF page counts, and automatic generated-document
   recovery tests.
 
 Geometry assertions keep sticky actions inside their owning region, reject horizontal scrolling,

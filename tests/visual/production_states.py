@@ -6,7 +6,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
 
-from ethernity.app.app_types import ActiveTask, TaskState
 from ethernity.app.application import EthernityApp
 from ethernity.app.workflow_presenter import is_guided_task
 from ethernity.app.workflow_registry import workflow_definition
@@ -16,6 +15,7 @@ from ethernity.tasks.backup_estimate import BackupEstimate
 from ethernity.tasks.models import TaskExecutionResult, TaskIssue, TaskResultDetail
 from ethernity.tasks.settings import SettingsTaskState
 from ethernity.tasks.source_assessment import SourceAssessableTaskState, SourceAssessment
+from ethernity.tasks.task_types import TaskKey, TaskState
 
 VISUAL_CONFIG_PATH = Path("/visual-fixtures/config/ethernity.toml")
 VISUAL_ARCHIVE = Path(
@@ -37,7 +37,7 @@ class ProductionSnapshotCase:
     """One workflow state and its expected presentation position."""
 
     key: str
-    task: ActiveTask
+    task: TaskKey
     state_updates: dict[str, object]
     active_step: str | None
     expected_ready: bool
@@ -48,7 +48,7 @@ class ProductionSnapshotCase:
 
 @dataclass(frozen=True, slots=True)
 class ReviewSnapshotCase:
-    """A valid workflow state and the decisions that must stay visible in review."""
+    """A valid workflow state and the decisions available in review."""
 
     key: str
     workflow_case_key: str
@@ -61,7 +61,7 @@ class ResultSnapshotCase:
     """One deterministic post-run outcome at an intentionally selected viewport."""
 
     key: str
-    task: ActiveTask
+    task: TaskKey
     title: str
     terminal_size: tuple[int, int]
     result: TaskExecutionResult
@@ -239,7 +239,7 @@ REVIEW_SNAPSHOT_CASES: tuple[ReviewSnapshotCase, ...] = (
     ReviewSnapshotCase(
         "backup-review",
         "backup-ready",
-        ("Files", "Documents", "Backup pages", "Recovery", "Signing key", "Layout", "Destination"),
+        ("Files", "Recovery", "Signing key", "Documents", "Backup pages", "Layout", "Destination"),
     ),
     ReviewSnapshotCase(
         "restore-review",
@@ -252,10 +252,10 @@ REVIEW_SNAPSHOT_CASES: tuple[ReviewSnapshotCase, ...] = (
         (
             "Backup",
             "Changes",
-            "Documents",
             "Source version",
             "Unlock",
             "Recovery sheets",
+            "Documents",
             "Destination",
         ),
         ("3 new recovery sheets, 2 needed to restore",),
@@ -265,10 +265,10 @@ REVIEW_SNAPSHOT_CASES: tuple[ReviewSnapshotCase, ...] = (
         "rebuild-warning",
         (
             "Source",
-            "Documents",
             "Recovery sheets",
             "Unlock",
             "Source version",
+            "Documents",
             "Layout",
             "Destination",
         ),
@@ -288,7 +288,7 @@ REVIEW_SNAPSHOT_CASES: tuple[ReviewSnapshotCase, ...] = (
     ReviewSnapshotCase(
         "kit-review",
         "kit-warning",
-        ("Documents", "Kit type", "Layout", "QR sizing", "Destination"),
+        ("Kit type", "Layout", "QR sizing", "Documents", "Destination"),
     ),
 )
 
@@ -308,7 +308,7 @@ RESULT_SNAPSHOT_CASES: tuple[ResultSnapshotCase, ...] = (
             ),
             next_steps=("Open a few important files and confirm they are readable.",),
         ),
-        expected_first_view_ids=("result-outcome", "result-context-actions"),
+        expected_first_view_ids=("result-overview",),
         expected_action_ids=("result-copy-paths", "result-open-folder", "result-close"),
     ),
     ResultSnapshotCase(
@@ -356,14 +356,13 @@ RESULT_SNAPSHOT_CASES: tuple[ResultSnapshotCase, ...] = (
                 TaskResultDetail(key="documents", label="PDF documents", value=3),
             ),
         ),
-        expected_first_view_ids=("result-outcome", "result-context-actions"),
+        expected_first_view_ids=("result-overview",),
         expected_action_ids=(
             "result-copy-fingerprint",
             "result-copy-paths",
             "result-open-folder",
             "result-open-documents",
             "result-test-recovery",
-            "result-test-printed-pages",
             "result-close",
         ),
     ),
@@ -399,9 +398,8 @@ RESULT_SNAPSHOT_CASES += (
         key="backup-success-compact",
         terminal_size=(80, 24),
         expected_first_view_ids=(
-            "result-outcome",
+            "result-overview",
             "result-context-actions",
-            "result-next-actions",
         ),
     ),
 )

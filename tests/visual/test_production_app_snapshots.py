@@ -20,7 +20,7 @@ from ethernity.app.screens.help import HelpScreen
 from ethernity.app.screens.review_task import ReviewTaskScreen
 from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.task_view import _REVIEW_TITLES
-from ethernity.app.widgets.form import FormScroll
+from ethernity.app.widgets.form import FormScroll, FormSection
 from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.app.widgets.workbench import WorkbenchSteps, WorkbenchSummary
@@ -41,9 +41,9 @@ from tests.visual.production_states import (
 from tests.visual.snapshot_support import assert_svg_snapshot, capture_svg
 
 SNAPSHOT_DIR = Path(__file__).with_name("snapshots")
-TARGET_SIZES = ((160, 48), (120, 32), (80, 24))
+TARGET_SIZES = ((220, 48), (160, 48), (120, 32), (80, 24))
 REVIEW_SIZE = (120, 32)
-REVIEW_SIZES = ((120, 32), (80, 24))
+REVIEW_SIZES = ((160, 60), (120, 32), (80, 24))
 LIGHT_THEME_SIZE = (120, 32)
 LIGHT_WORKFLOW_CASE = production_case("restore-ready")
 LIGHT_WORKFLOW_CAPTURES = (
@@ -648,6 +648,7 @@ def _assert_production_geometry(
 
     assert _inside(Region(0, 0, width, height), body.region)
     assert _inside(Region(0, 0, width, height), action_bar.region)
+    _assert_editor_alignment(app, body, action_bar)
     assert body.region.y + body.region.height <= action_bar.region.y
     assert action_bar.region.y + action_bar.region.height <= footer.region.y
     assert _inside(action_bar.region, primary.region)
@@ -695,6 +696,24 @@ def _assert_production_geometry(
             else:
                 assert scroll_view.max_scroll_x == 0, f"{case.key}: {scroll_view.id}"
 
+    _assert_case_geometry(app, terminal_size, workspace, body, primary)
+
+
+def _assert_editor_alignment(app: ProductionVisualApp, body: Widget, actions: Widget) -> None:
+    heading = app.query_one("#canvas-title").region
+    assert body.region.width == app.query_one("#workbench-editor").content_size.width
+    assert (body.region.x, body.region.width) == (actions.region.x, actions.region.width)
+    assert (heading.x, heading.width) == (body.region.x, body.region.width)
+
+
+def _assert_case_geometry(
+    app: ProductionVisualApp,
+    terminal_size: tuple[int, int],
+    workspace: Widget,
+    body: Widget,
+    primary: Button,
+) -> None:
+    case = app.visual_case
     if case.key == "backup-empty":
         workspace.query_one("#workspace-backup-recovery-method")
         assert not workspace.query_one("#workspace-backup-clear-files", Button).display
@@ -728,7 +747,9 @@ def _assert_production_geometry(
         value = workspace.query_one("#kit-chunk-size-value")
         assert warning.display
         assert warning.region.y >= value.region.bottom
-        assert warning.parent is value.parent.parent.parent
+        assert warning.parent is next(
+            parent for parent in value.ancestors if isinstance(parent, FormSection)
+        )
 
 
 def _assert_settings_geometry(
@@ -753,6 +774,9 @@ def _assert_settings_geometry(
     assert _inside(workspace.region, settings_form.region)
     assert _inside(settings_form.region, tab_bar.region)
     assert _inside(settings_form.region, active_pane.region)
+    categories = settings_form.query_one("#settings-categories", WorkbenchSteps)
+    assert categories.display
+    assert _inside(settings_form.region, categories.region)
     assert _inside(workspace.region, save_row.region)
     assert tab_bar.region.bottom <= active_pane.region.y
     assert active_pane.region.bottom <= save_row.region.y
@@ -786,15 +810,19 @@ def _assert_review_geometry(
     assert tuple(str(label.content) for label in labels) == review_case.expected_detail_labels
     assert len(values) == len(labels)
     assert set(review_case.expected_detail_values) <= {str(value.content) for value in values}
+    assert screen.query_one("#review-modal").region.width <= 100
+    assert not list(screen.query("#review-output-list"))
     for widget in (*labels, *values):
-        assert _inside(body.region, widget.region), (
-            f"{review_case.key}: review decision outside first viewport: {widget.content}"
+        assert body.region.x <= widget.region.x < widget.region.right <= body.region.right, (
+            f"{review_case.key}: clipped review decision: {widget.content}"
         )
+        assert widget.region.height > 0
 
     for button_id in ("review-close", "review-execute"):
         assert _inside(actions.region, screen.query_one(f"#{button_id}", Button).region)
     for button in screen.query(".review-detail-edit").results(Button):
-        assert _inside(body.region, button.region), f"{review_case.key}: {button.id}"
+        assert button.region.height == screen.query_one("#review-execute").region.height
+        assert button.region.right <= body.region.right, f"{review_case.key}: {button.id}"
         assert str(button.label) in button.render_line(button.content_size.height // 2).text
     assert screen.focused is screen.query_one("#review-execute", Button)
 
@@ -805,6 +833,7 @@ def _assert_result_geometry(
 ) -> None:
     body, actions = _assert_modal_geometry(app, "result", result_case.terminal_size)
     screen = app.screen
+    assert screen.query_one("#result-modal").region.width <= 100
 
     for widget_id in result_case.expected_first_view_ids:
         widget = screen.query_one(f"#{widget_id}")
@@ -814,9 +843,12 @@ def _assert_result_geometry(
 
     for button_id in result_case.expected_action_ids:
         button = screen.query_one(f"#{button_id}", Button)
-        owner = actions if button_id in {"result-close", "result-return"} else body
-        assert _inside(owner.region, button.region), f"{result_case.key}: {button_id}"
-        if button_id in {"result-test-recovery", "result-test-printed-pages"}:
+        if button_id in {"result-close", "result-return"}:
+            assert _inside(actions.region, button.region), f"{result_case.key}: {button_id}"
+        else:
+            assert body.region.x <= button.region.x < button.region.right <= body.region.right
+            assert button.region.height == screen.query_one("#result-close").region.height
+        if button_id == "result-test-recovery":
             assert not button.disabled
 
     if result_case.result.ok:

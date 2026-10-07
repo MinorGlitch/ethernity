@@ -107,7 +107,9 @@ def _normalize_svg(svg: str) -> str:
 
 
 def _first_mismatch(expected: str, actual: str) -> str:
-    for index, (expected_character, actual_character) in enumerate(zip(expected, actual)):
+    for index, (expected_character, actual_character) in enumerate(
+        zip(expected, actual, strict=False)
+    ):
         if expected_character != actual_character:
             line = expected.count("\n", 0, index) + 1
             line_start = expected.rfind("\n", 0, index) + 1

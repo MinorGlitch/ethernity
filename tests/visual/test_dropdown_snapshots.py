@@ -76,7 +76,7 @@ def test_open_dropdown_snapshot(
         await pilot.pause()
         overlay = field.query_one(OptionList)
         assert app.screen.focused is overlay
-        assert 0 < overlay.region.width == field.region.width <= 48
+        assert 0 < overlay.region.width == field.region.width
         assert Region(0, 0, *size).contains_region(overlay.region)
         assert overlay.option_count == len(field._options)
         # Padding belongs to each choice, so all three rows highlight and select it.

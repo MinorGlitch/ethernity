@@ -9,10 +9,11 @@ from textual.widgets import Button, Select
 
 from ethernity.app.widgets.form import FormRow, FormSection
 from ethernity.app.widgets.workbench import workbench_steps
+from tests.visual.layout_assertions import assert_scrollbar_gaps
 from tests.visual.production_states import ProductionVisualApp, production_case
 
 
-@pytest.mark.parametrize("size", [(160, 48), (120, 32), (80, 24)])
+@pytest.mark.parametrize("size", [(220, 48), (160, 48), (120, 32), (100, 40), (80, 24), (60, 24)])
 @pytest.mark.parametrize(
     "case",
     [
@@ -37,6 +38,7 @@ def test_each_flow_step_has_bounded_rows_and_reachable_controls(case, size) -> N
                     continue
                 await app._select_workbench_step(step.key)
                 await pilot.pause()
+                assert_scrollbar_gaps(app.screen)
                 rows = [
                     row
                     for row in app.query(FormRow)
@@ -69,12 +71,24 @@ def test_each_flow_step_has_bounded_rows_and_reachable_controls(case, size) -> N
                         if isinstance(control, Button):
                             text = control.render_line(control.content_size.height // 2).text
                             assert str(control.label) in text
-                    for value in row.query(".form-value, .form-path-value"):
-                        controls = row.query_one(".form-controls")
-                        assert controls.region.contains_region(value.region)
-                        button = row.query_one(Button)
-                        assert button.region.x == value.region.right + 1
+                    _assert_row_values_are_aligned(row)
                     for select in row.query(Select):
-                        assert select.region.width <= 48
+                        assert (
+                            select.region.width
+                            == row.query_one(".form-controls").content_size.width
+                        )
 
     asyncio.run(run())
+
+
+def _assert_row_values_are_aligned(row: FormRow) -> None:
+    controls = row.query_one(".form-controls")
+    for value in row.query(".form-value, .form-path-value"):
+        assert controls.region.contains_region(value.region)
+        for button in row.query(Button):
+            if button.display:
+                if controls.has_class("stacked-controls"):
+                    assert button.region.y >= value.region.bottom + 1
+                    assert button.region.x == controls.region.x
+                else:
+                    assert button.region.x == value.region.right + 1
