@@ -31,7 +31,7 @@ _FALLBACK_SECTION_PATTERNS = {
     "key": re.compile(r"^[=\-:\s]*(?:key|shard) frame[=\-:\s]*$", re.IGNORECASE),
     "main": re.compile(r"^[=\-:\s]*main frame[=\-:\s]*$", re.IGNORECASE),
 }
-_FALLBACK_RENDERED_LINE_PREFIX_RE = re.compile(r"^\d{1,4}\.\s*")
+_FALLBACK_RENDERED_LINE_PREFIX_RE = re.compile(r"^\d{1,5}\.\s*")
 
 
 def _is_valid_zbase32_line(line: str) -> bool:

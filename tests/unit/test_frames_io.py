@@ -587,7 +587,7 @@ class TestFramesIo(unittest.TestCase):
 
     def test_decode_payload_rejects_non_ascii_bytes(self) -> None:
         with self.assertRaisesRegex(ValueError, "must be ASCII"):
-            _decode_payload("π".encode("utf-8"))
+            _decode_payload("π".encode())
 
     def test_decode_payload_enforces_char_limit(self) -> None:
         with mock.patch("ethernity.workflows.recovery.frame_inputs.MAX_QR_PAYLOAD_CHARS", 4):
