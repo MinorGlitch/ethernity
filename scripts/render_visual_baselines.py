@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import re
@@ -15,6 +14,7 @@ import tempfile
 from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
+from functools import cache
 from pathlib import Path
 from typing import Final, Literal, cast
 
@@ -27,12 +27,12 @@ from ethernity.page_sizes import (
     DEFAULT_PAPER_SIZE_NAME,
     PaperSize,
     normalize_paper_size_name,
+    resolve_paper_size,
 )
-from ethernity.qr.codec import QrConfig
 from ethernity.qr.scan import scan_qr_payloads
 from ethernity.render import render_frames_to_pdf
-from ethernity.render.backend_dispatch import DIRECT_PDF_DESIGN_REGISTRY
-from ethernity.render.checks import extract_pdf_text, validate_fallback_summary
+from ethernity.render.checks import validate_fallback_summary
+from ethernity.render.design_style import load_page_template
 from ethernity.render.designs import list_design_definitions
 from ethernity.render.direct_pdf.page_geometry import registered_paper_sizes
 from ethernity.render.doc_types import (
@@ -54,14 +54,13 @@ from ethernity.render.types import (
     RenderResult,
 )
 from ethernity.render.validation import expected_physical_qr_payloads
-from ethernity.workflows.kit import service as kit_service
 
 RendererName = Literal["direct"]
 RasterizeMode = Literal["auto", "always", "never"]
 
-DESIGN_NAMES: Final = ("archive", "forge", "ledger", "maritime", "sentinel")
+DESIGN_NAMES: Final = tuple(list_design_definitions())
 DIRECT_SUPPORTED_DOC_TYPES: Final = frozenset(
-    role for design in DIRECT_PDF_DESIGN_REGISTRY.values() for role in design.builders
+    role for design in list_design_definitions().values() for role in design.documents
 )
 MANIFEST_NAME: Final = "manifest.json"
 DIRECT_RENDERER_NAME: Final[RendererName] = "direct"
@@ -99,21 +98,6 @@ _SINGLE_PAGE_DOC_TYPES: Final = frozenset(
     {
         DOC_TYPE_SHARD,
         DOC_TYPE_SIGNING_KEY_SHARD,
-    }
-)
-_MANUAL_FALLBACK_LINE_NUMBER_CASES: Final = frozenset(
-    {
-        ("archive", DOC_TYPE_RECOVERY),
-        ("archive", DOC_TYPE_SHARD),
-        ("archive", DOC_TYPE_SIGNING_KEY_SHARD),
-        ("forge", DOC_TYPE_RECOVERY),
-        ("ledger", DOC_TYPE_RECOVERY),
-        ("ledger", DOC_TYPE_SHARD),
-        ("ledger", DOC_TYPE_SIGNING_KEY_SHARD),
-        ("maritime", DOC_TYPE_RECOVERY),
-        ("maritime", DOC_TYPE_SHARD),
-        ("maritime", DOC_TYPE_SIGNING_KEY_SHARD),
-        ("sentinel", DOC_TYPE_RECOVERY),
     }
 )
 
@@ -226,6 +210,7 @@ class BaselineCaseReport:
     direct_supported: bool
     renders: tuple[RenderedBaseline, ...]
     diagnostics: tuple[ImageDeltaDiagnostic, ...]
+    page_spec: PaperSize | None = None
 
 
 @dataclass(frozen=True)
@@ -290,8 +275,8 @@ def filter_design_cases(
 def supports_direct_baseline(case: VisualBaselineCase) -> bool:
     """Return whether the current direct renderer supports this baseline case."""
 
-    design = DIRECT_PDF_DESIGN_REGISTRY.get(case.design)
-    return design is not None and case.doc_type in design.builders
+    design = list_design_definitions().get(case.design)
+    return design is not None and case.doc_type in design.documents
 
 
 def render_visual_baselines(
@@ -348,6 +333,7 @@ def render_visual_baselines(
                 design=case.design,
                 doc_type=case.doc_type,
                 paper_size=case.paper_size,
+                page_spec=case.page_spec,
                 direct_supported=supports_direct_baseline(case),
                 renders=(rendered,),
                 diagnostics=(),
@@ -386,7 +372,8 @@ def render_baseline(
         validate_fallback_output(case, inputs, result)
 
     reader = PdfReader(str(pdf_path))
-    text = extract_pdf_text(reader)
+    page_texts = tuple(page.extract_text() or "" for page in reader.pages)
+    text = "\n".join(page_texts)
     poppler_warnings, poppler_skipped_reason = pdf_poppler_warnings(pdf_path)
     raster = rasterize_pdf_pages(
         pdf_path,
@@ -455,9 +442,7 @@ def render_baseline(
     numbered_page_count: int | None = None
     all_pages_numbered: bool | None = None
     if result.layout_report is not None:
-        numbered_page_count = sum(
-            bool(_PAGE_LABEL_PATTERN.search(page.extract_text() or "")) for page in reader.pages
-        )
+        numbered_page_count = sum(bool(_PAGE_LABEL_PATTERN.search(text)) for text in page_texts)
         all_pages_numbered = numbered_page_count == len(reader.pages)
     return RenderedBaseline(
         renderer=renderer_name,
@@ -728,7 +713,11 @@ def validate_qr_scans(
 def requires_manual_fallback_line_numbers(case: VisualBaselineCase) -> bool:
     """Return whether this design/document renders explicitly numbered manual fallback rows."""
 
-    return (case.design, case.doc_type) in _MANUAL_FALLBACK_LINE_NUMBER_CASES
+    page = case.page_spec or resolve_paper_size(case.paper_size)
+    document = load_page_template(case.design, page).document(case.doc_type)
+    return document.recovery is not None or (
+        document.sheet is not None and document.sheet.numbering != "none"
+    )
 
 
 def is_manual_fallback_line_number_component(
@@ -737,10 +726,21 @@ def is_manual_fallback_line_number_component(
 ) -> bool:
     """Identify text components that visibly carry manual fallback row numbers."""
 
-    normalized = component_id.lower()
-    if "-fallback-line-number-" in normalized or "-fallback-number-" in normalized:
+    if not requires_manual_fallback_line_numbers(case):
+        return False
+    if any(
+        marker in component_id or component_id.endswith(marker.rstrip("-"))
+        for marker in ("-fallback-line-number-", "-fallback-number-")
+    ):
         return True
-    return case.design == "archive" and "-fallback-line-" in normalized
+    page = case.page_spec or resolve_paper_size(case.paper_size)
+    document = load_page_template(case.design, page).document(case.doc_type)
+    inline = (
+        document.sheet.numbering == "inline"
+        if document.sheet
+        else bool(document.recovery and document.recovery.first.inline_number)
+    )
+    return inline and "-fallback-line-" in component_id
 
 
 def pdf_poppler_warnings(pdf_path: Path) -> tuple[tuple[str, ...] | None, str | None]:
@@ -809,7 +809,6 @@ def scan_composited_pdf_qr_payloads(
                 pdftoppm,
                 "-r",
                 str(dpi),
-                "-png",
                 str(pdf_path),
                 str(Path(tmp) / "page"),
             ],
@@ -821,7 +820,8 @@ def scan_composited_pdf_qr_payloads(
             detail = completed.stderr.strip() or f"exit status {completed.returncode}"
             raise RuntimeError(f"could not rasterize {pdf_path} for QR scan: {detail}")
         payloads: list[bytes] = []
-        page_paths = sorted(Path(tmp).glob("page-*.png"), key=lambda path: int(path.stem[5:]))
+        # PPM preserves the same RGB pixels without compressing and decoding temporary PNG images.
+        page_paths = sorted(Path(tmp).glob("page-*.ppm"), key=lambda path: int(path.stem[5:]))
         for page_path in page_paths:
             payloads.extend(_scan_page_in_reading_order(page_path, dpi=dpi))
         return tuple(payloads), None
@@ -928,17 +928,7 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
         )
 
     if case.doc_type == DOC_TYPE_KIT:
-        payload_data = base64.b85encode(hashlib.shake_256(b"kit-density").digest(12_000)).decode(
-            "ascii"
-        )
-        payloads = kit_service.build_kit_qr_payloads(
-            b"synthetic bundle",
-            1200,
-            QrConfig(),
-            loader_metadata_extractor=lambda _bundle: kit_service.KitBundleLoaderMetadata(
-                payload_data, "gzip"
-            ),
-        )
+        payloads = _sample_kit_payloads()
         frames = tuple(
             _frame(FrameType.MAIN_DOCUMENT, index=index, total=len(payloads), data=b"")
             for index in range(len(payloads))
@@ -951,7 +941,7 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
             doc_type=case.doc_type,
             design_name=case.design,
             origin=DocumentOrigin(kind="recovery_kit"),
-            qr_payloads=tuple(payloads),
+            qr_payloads=payloads,
             render_qr=True,
             render_fallback=False,
             page_size=case.page_spec,
@@ -972,6 +962,14 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
         )
 
     raise ValueError(f"unsupported visual baseline doc_type: {case.doc_type}")
+
+
+@cache
+def _sample_kit_payloads() -> tuple[bytes, ...]:
+    """Keep artwork checks independent of changes to the printed kit transport."""
+
+    path = Path(__file__).resolve().parents[1] / "tests/fixtures/render/kit-qr-payloads.json"
+    return tuple(payload.encode("ascii") for payload in json.loads(path.read_text()))
 
 
 def rasterize_pdf_pages(
@@ -1005,8 +1003,7 @@ def rasterize_pdf_pages(
             str(output_prefix),
         ],
         check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
     return RasterResult(
@@ -1026,7 +1023,7 @@ def build_image_pair_diagnostics(
     candidate_paths = tuple(output_dir / path for path in candidate.png_paths)
     diagnostics: list[ImageDeltaDiagnostic] = []
     for index, (reference_path, candidate_path) in enumerate(
-        zip(reference_paths, candidate_paths),
+        zip(reference_paths, candidate_paths, strict=False),
         start=1,
     ):
         diagnostics.append(

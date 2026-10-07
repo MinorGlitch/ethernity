@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -55,22 +56,54 @@ _SPEC.loader.exec_module(_MODULE)
 
 
 class TestRenderVisualBaselines(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("pdftoppm"), "pdftoppm not found")
+    def test_composited_scan_preserves_png_pixels_and_payload_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            case = _MODULE.VisualBaselineCase(design="forge", doc_type="kit", paper_size="A5")
+            inputs = _MODULE.build_sample_inputs(case, root / "kit.pdf")
+            result = render_frames_to_pdf(inputs)
+            reference = _MODULE.rasterize_pdf_pages(
+                inputs.output_path, root / "reference", mode="always", dpi=200
+            )
+            self.assertGreater(len(reference.paths), 1)
+            scanned_pages = []
+            scan_page = _MODULE._scan_page_in_reading_order
+
+            def compare_page(path: Path, *, dpi: int) -> tuple[bytes, ...]:
+                with (
+                    Image.open(path) as actual,
+                    Image.open(reference.paths[len(scanned_pages)]) as expected,
+                ):
+                    self.assertEqual(actual.mode, expected.mode)
+                    self.assertEqual(actual.size, expected.size)
+                    self.assertEqual(actual.tobytes(), expected.tobytes())
+                scanned_pages.append(path)
+                return scan_page(path, dpi=dpi)
+
+            with mock.patch.object(_MODULE, "_scan_page_in_reading_order", compare_page):
+                payloads, skipped = _MODULE.scan_composited_pdf_qr_payloads(inputs.output_path)
+
+            self.assertIsNone(skipped)
+            self.assertEqual(len(scanned_pages), len(reference.paths))
+            self.assertEqual(
+                payloads, _MODULE.expected_physical_qr_payloads(inputs, result.document_summary)
+            )
+
     def _assert_typography_floors(self, case: object, rendered: object) -> None:
-        minimum_font_size = getattr(rendered, "minimum_font_size_pt")
+        minimum_font_size = rendered.minimum_font_size_pt
         self.assertIsNotNone(minimum_font_size)
         self.assertGreaterEqual(minimum_font_size, _MODULE.MINIMUM_TEXT_FONT_SIZE_PT)
 
         baseline_case = _MODULE.VisualBaselineCase(
-            design=getattr(case, "design"),
-            doc_type=getattr(case, "doc_type"),
-            paper_size=getattr(case, "paper_size"),
+            design=case.design,
+            doc_type=case.doc_type,
+            paper_size=case.paper_size,
+            page_spec=case.page_spec,
         )
         if not _MODULE.requires_manual_fallback_line_numbers(baseline_case):
             return
-        minimum_line_number_size = getattr(
-            rendered,
-            "minimum_manual_fallback_line_number_font_size_pt",
-        )
+        minimum_line_number_size = rendered.minimum_manual_fallback_line_number_font_size_pt
         self.assertIsNotNone(minimum_line_number_size)
         self.assertGreaterEqual(
             minimum_line_number_size,
@@ -229,56 +262,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     assert result.layout_report is not None
                     assert result.fallback_summary is not None
                     self.assertFalse(result.layout_report.overflow)
-                    payload_pages = tuple(
-                        tuple(
-                            component
-                            for component in page.components
-                            if "fallback-line" in component.component_id
-                            and all(
-                                excluded not in component.component_id
-                                for excluded in ("line-number", "line-box", "line-rule")
-                            )
-                            and component.used_rect is not None
-                        )
-                        for page in result.layout_report.pages
-                    )
-                    payload_page_indexes = tuple(
-                        index for index, payload_lines in enumerate(payload_pages) if payload_lines
-                    )
-                    self.assertTrue(payload_page_indexes)
-                    final_payload_page_index = payload_page_indexes[-1]
-                    emitted_lines = result.fallback_summary.emitted_fallback_lines
-                    self.assertEqual(sum(map(len, payload_pages)), len(emitted_lines))
-                    maximum_line_length = max(map(len, emitted_lines))
-                    line_cursor = 0
-                    for page_index, payload_lines in enumerate(payload_pages):
-                        page_text = emitted_lines[line_cursor : line_cursor + len(payload_lines)]
-                        line_cursor += len(payload_lines)
-                        if (
-                            payload_lines
-                            and page_index > 0
-                            and page_index != final_payload_page_index
-                        ):
-                            payload_bottom_mm = max(
-                                component.rect.bottom_mm for component in payload_lines
-                            )
-                            page_height_mm = result.layout_report.pages[page_index].rect.height_mm
-                            self.assertGreaterEqual(
-                                payload_bottom_mm / page_height_mm,
-                                0.75,
-                                "non-final continuation fallback rows must use page height",
-                            )
-                        if not payload_lines or page_index == final_payload_page_index:
-                            continue
-                        page_line_length = max(map(len, page_text))
-                        full_line_ratios = tuple(
-                            component.used_rect.width_mm / component.rect.width_mm
-                            for component, text in zip(payload_lines, page_text, strict=True)
-                            if len(text) == page_line_length and component.used_rect is not None
-                        )
-                        self.assertTrue(full_line_ratios)
-                        self.assertGreaterEqual(min(full_line_ratios), 0.80)
-                    self.assertEqual(line_cursor, len(emitted_lines))
+                    maximum_line_length = self._assert_fallback_page_occupancy(result)
                     validate_fallback_text_in_pdf(
                         document_label=case.case_id,
                         reader=PdfReader(output_path),
@@ -308,6 +292,53 @@ class TestRenderVisualBaselines(unittest.TestCase):
             )
             self.assertLessEqual(tall_pages, future_pages)
             self.assertGreaterEqual(tall_line_length, future_line_length)
+
+    def _assert_fallback_page_occupancy(self, result) -> int:
+        payload_pages = tuple(
+            tuple(
+                component
+                for component in page.components
+                if "fallback-line" in component.component_id
+                and all(
+                    excluded not in component.component_id
+                    for excluded in ("line-number", "line-box", "line-rule")
+                )
+                and component.used_rect is not None
+            )
+            for page in result.layout_report.pages
+        )
+        payload_page_indexes = tuple(
+            index for index, payload_lines in enumerate(payload_pages) if payload_lines
+        )
+        self.assertTrue(payload_page_indexes)
+        final_payload_page_index = payload_page_indexes[-1]
+        emitted_lines = result.fallback_summary.emitted_fallback_lines
+        self.assertEqual(sum(map(len, payload_pages)), len(emitted_lines))
+        maximum_line_length = max(map(len, emitted_lines))
+        line_cursor = 0
+        for page_index, payload_lines in enumerate(payload_pages):
+            page_text = emitted_lines[line_cursor : line_cursor + len(payload_lines)]
+            line_cursor += len(payload_lines)
+            if payload_lines and page_index > 0 and page_index != final_payload_page_index:
+                payload_bottom_mm = max(component.rect.bottom_mm for component in payload_lines)
+                page_height_mm = result.layout_report.pages[page_index].rect.height_mm
+                self.assertGreaterEqual(
+                    payload_bottom_mm / page_height_mm,
+                    0.75,
+                    "non-final continuation fallback rows must use page height",
+                )
+            if not payload_lines or page_index == final_payload_page_index:
+                continue
+            page_line_length = max(map(len, page_text))
+            full_line_ratios = tuple(
+                component.used_rect.width_mm / component.rect.width_mm
+                for component, text in zip(payload_lines, page_text, strict=True)
+                if len(text) == page_line_length and component.used_rect is not None
+            )
+            self.assertTrue(full_line_ratios)
+            self.assertGreaterEqual(min(full_line_ratios), 0.80)
+        self.assertEqual(line_cursor, len(emitted_lines))
+        return maximum_line_length
 
     def test_every_shard_document_renderer_is_one_page_at_key_document_data_bound(self) -> None:
         cases = tuple(
@@ -561,7 +592,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
         )
 
         def fallback_container(page: object) -> RenderRect:
-            components = getattr(page, "components")
+            components = page.components
             containers = tuple(
                 component.rect
                 for component in components
@@ -611,6 +642,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                                 "fallback-line" in component.component_id
                                 or "payload-line" in component.component_id
                             )
+                            and "line-number" not in component.component_id
                             and component.used_rect is not None
                         )
                         self.assertTrue(lines)
@@ -768,7 +800,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     renderer=_fake_pdf_renderer,
                 )
 
-    def test_manual_fallback_line_number_detection_is_design_specific(self) -> None:
+    def test_manual_fallback_line_number_detection_uses_shared_components(self) -> None:
         archive_shard = _MODULE.VisualBaselineCase(
             design="archive",
             doc_type=DOC_TYPE_SHARD,
@@ -793,7 +825,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
         self.assertTrue(
             _MODULE.is_manual_fallback_line_number_component(
                 archive_shard,
-                "archive-shard-p1-fallback-line-0-1",
+                "p1-column-0-fallback-line-number-0-1",
             )
         )
         self.assertTrue(
