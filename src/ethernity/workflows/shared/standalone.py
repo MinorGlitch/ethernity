@@ -38,11 +38,11 @@ def encode_standalone_backup(
         input_roots=list(input_roots),
         created_at=created_at,
     )
-    encoded_payload, codec, raw_len = payload_codec.encode_payload_for_manifest(
+    encoded_payload, codec = payload_codec.encode_payload_for_manifest(
         raw_payload,
         mode=payload_codec_mode,
     )
-    manifest = replace(manifest, payload_codec=codec, payload_raw_len=raw_len)
+    manifest = replace(manifest, payload_codec=codec)
     return document_codec.encode_backup_document(encoded_payload, manifest), raw_payload
 
 

@@ -34,13 +34,15 @@ from ethernity.publication import (
     discard_staging_directory,
     promote_staged_directory,
 )
+from ethernity.workflows.shared.events import emit_event, emit_finalizing, emit_progress
 from ethernity.workflows.shared.paths import expanduser_cli_path
 
 __all__ = [
+    "backup_output_path",
     "commit_prepared_output_dir",
     "discard_prepared_output_dir",
     "ensure_directory",
-    "prepare_output_dir",
+    "prepare_backup_output_dir",
     "single_entry_uses_directory_output",
     "write_recovered_outputs",
 ]
@@ -83,51 +85,28 @@ def ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
     return directory
 
 
-def _ensure_output_dir(
-    output_dir: str | None,
+def backup_output_path(parent_dir: str | Path | None, doc_id_hex: str) -> Path:
+    """Place every standalone backup in its own folder under the chosen parent."""
+
+    parent = Path(expanduser_cli_path(parent_dir, preserve_stdin=False) or ".")
+    return parent / f"backup-{doc_id_hex}"
+
+
+def prepare_backup_output_dir(
+    parent_dir: str | Path | None,
     doc_id_hex: str,
-    *,
-    existing_directory_is_parent: bool = False,
-) -> str:
-    """Create a fresh backup output directory or raise if it already exists."""
-
-    directory = expanduser_cli_path(output_dir, preserve_stdin=False) or f"backup-{doc_id_hex}"
-    normalized = Path(directory)
-    if existing_directory_is_parent and normalized.is_dir():
-        directory = str(normalized / f"backup-{doc_id_hex}")
-    try:
-        ensure_directory(directory, exist_ok=False)
-    except FileExistsError as exc:
-        raise ValueError(
-            f"output directory already exists: {directory}; "
-            "use a different --output-dir path or remove the existing directory"
-        ) from exc
-    return directory
-
-
-def prepare_output_dir(
-    output_dir: str | None,
-    doc_id_hex: str,
-    *,
-    prefix: str,
-    existing_directory_is_parent: bool = False,
 ) -> tuple[str, str]:
-    """Prepare sibling staging and final output directories."""
+    """Stage a new backup beside its final folder inside the selected parent."""
 
-    final_dir = expanduser_cli_path(output_dir, preserve_stdin=False) or f"{prefix}-{doc_id_hex}"
-    normalized = Path(final_dir)
-    if existing_directory_is_parent and normalized.is_dir():
-        normalized = normalized / f"{prefix}-{doc_id_hex}"
-        final_dir = str(normalized)
-    if normalized.exists():
+    final_dir = backup_output_path(parent_dir, doc_id_hex)
+    if final_dir.exists() or final_dir.is_symlink():
         raise ValueError(
-            f"output directory already exists: {final_dir}; "
-            "use a different --output-dir path or remove the existing directory"
+            f"backup output already exists: {final_dir}; choose a different parent folder"
         )
-    ensure_directory(normalized.parent, exist_ok=True)
-    staging_dir = create_sibling_staging_dir(normalized)
+    ensure_directory(final_dir.parent, exist_ok=True)
+    staging_dir = create_sibling_staging_dir(final_dir)
     _harden_dir_permissions(staging_dir)
-    return str(normalized), str(staging_dir)
+    return str(final_dir), str(staging_dir)
 
 
 def commit_prepared_output_dir(
@@ -138,6 +117,8 @@ def commit_prepared_output_dir(
 ) -> str:
     """Promote a staged output directory into place."""
 
+    emit_event("destination", path=str(Path(final_dir).absolute()))
+    emit_finalizing()
     return str(
         promote_staged_directory(
             staging_dir,
@@ -213,6 +194,7 @@ def write_recovered_outputs(
             single_entry_output_is_directory=single_entry_output_is_directory,
         )
         if len(entries) == 1 and not directory_mode:
+            emit_finalizing()
             path = _write_output(output_path, entries[0][1])
             if on_entry_written is not None:
                 resolved_path = path or output_path
@@ -226,6 +208,7 @@ def write_recovered_outputs(
         )
 
     if len(entries) == 1:
+        emit_finalizing()
         _write_output(None, entries[0][1])
         if on_entry_written is not None:
             on_entry_written(entries[0][0], entries[0][1], "-", 1, 1)
@@ -271,17 +254,21 @@ def _write_recovered_directory_outputs(
         tempfile.mkdtemp(prefix=f".{base_dir.name or 'recover'}.tmp-", dir=str(base_dir.parent))
     )
     _harden_dir_permissions(staging_dir)
-    _validate_recovered_output_paths(
-        entries, case_sensitive=_is_directory_case_sensitive(staging_dir)
-    )
     staged_records: list[tuple[object, bytes, str, Path]] = []
     total = len(entries)
     try:
-        for entry, data in entries:
+        _validate_recovered_output_paths(
+            entries, case_sensitive=_is_directory_case_sensitive(staging_dir)
+        )
+        emit_event("destination", path=str(base_dir.absolute()))
+        for index, (entry, data) in enumerate(entries):
+            emit_progress(phase="write", current=index, total=total, unit="files")
             relative_path = getattr(entry, "path", "payload.bin")
             staged_path = _safe_join(staging_dir, relative_path)
             _write_atomic_file(staged_path, data)
             staged_records.append((entry, data, relative_path, staged_path))
+        emit_progress(phase="write", current=total, total=total, unit="files")
+        emit_finalizing()
         if destination_exists:
             base_dir.rmdir()
         staging_dir.replace(base_dir)
@@ -334,37 +321,3 @@ def _is_directory_case_sensitive(directory: Path) -> bool:
         return os.name != "nt"
     finally:
         probe_path.unlink(missing_ok=True)
-
-
-def _commit_recovered_directory_outputs(
-    base_dir: Path,
-    staging_dir: Path,
-    staged_records: Sequence[tuple[object, bytes, str, Path]],
-    *,
-    total: int,
-    on_entry_written: Callable[[object, bytes, str, int, int], None] | None,
-) -> list[str]:
-    """Replace the destination with the staged recovered files."""
-
-    fd, backup_name = tempfile.mkstemp(prefix=f".{base_dir.name}.bak-", dir=str(base_dir.parent))
-    os.close(fd)
-    backup_dir = Path(backup_name)
-    backup_dir.unlink(missing_ok=True)
-    written_paths = [
-        str(base_dir / relative_path) for _entry, _data, relative_path, _path in staged_records
-    ]
-    try:
-        base_dir.replace(backup_dir)
-        staging_dir.replace(base_dir)
-    except Exception:
-        if backup_dir.exists() and not base_dir.exists():
-            backup_dir.replace(base_dir)
-        raise
-    finally:
-        if backup_dir.exists():
-            shutil.rmtree(backup_dir, ignore_errors=True)
-
-    if on_entry_written is not None:
-        for index, (entry, data, _relative_path, _path) in enumerate(staged_records, start=1):
-            on_entry_written(entry, data, written_paths[index - 1], index, total)
-    return written_paths

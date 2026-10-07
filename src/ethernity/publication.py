@@ -26,11 +26,11 @@ import hashlib
 import os
 import shutil
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Generic, Iterator, Literal, TypeAlias, TypeVar
+from typing import BinaryIO, Generic, Literal, TypeAlias, TypeVar
 
 DirectorySnapshot = tuple[tuple[str, int, str], ...]
 DirectoryIdentity = tuple[int, int]
@@ -119,19 +119,9 @@ def promote_staged_directory(
 
     staging_path = Path(staging_dir).expanduser()
     final_path = Path(final_dir).expanduser()
-    staging_parent_identity = _directory_identity_or_none(staging_path.parent)
-    final_parent_identity = _directory_identity_or_none(final_path.parent)
-    if staging_path.is_symlink():
-        raise ValueError("validated staging_dir must not be a symlink")
-    if not staging_path.exists() or not staging_path.is_dir():
-        raise ValueError("validated staging_dir no longer exists")
-    if staging_parent_identity is None:
-        raise ValueError("validated staging_dir parent no longer exists")
-    if final_parent_identity is None:
-        raise ValueError("final directory parent does not exist")
-    if final_path.exists() or final_path.is_symlink():
-        raise ValueError(f"final directory already exists: {final_path.name}")
-
+    staging_parent_identity, final_parent_identity = _publication_parent_identities(
+        staging_path, final_path
+    )
     with _exclusive_output_lock(final_path):
         if final_path.exists() or final_path.is_symlink():
             raise ValueError(f"final directory already exists: {final_path.name}")
@@ -166,6 +156,25 @@ def promote_staged_directory(
         )
         _sync_directory_metadata(final_path.parent, durability=durability)
     return final_path
+
+
+def _publication_parent_identities(
+    staging_path: Path, final_path: Path
+) -> tuple[DirectoryIdentity, DirectoryIdentity]:
+    staging_parent_identity = _directory_identity_or_none(staging_path.parent)
+    final_parent_identity = _directory_identity_or_none(final_path.parent)
+    if staging_path.is_symlink():
+        raise ValueError("validated staging_dir must not be a symlink")
+    if not staging_path.exists() or not staging_path.is_dir():
+        raise ValueError("validated staging_dir no longer exists")
+    if staging_parent_identity is None:
+        raise ValueError("validated staging_dir parent no longer exists")
+    if final_parent_identity is None:
+        raise ValueError("final directory parent does not exist")
+    if final_path.exists() or final_path.is_symlink():
+        raise ValueError(f"final directory already exists: {final_path.name}")
+
+    return staging_parent_identity, final_parent_identity
 
 
 @contextmanager
@@ -270,7 +279,7 @@ def sync_directory_metadata(path: str | Path) -> None:
     if not _directory_metadata_sync_supported():
         return
     try:
-        fd = _open_directory_fd(path)
+        fd = open_directory_fd(path)
     except OSError as exc:
         raise OSError(f"directory metadata sync unavailable: {path}") from exc
     try:
@@ -307,7 +316,7 @@ def _directory_identity_or_none(path: Path) -> DirectoryIdentity | None:
     return (stat_result.st_dev, stat_result.st_ino)
 
 
-def _open_directory_fd(path: Path) -> int:
+def open_directory_fd(path: Path) -> int:
     flags = os.O_RDONLY
     if hasattr(os, "O_DIRECTORY"):
         flags |= os.O_DIRECTORY

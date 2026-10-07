@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from ethernity import render as render_module
@@ -24,6 +26,8 @@ from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.sharding import ShardPayload
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_RAW, QrPayloadCodec
+from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
+from ethernity.render.layout_debug import layout_debug_json_path as debug_output_path
 from ethernity.render.service import RenderService
 from ethernity.render.types import DocumentOrigin
 from ethernity.render.validation import validate_rendered_pdf_document
@@ -35,13 +39,25 @@ def render_shard_document(
     doc_id: bytes,
     output_dir: str,
     render_service: RenderService,
-    filename_prefix: str,
+    filename_prefix: str | None = None,
     doc_type: str | None = None,
     layout_debug_json_path: str | None = None,
+    layout_debug_dir: str | None = None,
     qr_payload_codec: QrPayloadCodec = QR_PAYLOAD_CODEC_RAW,
     origin: DocumentOrigin,
 ) -> str:
     """Render one shard document to PDF and return its output path."""
+
+    signing_key = shard.key_type == sharding_module.KEY_TYPE_SIGNING_SEED
+    if filename_prefix is None:
+        filename_prefix = "signing-key-shard" if signing_key else "shard"
+    if doc_type is None and signing_key:
+        doc_type = DOC_TYPE_SIGNING_KEY_SHARD
+    if layout_debug_json_path is None:
+        layout_debug_json_path = debug_output_path(
+            layout_debug_dir,
+            f"{filename_prefix}-{shard.share_index:02d}-of-{shard.share_count:02d}",
+        )
 
     shard_frame = Frame(
         version=VERSION,
@@ -75,4 +91,46 @@ def render_shard_document(
     return shard_path
 
 
-__all__ = ["render_shard_document"]
+@dataclass(frozen=True)
+class ShardRenderContext:
+    """Identity, destination, and rendering options shared by a batch of shards."""
+
+    doc_id: bytes
+    output_dir: str
+    render_service: RenderService
+    layout_debug_dir: str | None
+    qr_payload_codec: QrPayloadCodec
+    origin: DocumentOrigin
+
+
+def render_shard_documents(
+    passphrase_shards: Sequence[ShardPayload],
+    signing_key_shards: Sequence[ShardPayload],
+    *,
+    context: ShardRenderContext,
+    on_document: Callable[[ShardPayload, str], None],
+) -> tuple[list[str], list[str]]:
+    """Render both shard groups in share order, reporting only validated documents."""
+
+    passphrase_paths: list[str] = []
+    signing_key_paths: list[str] = []
+    for payloads, paths in (
+        (passphrase_shards, passphrase_paths),
+        (signing_key_shards, signing_key_paths),
+    ):
+        for shard in sorted(payloads, key=lambda item: item.share_index):
+            path = render_shard_document(
+                shard,
+                doc_id=context.doc_id,
+                output_dir=context.output_dir,
+                render_service=context.render_service,
+                layout_debug_dir=context.layout_debug_dir,
+                qr_payload_codec=context.qr_payload_codec,
+                origin=context.origin,
+            )
+            paths.append(path)
+            on_document(shard, path)
+    return passphrase_paths, signing_key_paths
+
+
+__all__ = ["ShardRenderContext", "render_shard_document", "render_shard_documents"]

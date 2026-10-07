@@ -8,9 +8,9 @@ from typing import Any, cast
 from unittest import mock
 
 from ethernity.workflows.replacement_recovery import service as replacement_service
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError as ApiCommandError
-from ethernity.workflows.shared.operation_types import ReplacementRecoveryOperationRequest
+from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
 
 
 def _chain_for_plan(plan: SimpleNamespace) -> SimpleNamespace:
@@ -37,7 +37,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
         return output_dir
 
     def test_validate_replacement_args_requires_output_selection(self) -> None:
-        args = ReplacementRecoveryOperationRequest(
+        args = ReplacementRecoveryRequest(
             payloads_file="qr.txt",
             passphrase="passphrase",
             create_passphrase_shards=False,
@@ -59,7 +59,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
                 replacement_service.require_replacement_recovery_output_available(output_dir)
 
     def test_validate_replacement_args_replacement_requires_matching_inputs(self) -> None:
-        args = ReplacementRecoveryOperationRequest(
+        args = ReplacementRecoveryRequest(
             payloads_file="qr.txt",
             passphrase="passphrase",
             passphrase_replacement_count=1,
@@ -72,10 +72,10 @@ class TestReplacementRecoveryService(unittest.TestCase):
     def test_validate_replacement_args_accepts_scan_only_passphrase_replacement_inputs(
         self,
     ) -> None:
-        args = ReplacementRecoveryOperationRequest(
+        args = ReplacementRecoveryRequest(
             payloads_file="qr.txt",
             passphrase="passphrase",
-            shard_scan=["old-passphrase-shard.pdf"],
+            shard_scan_paths=["old-passphrase-shard.pdf"],
             passphrase_replacement_count=1,
             create_signing_key_shards=False,
         )
@@ -83,7 +83,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
         replacement_service._validate_replacement_args(args)
 
     @mock.patch(
-        "ethernity.workflows.replacement_recovery.service.validated_shard_payloads_from_frames",
+        "ethernity.workflows.replacement_recovery.service.RecoveryTrust.validated_shards",
         side_effect=replacement_service.InsufficientShardError(
             threshold=2,
             provided_count=1,
@@ -93,7 +93,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
     )
     def test_replacement_payload_resolution_preserves_legacy_version_under_quorum(
         self,
-        _validated_shard_payloads_from_frames: mock.MagicMock,
+        _validated_shards: mock.MagicMock,
     ) -> None:
         resolution = replacement_service._replacement_payloads_from_frames(
             [mock.Mock()],
@@ -154,7 +154,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
         ensure_replacement_output_dir: mock.MagicMock,
         _replacement_payloads_from_frames: mock.MagicMock,
     ) -> None:
-        args = ReplacementRecoveryOperationRequest(
+        args = ReplacementRecoveryRequest(
             passphrase_replacement_count=1,
             create_signing_key_shards=False,
             quiet=True,
@@ -187,7 +187,6 @@ class TestReplacementRecoveryService(unittest.TestCase):
                 args=args,
                 passphrase_shard_frames=[mock.Mock()],
                 signing_key_frames=[],
-                manifest_signing_seed=b"s" * 32,
                 debug=False,
             )
         ensure_replacement_output_dir.assert_not_called()
@@ -219,7 +218,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
         ensure_replacement_output_dir: mock.MagicMock,
         _replacement_payloads_from_frames: mock.MagicMock,
     ) -> None:
-        args = ReplacementRecoveryOperationRequest(
+        args = ReplacementRecoveryRequest(
             passphrase_replacement_count=1,
             create_signing_key_shards=False,
             quiet=True,
@@ -249,7 +248,6 @@ class TestReplacementRecoveryService(unittest.TestCase):
                     args=args,
                     passphrase_shard_frames=[mock.Mock()],
                     signing_key_frames=[],
-                    manifest_signing_seed=b"s" * 32,
                     debug=False,
                 )
 
@@ -260,7 +258,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
         notes = replacement_service._legacy_replacement_notes(
             passphrase_resolution=replacement_service._ReplacementShardResolution(shard_version=1),
             signing_resolution=replacement_service._ReplacementShardResolution(shard_version=1),
-            args=ReplacementRecoveryOperationRequest(),
+            args=ReplacementRecoveryRequest(),
         )
 
         self.assertEqual(notes, ())
@@ -284,7 +282,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
         ensure_replacement_output_dir: mock.MagicMock,
         replacement_payloads_from_frames: mock.MagicMock,
     ) -> None:
-        args = ReplacementRecoveryOperationRequest(
+        args = ReplacementRecoveryRequest(
             shard_threshold=2,
             shard_count=2,
             create_signing_key_shards=False,
@@ -314,7 +312,6 @@ class TestReplacementRecoveryService(unittest.TestCase):
                     args=args,
                     passphrase_shard_frames=[mock.Mock(name="unused-passphrase-frame")],
                     signing_key_frames=[mock.Mock(name="unused-signing-frame")],
-                    manifest_signing_seed=b"s" * 32,
                     debug=False,
                 )
 
@@ -341,7 +338,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
         self.assertEqual(source, "signing-key shards")
         signing_seed_from_frames.assert_called_once()
 
-    def test_recover_signing_seed_requires_shards_with_stable_api_code(self) -> None:
+    def test_recover_signing_seed_requires_shards_with_issue_code(self) -> None:
         with self.assertRaises(ApiCommandError) as caught:
             replacement_service._recover_signing_seed(
                 manifest_signing_seed=None,
@@ -351,7 +348,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
                 expected_sign_pub=b"p" * 32,
             )
 
-        self.assertEqual(caught.exception.code, api_codes.SIGNING_KEY_SHARDS_REQUIRED)
+        self.assertEqual(caught.exception.code, issue_codes.SIGNING_KEY_SHARDS_REQUIRED)
 
 
 if __name__ == "__main__":

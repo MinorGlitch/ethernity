@@ -29,12 +29,12 @@ from ethernity.workflows.rebuild.service import (
     _infer_recovery_sheet_settings,
     execute_rebuild_operation,
 )
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError as ApiCommandError
-from ethernity.workflows.shared.operation_types import (
-    BackupResult,
-    RebuildOperationRequest,
-    RecoverArgs,
+from ethernity.workflows.shared.operation_types import BackupResult
+from ethernity.workflows.shared.requests import (
+    RebuildRequest,
+    RecoveryRequest,
 )
 
 
@@ -119,8 +119,8 @@ class TestRebuildService(unittest.TestCase):
             "backup source folder not found: /tmp/missing-root",
         ):
             execute_rebuild_operation(
-                RebuildOperationRequest(
-                    root_dir="/tmp/missing-root",
+                RebuildRequest(
+                    backup_folder="/tmp/missing-root",
                     output_dir="/tmp/out",
                     passphrase="secret",
                     allow_stale_head=True,
@@ -130,12 +130,12 @@ class TestRebuildService(unittest.TestCase):
     def test_run_rebuild_rejects_root_dir_with_scan_source(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "use either --root-dir or --scan for rebuild, not both",
+            "use either a backup folder or scanned documents for rebuild, not both",
         ):
             execute_rebuild_operation(
-                RebuildOperationRequest(
-                    root_dir="/tmp/root",
-                    scan=["root.pdf"],
+                RebuildRequest(
+                    backup_folder="/tmp/root",
+                    scan_paths=["root.pdf"],
                     output_dir="/tmp/out",
                     passphrase="secret",
                     allow_stale_head=True,
@@ -150,8 +150,8 @@ class TestRebuildService(unittest.TestCase):
                 "scan failed: no scan files found in directory",
             ):
                 execute_rebuild_operation(
-                    RebuildOperationRequest(
-                        root_dir=str(root_dir),
+                    RebuildRequest(
+                        backup_folder=str(root_dir),
                         output_dir="/tmp/out",
                         passphrase="secret",
                         allow_stale_head=True,
@@ -161,11 +161,11 @@ class TestRebuildService(unittest.TestCase):
     def test_run_rebuild_rejects_unacknowledged_scan_source(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "--allow-stale-head",
+            "acknowledge that newer documents may be missing",
         ):
             execute_rebuild_operation(
-                RebuildOperationRequest(
-                    scan=["root.pdf"],
+                RebuildRequest(
+                    scan_paths=["root.pdf"],
                     output_dir="/tmp/out",
                     passphrase="secret",
                 )
@@ -174,17 +174,15 @@ class TestRebuildService(unittest.TestCase):
     def test_run_rebuild_requires_freshness_acknowledgement_for_folders(self) -> None:
         with self.assertRaisesRegex(ValueError, "supplied documents are the latest chain state"):
             execute_rebuild_operation(
-                RebuildOperationRequest(
-                    root_dir="source-documents", output_dir="rebuilt", passphrase="secret"
+                RebuildRequest(
+                    backup_folder="source-documents", output_dir="rebuilt", passphrase="secret"
                 )
             )
 
     def test_run_rebuild_accepts_scan_source_without_root_dir(self) -> None:
         chain = SimpleNamespace(
             manifest=BackupManifest(
-                format_version=1,
                 created_at=1,
-                sealed=True,
                 signing_seed=None,
                 files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
                 input_origin="file",
@@ -215,9 +213,9 @@ class TestRebuildService(unittest.TestCase):
                 "ethernity.workflows.rebuild.service._validated_rebuild_root_dir"
             ) as validated_rebuild_root_dir,
             mock.patch(
-                "ethernity.workflows.rebuild.service.plan_recover_from_args",
+                "ethernity.workflows.rebuild.service.plan_recovery_request",
                 return_value=recover_plan,
-            ) as plan_recover_from_args,
+            ) as plan_recovery_request,
             mock.patch(
                 "ethernity.workflows.rebuild.service.recover_chain_entries",
                 return_value=chain,
@@ -239,7 +237,7 @@ class TestRebuildService(unittest.TestCase):
                 side_effect=lambda config, _size: config,
             ),
             mock.patch(
-                "ethernity.workflows.rebuild.service.plan_backup_from_args",
+                "ethernity.workflows.rebuild.service.plan_backup_request",
                 return_value=SimpleNamespace(
                     sealed=True,
                     sharding=None,
@@ -253,8 +251,8 @@ class TestRebuildService(unittest.TestCase):
             ) as run_backup_mock,
         ):
             result = execute_rebuild_operation(
-                RebuildOperationRequest(
-                    scan=["root.pdf", "extension-01.pdf"],
+                RebuildRequest(
+                    scan_paths=["root.pdf", "extension-01.pdf"],
                     output_dir="/tmp/out",
                     passphrase="secret",
                     allow_stale_head=True,
@@ -263,8 +261,8 @@ class TestRebuildService(unittest.TestCase):
 
         self.assertEqual(result.doc_id, b"\xaa" * 8)
         validated_rebuild_root_dir.assert_not_called()
-        recover_args = plan_recover_from_args.call_args.args[0]
-        self.assertEqual(recover_args.scan, ["root.pdf", "extension-01.pdf"])
+        recover_args = plan_recovery_request.call_args.args[0]
+        self.assertEqual(recover_args.scan_paths, ["root.pdf", "extension-01.pdf"])
         self.assertIsNone(infer_recovery_sheet_settings.call_args.kwargs["root_dir"])
         self.assertEqual(
             infer_recovery_sheet_settings.call_args.kwargs["source_scan"],
@@ -281,8 +279,8 @@ class TestRebuildService(unittest.TestCase):
                 "rebuild output directory must not be the source folder or inside it",
             ):
                 execute_rebuild_operation(
-                    RebuildOperationRequest(
-                        root_dir=str(root_dir),
+                    RebuildRequest(
+                        backup_folder=str(root_dir),
                         output_dir=str(root_dir),
                         passphrase="secret",
                         allow_stale_head=True,
@@ -297,8 +295,8 @@ class TestRebuildService(unittest.TestCase):
                 "rebuild output directory must not be the source folder or inside it",
             ):
                 execute_rebuild_operation(
-                    RebuildOperationRequest(
-                        root_dir=str(root_dir),
+                    RebuildRequest(
+                        backup_folder=str(root_dir),
                         output_dir=str(root_dir / "rebuilt"),
                         passphrase="secret",
                         allow_stale_head=True,
@@ -313,8 +311,8 @@ class TestRebuildService(unittest.TestCase):
                 "rebuild layout debug directory must not be the source folder or inside it",
             ):
                 execute_rebuild_operation(
-                    RebuildOperationRequest(
-                        root_dir=str(root_dir),
+                    RebuildRequest(
+                        backup_folder=str(root_dir),
                         output_dir=str(root_dir.parent / "rebuilt"),
                         layout_debug_dir=str(root_dir / "layout-debug"),
                         passphrase="secret",
@@ -472,7 +470,7 @@ class TestRebuildService(unittest.TestCase):
                 passphrase_shard_frames=shard_frames,
             )
 
-        self.assertEqual(ctx.exception.code, api_codes.REBUILD_INVALID_POLICY)
+        self.assertEqual(ctx.exception.code, issue_codes.REBUILD_INVALID_POLICY)
         self.assertEqual(ctx.exception.details, {"stage": "root_shard_policy"})
 
     def test_infer_source_shard_policy_rejects_shards_without_a_trusted_signing_key(self) -> None:
@@ -488,7 +486,7 @@ class TestRebuildService(unittest.TestCase):
         with self.assertRaises(ApiCommandError) as ctx:
             _infer_passphrase_shard_policy_from_frames(shard_frames, sign_pub=None)
 
-        self.assertEqual(ctx.exception.code, api_codes.REBUILD_INVALID_POLICY)
+        self.assertEqual(ctx.exception.code, issue_codes.REBUILD_INVALID_POLICY)
         self.assertEqual(ctx.exception.details, {"stage": "source_shard_policy"})
 
     def test_run_rebuild_preserves_external_unlock_shard_policy(self) -> None:
@@ -506,9 +504,7 @@ class TestRebuildService(unittest.TestCase):
         )[:2]
         chain = SimpleNamespace(
             manifest=BackupManifest(
-                format_version=1,
                 created_at=1,
-                sealed=True,
                 signing_seed=None,
                 files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
                 input_origin="file",
@@ -531,7 +527,7 @@ class TestRebuildService(unittest.TestCase):
             output_dir = Path(tmpdir) / "rebuilt"
             with (
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.plan_recover_from_args",
+                    "ethernity.workflows.rebuild.service.plan_recovery_request",
                     return_value=recover_plan,
                 ),
                 mock.patch("ethernity.workflows.rebuild.service.frames_from_scan", return_value=[]),
@@ -552,30 +548,30 @@ class TestRebuildService(unittest.TestCase):
                     side_effect=lambda config, _size: config,
                 ),
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.plan_backup_from_args",
+                    "ethernity.workflows.rebuild.service.plan_backup_request",
                     return_value=SimpleNamespace(
                         sealed=True,
                         sharding=None,
                         signing_seed_mode="embedded",
                         signing_seed_sharding=None,
                     ),
-                ) as plan_backup_from_args,
+                ) as plan_backup_request,
                 mock.patch(
                     "ethernity.workflows.rebuild.service.run_backup",
                     return_value=_backup_result(),
                 ),
             ):
                 result = execute_rebuild_operation(
-                    RebuildOperationRequest(
-                        root_dir=str(root_dir),
+                    RebuildRequest(
+                        backup_folder=str(root_dir),
                         output_dir=str(output_dir),
-                        shard_scan=["/separate/shard-a.pdf", "/separate/shard-b.pdf"],
+                        shard_scan_paths=["/separate/shard-a.pdf", "/separate/shard-b.pdf"],
                         allow_stale_head=True,
                     )
                 )
 
         self.assertEqual(result.doc_id, b"\xaa" * 8)
-        backup_args = plan_backup_from_args.call_args.args[0]
+        backup_args = plan_backup_request.call_args.args[0]
         self.assertEqual(backup_args.shard_threshold, 2)
         self.assertEqual(backup_args.shard_count, 3)
         self.assertTrue(backup_args.sealed)
@@ -597,9 +593,7 @@ class TestRebuildService(unittest.TestCase):
         )[:2]
         chain = SimpleNamespace(
             manifest=BackupManifest(
-                format_version=1,
                 created_at=1,
-                sealed=True,
                 signing_seed=None,
                 files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
                 input_origin="file",
@@ -624,7 +618,7 @@ class TestRebuildService(unittest.TestCase):
             output_dir = Path(tmpdir) / "rebuilt"
             with (
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.plan_recover_from_args",
+                    "ethernity.workflows.rebuild.service.plan_recovery_request",
                     return_value=recover_plan,
                 ),
                 mock.patch("ethernity.workflows.rebuild.service.frames_from_scan", return_value=[]),
@@ -645,30 +639,30 @@ class TestRebuildService(unittest.TestCase):
                     side_effect=lambda config, _size: config,
                 ),
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.plan_backup_from_args",
+                    "ethernity.workflows.rebuild.service.plan_backup_request",
                     return_value=SimpleNamespace(
                         sealed=True,
                         sharding=None,
                         signing_seed_mode="embedded",
                         signing_seed_sharding=None,
                     ),
-                ) as plan_backup_from_args,
+                ) as plan_backup_request,
                 mock.patch(
                     "ethernity.workflows.rebuild.service.run_backup",
                     return_value=_backup_result(),
                 ),
             ):
                 result = execute_rebuild_operation(
-                    RebuildOperationRequest(
-                        root_dir=str(root_dir),
+                    RebuildRequest(
+                        backup_folder=str(root_dir),
                         output_dir=str(output_dir),
-                        shard_scan=["/separate/extension-shard-a.pdf"],
+                        shard_scan_paths=["/separate/extension-shard-a.pdf"],
                         allow_stale_head=True,
                     )
                 )
 
         self.assertEqual(result.doc_id, b"\xaa" * 8)
-        backup_args = plan_backup_from_args.call_args.args[0]
+        backup_args = plan_backup_request.call_args.args[0]
         self.assertEqual(backup_args.shard_threshold, 2)
         self.assertEqual(backup_args.shard_count, 3)
         self.assertTrue(backup_args.sealed)
@@ -691,9 +685,7 @@ class TestRebuildService(unittest.TestCase):
         )[:2]
         chain = SimpleNamespace(
             manifest=BackupManifest(
-                format_version=1,
                 created_at=1,
-                sealed=True,
                 signing_seed=None,
                 files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
                 input_origin="file",
@@ -718,7 +710,7 @@ class TestRebuildService(unittest.TestCase):
             output_dir = Path(tmpdir) / "rebuilt"
             with (
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.plan_recover_from_args",
+                    "ethernity.workflows.rebuild.service.plan_recovery_request",
                     return_value=recover_plan,
                 ),
                 mock.patch("ethernity.workflows.rebuild.service.frames_from_scan", return_value=[]),
@@ -729,15 +721,15 @@ class TestRebuildService(unittest.TestCase):
             ):
                 with self.assertRaises(ApiCommandError) as ctx:
                     execute_rebuild_operation(
-                        RebuildOperationRequest(
-                            root_dir=str(root_dir),
+                        RebuildRequest(
+                            backup_folder=str(root_dir),
                             output_dir=str(output_dir),
-                            shard_scan=["/separate/extension-shard-a.pdf"],
+                            shard_scan_paths=["/separate/extension-shard-a.pdf"],
                             allow_stale_head=True,
                         )
                     )
 
-        self.assertEqual(ctx.exception.code, api_codes.REBUILD_INVALID_POLICY)
+        self.assertEqual(ctx.exception.code, issue_codes.REBUILD_INVALID_POLICY)
         self.assertEqual(ctx.exception.details, {"stage": "source_shard_policy"})
 
     def test_run_rebuild_filters_mixed_unlock_shards_to_selected_head_policy(self) -> None:
@@ -765,9 +757,7 @@ class TestRebuildService(unittest.TestCase):
         )[:2]
         chain = SimpleNamespace(
             manifest=BackupManifest(
-                format_version=1,
                 created_at=1,
-                sealed=True,
                 signing_seed=None,
                 files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
                 input_origin="file",
@@ -792,7 +782,7 @@ class TestRebuildService(unittest.TestCase):
             output_dir = Path(tmpdir) / "rebuilt"
             with (
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.plan_recover_from_args",
+                    "ethernity.workflows.rebuild.service.plan_recovery_request",
                     return_value=recover_plan,
                 ),
                 mock.patch("ethernity.workflows.rebuild.service.frames_from_scan", return_value=[]),
@@ -813,30 +803,30 @@ class TestRebuildService(unittest.TestCase):
                     side_effect=lambda config, _size: config,
                 ),
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.plan_backup_from_args",
+                    "ethernity.workflows.rebuild.service.plan_backup_request",
                     return_value=SimpleNamespace(
                         sealed=True,
                         sharding=None,
                         signing_seed_mode="embedded",
                         signing_seed_sharding=None,
                     ),
-                ) as plan_backup_from_args,
+                ) as plan_backup_request,
                 mock.patch(
                     "ethernity.workflows.rebuild.service.run_backup",
                     return_value=_backup_result(),
                 ),
             ):
                 result = execute_rebuild_operation(
-                    RebuildOperationRequest(
-                        root_dir=str(root_dir),
+                    RebuildRequest(
+                        backup_folder=str(root_dir),
                         output_dir=str(output_dir),
-                        shard_scan=["/mixed/root-a.pdf", "/mixed/ext-a.pdf"],
+                        shard_scan_paths=["/mixed/root-a.pdf", "/mixed/ext-a.pdf"],
                         allow_stale_head=True,
                     )
                 )
 
         self.assertEqual(result.doc_id, b"\xaa" * 8)
-        backup_args = plan_backup_from_args.call_args.args[0]
+        backup_args = plan_backup_request.call_args.args[0]
         self.assertEqual(backup_args.shard_threshold, 2)
         self.assertEqual(backup_args.shard_count, 3)
         self.assertTrue(backup_args.sealed)
@@ -845,7 +835,7 @@ class TestRebuildService(unittest.TestCase):
     @mock.patch(
         "ethernity.workflows.rebuild.service.recover_chain_entries",
         side_effect=ApiCommandError(
-            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            code=issue_codes.RECOVERY_HEAD_UNTRUSTED,
             message=(
                 "latest supplied recovery head could not be trusted: "
                 "missing required MAIN documents"
@@ -871,7 +861,7 @@ class TestRebuildService(unittest.TestCase):
         ),
     )
     @mock.patch(
-        "ethernity.workflows.rebuild.service.plan_recover_from_args",
+        "ethernity.workflows.rebuild.service.plan_recovery_request",
         return_value=SimpleNamespace(
             passphrase="secret",
             doc_id=b"\x22" * 16,
@@ -893,8 +883,8 @@ class TestRebuildService(unittest.TestCase):
     ) -> None:
         with self.assertRaises(ApiCommandError) as ctx:
             execute_rebuild_operation(
-                RebuildOperationRequest(
-                    root_dir="/tmp/root",
+                RebuildRequest(
+                    backup_folder="/tmp/root",
                     output_dir="/tmp/out",
                     passphrase="secret",
                     allow_stale_head=True,
@@ -902,7 +892,7 @@ class TestRebuildService(unittest.TestCase):
             )
 
         exc = ctx.exception
-        self.assertEqual(exc.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(exc.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertEqual(
             str(exc),
             (
@@ -925,13 +915,13 @@ class TestRebuildService(unittest.TestCase):
     @mock.patch(
         "ethernity.workflows.rebuild.service.recover_chain_entries",
         side_effect=ApiCommandError(
-            code=api_codes.ROOT_SIGNING_KEY_MISMATCH,
+            code=issue_codes.ROOT_SIGNING_KEY_MISMATCH,
             message="embedded signing seed does not match the verified root AUTH signing key",
             details={"stage": "replay"},
         ),
     )
     @mock.patch(
-        "ethernity.workflows.rebuild.service.plan_recover_from_args",
+        "ethernity.workflows.rebuild.service.plan_recovery_request",
         return_value=SimpleNamespace(
             passphrase="secret",
             doc_id=b"\x22" * 16,
@@ -944,7 +934,7 @@ class TestRebuildService(unittest.TestCase):
         "ethernity.workflows.rebuild.service._validated_rebuild_root_dir",
         return_value=Path("/tmp/root"),
     )
-    def test_run_rebuild_preserves_non_trust_api_command_errors(
+    def test_run_rebuild_preserves_non_trust_command_errors(
         self,
         _validated_rebuild_root_dir: mock.MagicMock,
         _plan_recover_from_args: mock.MagicMock,
@@ -953,8 +943,8 @@ class TestRebuildService(unittest.TestCase):
     ) -> None:
         with self.assertRaises(ApiCommandError) as ctx:
             execute_rebuild_operation(
-                RebuildOperationRequest(
-                    root_dir="/tmp/root",
+                RebuildRequest(
+                    backup_folder="/tmp/root",
                     output_dir="/tmp/out",
                     passphrase="secret",
                     allow_stale_head=True,
@@ -962,7 +952,7 @@ class TestRebuildService(unittest.TestCase):
             )
 
         exc = ctx.exception
-        self.assertEqual(exc.code, api_codes.ROOT_SIGNING_KEY_MISMATCH)
+        self.assertEqual(exc.code, issue_codes.ROOT_SIGNING_KEY_MISMATCH)
         self.assertEqual(
             str(exc),
             "embedded signing seed does not match the verified root AUTH signing key",
@@ -972,7 +962,7 @@ class TestRebuildService(unittest.TestCase):
 
     @mock.patch("ethernity.workflows.rebuild.service.run_backup", return_value=_backup_result())
     @mock.patch(
-        "ethernity.workflows.rebuild.service.plan_backup_from_args",
+        "ethernity.workflows.rebuild.service.plan_backup_request",
         return_value=SimpleNamespace(
             sealed=False,
             sharding=None,
@@ -1005,9 +995,7 @@ class TestRebuildService(unittest.TestCase):
         "ethernity.workflows.rebuild.service.recover_chain_entries",
         return_value=SimpleNamespace(
             manifest=BackupManifest(
-                format_version=1,
                 created_at=1,
-                sealed=False,
                 signing_seed=b"\x33" * 32,
                 files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
                 input_origin="directory",
@@ -1019,7 +1007,7 @@ class TestRebuildService(unittest.TestCase):
         ),
     )
     @mock.patch(
-        "ethernity.workflows.rebuild.service.plan_recover_from_args",
+        "ethernity.workflows.rebuild.service.plan_recovery_request",
         return_value=SimpleNamespace(
             passphrase="secret",
             doc_id=b"\x22" * 16,
@@ -1035,24 +1023,24 @@ class TestRebuildService(unittest.TestCase):
     def test_run_rebuild_reuses_root_signing_seed_and_inherited_policy(
         self,
         _validated_rebuild_root_dir: mock.MagicMock,
-        plan_recover_from_args: mock.MagicMock,
+        plan_recovery_request: mock.MagicMock,
         recover_chain_entries: mock.MagicMock,
         _infer_recovery_sheet_settings: mock.MagicMock,
         load_app_config: mock.MagicMock,
         apply_render_style: mock.MagicMock,
         apply_qr_chunk_size_override: mock.MagicMock,
-        plan_backup_from_args: mock.MagicMock,
+        plan_backup_request: mock.MagicMock,
         run_backup_mock: mock.MagicMock,
     ) -> None:
         result = execute_rebuild_operation(
-            RebuildOperationRequest(
-                root_dir="/tmp/root",
+            RebuildRequest(
+                backup_folder="/tmp/root",
                 output_dir="/tmp/out",
                 passphrase="secret",
-                shard_fallback_file=["shard-a.txt"],
-                shard_payloads_file=["shard-a.payloads"],
-                shard_scan=["shard-a.pdf"],
-                auth_fallback_file="auth.txt",
+                shard_text_files=["shard-a.txt"],
+                shard_payload_files=["shard-a.payloads"],
+                shard_scan_paths=["shard-a.pdf"],
+                auth_text_file="auth.txt",
                 auth_payloads_file="auth.payloads",
                 expected_head_doc_hash="ab" * 32,
             )
@@ -1061,17 +1049,17 @@ class TestRebuildService(unittest.TestCase):
         self.assertEqual(result.doc_id, b"\xaa" * 8)
         self.assertEqual(result.expected_head_doc_hash, "ab" * 32)
         self.assertEqual(result.doc_hash, b"\xaa" * 32)
-        recover_args = plan_recover_from_args.call_args.args[0]
-        self.assertIsInstance(recover_args, RecoverArgs)
-        self.assertEqual(recover_args.scan, [str(Path("/tmp/root"))])
-        self.assertEqual(recover_args.shard_fallback_file, ["shard-a.txt"])
-        self.assertEqual(recover_args.shard_payloads_file, ["shard-a.payloads"])
-        self.assertEqual(recover_args.shard_scan, ["shard-a.pdf"])
-        self.assertEqual(recover_args.auth_fallback_file, "auth.txt")
+        recover_args = plan_recovery_request.call_args.args[0]
+        self.assertIsInstance(recover_args, RecoveryRequest)
+        self.assertEqual(tuple(recover_args.scan_paths), (str(Path("/tmp/root")),))
+        self.assertEqual(recover_args.shard_text_files, ["shard-a.txt"])
+        self.assertEqual(recover_args.shard_payload_files, ["shard-a.payloads"])
+        self.assertEqual(recover_args.shard_scan_paths, ["shard-a.pdf"])
+        self.assertEqual(recover_args.auth_text_file, "auth.txt")
         self.assertEqual(recover_args.auth_payloads_file, "auth.payloads")
         self.assertEqual(recover_args.expected_head_doc_hash, "ab" * 32)
         self.assertFalse(recover_args.allow_unsigned)
-        backup_args = plan_backup_from_args.call_args.args[0]
+        backup_args = plan_backup_request.call_args.args[0]
         self.assertEqual(backup_args.output_dir, "/tmp/out")
         self.assertEqual(backup_args.shard_threshold, 2)
         self.assertEqual(backup_args.shard_count, 3)
@@ -1092,7 +1080,7 @@ class TestRebuildService(unittest.TestCase):
 
     @mock.patch("ethernity.workflows.rebuild.service.run_backup", return_value=_backup_result())
     @mock.patch(
-        "ethernity.workflows.rebuild.service.plan_backup_from_args",
+        "ethernity.workflows.rebuild.service.plan_backup_request",
         return_value=SimpleNamespace(
             sealed=False,
             sharding=None,
@@ -1125,9 +1113,7 @@ class TestRebuildService(unittest.TestCase):
         "ethernity.workflows.rebuild.service.recover_chain_entries",
         return_value=SimpleNamespace(
             manifest=BackupManifest(
-                format_version=1,
                 created_at=1,
-                sealed=False,
                 signing_seed=b"\x33" * 32,
                 files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
                 input_origin="file",
@@ -1139,7 +1125,7 @@ class TestRebuildService(unittest.TestCase):
         ),
     )
     @mock.patch(
-        "ethernity.workflows.rebuild.service.plan_recover_from_args",
+        "ethernity.workflows.rebuild.service.plan_recovery_request",
         return_value=SimpleNamespace(
             passphrase="secret",
             doc_id=b"\x22" * 16,
@@ -1165,8 +1151,8 @@ class TestRebuildService(unittest.TestCase):
         _run_backup_mock: mock.MagicMock,
     ) -> None:
         result = execute_rebuild_operation(
-            RebuildOperationRequest(
-                root_dir="/tmp/root",
+            RebuildRequest(
+                backup_folder="/tmp/root",
                 output_dir="/tmp/out",
                 passphrase="secret",
                 allow_stale_head=True,
@@ -1182,7 +1168,7 @@ class TestRebuildService(unittest.TestCase):
 
     @mock.patch("ethernity.workflows.rebuild.service.run_backup", return_value=_backup_result())
     @mock.patch(
-        "ethernity.workflows.rebuild.service.plan_backup_from_args",
+        "ethernity.workflows.rebuild.service.plan_backup_request",
         return_value=SimpleNamespace(
             sealed=True,
             sharding=None,
@@ -1215,9 +1201,7 @@ class TestRebuildService(unittest.TestCase):
         "ethernity.workflows.rebuild.service.recover_chain_entries",
         return_value=SimpleNamespace(
             manifest=BackupManifest(
-                format_version=1,
                 created_at=1,
-                sealed=True,
                 signing_seed=None,
                 files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
                 input_origin="file",
@@ -1229,7 +1213,7 @@ class TestRebuildService(unittest.TestCase):
         ),
     )
     @mock.patch(
-        "ethernity.workflows.rebuild.service.plan_recover_from_args",
+        "ethernity.workflows.rebuild.service.plan_recovery_request",
         return_value=SimpleNamespace(
             passphrase="secret",
             doc_id=b"\x22" * 16,
@@ -1255,8 +1239,8 @@ class TestRebuildService(unittest.TestCase):
         run_backup_mock: mock.MagicMock,
     ) -> None:
         result = execute_rebuild_operation(
-            RebuildOperationRequest(
-                root_dir="/tmp/root",
+            RebuildRequest(
+                backup_folder="/tmp/root",
                 output_dir="/tmp/out",
                 passphrase="secret",
                 allow_stale_head=True,
@@ -1275,9 +1259,7 @@ class TestRebuildService(unittest.TestCase):
         "ethernity.workflows.rebuild.service.recover_chain_entries",
         return_value=SimpleNamespace(
             manifest=BackupManifest(
-                format_version=1,
                 created_at=1,
-                sealed=False,
                 signing_seed=b"\x33" * 32,
                 files=(ManifestFile(path="a.txt", size=1, sha256=b"\x11" * 32, mtime=1),),
                 input_origin="file",
@@ -1287,7 +1269,7 @@ class TestRebuildService(unittest.TestCase):
         ),
     )
     @mock.patch(
-        "ethernity.workflows.rebuild.service.plan_recover_from_args",
+        "ethernity.workflows.rebuild.service.plan_recovery_request",
         return_value=SimpleNamespace(
             passphrase="secret",
             doc_id=b"\x22" * 16,
@@ -1318,8 +1300,8 @@ class TestRebuildService(unittest.TestCase):
     ) -> None:
         with self.assertRaisesRegex(ValueError, "signing-key shards require passphrase shards"):
             execute_rebuild_operation(
-                RebuildOperationRequest(
-                    root_dir="/tmp/root",
+                RebuildRequest(
+                    backup_folder="/tmp/root",
                     output_dir="/tmp/out",
                     passphrase="secret",
                     allow_stale_head=True,

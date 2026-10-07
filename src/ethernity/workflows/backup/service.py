@@ -24,18 +24,22 @@ from ethernity.config import AppConfig, apply_render_style, load_app_config
 from ethernity.core.models import DocumentPlan, SigningSeedMode
 from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.backup.execution import run_backup as _run_backup
-from ethernity.workflows.backup.planning import plan_from_args
-from ethernity.workflows.shared import api_codes
-from ethernity.workflows.shared.backup_validation import validate_backup_args
+from ethernity.workflows.backup.planning import plan_from_request
+from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.backup_validation import validate_backup_request
 from ethernity.workflows.shared.events import EventSink, emit_phase, emit_progress, event_session
 from ethernity.workflows.shared.file_inputs import InputLoadProgress, load_input_files
 from ethernity.workflows.shared.notices import warn
-from ethernity.workflows.shared.operation_types import BackupArgs, BackupResult, InputFile
+from ethernity.workflows.shared.operation_types import (
+    BackupResult,
+    InputFile,
+)
+from ethernity.workflows.shared.requests import BackupRequest
 
 
 @dataclass(frozen=True)
 class PreparedBackupRun:
-    args: BackupArgs
+    request: BackupRequest
     config: AppConfig
     plan: DocumentPlan
     input_files: tuple[InputFile, ...]
@@ -53,30 +57,30 @@ def apply_qr_chunk_size_override(config: AppConfig, qr_chunk_size: int | None) -
 
 
 def prepare_backup_run(
-    args: BackupArgs,
+    request: BackupRequest,
     *,
     input_progress: InputLoadProgress | None = None,
     event_sink: EventSink | None = None,
 ) -> PreparedBackupRun:
     with event_session(event_sink):
-        emit_phase(phase="plan", label="Resolving backup configuration")
-        config = load_app_config(args.config, paper_size=args.paper)
-        config = apply_render_style(config, args.design)
-        config = apply_qr_chunk_size_override(config, args.qr_chunk_size)
-        validate_backup_args(args)
-        plan = plan_from_args(args)
+        emit_phase(phase="configuration", label="Resolving backup configuration")
+        config = load_app_config(request.config_path, paper_size=request.paper_size)
+        config = apply_render_style(config, request.design)
+        config = apply_qr_chunk_size_override(config, request.qr_chunk_size)
+        validate_backup_request(request)
+        plan = plan_from_request(request)
         if plan.sealed and plan.signing_seed_mode == SigningSeedMode.SHARDED:
             warn(
                 "Signing-key sharding is disabled for sealed backups.",
-                quiet=args.quiet,
-                code=api_codes.BACKUP_SIGNING_KEY_SHARDING_DISABLED,
+                quiet=request.quiet,
+                code=issue_codes.BACKUP_SIGNING_KEY_SHARDING_DISABLED,
             )
 
         emit_phase(phase="input", label="Loading backup inputs")
         input_files, resolved_base, input_origin, input_roots = load_input_files(
-            list(args.input or []),
-            list(args.input_dir or []),
-            args.base_dir,
+            request.input_paths,
+            request.input_dirs,
+            request.base_dir,
             allow_stdin=True,
             progress=input_progress,
         )
@@ -88,7 +92,7 @@ def prepare_backup_run(
             details={"input_origin": input_origin, "input_roots": input_roots},
         )
         return PreparedBackupRun(
-            args=args,
+            request=request,
             config=config,
             plan=plan,
             input_files=tuple(input_files),
@@ -108,20 +112,19 @@ def execute_prepared_backup(
         return _run_backup(
             input_files=list(prepared.input_files),
             base_dir=prepared.base_dir,
-            output_dir=prepared.args.output_dir,
-            output_dir_existing_parent=prepared.args.output_dir_existing_parent,
-            layout_debug_dir=prepared.args.layout_debug_dir,
+            output_dir=prepared.request.output_dir,
+            layout_debug_dir=prepared.request.layout_debug_dir,
             input_origin=prepared.input_origin,
             input_roots=list(prepared.input_roots),
             plan=prepared.plan,
-            passphrase=prepared.args.passphrase,
-            passphrase_words=prepared.args.passphrase_words,
+            passphrase=prepared.request.passphrase,
+            passphrase_words=prepared.request.passphrase_words,
             config=prepared.config,
             render_origin=DocumentOrigin(kind="root_backup"),
-            debug=prepared.args.debug,
-            debug_max_bytes=prepared.args.debug_max_bytes,
-            debug_reveal_secrets=prepared.args.debug_reveal_secrets,
-            quiet=prepared.args.quiet,
+            debug=prepared.request.debug,
+            debug_max_bytes=prepared.request.debug_max_bytes,
+            debug_reveal_secrets=prepared.request.debug_reveal_secrets,
+            quiet=prepared.request.quiet,
         )
 
 

@@ -31,26 +31,30 @@ from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import recover_chain_entries
 from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.backup.execution import run_backup
-from ethernity.workflows.backup.planning import plan_from_args as plan_backup_from_args
+from ethernity.workflows.backup.planning import plan_from_request as plan_backup_request
 from ethernity.workflows.backup.service import apply_qr_chunk_size_override
 from ethernity.workflows.recovery.frame_inputs import frames_from_scan
 from ethernity.workflows.recovery.keys import (
     InsufficientShardError,
     validated_shard_payloads_from_frames,
 )
-from ethernity.workflows.recovery.planning import plan_from_args as plan_recover_from_args
+from ethernity.workflows.recovery.planning import plan_from_request as plan_recovery_request
 from ethernity.workflows.recovery.root_shard_policy import (
+    decoded_shard_candidates,
     has_potential_root_shard_frames,
     root_shard_quorum_from_frames,
 )
-from ethernity.workflows.shared import api_codes
-from ethernity.workflows.shared.events import CommandError as ApiCommandError
+from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.events import CommandError as ApiCommandError, emit_phase
 from ethernity.workflows.shared.operation_types import (
-    BackupArgs,
     BackupResult,
     InputFile,
-    RebuildOperationRequest,
-    RecoverArgs,
+)
+from ethernity.workflows.shared.paths import expanduser_cli_paths
+from ethernity.workflows.shared.requests import (
+    BackupRequest,
+    RebuildRequest,
+    RecoveryRequest,
 )
 
 
@@ -70,38 +74,37 @@ class _RebuildSourceHead:
     selected_extension_doc_hash: str | None
 
 
-def _validated_rebuild_root_dir(root_dir_value: str | None) -> Path:
+def _validated_rebuild_root_dir(root_dir_value: str | Path | None) -> Path:
     if not root_dir_value:
-        raise ValueError("rebuild requires --scan or root_dir")
+        raise ValueError("rebuild requires a backup folder or scanned documents")
     root_dir = Path(root_dir_value).expanduser()
     if root_dir.is_symlink():
         raise ValueError(f"backup source folder must not be a symlink: {root_dir_value}")
     if not root_dir.exists():
-        raise ValueError(
-            f"backup source folder not found: {root_dir_value}. Check --root-dir or use --scan."
-        )
+        raise ValueError(f"backup source folder not found: {root_dir_value}")
     if not root_dir.is_dir():
-        raise ValueError(f"--root-dir must be a directory: {root_dir_value}")
+        raise ValueError(f"backup source must be a directory: {root_dir_value}")
     return root_dir
 
 
-def validate_rebuild_source_selection(args: RebuildOperationRequest) -> None:
+def validate_rebuild_source_selection(args: RebuildRequest) -> None:
     """Validate that rebuild has exactly one source mode."""
 
-    has_root_dir = bool(args.root_dir)
-    has_scan = bool(args.scan)
+    has_root_dir = bool(args.backup_folder)
+    has_scan = bool(args.scan_paths)
     if has_root_dir and has_scan:
-        raise ValueError("use either --root-dir or --scan for rebuild, not both")
+        raise ValueError("use either a backup folder or scanned documents for rebuild, not both")
     if not has_root_dir and not has_scan:
-        raise ValueError("rebuild requires --scan or root_dir")
+        raise ValueError("rebuild requires a backup folder or scanned documents")
     if args.expected_head_doc_hash is None and not args.allow_stale_head:
         raise ValueError(
             "rebuild cannot prove the supplied documents are the latest chain state; "
-            "provide --expected-head-doc-hash or pass --allow-stale-head to acknowledge this risk"
+            "provide an expected latest backup fingerprint or acknowledge that newer documents "
+            "may be missing"
         )
 
 
-def _reject_rebuild_output_inside_root(root_dir: Path, output_dir_value: str) -> None:
+def _reject_rebuild_output_inside_root(root_dir: Path, output_dir_value: str | Path) -> None:
     output_dir = Path(output_dir_value).expanduser()
     root_resolved = root_dir.resolve(strict=False)
     output_resolved = output_dir.resolve(strict=False)
@@ -113,9 +116,9 @@ def _reject_rebuild_output_inside_root(root_dir: Path, output_dir_value: str) ->
 
 
 def _reject_rebuild_layout_debug_inside_root(
-    root_dir: Path, layout_debug_dir_value: str | None
+    root_dir: Path, layout_debug_dir_value: str | Path | None
 ) -> None:
-    if layout_debug_dir_value is None or not layout_debug_dir_value.strip():
+    if layout_debug_dir_value is None or not str(layout_debug_dir_value).strip():
         return
     debug_dir = Path(layout_debug_dir_value).expanduser()
     root_resolved = root_dir.resolve(strict=False)
@@ -140,22 +143,13 @@ def _translate_rebuild_head_untrusted(
     return ApiCommandError(code=exc.code, message=message, details=details)
 
 
-def _rebuild_recover_args(args: RebuildOperationRequest, root_dir: Path | None) -> RecoverArgs:
-    scan = list(args.scan or [])
-    if not scan and root_dir is not None:
-        scan = [str(root_dir)]
-    return RecoverArgs(
-        scan=scan,
-        passphrase=args.passphrase,
-        shard_fallback_file=args.shard_fallback_file,
-        shard_payloads_file=args.shard_payloads_file,
-        shard_scan=args.shard_scan,
-        shard_frames=args.shard_frames,
-        auth_fallback_file=args.auth_fallback_file,
-        auth_payloads_file=args.auth_payloads_file,
+def _recovery_request_for_rebuild(args: RebuildRequest, root_dir: Path | None) -> RecoveryRequest:
+    scan_paths = args.scan_paths or ((str(root_dir),) if root_dir is not None else ())
+    return replace(
+        args.recovery_request(),
+        scan_paths=scan_paths,
         auth_frames=args.auth_frames,
         expected_head_doc_hash=args.expected_head_doc_hash,
-        allow_unsigned=False,
         quiet=args.quiet,
     )
 
@@ -164,7 +158,7 @@ def _recover_rebuild_chain(recover_plan):
     try:
         return recover_chain_entries(recover_plan, debug=False)
     except (ApiCommandError, ExtensionRecoveryError) as exc:
-        if exc.code != api_codes.RECOVERY_HEAD_UNTRUSTED:
+        if exc.code != issue_codes.RECOVERY_HEAD_UNTRUSTED:
             raise
         raise _translate_rebuild_head_untrusted(exc) from exc
 
@@ -181,7 +175,7 @@ def _rebuild_source_head(recover_plan, chain) -> _RebuildSourceHead:
 def _infer_recovery_sheet_settings(
     *,
     root_dir: str | None,
-    source_scan: Sequence[str] = (),
+    source_scan: Sequence[str | Path] = (),
     root_doc_id_hex: str | None,
     root_doc_hash: bytes,
     sign_pub: bytes | None,
@@ -204,7 +198,7 @@ def _infer_recovery_sheet_settings(
             expected_doc_hash=root_doc_hash,
         ):
             raise ApiCommandError(
-                code=api_codes.REBUILD_INVALID_POLICY,
+                code=issue_codes.REBUILD_INVALID_POLICY,
                 message=(
                     "rebuild cannot inherit root shard policy without a verified root signing key"
                 ),
@@ -218,7 +212,7 @@ def _infer_recovery_sheet_settings(
         )
     if root_doc_id is None:
         raise ApiCommandError(
-            code=api_codes.REBUILD_INVALID_POLICY,
+            code=issue_codes.REBUILD_INVALID_POLICY,
             message="rebuild cannot inherit root shard policy without a root document id",
             details={"stage": "root_shard_policy"},
         )
@@ -272,7 +266,7 @@ def _infer_root_quorum(
         )
     except InsufficientShardError as exc:
         raise ApiCommandError(
-            code=api_codes.REBUILD_INVALID_POLICY,
+            code=issue_codes.REBUILD_INVALID_POLICY,
             message=(
                 f"root {secret_label} shards are under quorum; "
                 f"need at least {exc.threshold}, found {exc.provided_count}"
@@ -280,36 +274,38 @@ def _infer_root_quorum(
         ) from exc
     except ValueError as exc:
         raise ApiCommandError(
-            code=api_codes.REBUILD_INVALID_POLICY,
+            code=issue_codes.REBUILD_INVALID_POLICY,
             message=str(exc),
             details={"stage": "root_shard_policy"},
         ) from exc
 
 
 def _key_frames_from_source_scan(
-    source_scan: Sequence[str],
+    source_scan: Sequence[str | Path],
 ) -> tuple[Frame, ...]:
     try:
-        frames = frames_from_scan(list(source_scan))
+        frames = frames_from_scan(expanduser_cli_paths(source_scan))
     except ValueError as exc:
         raise ApiCommandError(
-            code=api_codes.REBUILD_INVALID_POLICY,
+            code=issue_codes.REBUILD_INVALID_POLICY,
             message=f"root shard policy scan failed: {exc}",
             details={"stage": "root_shard_policy"},
         ) from exc
     return tuple(frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT)
 
 
-def execute_rebuild_operation(args: RebuildOperationRequest) -> BackupResult:
+def execute_rebuild_operation(args: RebuildRequest) -> BackupResult:
+    emit_phase(phase="source", label="Resolving Rebuild sources")
     validate_rebuild_source_selection(args)
-    root_dir = None if args.scan else _validated_rebuild_root_dir(args.root_dir)
+    root_dir = None if args.scan_paths else _validated_rebuild_root_dir(args.backup_folder)
+    emit_phase(phase="output", label="Checking Rebuild destination")
     if not args.output_dir:
         raise ValueError("rebuild requires output_dir")
     if root_dir is not None:
         _reject_rebuild_output_inside_root(root_dir, args.output_dir)
         _reject_rebuild_layout_debug_inside_root(root_dir, args.layout_debug_dir)
 
-    recover_plan = plan_recover_from_args(_rebuild_recover_args(args, root_dir))
+    recover_plan = plan_recovery_request(_recovery_request_for_rebuild(args, root_dir))
     chain = _recover_rebuild_chain(recover_plan)
     source_head = _rebuild_source_head(recover_plan, chain)
     manifest = chain.manifest
@@ -345,7 +341,7 @@ def execute_rebuild_operation(args: RebuildOperationRequest) -> BackupResult:
 
     inherited = _infer_recovery_sheet_settings(
         root_dir=str(root_dir) if root_dir is not None else None,
-        source_scan=tuple(args.scan or ()),
+        source_scan=tuple(args.scan_paths or ()),
         root_doc_id_hex=recover_plan.doc_id.hex(),
         root_doc_hash=recover_plan.doc_hash,
         sign_pub=sign_pub,
@@ -371,12 +367,11 @@ def execute_rebuild_operation(args: RebuildOperationRequest) -> BackupResult:
             "root backup signing-key shards require passphrase shards; "
             "rebuild cannot preserve an invalid shard policy"
         )
-    backup_args = BackupArgs(
-        config=args.config,
-        paper=args.paper,
+    backup_args = BackupRequest(
+        config_path=args.config_path,
+        paper_size=args.paper_size,
         design=args.design,
         output_dir=args.output_dir,
-        output_dir_existing_parent=True,
         layout_debug_dir=args.layout_debug_dir,
         qr_chunk_size=args.qr_chunk_size,
         passphrase=recover_plan.passphrase,
@@ -394,10 +389,10 @@ def execute_rebuild_operation(args: RebuildOperationRequest) -> BackupResult:
         signing_key_shard_count=inherited.signing_key_shard_count if not manifest.sealed else None,
         quiet=args.quiet,
     )
-    config = load_app_config(backup_args.config, paper_size=backup_args.paper)
+    config = load_app_config(backup_args.config_path, paper_size=backup_args.paper_size)
     config = apply_render_style(config, backup_args.design)
     config = apply_qr_chunk_size_override(config, backup_args.qr_chunk_size)
-    backup_plan = plan_backup_from_args(backup_args)
+    backup_plan = plan_backup_request(backup_args)
     input_files = [
         InputFile(
             source_path=None,
@@ -411,7 +406,6 @@ def execute_rebuild_operation(args: RebuildOperationRequest) -> BackupResult:
         input_files=input_files,
         base_dir=None,
         output_dir=backup_args.output_dir,
-        output_dir_existing_parent=backup_args.output_dir_existing_parent,
         layout_debug_dir=backup_args.layout_debug_dir,
         input_origin=manifest.input_origin,
         input_roots=list(manifest.input_roots),
@@ -482,13 +476,7 @@ def _passphrase_shard_frames_for_document(
     strict_doc_id: bool = False,
 ) -> tuple[Frame, ...]:
     selected: list[Frame] = []
-    for frame in frames:
-        if frame.frame_type != FrameType.KEY_DOCUMENT:
-            continue
-        try:
-            payload = sharding_module.decode_shard_payload(frame.data)
-        except ValueError:
-            continue
+    for frame, payload in decoded_shard_candidates(frames):
         if payload.key_type != sharding_module.KEY_TYPE_PASSPHRASE:
             continue
         if payload.doc_hash != expected_doc_hash:
@@ -496,7 +484,7 @@ def _passphrase_shard_frames_for_document(
         if expected_doc_id is not None and frame.doc_id != expected_doc_id:
             if strict_doc_id:
                 raise ApiCommandError(
-                    code=api_codes.REBUILD_INVALID_POLICY,
+                    code=issue_codes.REBUILD_INVALID_POLICY,
                     message="source passphrase shard frame doc_id does not match selected document",
                     details={"stage": "source_shard_policy"},
                 )
@@ -526,7 +514,7 @@ def _infer_passphrase_shard_policy_from_frames(
         return None
     if sign_pub is None:
         raise ApiCommandError(
-            code=api_codes.REBUILD_INVALID_POLICY,
+            code=issue_codes.REBUILD_INVALID_POLICY,
             message=(
                 "rebuild cannot inherit source passphrase shard policy without a verified "
                 "root signing key"
@@ -548,7 +536,7 @@ def _infer_passphrase_shard_policy_from_frames(
         if exc.share_count is not None:
             return exc.threshold, exc.share_count
         raise ApiCommandError(
-            code=api_codes.REBUILD_INVALID_POLICY,
+            code=issue_codes.REBUILD_INVALID_POLICY,
             message=(
                 "source passphrase shards are under quorum; "
                 f"need at least {exc.threshold}, found {exc.provided_count}"

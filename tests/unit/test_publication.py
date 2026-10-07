@@ -37,7 +37,7 @@ class TestDirectoryPublication(unittest.TestCase):
                 return_value=True,
             ),
             mock.patch(
-                "ethernity.publication._open_directory_fd",
+                "ethernity.publication.open_directory_fd",
                 side_effect=OSError("unsupported"),
             ),
         ):
@@ -51,7 +51,7 @@ class TestDirectoryPublication(unittest.TestCase):
                 "ethernity.publication._directory_metadata_sync_supported",
                 return_value=False,
             ),
-            mock.patch("ethernity.publication._open_directory_fd") as open_directory,
+            mock.patch("ethernity.publication.open_directory_fd") as open_directory,
         ):
             sync_directory_metadata(tmpdir)
 

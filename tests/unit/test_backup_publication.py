@@ -19,7 +19,14 @@ from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.backup import execution
 from ethernity.workflows.rebuild.service import execute_rebuild_operation
 from ethernity.workflows.recovery.frame_inputs import frames_from_scan
-from ethernity.workflows.shared.operation_types import InputFile, RebuildOperationRequest
+from ethernity.workflows.shared import events
+from ethernity.workflows.shared.execution_control import (
+    ExecutionControl,
+    OperationCancelled,
+    execution_session,
+)
+from ethernity.workflows.shared.operation_types import InputFile
+from ethernity.workflows.shared.requests import RebuildRequest
 
 _CONFIG = AppConfig(
     design_name="sentinel", paper_size="A4", qr_config=QrConfig(), qr_chunk_size=1024
@@ -32,7 +39,6 @@ def _create_backup(path: Path, *, sealed: bool = False, sharded: bool = False):
         base_dir=None,
         output_dir=str(path),
         plan=DocumentPlan(
-            version=1,
             sealed=sealed,
             sharding=ShardingConfig(2, 3) if sharded else None,
             signing_seed_mode=SigningSeedMode.SHARDED if sharded else SigningSeedMode.EMBEDDED,
@@ -62,19 +68,46 @@ def _backup_identity(result):
     return root_hash, auth.sign_pub
 
 
+@pytest.mark.parametrize("stage", ["render", "verify", "save"])
+def test_cancelled_backup_never_publishes_and_removes_staging(tmp_path: Path, stage: str) -> None:
+    control = ExecutionControl()
+    rejected = []
+
+    class CancelAtStage:
+        def emit(self, event_type, **payload):
+            if event_type == "phase" and payload.get("id") == stage:
+                rejected.append(not control.request_cancel())
+
+    destination = tmp_path / "backup-parent"
+    with execution_session(control), events.event_session(CancelAtStage()):
+        if stage == "save":
+            result = _create_backup(destination)
+            assert Path(result.qr_path).is_file()
+            assert rejected == [True]
+        else:
+            with pytest.raises(OperationCancelled):
+                _create_backup(destination)
+            assert list(destination.iterdir()) == []
+            assert rejected == [False]
+
+
 @pytest.mark.parametrize("sealed", (False, True))
 def test_create_and_rebuild_publish_only_backup_documents(tmp_path: Path, sealed: bool) -> None:
     original = _create_backup(tmp_path / "original", sealed=sealed)
+    assert (
+        Path(original.qr_path).parent == tmp_path / "original" / f"backup-{original.doc_id.hex()}"
+    )
     first = _backup_identity(original)
     rebuilt = execute_rebuild_operation(
-        RebuildOperationRequest(
-            scan=[original.qr_path],
+        RebuildRequest(
+            scan_paths=[original.qr_path],
             output_dir=str(tmp_path / "rebuilt"),
             passphrase="test passphrase",
             expected_head_doc_hash=first[0].hex(),
             quiet=True,
         )
     )
+    assert Path(rebuilt.qr_path).parent == tmp_path / "rebuilt" / f"backup-{rebuilt.doc_id.hex()}"
     second = _backup_identity(rebuilt)
     assert first[0] != second[0]
     assert rebuilt.signing_key_preserved is (not sealed)
@@ -113,8 +146,8 @@ def test_validation_failure_leaves_no_published_backup(tmp_path: Path, failure: 
         patcher = mock.patch.object(sharding, "recover_passphrase", return_value="wrong secret")
     with patcher, pytest.raises((ValueError, RenderValidationError)):
         _create_backup(output, sharded=failure == "quorum")
-    assert not output.exists()
-    assert list(tmp_path.iterdir()) == []
+    assert output.is_dir()
+    assert list(output.iterdir()) == []
 
 
 @pytest.mark.parametrize("mismatch", ("identity", "hash", "signing_key"))

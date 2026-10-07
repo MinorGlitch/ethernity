@@ -26,35 +26,16 @@ from pathlib import Path
 from unittest import mock
 
 from ethernity.workflows.shared.outputs import (
-    _ensure_output_dir,
     _safe_join,
     _write_output,
-    prepare_output_dir,
+    ensure_directory,
+    prepare_backup_output_dir,
     write_recovered_outputs,
 )
 from tests.support.environment import home_environment
 
 
 class TestOutputFiles(unittest.TestCase):
-    def test_ensure_output_dir_rejects_existing_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            existing = Path(tmpdir) / "backup-dir"
-            existing.mkdir()
-            with self.assertRaisesRegex(ValueError, "already exists"):
-                _ensure_output_dir(str(existing), "deadbeef")
-
-    def test_ensure_output_dir_uses_existing_directory_as_parent_when_requested(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            parent = Path(tmpdir) / "backups"
-            parent.mkdir()
-            created = _ensure_output_dir(
-                str(parent),
-                "deadbeef",
-                existing_directory_is_parent=True,
-            )
-            self.assertEqual(created, str(parent / "backup-deadbeef"))
-            self.assertTrue((parent / "backup-deadbeef").is_dir())
-
     def test_safe_join_rejects_unsafe_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -84,7 +65,7 @@ class TestOutputFiles(unittest.TestCase):
             self.skipTest("POSIX-only permission assertion")
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "secure"
-            _ensure_output_dir(str(out_dir), "deadbeef")
+            ensure_directory(out_dir, exist_ok=False)
             out_file = out_dir / "payload.bin"
             _write_output(str(out_file), b"payload")
 
@@ -99,17 +80,16 @@ class TestOutputFiles(unittest.TestCase):
             out_file = out_dir / "payload.bin"
             with mock.patch("ethernity.workflows.shared.outputs._is_posix", return_value=True):
                 with mock.patch("pathlib.Path.chmod", side_effect=OSError("denied")):
-                    _ensure_output_dir(str(out_dir), "deadbeef")
+                    ensure_directory(out_dir, exist_ok=False)
                     _write_output(str(out_file), b"payload")
 
-    def test_prepare_output_dir_does_not_harden_existing_parent_permissions(self) -> None:
+    def test_prepare_backup_output_dir_does_not_harden_existing_parent_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             parent = Path(tmpdir)
             with mock.patch("ethernity.workflows.shared.outputs._harden_dir_permissions") as harden:
-                final_dir, staging_dir = prepare_output_dir(
-                    str(parent / "backup-deadbeef"),
+                final_dir, staging_dir = prepare_backup_output_dir(
+                    parent,
                     "deadbeef",
-                    prefix="backup",
                 )
             self.assertEqual(final_dir, str(parent / "backup-deadbeef"))
             self.assertTrue(Path(staging_dir).is_dir())
@@ -250,13 +230,13 @@ class TestOutputFiles(unittest.TestCase):
         self.assertEqual(fake_stdout.buffer.getvalue(), b"stdout-bytes")
         self.assertEqual(calls, [("stdout.bin", "-", 1, 1)])
 
-    def test_ensure_output_dir_expands_user_path(self) -> None:
+    def test_ensure_directory_expands_user_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
             with mock.patch.dict("os.environ", home_environment(home), clear=False):
-                out_dir = _ensure_output_dir("~/vault", "deadbeef")
-            self.assertEqual(out_dir, str(home / "vault"))
+                out_dir = ensure_directory("~/vault", exist_ok=False)
+            self.assertEqual(out_dir, home / "vault")
             self.assertTrue((home / "vault").is_dir())
 
 

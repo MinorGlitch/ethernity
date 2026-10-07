@@ -24,7 +24,7 @@ from ethernity.workflows.add_files.errors import AddFilesWorkflowError
 from ethernity.workflows.add_files.request import AddFilesRequest
 from ethernity.workflows.add_files.service import assess_add_files
 from ethernity.workflows.backup.execution import _prepare_backup_document
-from ethernity.workflows.shared import api_codes, standalone
+from ethernity.workflows.shared import issue_codes, standalone
 from ethernity.workflows.shared.input_scope import SelectedInputScope
 from ethernity.workflows.shared.operation_types import InputFile
 
@@ -178,7 +178,7 @@ def test_assessment_rejects_overgrown_merged_state_without_publishing(tmp_path: 
         )
     )
     assert not assessment.ready
-    assert assessment.issues[0].code == api_codes.ADD_FILES_NOT_REBUILDABLE
+    assert assessment.issues[0].code == issue_codes.ADD_FILES_NOT_REBUILDABLE
     assert assessment.issues[0].details["stage"] == "rebuild_capacity"
     assert addition.read_bytes() == added_bytes
     assert sorted(path.name for path in tmp_path.iterdir()) == ["second.bin"]
@@ -242,7 +242,7 @@ def test_merged_state_is_checked_and_existing_oversized_chains_can_shrink() -> N
     assert _capacity((BackupFile(path="second.bin", data=second, mtime=1),)) < MAX_CIPHERTEXT_BYTES
     with pytest.raises(AddFilesWorkflowError) as caught:
         require_rebuildable_result(prepared, oversized)
-    assert caught.value.code == api_codes.ADD_FILES_NOT_REBUILDABLE
+    assert caught.value.code == issue_codes.ADD_FILES_NOT_REBUILDABLE
     assert caught.value.details["stage"] == "rebuild_capacity"
 
     # Replay deliberately remains compatible with a chain made before this publication rule.

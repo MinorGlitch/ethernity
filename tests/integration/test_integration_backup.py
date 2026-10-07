@@ -18,7 +18,8 @@ import unittest
 from pathlib import Path
 
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
-from ethernity.workflows.execution import BackupRequest, execute_backup
+from ethernity.workflows.execution import execute_backup
+from ethernity.workflows.shared.requests import BackupRequest
 from tests.test_support import suppress_output, temp_env
 
 
@@ -44,8 +45,11 @@ class TestIntegrationBackup(unittest.TestCase):
                 with suppress_output():
                     result = execute_backup(request)
 
-                qr_path = output_dir / "qr_document.pdf"
-                recovery_path = output_dir / "recovery_document.pdf"
+                backup_dir = result.qr_path.parent
+                self.assertEqual(backup_dir.parent, output_dir)
+                self.assertTrue(backup_dir.name.startswith("backup-"))
+                qr_path = backup_dir / "qr_document.pdf"
+                recovery_path = backup_dir / "recovery_document.pdf"
                 self.assertEqual(result.qr_path, qr_path)
                 self.assertEqual(result.recovery_path, recovery_path)
                 self.assertTrue(qr_path.exists())

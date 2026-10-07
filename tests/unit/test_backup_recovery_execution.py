@@ -40,6 +40,7 @@ from ethernity.workflows.backup.execution import (
 )
 from ethernity.workflows.recovery.execution import decrypt_and_extract
 from ethernity.workflows.recovery.planning import RecoveryPlan
+from ethernity.workflows.recovery.source_state import RecoverySourceFields
 
 
 class StubInputFile:
@@ -58,7 +59,7 @@ class TestBackupDocumentEncoding(unittest.TestCase):
         input_files = [
             StubInputFile("test.txt", b"hello world", mtime=1234),
         ]
-        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+        plan = DocumentPlan(sealed=False, sharding=None, signing_seed_sharding=None)
 
         backup_document, payload = _prepare_backup_document(
             input_files, plan, sign_priv, "file", []
@@ -77,7 +78,7 @@ class TestBackupDocumentEncoding(unittest.TestCase):
         input_files = [
             StubInputFile("sealed.txt", b"sealed content"),
         ]
-        plan = DocumentPlan(version=1, sealed=True, sharding=None, signing_seed_sharding=None)
+        plan = DocumentPlan(sealed=True, sharding=None, signing_seed_sharding=None)
 
         backup_document, payload = _prepare_backup_document(
             input_files, plan, sign_priv, "file", []
@@ -95,7 +96,7 @@ class TestBackupDocumentEncoding(unittest.TestCase):
             StubInputFile("dir/file2.txt", b"content2", mtime=200),
             StubInputFile("file3.bin", b"content3", mtime=300),
         ]
-        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+        plan = DocumentPlan(sealed=False, sharding=None, signing_seed_sharding=None)
 
         backup_document, payload = _prepare_backup_document(
             input_files, plan, sign_priv, "mixed", ["input"]
@@ -111,7 +112,7 @@ class TestBackupDocumentEncoding(unittest.TestCase):
         sign_priv, _ = generate_signing_keypair()
         raw_payload = b"A" * 4096
         input_files = [StubInputFile("large.txt", raw_payload)]
-        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+        plan = DocumentPlan(sealed=False, sharding=None, signing_seed_sharding=None)
 
         backup_document, _ = _prepare_backup_document(
             input_files,
@@ -132,7 +133,7 @@ class TestBackupDocumentEncoding(unittest.TestCase):
         sign_priv, _ = generate_signing_keypair()
         raw_payload = os.urandom(4096)
         input_files = [StubInputFile("large.bin", raw_payload)]
-        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+        plan = DocumentPlan(sealed=False, sharding=None, signing_seed_sharding=None)
 
         backup_document, _ = _prepare_backup_document(
             input_files,
@@ -227,14 +228,16 @@ class TestRecoveryExecutionRoundTrip(unittest.TestCase):
             auth_status="unsigned",
             allow_unsigned=True,
             output_path=None,
-            input_label=None,
-            input_detail=None,
-            main_frames=(),
-            auth_frames=(),
-            shard_frames=(),
-            shard_fallback_files=(),
-            shard_payloads_file=(),
-            shard_scan=(),
+            source=RecoverySourceFields(
+                input_label=None,
+                input_detail=None,
+                main_frames=(),
+                auth_frames=(),
+                shard_frames=(),
+                shard_fallback_files=(),
+                shard_payloads_file=(),
+                shard_scan=(),
+            ),
         )
 
         # Decrypt and extract
@@ -251,7 +254,7 @@ class TestCompressedBackupSizeLimits(unittest.TestCase):
         sign_priv, _ = generate_signing_keypair()
         raw_payload = b"A" * (MAX_CIPHERTEXT_BYTES + 200_000)
         input_files = [StubInputFile("large.txt", raw_payload)]
-        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+        plan = DocumentPlan(sealed=False, sharding=None, signing_seed_sharding=None)
 
         backup_document, _ = _prepare_backup_document(input_files, plan, sign_priv, "file", [])
         ciphertext, _ = encrypt_bytes_with_passphrase(backup_document, passphrase="test passphrase")
@@ -267,7 +270,7 @@ class TestCompressedBackupSizeLimits(unittest.TestCase):
         sign_priv, _ = generate_signing_keypair()
         raw_payload = os.urandom(MAX_CIPHERTEXT_BYTES + 50_000)
         input_files = [StubInputFile("large.bin", raw_payload)]
-        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+        plan = DocumentPlan(sealed=False, sharding=None, signing_seed_sharding=None)
 
         backup_document, _ = _prepare_backup_document(input_files, plan, sign_priv, "file", [])
         ciphertext, _ = encrypt_bytes_with_passphrase(backup_document, passphrase="test passphrase")

@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
-from ethernity.workflows.shared.operation_types import BackupArgs
+from ethernity.workflows.shared.requests import BackupRequest
 
 
 def build_document_plan(
@@ -28,7 +28,6 @@ def build_document_plan(
     signing_seed_sharding: ShardingConfig | None,
 ) -> DocumentPlan:
     return DocumentPlan(
-        version=1,
         sealed=sealed,
         signing_seed_mode=signing_seed_mode,
         sharding=sharding,
@@ -36,7 +35,7 @@ def build_document_plan(
     )
 
 
-def plan_from_args(args: BackupArgs) -> DocumentPlan:
+def plan_from_request(args: BackupRequest) -> DocumentPlan:
     sharding = _sharding_from_args(args)
     signing_seed_mode = _signing_seed_mode_from_args(args)
     signing_seed_sharding = _signing_seed_sharding_from_args(
@@ -52,7 +51,7 @@ def plan_from_args(args: BackupArgs) -> DocumentPlan:
     )
 
 
-def _sharding_from_args(args: BackupArgs) -> ShardingConfig | None:
+def _sharding_from_args(args: BackupRequest) -> ShardingConfig | None:
     if args.shard_threshold or args.shard_count:
         if not args.shard_threshold or not args.shard_count:
             raise ValueError("both --shard-threshold and --shard-count are required")
@@ -60,14 +59,14 @@ def _sharding_from_args(args: BackupArgs) -> ShardingConfig | None:
     return None
 
 
-def _signing_seed_mode_from_args(args: BackupArgs) -> SigningSeedMode:
+def _signing_seed_mode_from_args(args: BackupRequest) -> SigningSeedMode:
     if args.signing_key_mode:
         return SigningSeedMode(args.signing_key_mode)
     return SigningSeedMode.EMBEDDED
 
 
 def _signing_seed_sharding_from_args(
-    args: BackupArgs,
+    args: BackupRequest,
     *,
     signing_seed_mode: SigningSeedMode,
     sharding: ShardingConfig | None,

@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
-from typing import cast
 from unittest import mock
 
 from ethernity.crypto.sharding import ShardPayload
@@ -41,9 +39,16 @@ class TestShardRendering(unittest.TestCase):
         render_frames_to_pdf: mock.MagicMock,
         validate_document: mock.MagicMock,
     ) -> None:
-        shard = cast(
-            ShardPayload,
-            SimpleNamespace(share_index=1, share_count=3, threshold=2),
+        shard = ShardPayload(
+            share_index=1,
+            share_count=3,
+            threshold=2,
+            key_type="passphrase",
+            share=b"share",
+            secret_len=5,
+            doc_hash=b"h" * 32,
+            sign_pub=b"p" * 32,
+            signature=b"s" * 64,
         )
         render_service = mock.MagicMock()
         render_inputs = mock.sentinel.render_inputs

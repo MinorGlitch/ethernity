@@ -11,7 +11,8 @@ from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.workflows.recovery import keys
 from ethernity.workflows.replacement_recovery import service
-from ethernity.workflows.shared.operation_types import ReplacementRecoveryOperationRequest
+from ethernity.workflows.shared import shard_rendering
+from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
 
 SIGNING_SEED = b"s" * 32
 SIGN_PUB = derive_public_key(SIGNING_SEED)
@@ -36,7 +37,7 @@ class ReplacementChain:
             config=SimpleNamespace(
                 cli_defaults=SimpleNamespace(backup=SimpleNamespace(qr_payload_codec="raw"))
             ),
-            args=ReplacementRecoveryOperationRequest(
+            args=ReplacementRecoveryRequest(
                 output_dir=str(self.output_dir),
                 shard_threshold=2,
                 shard_count=3,
@@ -47,7 +48,6 @@ class ReplacementChain:
             ),
             passphrase_shard_frames=passphrase_frames or [],
             signing_key_frames=signing_key_frames or [],
-            manifest_signing_seed=service._UNSET,
             debug=False,
         )
 
@@ -75,7 +75,7 @@ def replacement_chain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Replac
         return str(output)
 
     monkeypatch.setattr(service, "_recover_replacement_chain", lambda *args, **kwargs: chain)
-    monkeypatch.setattr(service, "render_shard_document", capture_shard)
+    monkeypatch.setattr(shard_rendering, "render_shard_document", capture_shard)
     return ReplacementChain(plan, chain, tmp_path / "replacement", rendered_frames)
 
 
