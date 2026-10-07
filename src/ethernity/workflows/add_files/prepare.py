@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -28,7 +29,10 @@ from ethernity.extensions.resources import (
     require_chain_resource_limits,
     require_decoded_chunk_resource_limit,
 )
-from ethernity.extensions.staging import create_extension_staging_paths
+from ethernity.extensions.staging import (
+    create_extension_staging_paths,
+    extension_output_directory_name,
+)
 from ethernity.workflows.add_files.errors import AddFilesIssue, AddFilesWorkflowError
 from ethernity.workflows.add_files.models import (
     EncryptedExtension,
@@ -37,7 +41,7 @@ from ethernity.workflows.add_files.models import (
 )
 from ethernity.workflows.add_files.planning import ResolvedAddFilesState, resolve_add_files_state
 from ethernity.workflows.add_files.request import AddFilesRequest
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 
 
 def prepare_add_files_run(request: AddFilesRequest) -> PreparedAddFilesRun:
@@ -61,7 +65,7 @@ def prepare_add_files_run_from_state(
     plan = resolved.plan
     if plan is None:
         raise AddFilesWorkflowError(
-            code=api_codes.RUNTIME_ERROR,
+            code=issue_codes.RUNTIME_ERROR,
             message="Add Files planning did not produce a publishable update plan",
         )
 
@@ -69,26 +73,37 @@ def prepare_add_files_run_from_state(
 
     if not diff.changed_paths and not diff.new_paths:
         raise AddFilesWorkflowError(
-            code=api_codes.ADD_FILES_NO_CHANGES,
+            code=issue_codes.ADD_FILES_NO_CHANGES,
             message="selected files match the current backup; there is nothing to update",
         )
 
     selected_input = resolved.selected_input
     if selected_input is None:
         raise AddFilesWorkflowError(
-            code=api_codes.RUNTIME_ERROR,
+            code=issue_codes.RUNTIME_ERROR,
             message="Add Files planning did not retain the selected input",
         )
     validated_chain = resolved.validated_chain
     if validated_chain is None:
         raise AddFilesWorkflowError(
-            code=api_codes.RUNTIME_ERROR,
+            code=issue_codes.RUNTIME_ERROR,
             message="Add Files planning did not retain the authenticated backup state",
         )
     if resolved.resolved_passphrase is None or not resolved.resolved_passphrase:
         raise AddFilesWorkflowError(
-            code=api_codes.RUNTIME_ERROR,
+            code=issue_codes.RUNTIME_ERROR,
             message="Add Files planning did not retain the backup passphrase",
+        )
+
+    if request.output_dir is None:
+        request = replace(
+            request,
+            output_dir=str(
+                Path.cwd()
+                / extension_output_directory_name(
+                    plan.parent.root_doc_hash, plan.parent.head_index + 1
+                )
+            ),
         )
 
     return PreparedAddFilesRun(
@@ -107,7 +122,7 @@ def prepare_add_files_run_from_state(
 def _require_selected_input(request: AddFilesRequest) -> None:
     if not request.input_paths and not request.input_directories:
         raise AddFilesWorkflowError(
-            code=api_codes.ADD_FILES_INPUT_REQUIRED,
+            code=issue_codes.ADD_FILES_INPUT_REQUIRED,
             message="Add Files requires at least one explicit file or folder selection",
         )
 
@@ -131,10 +146,12 @@ def assemble_prepared_extension_document(
         operation="extension append",
     )
     try:
-        return build_extension(prepared.validated_chain, prepared.selected_input)
+        return build_extension(
+            prepared.validated_chain, prepared.selected_input, update_mode=prepared.plan.update_mode
+        )
     except ValueError as exc:
         raise AddFilesWorkflowError(
-            code=api_codes.CHAIN_INVALID,
+            code=issue_codes.CHAIN_INVALID,
             message=f"extension candidate verification failed: {exc}",
         ) from exc
 
@@ -183,7 +200,7 @@ def prepare_extension_publish(
     destination = output_dir or prepared.request.output_dir
     if not destination:
         raise AddFilesWorkflowError(
-            code=api_codes.RUNTIME_ERROR,
+            code=issue_codes.RUNTIME_ERROR,
             message="Add Files requires an output directory",
         )
     paths = create_extension_staging_paths(

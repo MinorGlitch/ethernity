@@ -33,16 +33,18 @@ from ethernity.extensions.recovery import (
     recover_chain_entries,
 )
 from ethernity.formats.extension_document import derive_chain_id
+from ethernity.formats.extension_mode import UpdateMode, resolve_update_mode
 from ethernity.formats.manifest_summary import manifest_summary_payload
 from ethernity.workflows.add_files.errors import AddFilesIssue, AddFilesWorkflowError
 from ethernity.workflows.add_files.request import AddFilesRequest
 from ethernity.workflows.add_files.scope import load_selected_scope, summarize_scope_diff
 from ethernity.workflows.recovery.models import RecoveryInspection
-from ethernity.workflows.recovery.planning import RecoveryPlan, inspect_from_args
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.recovery.planning import RecoveryPlan, inspect_from_request
+from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError
 from ethernity.workflows.shared.input_scope import InputScopeDiff, SelectedInputScope
-from ethernity.workflows.shared.operation_types import RecoverArgs
+from ethernity.workflows.shared.requests import RecoveryRequest
 
 
 @dataclass(frozen=True)
@@ -93,6 +95,7 @@ class ResolvedAddFilesPlan:
     diff: InputScopeDiff
     parent: AppendParent
     signing_key: AppendSigningKey
+    update_mode: UpdateMode = UpdateMode.CUMULATIVE
 
 
 @dataclass(frozen=True)
@@ -123,7 +126,7 @@ def resolve_add_files_state(request: AddFilesRequest) -> ResolvedAddFilesState:
         request.scan_paths or request.frames or request.recovery_text_file or request.payloads_file
     ):
         raise AddFilesWorkflowError(
-            code=api_codes.INPUT_REQUIRED,
+            code=issue_codes.INPUT_REQUIRED,
             message="Provide backup PDFs, images, recovery text, or QR payloads for Add Files.",
         )
     with recovery_kdf_budget():
@@ -133,17 +136,17 @@ def resolve_add_files_state(request: AddFilesRequest) -> ResolvedAddFilesState:
 def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
     try:
         selected_input = load_selected_scope(request)
-        root = inspect_from_args(_recovery_args(request))
+        root = inspect_from_request(_recovery_request(request))
     except FileNotFoundError as exc:
         raise AddFilesWorkflowError(
-            code=api_codes.NOT_FOUND, message=str(exc), details={"path": exc.filename}
+            code=issue_codes.NOT_FOUND, message=str(exc), details={"path": exc.filename}
         ) from exc
     except CommandError as exc:
         raise AddFilesWorkflowError(
             code=exc.code, message=exc.message, details=dict(exc.details)
         ) from exc
     except ValueError as exc:
-        raise AddFilesWorkflowError(code=api_codes.INVALID_INPUT, message=str(exc)) from exc
+        raise AddFilesWorkflowError(code=issue_codes.INVALID_INPUT, message=str(exc)) from exc
 
     source_frames = (*root.source_frames, *root.source_extra_auth_frames)
     documents = (
@@ -154,36 +157,20 @@ def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
     recovered: ChainRecoveryResult | None = None
     signing_seed: bytes | None = None
     diff: InputScopeDiff | None = None
+    update_mode = resolve_update_mode(None, request.update_mode)
     if root.unlock.satisfied and root.unlock.resolved_passphrase and not issues:
         try:
             recovered = recover_chain_entries(_recovery_plan(root, request), debug=False)
             if recovered.manifest.sealed:
                 issues.append(
                     AddFilesIssue(
-                        code=api_codes.SEALED_ROOT_CANNOT_ACCEPT_UPDATES,
+                        code=issue_codes.SEALED_ROOT_CANNOT_ACCEPT_UPDATES,
                         message="Sealed roots cannot accept updates.",
                     )
                 )
             else:
-                signing_seed = recovered.manifest.signing_seed
-                if signing_seed is None or root.auth_payload is None:
-                    raise ValueError("Authenticated root signing key is missing.")
-                chain = recovered.validated_chain
-                if chain is None:
-                    if recovered.root_payload is None:
-                        raise ValueError("Decoded root payload is missing.")
-                    chunking = load_app_config(
-                        request.config_path, paper_size=request.paper_size
-                    ).extension_chunking
-                    chain = replay_authenticated_chain(
-                        recovered.manifest,
-                        recovered.root_payload,
-                        root_doc_hash=root.doc_hash,
-                        root_auth_payload=root.auth_payload,
-                        expected_sign_pub=root.auth_payload.sign_pub,
-                        extensions=(),
-                        root_chunking=chunking,
-                    )
+                chain, signing_seed = _append_chain_state(root, recovered, request)
+                update_mode = resolve_update_mode(chain.update_mode, request.update_mode)
                 if selected_input is not None:
                     diff = summarize_scope_diff(chain.files, selected_input)
                     issues.extend(_diff_issues(diff))
@@ -191,7 +178,7 @@ def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
         except ExtensionRecoveryError as exc:
             issues.append(AddFilesIssue(code=exc.code, message=str(exc), details=dict(exc.details)))
         except ValueError as exc:
-            issues.append(AddFilesIssue(code=api_codes.CHAIN_INVALID, message=str(exc)))
+            issues.append(AddFilesIssue(code=issue_codes.CHAIN_INVALID, message=str(exc)))
 
     head_index = chain.head_index if chain is not None else None
     head_hash = chain.head_doc_hash.hex() if chain is not None else None
@@ -256,6 +243,7 @@ def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
             diff=diff,
             parent=AppendParent(root.doc_hash, chain.head_index, chain.head_doc_hash),
             signing_key=AppendSigningKey(signing_seed),
+            update_mode=update_mode,
         )
     return ResolvedAddFilesState(
         inspection=inspection,
@@ -270,23 +258,47 @@ def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
     )
 
 
-def _recovery_args(request: AddFilesRequest) -> RecoverArgs:
-    return RecoverArgs(
-        config=request.config_path,
-        paper=request.paper_size,
-        fallback_file=request.recovery_text_file,
+def _append_chain_state(
+    root: RecoveryInspection, recovered: ChainRecoveryResult, request: AddFilesRequest
+) -> tuple[ValidatedChainState, bytes]:
+    signing_seed = recovered.manifest.signing_seed
+    if signing_seed is None or root.auth_payload is None:
+        raise ValueError("Authenticated root signing key is missing.")
+    chain = recovered.validated_chain
+    if chain is None:
+        if recovered.root_payload is None:
+            raise ValueError("Decoded root payload is missing.")
+        chunking = load_app_config(
+            request.config_path, paper_size=request.paper_size
+        ).extension_chunking
+        chain = replay_authenticated_chain(
+            recovered.manifest,
+            recovered.root_payload,
+            root_doc_hash=root.doc_hash,
+            root_auth_payload=root.auth_payload,
+            expected_sign_pub=root.auth_payload.sign_pub,
+            extensions=(),
+            root_chunking=chunking,
+        )
+    return chain, signing_seed
+
+
+def _recovery_request(request: AddFilesRequest) -> RecoveryRequest:
+    return RecoveryRequest(
+        config_path=request.config_path,
+        paper_size=request.paper_size,
+        recovery_text_file=request.recovery_text_file,
         payloads_file=request.payloads_file,
-        scan=list(request.scan_paths),
-        frames=list(request.frames),
+        scan_paths=request.scan_paths,
+        frames=request.frames,
         passphrase=request.passphrase,
-        shard_fallback_file=list(request.shard_fallback_files),
-        shard_payloads_file=list(request.shard_payload_files),
-        shard_scan=list(request.shard_scan_paths),
-        shard_frames=list(request.shard_frames),
-        auth_fallback_file=request.auth_text_file,
+        shard_text_files=request.shard_fallback_files,
+        shard_payload_files=request.shard_payload_files,
+        shard_scan_paths=request.shard_scan_paths,
+        shard_frames=request.shard_frames,
+        auth_text_file=request.auth_text_file,
         auth_payloads_file=request.auth_payloads_file,
-        auth_frames=list(request.auth_frames),
-        assume_yes=True,
+        auth_frames=request.auth_frames,
         quiet=request.quiet,
     )
 
@@ -303,19 +315,21 @@ def _recovery_plan(root: RecoveryInspection, request: AddFilesRequest) -> Recove
         auth_status=root.auth_status,
         allow_unsigned=False,
         output_path=None,
-        input_label=root.input_label,
-        input_detail=root.input_detail,
-        main_frames=root.main_frames,
-        auth_frames=root.auth_frames,
-        shard_frames=root.shard_frames,
-        shard_fallback_files=root.shard_fallback_files,
-        shard_payloads_file=root.shard_payloads_file,
-        shard_scan=root.shard_scan,
         import_documents=imported_documents_from_recovery_frames(
             [*root.source_frames, *root.source_extra_auth_frames]
         ),
         decoded_import_session=root.decoded_import_session,
         expected_head_doc_hash=request.expected_head_doc_hash,
+        source=RecoverySourceFields(
+            input_label=root.input_label,
+            input_detail=root.input_detail,
+            main_frames=root.main_frames,
+            auth_frames=root.auth_frames,
+            shard_frames=root.shard_frames,
+            shard_fallback_files=root.shard_fallback_files,
+            shard_payloads_file=root.shard_payloads_file,
+            shard_scan=root.shard_scan,
+        ),
     )
 
 
@@ -325,7 +339,7 @@ def _freshness_issues(request: AddFilesRequest, head_hash: str | None) -> tuple[
         if head_hash is not None and head_hash != expected:
             return (
                 AddFilesIssue(
-                    code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                    code=issue_codes.RECOVERY_HEAD_UNTRUSTED,
                     message="The supplied head does not match the expected head fingerprint.",
                     details={
                         "expected_head_doc_hash": expected,
@@ -338,7 +352,7 @@ def _freshness_issues(request: AddFilesRequest, head_hash: str | None) -> tuple[
         return ()
     return (
         AddFilesIssue(
-            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            code=issue_codes.RECOVERY_HEAD_UNTRUSTED,
             message=(
                 "Provide --expected-head or acknowledge that this is only the "
                 "latest supplied version with --allow-stale-head."
@@ -361,7 +375,7 @@ def _file_tree_issues(
     except ValueError as exc:
         return (
             AddFilesIssue(
-                code=api_codes.DELETE_NOT_SUPPORTED,
+                code=issue_codes.DELETE_NOT_SUPPORTED,
                 message=(
                     f"{exc}. Updates cannot remove conflicting paths. "
                     "Create a new backup for this file layout."
@@ -377,7 +391,7 @@ def _diff_issues(diff: InputScopeDiff) -> tuple[AddFilesIssue, ...]:
     if diff.ambiguous_path_aliases:
         issues.append(
             AddFilesIssue(
-                code=api_codes.INVALID_INPUT,
+                code=issue_codes.INVALID_INPUT,
                 message=(
                     "Selected paths resemble existing paths; provide --base-dir to disambiguate."
                 ),
@@ -392,7 +406,7 @@ def _diff_issues(diff: InputScopeDiff) -> tuple[AddFilesIssue, ...]:
     if diff.missing_paths:
         issues.append(
             AddFilesIssue(
-                code=api_codes.DELETE_NOT_SUPPORTED,
+                code=issue_codes.DELETE_NOT_SUPPORTED,
                 message="Add Files cannot delete or rename paths. Create a new backup instead.",
                 details={"missing_paths": list(diff.missing_paths)},
             )

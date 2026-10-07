@@ -34,6 +34,7 @@ from ethernity.extensions.staging import (
 )
 from ethernity.publication import (
     discard_staging_directory,
+    open_directory_fd,
     publish_staged_directory,
 )
 from ethernity.render.layout_debug import layout_debug_json_path
@@ -61,7 +62,9 @@ from ethernity.workflows.add_files.reporting import (
     NULL_ADD_FILES_REPORTER,
     AddFilesReporter,
 )
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.events import emit_finalizing
+from ethernity.workflows.shared.execution_control import cancellation_point
 
 DirectoryIdentity = tuple[int, int]
 
@@ -92,6 +95,7 @@ def _publish_staged_extension(
     validate_phase_emitted = False
 
     def _validate_staging(path) -> None:
+        cancellation_point()
         nonlocal validate_phase_emitted
         if not validate_phase_emitted:
             reporter.phase(phase="validate", label="Validating staged extension documents")
@@ -127,6 +131,7 @@ def _publish_staged_extension(
             details={"staging_dir": staging_dir},
         )
         reporter.phase(phase="publish", label="Publishing extension documents")
+        emit_finalizing()
 
     publish_result = publish_staged_directory(
         staging_dir=staging_dir,
@@ -269,7 +274,7 @@ def _preflight_prepared_extension_publish_target(prepared: PreparedAddFilesRun) 
     output_dir = prepared.request.output_dir
     if not output_dir:
         raise AddFilesWorkflowError(
-            code=api_codes.EXTENSION_PUBLISH_TARGET_INVALID,
+            code=issue_codes.EXTENSION_PUBLISH_TARGET_INVALID,
             message="Add Files requires an output directory",
             details={"stage": "publish_target"},
         )
@@ -277,7 +282,7 @@ def _preflight_prepared_extension_publish_target(prepared: PreparedAddFilesRun) 
         preflight_extension_publish_target(output_dir)
     except ValueError as exc:
         raise AddFilesWorkflowError(
-            code=api_codes.EXTENSION_PUBLISH_TARGET_INVALID,
+            code=issue_codes.EXTENSION_PUBLISH_TARGET_INVALID,
             message=str(exc),
             details={"stage": "publish_target"},
         ) from exc
@@ -383,12 +388,7 @@ def _require_layout_debug_dir_identity(path: Path, expected: DirectoryIdentity) 
 
 def _open_verified_layout_debug_dir(path: Path, expected: DirectoryIdentity) -> int:
     _require_layout_debug_dir_identity(path, expected)
-    flags = os.O_RDONLY
-    if hasattr(os, "O_DIRECTORY"):
-        flags |= os.O_DIRECTORY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    fd = os.open(path, flags)
+    fd = open_directory_fd(path)
     try:
         stat_result = os.fstat(fd)
         if not stat.S_ISDIR(stat_result.st_mode):

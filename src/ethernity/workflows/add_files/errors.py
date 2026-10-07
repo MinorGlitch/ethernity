@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,7 @@ class AddFilesIssue:
         raw_details = value.get("details")
         details = dict(raw_details) if isinstance(raw_details, Mapping) else {}
         return cls(
-            code=str(value.get("code") or api_codes.RUNTIME_ERROR),
+            code=str(value.get("code") or issue_codes.RUNTIME_ERROR),
             message=str(value.get("message") or "Add Files failed."),
             details=details,
         )

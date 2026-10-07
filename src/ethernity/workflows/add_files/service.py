@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Adapter-neutral Add Files workflow."""
+"""Plan, publish, and create recovery sheets for an update."""
 
 from __future__ import annotations
 
@@ -31,24 +31,22 @@ from ethernity.workflows.add_files.execution import (
 from ethernity.workflows.add_files.models import ExecutedAddFilesRun
 from ethernity.workflows.add_files.prepare import prepare_add_files_run
 from ethernity.workflows.add_files.reporting import (
-    NULL_ADD_FILES_REPORTER,
+    EVENT_ADD_FILES_REPORTER,
     AddFilesReporter,
 )
 from ethernity.workflows.add_files.request import AddFilesRequest
-from ethernity.workflows.execution import (
-    ReplacementRecoveryRequest,
-    execute_replacement_recovery,
-)
+from ethernity.workflows.execution import execute_replacement_recovery
 from ethernity.workflows.replacement_recovery.service import (
     replacement_recovery_directory_name,
     require_replacement_recovery_output_available,
 )
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
 
 
 @dataclass(frozen=True)
 class AddFilesAssessment:
-    """Authenticated planning assessment returned to application adapters."""
+    """The validated update and any issues that prevent publication."""
 
     request: AddFilesRequest
     assessed: AssessedAddFilesRun | None = None
@@ -62,7 +60,7 @@ class AddFilesAssessment:
 
 @dataclass(frozen=True)
 class RecoverySheetCreationResult:
-    """Outcome of the optional post-publication recovery-sheet step."""
+    """Recovery-sheet creation can fail after the update has been published."""
 
     status: Literal["not_requested", "created", "failed"] = "not_requested"
     output_dir: Path | None = None
@@ -72,7 +70,7 @@ class RecoverySheetCreationResult:
 
 @dataclass(frozen=True)
 class AddFilesExecutionResult:
-    """Publication and optional recovery-sheet results returned to application adapters."""
+    """An update's publication result and optional recovery sheets."""
 
     assessment: AddFilesAssessment
     executed: ExecutedAddFilesRun | None = None
@@ -98,44 +96,37 @@ def assess_add_files(request: AddFilesRequest) -> AddFilesAssessment:
     """Plan and validate a request without publishing files."""
 
     try:
-        assessed = assess_prepared_add_files(prepare_add_files_run(request))
+        prepared = prepare_add_files_run(request)
+        assessed = assess_prepared_add_files(prepared)
     except AddFilesWorkflowError as exc:
         return AddFilesAssessment(request=request, issues=(exc.issue,))
     except (OSError, RuntimeError, ValueError) as exc:
-        return AddFilesAssessment(
-            request=request,
-            issues=(
-                AddFilesIssue(
-                    code=api_codes.RUNTIME_ERROR,
-                    message=str(exc),
-                ),
-            ),
-        )
-    recovery_sheet_output_dir = _recovery_sheet_output_dir(request, assessed)
-    if recovery_sheet_output_dir is not None:
+        issue = AddFilesIssue(code=issue_codes.RUNTIME_ERROR, message=str(exc))
+        return AddFilesAssessment(request=request, issues=(issue,))
+
+    if request.output_dir is None:
+        request = assessed.prepared.request
+    output_dir = _recovery_sheet_output_dir(request, assessed)
+    issues: tuple[AddFilesIssue, ...] = ()
+    if output_dir is not None:
         try:
-            require_replacement_recovery_output_available(recovery_sheet_output_dir)
+            require_replacement_recovery_output_available(output_dir)
         except ValueError:
-            return AddFilesAssessment(
-                request=request,
-                assessed=assessed,
-                recovery_sheet_output_dir=recovery_sheet_output_dir,
-                issues=(
-                    AddFilesIssue(
-                        code=api_codes.ADD_FILES_RECOVERY_OUTPUT_EXISTS,
-                        message=(
-                            f"The recovery sheet folder already exists: "
-                            f"{recovery_sheet_output_dir}. Remove it or leave new recovery "
-                            "sheets off."
-                        ),
-                        details={"path": str(recovery_sheet_output_dir)},
-                    ),
+            issue = AddFilesIssue(
+                code=issue_codes.ADD_FILES_RECOVERY_OUTPUT_EXISTS,
+                message=(
+                    f"The recovery sheet folder already exists: "
+                    f"{output_dir}. Remove it or leave new recovery sheets off."
                 ),
+                details={"path": str(output_dir)},
             )
+            issues = (issue,)
+
     return AddFilesAssessment(
         request=request,
         assessed=assessed,
-        recovery_sheet_output_dir=recovery_sheet_output_dir,
+        recovery_sheet_output_dir=output_dir,
+        issues=issues,
     )
 
 
@@ -144,25 +135,19 @@ def execute_add_files(
     *,
     config_path: str | None = None,
     nonce: str | None = None,
-    reporter: AddFilesReporter = NULL_ADD_FILES_REPORTER,
+    reporter: AddFilesReporter = EVENT_ADD_FILES_REPORTER,
 ) -> AddFilesExecutionResult:
     """Publish the exact payload approved by a successful assessment."""
 
-    if not assessment.ready or assessment.assessed is None:
-        execution_issues = (
-            ()
-            if assessment.issues
-            else (
-                AddFilesIssue(
-                    code=api_codes.RUNTIME_ERROR,
-                    message="Add Files must pass assessment before execution.",
-                ),
-            )
+    if assessment.issues:
+        return AddFilesExecutionResult(assessment=assessment)
+    if assessment.assessed is None:
+        issue = AddFilesIssue(
+            code=issue_codes.RUNTIME_ERROR,
+            message="Add Files must pass assessment before execution.",
         )
-        return AddFilesExecutionResult(
-            assessment=assessment,
-            execution_issues=execution_issues,
-        )
+        return AddFilesExecutionResult(assessment=assessment, execution_issues=(issue,))
+
     try:
         executed = execute_assessed_add_files(
             assessment.assessed,
@@ -173,10 +158,9 @@ def execute_add_files(
     except AddFilesWorkflowError as exc:
         return AddFilesExecutionResult(assessment=assessment, execution_issues=(exc.issue,))
     except (OSError, RuntimeError, ValueError) as exc:
-        return AddFilesExecutionResult(
-            assessment=assessment,
-            execution_issues=(AddFilesIssue(code=api_codes.RUNTIME_ERROR, message=str(exc)),),
-        )
+        issue = AddFilesIssue(code=issue_codes.RUNTIME_ERROR, message=str(exc))
+        return AddFilesExecutionResult(assessment=assessment, execution_issues=(issue,))
+
     recovery_sheets = _create_recovery_sheets(assessment, executed)
     return AddFilesExecutionResult(
         assessment=assessment,
@@ -205,29 +189,33 @@ def _create_recovery_sheets(
     output_dir = assessment.recovery_sheet_output_dir
     if not request.create_recovery_sheets or output_dir is None:
         return RecoverySheetCreationResult()
+
     try:
-        result = execute_replacement_recovery(
-            ReplacementRecoveryRequest(
-                config_path=Path(request.config_path) if request.config_path is not None else None,
-                paper_size=executed.output_settings.config.paper_size,
-                design=executed.output_settings.config.design_name,
-                frames=(*executed.prepared.source_frames, *executed.result.recovery_frames),
-                passphrase=executed.prepared.encryption_passphrase,
-                extension_doc_hash=executed.result.doc_hash.hex(),
-                expected_head_doc_hash=executed.result.doc_hash.hex(),
-                output_dir=output_dir,
-                shard_threshold=request.recovery_threshold,
-                shard_count=request.recovery_sheet_count,
-                create_passphrase_shards=True,
-                create_signing_key_shards=False,
-            )
+        config = executed.output_settings.config
+        doc_hash = executed.result.doc_hash.hex()
+        recovery_request = ReplacementRecoveryRequest(
+            config_path=Path(request.config_path) if request.config_path is not None else None,
+            paper_size=config.paper_size,
+            design=config.design_name,
+            frames=(*executed.prepared.source_frames, *executed.result.recovery_frames),
+            passphrase=executed.prepared.encryption_passphrase,
+            extension_doc_hash=doc_hash,
+            expected_head_doc_hash=doc_hash,
+            output_dir=output_dir,
+            shard_threshold=request.recovery_threshold,
+            shard_count=request.recovery_sheet_count,
+            create_passphrase_shards=True,
+            create_signing_key_shards=False,
+            quiet=True,
         )
+        result = execute_replacement_recovery(recovery_request)
     except Exception as exc:
         return RecoverySheetCreationResult(
             status="failed",
             output_dir=output_dir,
             error=str(exc),
         )
+
     return RecoverySheetCreationResult(
         status="created",
         output_dir=output_dir,

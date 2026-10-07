@@ -41,7 +41,7 @@ from ethernity.render.fallback_labels import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_
 from ethernity.render.types import FallbackSection, FallbackSummary
 from ethernity.workflows.add_files.errors import AddFilesWorkflowError
 from ethernity.workflows.recovery.frame_inputs import recovery_frames_from_scan
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 
 from .models import (
     ExtensionPublication,
@@ -94,7 +94,7 @@ def validate_main_document(
         raise
     except Exception as exc:
         raise AddFilesWorkflowError(
-            code=api_codes.EXTENSION_MAIN_CARRIER_INVALID,
+            code=issue_codes.EXTENSION_MAIN_CARRIER_INVALID,
             message=f"rendered MAIN document {path.name} is invalid: {exc}",
         ) from exc
 
@@ -132,7 +132,7 @@ def validate_recovery_document(
         raise _render_validation_error(exc) from exc
     except Exception as exc:
         raise AddFilesWorkflowError(
-            code=api_codes.EXTENSION_MAIN_CARRIER_INVALID,
+            code=issue_codes.EXTENSION_MAIN_CARRIER_INVALID,
             message=f"rendered recovery document {path.name} is invalid: {exc}",
         ) from exc
 
@@ -182,7 +182,7 @@ def _recovery_fallback_sections(frames: tuple[Frame, ...]) -> tuple[FallbackSect
 
 def _render_validation_error(exc: RenderValidationError) -> AddFilesWorkflowError:
     return AddFilesWorkflowError(
-        code=api_codes.EXTENSION_MAIN_CARRIER_INVALID,
+        code=issue_codes.EXTENSION_MAIN_CARRIER_INVALID,
         message=str(exc),
         details=exc.details,
     )
@@ -206,7 +206,7 @@ def _validate_document_frames(
     doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     if doc_id != expected_doc_id or doc_hash != expected_doc_hash:
         raise AddFilesWorkflowError(
-            code=api_codes.EXTENSION_MAIN_CARRIER_INVALID,
+            code=issue_codes.EXTENSION_MAIN_CARRIER_INVALID,
             message=(
                 f"rendered MAIN document {path.name} does not match the "
                 "planned extension ciphertext"
@@ -221,6 +221,6 @@ def _validate_document_frames(
         )
     if auth_payload is not None and auth_payload.sign_pub != expected_sign_pub:
         raise AddFilesWorkflowError(
-            code=api_codes.EXTENSION_MAIN_CARRIER_INVALID,
+            code=issue_codes.EXTENSION_MAIN_CARRIER_INVALID,
             message=(f"rendered extension AUTH in {path.name} does not match the root signing key"),
         )

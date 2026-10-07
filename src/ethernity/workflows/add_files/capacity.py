@@ -10,7 +10,7 @@ from ethernity.extensions.recovery import (
 from ethernity.formats.manifest import BackupFile
 from ethernity.workflows.add_files.errors import AddFilesWorkflowError
 from ethernity.workflows.add_files.models import PreparedAddFilesRun
-from ethernity.workflows.shared import api_codes, standalone
+from ethernity.workflows.shared import issue_codes, standalone
 
 
 def require_rebuildable_result(
@@ -33,7 +33,7 @@ def require_rebuildable_result(
         )
     except ValueError as exc:
         raise AddFilesWorkflowError(
-            code=api_codes.ADD_FILES_NOT_REBUILDABLE,
+            code=issue_codes.ADD_FILES_NOT_REBUILDABLE,
             message=(
                 "The updated backup cannot fit a standalone Rebuild backup. "
                 "Select fewer new files, use smaller replacements, or create a separate backup."

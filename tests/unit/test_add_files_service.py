@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -31,6 +32,8 @@ from ethernity.extensions.chain import (
     ReconstructedFile,
     ValidatedChainState,
 )
+from ethernity.extensions.staging import extension_output_directory_name
+from ethernity.formats.extension_mode import UpdateMode
 from ethernity.render.checks import RenderValidationError
 from ethernity.render.fallback_labels import AUTH_FALLBACK_LABEL
 from ethernity.render.types import FallbackSummary
@@ -39,6 +42,7 @@ from ethernity.workflows.add_files.document_validation import (
     validate_recovery_document,
 )
 from ethernity.workflows.add_files.errors import AddFilesIssue, AddFilesWorkflowError
+from ethernity.workflows.add_files.execution import assess_prepared_add_files
 from ethernity.workflows.add_files.output_settings import ensure_add_files_layout_debug_dir_allowed
 from ethernity.workflows.add_files.planning import (
     AppendParent,
@@ -54,7 +58,7 @@ from ethernity.workflows.add_files.prepare import (
 )
 from ethernity.workflows.add_files.request import AddFilesRequest
 from ethernity.workflows.recovery.frame_inputs import FrameInputResult
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.input_scope import InputScopeDiff, SelectedInputScope
 from ethernity.workflows.shared.operation_types import InputFile
 
@@ -66,6 +70,9 @@ def _validated_chain_state(
     object.__setattr__(state, "root_doc_hash", b"\x22" * 32)
     object.__setattr__(state, "head_doc_hash", b"\x11" * 32)
     object.__setattr__(state, "head_index", 1)
+    object.__setattr__(state, "update_mode", UpdateMode.CUMULATIVE)
+    object.__setattr__(state, "root_files", current_state)
+    object.__setattr__(state, "root_chunks", ())
     object.__setattr__(state, "chunking", DEFAULT_EXTENSION_CHUNKING_PROFILE)
     object.__setattr__(state, "files", current_state)
     object.__setattr__(state, "available_chunks", ())
@@ -159,7 +166,7 @@ def _fallback_summary(*frames: Frame) -> FallbackSummary:
 def test_prepare_requires_an_explicit_input_scope() -> None:
     with pytest.raises(AddFilesWorkflowError) as caught:
         prepare_add_files_run(AddFilesRequest(output_dir="/tmp/root"))
-    assert caught.value.code == api_codes.ADD_FILES_INPUT_REQUIRED
+    assert caught.value.code == issue_codes.ADD_FILES_INPUT_REQUIRED
 
 
 def test_prepare_returns_the_first_typed_planning_issue() -> None:
@@ -179,7 +186,7 @@ def test_prepare_rejects_a_noop_diff() -> None:
             _request(),
             _resolved_state(diff=_changed_diff(new_paths=())),
         )
-    assert noop.value.code == api_codes.ADD_FILES_NO_CHANGES
+    assert noop.value.code == issue_codes.ADD_FILES_NO_CHANGES
 
 
 def test_prepare_returns_the_exact_typed_chain_and_diff() -> None:
@@ -197,6 +204,65 @@ def test_prepare_returns_the_exact_typed_chain_and_diff() -> None:
     assert prepared.changed_paths == ("changed.txt",)
     assert prepared.unchanged_paths == ("same.txt",)
     assert prepared.validated_chain.head_doc_hash == b"\x11" * 32
+
+
+def test_prepare_names_automatic_destination_from_verified_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    request = replace(_request(), output_dir=None, scan_paths=("misleading-backup-name.pdf",))
+    prepared = prepare_add_files_run_from_state(request, _resolved_state(diff=_changed_diff()))
+
+    assert prepared.request.output_dir == str(tmp_path / "backup-2222222222222222-update-02")
+    assert request.output_dir is None
+    assert not list(tmp_path.iterdir())
+
+
+def test_prepare_preserves_custom_destination() -> None:
+    request = replace(_request(), output_dir="chosen/place/custom-name")
+    prepared = prepare_add_files_run_from_state(request, _resolved_state(diff=_changed_diff()))
+
+    assert prepared.request.output_dir == request.output_dir
+
+
+def test_existing_automatic_destination_blocks_before_encryption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    prepared = prepare_add_files_run_from_state(
+        replace(_request(), output_dir=None), _resolved_state(diff=_changed_diff())
+    )
+    assert prepared.request.output_dir is not None
+    destination = Path(prepared.request.output_dir)
+    destination.mkdir()
+    marker = destination / "keep.txt"
+    marker.write_text("existing output")
+    monkeypatch.setattr(
+        "ethernity.workflows.add_files.execution.add_files_output_settings.resolve_add_files_output_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    encrypted = mock.Mock()
+    monkeypatch.setattr(
+        "ethernity.workflows.add_files.execution.encrypt_prepared_extension_document", encrypted
+    )
+
+    with pytest.raises(AddFilesWorkflowError) as caught:
+        assess_prepared_add_files(prepared)
+
+    assert caught.value.code == issue_codes.EXTENSION_PUBLISH_TARGET_INVALID
+    encrypted.assert_not_called()
+    assert marker.read_text() == "existing output"
+
+
+@pytest.mark.parametrize("index", [0, -1, True])
+def test_update_directory_name_rejects_invalid_index(index: int) -> None:
+    with pytest.raises(ValueError):
+        extension_output_directory_name(b"r" * 32, index)
+
+
+def test_update_directory_name_rejects_short_root_fingerprint() -> None:
+    with pytest.raises(ValueError):
+        extension_output_directory_name(b"r" * 8, 1)
 
 
 def test_assemble_uses_the_validated_chain_and_selected_scope() -> None:
@@ -219,6 +285,7 @@ def test_assemble_uses_the_validated_chain_and_selected_scope() -> None:
     build_extension.assert_called_once_with(
         prepared.validated_chain,
         prepared.selected_input,
+        update_mode=prepared.plan.update_mode,
     )
 
 
@@ -276,7 +343,7 @@ def test_main_carrier_rejects_missing_auth() -> None:
                 expected_sign_pub=b"\x44" * 32,
                 require_auth=True,
             )
-    assert caught.value.code == api_codes.EXTENSION_MAIN_CARRIER_INVALID
+    assert caught.value.code == issue_codes.EXTENSION_MAIN_CARRIER_INVALID
     assert "missing auth payload" in str(caught.value)
 
 
@@ -332,7 +399,7 @@ def test_recovery_document_requires_a_fallback_summary() -> None:
                 expected_sign_pub=b"\x44" * 32,
                 require_auth=True,
             )
-    assert caught.value.code == api_codes.EXTENSION_MAIN_CARRIER_INVALID
+    assert caught.value.code == issue_codes.EXTENSION_MAIN_CARRIER_INVALID
     assert "missing fallback render summary" in str(caught.value)
 
 
@@ -353,5 +420,5 @@ def test_recovery_document_wraps_pdf_validation_errors() -> None:
             expected_sign_pub=b"p" * 32,
             require_auth=True,
         )
-    assert caught.value.code == api_codes.EXTENSION_MAIN_CARRIER_INVALID
+    assert caught.value.code == issue_codes.EXTENSION_MAIN_CARRIER_INVALID
     assert "invalid PDF" in str(caught.value)

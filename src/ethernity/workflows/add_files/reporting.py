@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Protocol
+from collections.abc import Mapping
+from typing import Protocol
 
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import events, issue_codes
 
 
 class AddFilesReporter(Protocol):
@@ -25,7 +26,7 @@ class AddFilesReporter(Protocol):
         self,
         message: str,
         *,
-        code: str = api_codes.WARNING,
+        code: str = issue_codes.WARNING,
         details: Mapping[str, object] | None = None,
     ) -> None: ...
 
@@ -52,7 +53,7 @@ class NullAddFilesReporter:
         self,
         message: str,
         *,
-        code: str = api_codes.WARNING,
+        code: str = issue_codes.WARNING,
         details: Mapping[str, object] | None = None,
     ) -> None:
         pass
@@ -60,4 +61,30 @@ class NullAddFilesReporter:
 
 NULL_ADD_FILES_REPORTER = NullAddFilesReporter()
 
-__all__ = ["AddFilesReporter", "NULL_ADD_FILES_REPORTER", "NullAddFilesReporter"]
+
+class EventAddFilesReporter:
+    """Forward update progress through the same event stream as other workflows."""
+
+    phase = staticmethod(events.emit_phase)
+    progress = staticmethod(events.emit_progress)
+
+    def warning(
+        self,
+        message: str,
+        *,
+        code: str = issue_codes.WARNING,
+        details: Mapping[str, object] | None = None,
+    ) -> None:
+        events.emit_warning(code=code, message=message, details=dict(details or {}))
+
+
+EVENT_ADD_FILES_REPORTER = EventAddFilesReporter()
+
+
+__all__ = [
+    "AddFilesReporter",
+    "EventAddFilesReporter",
+    "EVENT_ADD_FILES_REPORTER",
+    "NULL_ADD_FILES_REPORTER",
+    "NullAddFilesReporter",
+]

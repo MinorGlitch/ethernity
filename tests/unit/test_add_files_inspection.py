@@ -34,13 +34,14 @@ from ethernity.formats.document_codec import (
     decode_backup_document,
     encode_backup_document,
 )
+from ethernity.formats.extension_mode import UpdateMode
 from ethernity.formats.manifest import BackupFile
 from ethernity.workflows.add_files.errors import AddFilesWorkflowError
 from ethernity.workflows.add_files.planning import inspect_add_files, resolve_add_files_state
 from ethernity.workflows.add_files.prepare import prepare_add_files_run_from_state
 from ethernity.workflows.add_files.request import AddFilesRequest
 from ethernity.workflows.recovery.frame_inputs import frames_from_payloads
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 
 FIXTURE_ROOT = Path(__file__).parents[1] / "fixtures" / "v1_2" / "extension_golden"
 GZIP_CHAIN = FIXTURE_ROOT / "base64" / "gzip_replacement_chain"
@@ -95,7 +96,14 @@ def _issue_codes(inspection) -> set[str]:
 def test_inspection_requires_recovery_inputs() -> None:
     with pytest.raises(AddFilesWorkflowError) as exc_info:
         inspect_add_files(_request(frames=()))
-    assert exc_info.value.code == api_codes.INPUT_REQUIRED
+    assert exc_info.value.code == issue_codes.INPUT_REQUIRED
+
+
+def test_existing_series_rejects_mode_change_before_publication() -> None:
+    resolved = resolve_add_files_state(_request(update_mode=UpdateMode.INCREMENTAL))
+    assert any("mode is fixed" in issue.message for issue in resolved.blocking_issues)
+    assert resolved.validated_chain is not None
+    assert resolved.validated_chain.update_mode == UpdateMode.CUMULATIVE
 
 
 def test_shuffled_duplicate_frames_resolve_the_authenticated_chain() -> None:
@@ -161,7 +169,7 @@ def test_extra_auth_frames_are_matched_by_document_identity() -> None:
 def test_source_freshness_requires_a_pin_or_explicit_acknowledgement(name: str) -> None:
     inspection = inspect_add_files(_request(frames=_frames(name=name), allow_stale_head=False))
 
-    assert api_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(inspection)
+    assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(inspection)
 
 
 def test_expected_head_pin_is_normalized_and_enforced() -> None:
@@ -173,7 +181,7 @@ def test_expected_head_pin_is_normalized_and_enforced() -> None:
 
     assert not pinned.blocking_issues
     assert pinned.validated_head_doc_hash == head_hash
-    assert api_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(wrong)
+    assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(wrong)
 
 
 def test_missing_ancestor_cannot_be_used_as_an_append_source() -> None:
@@ -181,7 +189,7 @@ def test_missing_ancestor_cannot_be_used_as_an_append_source() -> None:
 
     inspection = inspect_add_files(_request(frames=frames))
 
-    assert api_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(inspection)
+    assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(inspection)
     assert inspection.ancestry_valid is not True
 
 
@@ -197,7 +205,7 @@ def test_authenticated_forks_cannot_be_used_as_an_append_source() -> None:
 
     inspection = inspect_add_files(_request(frames=(*_frames(), *fork)))
 
-    assert api_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(inspection)
+    assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(inspection)
     assert inspection.ancestry_valid is not True
 
 
@@ -232,7 +240,7 @@ def test_sealed_root_cannot_be_used_as_an_append_source() -> None:
 
     inspection = inspect_add_files(_request(frames=frames))
 
-    assert api_codes.SEALED_ROOT_CANNOT_ACCEPT_UPDATES in _issue_codes(inspection)
+    assert issue_codes.SEALED_ROOT_CANNOT_ACCEPT_UPDATES in _issue_codes(inspection)
     assert inspection.signing_key["satisfied"] is False
 
 
@@ -246,7 +254,7 @@ def test_embedded_seed_must_match_authenticated_root_signing_key() -> None:
 
     inspection = inspect_add_files(_request(frames=frames))
 
-    assert api_codes.ROOT_SIGNING_KEY_MISMATCH in _issue_codes(inspection)
+    assert issue_codes.ROOT_SIGNING_KEY_MISMATCH in _issue_codes(inspection)
     assert inspection.signing_key["satisfied"] is False
 
 
@@ -298,11 +306,11 @@ def test_conflicting_update_paths_require_a_new_backup(
     issue = next(
         item for item in resolved.blocking_issues if item.details.get("stage") == "file_tree"
     )
-    assert issue.code == api_codes.DELETE_NOT_SUPPORTED
+    assert issue.code == issue_codes.DELETE_NOT_SUPPORTED
     assert "Create a new backup" in issue.message
     with pytest.raises(AddFilesWorkflowError) as exc_info:
         prepare_add_files_run_from_state(request, resolved)
-    assert exc_info.value.code == api_codes.DELETE_NOT_SUPPORTED
+    assert exc_info.value.code == issue_codes.DELETE_NOT_SUPPORTED
 
 
 def test_selected_file_diff_uses_latest_reconstructed_content(tmp_path: Path) -> None:
@@ -330,7 +338,7 @@ def test_directory_scope_omissions_remain_a_domain_error(tmp_path: Path) -> None
         _request(input_directories=(str(selected),), base_directory=str(selected))
     )
 
-    assert api_codes.DELETE_NOT_SUPPORTED in _issue_codes(inspection)
+    assert issue_codes.DELETE_NOT_SUPPORTED in _issue_codes(inspection)
     assert inspection.diff_summary is not None
     assert inspection.diff_summary["missing_paths"] == [
         "empty-at-root.txt",
@@ -347,7 +355,7 @@ def test_ambiguous_backup_paths_still_require_an_explicit_base_directory(tmp_pat
 
     inspection = inspect_add_files(_request(input_paths=(str(selected),)))
 
-    assert api_codes.INVALID_INPUT in _issue_codes(inspection)
+    assert issue_codes.INVALID_INPUT in _issue_codes(inspection)
     assert inspection.diff_summary is not None
 
 

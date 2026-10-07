@@ -28,7 +28,7 @@ from ethernity.render.layout_debug import (
     resolve_layout_debug_dir,
 )
 from ethernity.workflows.add_files.errors import AddFilesWorkflowError
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 
 from .models import (
     ExtensionOutputSettings,
@@ -81,7 +81,7 @@ def resolve_add_files_layout_debug_dir(
             ensure_layout_debug_dir_ready(debug_dir)
         except ValueError as exc:
             raise AddFilesWorkflowError(
-                code=api_codes.ADD_FILES_RENDER_OPTIONS_INVALID,
+                code=issue_codes.ADD_FILES_RENDER_OPTIONS_INVALID,
                 message=f"--layout-debug-dir is not usable: {exc}",
                 details={"layout_debug_dir": str(debug_dir)},
             ) from exc
@@ -104,7 +104,7 @@ def ensure_add_files_layout_debug_dir_allowed(
             )
         except ValueError as exc:
             raise AddFilesWorkflowError(
-                code=api_codes.ADD_FILES_RENDER_OPTIONS_INVALID,
+                code=issue_codes.ADD_FILES_RENDER_OPTIONS_INVALID,
                 message=(
                     "--layout-debug-dir must not be inside the extension output directory; "
                     "choose a separate diagnostics directory"
@@ -120,7 +120,7 @@ def resolve_qr_chunk_size(requested: int | None, default: int) -> int:
     qr_chunk_size = default if requested is None else requested
     if qr_chunk_size <= 0:
         raise AddFilesWorkflowError(
-            code=api_codes.ADD_FILES_RENDER_OPTIONS_INVALID,
+            code=issue_codes.ADD_FILES_RENDER_OPTIONS_INVALID,
             message="Add Files QR chunk size must be a positive integer",
         )
     return qr_chunk_size

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.encoding.framing import Frame
+from ethernity.formats.extension_mode import UpdateMode
 
 
 def validate_recovery_sheet_counts(threshold: int, sheet_count: int) -> None:
@@ -46,12 +47,15 @@ class AddFilesRequest:
     shard_frames: tuple[Frame, ...] = ()
     expected_head_doc_hash: str | None = None
     allow_stale_head: bool = False
+    update_mode: UpdateMode | None = None
     create_recovery_sheets: bool = False
     recovery_threshold: int = 2
     recovery_sheet_count: int = 3
     quiet: bool = False
 
     def __post_init__(self) -> None:
+        if self.update_mode is not None:
+            object.__setattr__(self, "update_mode", UpdateMode(self.update_mode))
         for field_name in (
             "scan_paths",
             "frames",

@@ -41,8 +41,14 @@ from ethernity.workflows.add_files.planning import (
     AppendSigningKey,
     ResolvedAddFilesPlan,
 )
+from ethernity.workflows.add_files.reporting import EventAddFilesReporter
 from ethernity.workflows.add_files.request import AddFilesRequest
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import events, issue_codes
+from ethernity.workflows.shared.execution_control import (
+    ExecutionControl,
+    OperationCancelled,
+    execution_session,
+)
 from ethernity.workflows.shared.input_scope import InputScopeDiff, SelectedInputScope
 
 
@@ -154,6 +160,36 @@ def test_execute_publishes_assessed_payload_after_source_is_removed(
     assert executed.result.recovery_frames[0].data == assessed.encrypted.ciphertext
 
 
+@pytest.mark.parametrize("phase", ["validate", "save"])
+def test_update_cancellation_respects_publication_boundary(
+    assessed: execution.AssessedAddFilesRun,
+    render_stub: list[ExtensionPublication],
+    tmp_path: Path,
+    phase: str,
+) -> None:
+    control = ExecutionControl()
+    accepted = []
+
+    class CancelAtPhase:
+        def emit(self, event_type, **payload):
+            if event_type == "phase" and payload.get("id") == phase:
+                accepted.append(control.request_cancel())
+
+    with execution_session(control), events.event_session(CancelAtPhase()):
+        if phase == "save":
+            result = execution.execute_assessed_add_files(
+                assessed, reporter=EventAddFilesReporter()
+            )
+            assert result.result.qr_document_path.is_file()
+            assert accepted == [False]
+        else:
+            with pytest.raises(OperationCancelled):
+                execution.execute_assessed_add_files(assessed, reporter=EventAddFilesReporter())
+            assert accepted == [True]
+            assert sorted(path.name for path in tmp_path.iterdir()) == ["carrier.pdf"]
+    assert not render_stub[0].paths.staging_dir.exists()
+
+
 def test_execute_refuses_output_created_after_assessment(
     assessed: execution.AssessedAddFilesRun,
     render_stub: list[ExtensionPublication],
@@ -165,7 +201,7 @@ def test_execute_refuses_output_created_after_assessment(
     user_file.write_bytes(b"keep this")
     with pytest.raises(AddFilesWorkflowError) as caught:
         execution.execute_assessed_add_files(assessed)
-    assert caught.value.code == api_codes.EXTENSION_PUBLISH_TARGET_INVALID
+    assert caught.value.code == issue_codes.EXTENSION_PUBLISH_TARGET_INVALID
     assert render_stub == []
     assert user_file.read_bytes() == b"keep this"
 
@@ -178,14 +214,14 @@ def test_execute_rechecks_rebuild_capacity_before_rendering_or_creating_output(
 ) -> None:
     def reject_capacity(*_args: object) -> None:
         raise AddFilesWorkflowError(
-            code=api_codes.ADD_FILES_NOT_REBUILDABLE,
+            code=issue_codes.ADD_FILES_NOT_REBUILDABLE,
             message="updated state exceeds standalone capacity",
         )
 
     monkeypatch.setattr(execution, "require_rebuildable_result", reject_capacity)
     with pytest.raises(AddFilesWorkflowError) as caught:
         execution.execute_assessed_add_files(assessed)
-    assert caught.value.code == api_codes.ADD_FILES_NOT_REBUILDABLE
+    assert caught.value.code == issue_codes.ADD_FILES_NOT_REBUILDABLE
     assert render_stub == []
     assert sorted(path.name for path in tmp_path.iterdir()) == ["carrier.pdf"]
 
@@ -311,5 +347,5 @@ def test_assessment_rejects_diagnostics_inside_output_without_writing(
     )
     with pytest.raises(AddFilesWorkflowError) as caught:
         execution.assess_prepared_add_files(prepared)
-    assert caught.value.code == api_codes.ADD_FILES_RENDER_OPTIONS_INVALID
+    assert caught.value.code == issue_codes.ADD_FILES_RENDER_OPTIONS_INVALID
     assert sorted(path.name for path in tmp_path.iterdir()) == ["carrier.pdf"]

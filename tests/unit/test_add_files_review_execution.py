@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 from click.testing import CliRunner
@@ -12,6 +14,7 @@ from ethernity.app.application import EthernityApp
 from ethernity.app.execution import ReviewedTask
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.formats.extension_mode import UpdateMode
 from ethernity.run.cli import cli
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.models import TaskExecutionResult, TaskResultDetail
@@ -24,8 +27,8 @@ from ethernity.workflows.add_files.service import (
     assess_add_files,
     execute_add_files,
 )
-from ethernity.workflows.execution import ReplacementRecoveryRequest
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
 
 
 def _valid_config(tmp_path: Path) -> Path:
@@ -42,6 +45,7 @@ def _fake_assessed(marker: bytes = b"A") -> AssessedAddFilesRun:
         reused_chunks=2,
     )
     prepared = SimpleNamespace(
+        plan=SimpleNamespace(update_mode=UpdateMode.INCREMENTAL),
         request=SimpleNamespace(base_directory=None),
         next_index=3,
         changed_paths=("changed.txt",),
@@ -102,6 +106,35 @@ def _fake_executed(assessed: AssessedAddFilesRun, output_root: Path) -> SimpleNa
         publish=SimpleNamespace(encrypted=assessed.encrypted),
         result=result,
     )
+
+
+@pytest.mark.parametrize(
+    ("has_issues", "has_payload"),
+    [(True, False), (True, True), (False, False)],
+)
+def test_unready_assessment_never_publishes(
+    monkeypatch: pytest.MonkeyPatch, has_issues: bool, has_payload: bool
+) -> None:
+    issues = (AddFilesIssue(code="SOURCE_INVALID", message="Invalid source"),) if has_issues else ()
+    assessment = AddFilesAssessment(
+        request=AddFilesRequest(),
+        assessed=_fake_assessed() if has_payload else None,
+        issues=issues,
+    )
+    publish = mock.Mock()
+    monkeypatch.setattr("ethernity.workflows.add_files.service.execute_assessed_add_files", publish)
+
+    result = execute_add_files(assessment)
+
+    publish.assert_not_called()
+    assert not result.ok
+    assert result.executed is None
+    if has_issues:
+        assert result.issues == issues
+        assert result.execution_issues == ()
+    else:
+        assert result.issues[0].code == issue_codes.RUNTIME_ERROR
+        assert "must pass assessment" in result.issues[0].message
 
 
 def test_task_uses_saved_add_files_defaults_without_hardcoded_overrides(
@@ -395,7 +428,7 @@ def test_review_assessment_is_shared_and_exact_payload_is_executed(
     assert execution_calls == [assessed]
     assert len(result.output_paths) == 2
     assert result.recovery_check_paths == (tmp_path / "published" / "qr.pdf",)
-    assert "Keep the original backup, every update through 03" in result.next_steps[0]
+    assert "original backup and updates 01 through 03" in result.next_steps[0]
     assert "Use Rebuild when you want a new standalone backup" in result.next_steps[1]
     assert (
         next(detail for detail in result.details if detail.key == "doc_hash").value
@@ -413,7 +446,7 @@ def test_failed_assessment_blocks_review_without_replanning(monkeypatch) -> None
             request=request,
             issues=(
                 AddFilesIssue(
-                    code=api_codes.ADD_FILES_NO_CHANGES,
+                    code=issue_codes.ADD_FILES_NO_CHANGES,
                     message="nothing to publish",
                 ),
             ),
@@ -434,7 +467,7 @@ def test_failed_assessment_blocks_review_without_replanning(monkeypatch) -> None
     state.execution_plan()
 
     assert not validation.ready
-    assert validation.issues[0].code == api_codes.ADD_FILES_NO_CHANGES
+    assert validation.issues[0].code == issue_codes.ADD_FILES_NO_CHANGES
     assert validation.issues[0].section == "files"
     assert calls == 1
 
@@ -465,7 +498,7 @@ def test_add_files_review_routes_invalid_documents_and_head_trust_separately(
     monkeypatch,
 ) -> None:
     issue = AddFilesIssue(
-        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        code=issue_codes.RECOVERY_HEAD_UNTRUSTED,
         message=message,
         details=details,
     )
@@ -551,6 +584,63 @@ def test_reviewed_task_reuses_assessment_and_ignores_later_mutation(
     assert reviewed_task.state_snapshot.input_paths == [tmp_path / "reviewed.txt"]
 
 
+@pytest.mark.parametrize("cached_picker", [False, True])
+def test_automatic_destination_is_shared_by_preview_plan_and_picker(
+    tmp_path: Path, monkeypatch, cached_picker: bool
+) -> None:
+    destination = tmp_path / "backup-2222222222222222-update-03"
+    assessed = _fake_assessed()
+
+    def fake_assess(request):
+        return AddFilesAssessment(
+            request=replace(request, output_dir=str(destination)), assessed=assessed
+        )
+
+    monkeypatch.setattr("ethernity.tasks.add_files.assess_add_files", fake_assess)
+    state = AddFilesTaskState(
+        config_path=_valid_config(tmp_path),
+        source_paths=[tmp_path / "renamed-original.pdf"],
+        input_paths=[tmp_path / "new.txt"],
+        passphrase="secret",
+        allow_stale_head=True,
+    )
+    state.prepare_review()
+
+    assert state.output_dir is None
+    assert state.resolved_output_dir() == destination
+    assert state.execution_plan().output_paths == (destination,)
+    assert next(item.detail for item in state.preview().items if item.label == "Update folder") == (
+        str(destination)
+    )
+    assert next(section for section in state.sections() if section.key == "output").status == (
+        "ready"
+    )
+    if not cached_picker:
+        state.source_paths = [tmp_path / "different-backup.pdf"]
+        assert state.resolved_output_dir() is None
+
+    async def run() -> None:
+        app = EthernityApp(add_files_state=state)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.press("3")
+            picked = []
+
+            async def capture_picker(**kwargs):
+                picked.append(kwargs)
+
+            monkeypatch.setattr(app, "_pick_paths", capture_picker)
+            await app.action_edit_output()
+            assert picked[0]["selected_paths"] == (destination.parent,)
+            assert picked[0]["save_name"] == destination.name
+
+    asyncio.run(run())
+
+    state.source_paths = [tmp_path / "different-backup.pdf"]
+    assert state.resolved_output_dir() is None
+    state.output_dir = tmp_path / "custom"
+    assert state.resolved_output_dir() == tmp_path / "custom"
+
+
 def test_run_task_and_textual_review_prime_add_files_assessment(monkeypatch) -> None:
     run_calls: list[bool] = []
 
@@ -618,7 +708,7 @@ def test_run_add_files_blocks_execution_when_assessment_fails(tmp_path: Path) ->
     assert not (tmp_path / "update").exists()
 
 
-def test_add_files_result_metadata_reaches_json_and_text_outputs(monkeypatch) -> None:
+def test_add_files_result_metadata_reaches_text_output(monkeypatch) -> None:
     result = TaskExecutionResult(
         status="succeeded",
         message="Added files as backup update 03.",
@@ -653,18 +743,10 @@ def test_add_files_result_metadata_reaches_json_and_text_outputs(monkeypatch) ->
         "--yes",
     ]
 
-    json_result = CliRunner().invoke(cli, [*command_args, "--json"])
     text_result = CliRunner().invoke(cli, command_args)
 
-    assert json_result.exit_code == 0
-    payload = json.loads(json_result.output)
-    assert payload["result"]["status"] == "succeeded"
-    assert payload["result"]["details"][0] == {
-        "key": "doc_hash",
-        "label": "New full fingerprint",
-        "value": "ab" * 32,
-    }
-    assert payload["result"]["next_steps"] == ["Keep the original backup and every earlier update."]
     assert text_result.exit_code == 0
     assert "New full fingerprint" in text_result.output
     assert "Keep the original backup and every earlier update." in text_result.output
+    assert "New chunks" in text_result.output
+    assert str(Path("update/qr.pdf")) in text_result.output

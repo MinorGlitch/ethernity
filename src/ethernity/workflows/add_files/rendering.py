@@ -18,14 +18,16 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
+from ethernity.encoding.framing import DOC_ID_LEN
 from ethernity.render.service import RenderService
 from ethernity.render.types import DocumentOrigin, RenderInputs, RenderResult
 from ethernity.render.validation import validate_rendered_pdf_document
 from ethernity.workflows.add_files.errors import AddFilesWorkflowError
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.events import report_render_page
 
 from .main_document_rendering import build_main_qr_payloads
 from .models import (
@@ -45,15 +47,20 @@ def render_extension_documents(
 ) -> ExtensionRenderResult:
     if len(plan.encrypted.ciphertext) > MAX_CIPHERTEXT_BYTES:
         raise AddFilesWorkflowError(
-            code=api_codes.EXTENSION_TOO_LARGE,
+            code=issue_codes.EXTENSION_TOO_LARGE,
             message=(
                 "extension ciphertext exceeds MAX_CIPHERTEXT_BYTES "
                 f"({MAX_CIPHERTEXT_BYTES}): {len(plan.encrypted.ciphertext)} bytes"
             ),
         )
 
-    render_service = RenderService(output_settings.config)
-    origin = DocumentOrigin(kind="extension", extension_index=plan.prepared.next_index)
+    render_service = RenderService(output_settings.config, on_page=report_render_page)
+    origin = DocumentOrigin(
+        kind="extension",
+        extension_index=plan.prepared.next_index,
+        update_mode=plan.encrypted.built.document.header.update_mode,
+        root_doc_id=plan.prepared.root_doc_hash[:DOC_ID_LEN].hex(),
+    )
     frames, auth_frame, qr_frames, qr_payloads = build_main_qr_payloads(
         plan,
         output_settings=output_settings,

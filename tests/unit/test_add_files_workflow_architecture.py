@@ -98,6 +98,7 @@ def test_add_files_execution_plan_keeps_domain_facts_typed() -> None:
         "diff",
         "parent",
         "signing_key",
+        "update_mode",
     ]
     assert [field.name for field in fields(AppendParent)] == [
         "root_doc_hash",
@@ -149,7 +150,7 @@ def test_add_files_source_import_reuses_recovery_instead_of_publication_layout()
     assert "ethernity.workflows.add_files.published_recovery_validation" not in imports
 
 
-def test_add_files_workflow_does_not_redeclare_shared_api_codes() -> None:
+def test_add_files_workflow_does_not_redeclare_shared_issue_codes() -> None:
     declarations: list[str] = []
     for path in (WORKFLOW_ROOT / "add_files").glob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -162,7 +163,7 @@ def test_add_files_workflow_does_not_redeclare_shared_api_codes() -> None:
                 if isinstance(target, ast.Name) and target.id.isupper():
                     declarations.append(f"{path.name}:{target.id}")
 
-    assert not declarations, "use workflows.shared.api_codes:\n" + "\n".join(declarations)
+    assert not declarations, "use workflows.shared.issue_codes:\n" + "\n".join(declarations)
 
 
 def test_add_files_task_depends_only_on_public_workflow_modules() -> None:
@@ -172,6 +173,7 @@ def test_add_files_task_depends_only_on_public_workflow_modules() -> None:
     }
 
     assert workflow_imports == {
+        "ethernity.workflows.add_files.errors",
         "ethernity.workflows.add_files.request",
         "ethernity.workflows.add_files.service",
     }
