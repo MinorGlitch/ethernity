@@ -39,10 +39,13 @@ from ethernity.encoding.qr_payloads import decode_qr_payload
 from ethernity.qr.scan import (
     NoQrPayloadsError,
     QrScanError,
+    ScannedQrPayload,
     scan_qr_payloads_with_sources,
 )
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.events import emit_phase, emit_progress
 from ethernity.workflows.shared.notices import WorkflowNotice, WorkflowNoticeSink
+from ethernity.workflows.shared.streams import StreamSizeLimitError, read_bounded_bytes
 
 
 @dataclass(frozen=True)
@@ -228,21 +231,13 @@ def _validate_recovery_text_file_stat(file_path: Path, file_stat: os.stat_result
 
 
 def _read_file_bytes_with_limit(handle: BinaryIO) -> bytes:
-    chunks: list[bytes] = []
-    total_bytes = 0
-    while True:
-        remaining = MAX_RECOVERY_TEXT_BYTES + 1 - total_bytes
-        chunk = handle.read(min(64 * 1024, remaining))
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total_bytes += len(chunk)
-        if total_bytes > MAX_RECOVERY_TEXT_BYTES:
-            raise ValueError(
-                "recovery input exceeds "
-                f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {total_bytes} bytes"
-            )
-    return b"".join(chunks)
+    try:
+        return read_bounded_bytes(handle, max_bytes=MAX_RECOVERY_TEXT_BYTES)
+    except StreamSizeLimitError as exc:
+        raise ValueError(
+            "recovery input exceeds "
+            f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {exc.bytes_read} bytes"
+        ) from exc
 
 
 def _read_stdin_text_with_limit() -> str:
@@ -329,7 +324,7 @@ def _parse_fallback_section(
         if allow_invalid:
             notices.append(
                 WorkflowNotice(
-                    code=api_codes.FALLBACK_SECTION_INVALID,
+                    code=issue_codes.FALLBACK_SECTION_INVALID,
                     message=f"invalid {section_key} fallback ignored: {exc}",
                     details={"section": section_key, "reason": str(exc)},
                 )
@@ -366,7 +361,7 @@ def _frames_from_fallback_lines(
             if allow_invalid_auth:
                 notices.append(
                     WorkflowNotice(
-                        code=api_codes.AUTH_FALLBACK_INVALID,
+                        code=issue_codes.AUTH_FALLBACK_INVALID,
                         message=f"invalid auth fallback ignored: {exc}",
                         details={"reason": str(exc)},
                     )
@@ -574,14 +569,7 @@ def frames_from_scan(
 ) -> list[Frame]:
     """Scan PDFs/images for QR payloads and decode valid frames."""
 
-    try:
-        payloads = scan_qr_payloads_with_sources(expand_user_paths(paths))
-    except NoQrPayloadsError as exc:
-        raise NoQrFramesError(f"scan failed: {exc}") from exc
-    except QrScanError as exc:
-        raise ValueError(f"scan failed: {exc}") from exc
-    if not payloads:
-        raise NoQrFramesError("no QR payloads found; check the scan path and image quality")
+    payloads = _scan_payloads(paths)
     frames: list[Frame] = []
     errors: list[str] = []
     explicit_sources: set[Path] = set()
@@ -617,6 +605,25 @@ def frames_from_scan(
             raise ValueError(f"invalid QR payloads ({len(errors)}): {detail}")
         raise NoQrFramesError("no QR payloads found; check the scan path and image quality")
     return frames
+
+
+def _scan_payloads(paths: list[str]) -> list[ScannedQrPayload]:
+    """Translate scanner failures into recovery input failures before decoding."""
+
+    emit_phase(phase="scan", label="Scanning backup documents")
+
+    def report(current: int) -> None:
+        emit_progress(phase="scan", current=current, unit="documents")
+
+    try:
+        payloads = scan_qr_payloads_with_sources(expand_user_paths(paths), on_progress=report)
+    except NoQrPayloadsError as exc:
+        raise NoQrFramesError(f"scan failed: {exc}") from exc
+    except QrScanError as exc:
+        raise ValueError(f"scan failed: {exc}") from exc
+    if not payloads:
+        raise NoQrFramesError("no QR payloads found; check the scan path and image quality")
+    return payloads
 
 
 def _require_valid_explicit_scan_sources(
@@ -677,7 +684,7 @@ def recovery_frames_from_scan(
     if ignored_shards:
         notices.append(
             WorkflowNotice(
-                code=api_codes.RECOVERY_SHARD_PAYLOADS_IGNORED,
+                code=issue_codes.RECOVERY_SHARD_PAYLOADS_IGNORED,
                 message=(
                     f"ignored {ignored_shards} shard QR payload(s) while reading recovery input; "
                     "provide shard documents separately"
@@ -707,7 +714,7 @@ def shard_frames_from_scan(
     if ignored_non_shards:
         notices.append(
             WorkflowNotice(
-                code=api_codes.WARNING,
+                code=issue_codes.WARNING,
                 message=(
                     f"ignored {ignored_non_shards} non-shard QR payload(s) "
                     "while reading shard input"

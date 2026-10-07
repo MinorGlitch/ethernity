@@ -31,9 +31,6 @@ from ethernity.formats.document_codec import decode_backup_document, extract_pay
 from ethernity.formats.manifest import BackupManifest, ManifestFile
 from ethernity.workflows.recovery.planning import RecoveryPlan
 from ethernity.workflows.shared.events import CommandError
-from ethernity.workflows.shared.status import plain_status
-
-_CONSOLE: object | None = None
 
 
 @dataclass(frozen=True)
@@ -62,14 +59,9 @@ def decrypt_manifest_extract_selection(
                 selected_extension_doc_hash=chain.selected_extension_doc_hash,
             )
 
-        with plain_status(
-            "Decrypting and unpacking payload...",
-            quiet=quiet,
-            console=_CONSOLE,
-        ):
-            plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
-            manifest, payload = decode_backup_document(plaintext)
-            extracted = extract_payloads(manifest, payload)
+        plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
+        manifest, payload = decode_backup_document(plaintext)
+        extracted = extract_payloads(manifest, payload)
         validate_root_signing_key_binding(manifest, plan.auth_payload, doc_hash=plan.doc_hash)
         validate_expected_recovery_head(
             plan,

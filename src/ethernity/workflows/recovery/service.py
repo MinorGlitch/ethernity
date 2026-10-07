@@ -22,10 +22,8 @@ from typing import Literal
 
 from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.formats.manifest import BackupManifest, ManifestFile
-from ethernity.workflows.recovery.execution import (
-    decrypt_manifest_extract_selection,
-)
-from ethernity.workflows.recovery.planning import RecoveryPlan, plan_from_args
+from ethernity.workflows.recovery.execution import decrypt_manifest_extract_selection
+from ethernity.workflows.recovery.planning import RecoveryPlan, plan_from_request
 from ethernity.workflows.shared.events import (
     EventSink,
     active_event_sink,
@@ -34,12 +32,12 @@ from ethernity.workflows.shared.events import (
     emit_written_file,
     event_session,
 )
-from ethernity.workflows.shared.operation_types import RecoverArgs
 from ethernity.workflows.shared.outputs import (
     single_entry_uses_directory_output,
     write_recovered_outputs,
 )
 from ethernity.workflows.shared.paths import display_parent_path
+from ethernity.workflows.shared.requests import RecoveryRequest
 
 
 def print_recover_debug(**_: object) -> None:
@@ -68,29 +66,17 @@ class RecoverExecutionResult:
 
 
 def prepare_recover_plan(
-    args: RecoverArgs,
+    args: RecoveryRequest,
     *,
     event_sink: EventSink | None = None,
 ) -> RecoveryPlan:
     with (
         event_session(event_sink),
-        recovery_kdf_budget(
-            allow_resource_intensive_compatibility=(args.resource_intensive_compatibility_recovery)
-        ),
+        recovery_kdf_budget(),
     ):
         emit_phase(phase="plan", label="Resolving recovery inputs")
-        plan = plan_from_args(args)
-        emit_progress(
-            phase="plan",
-            current=1,
-            total=1,
-            unit="step",
-            details={
-                "main_frame_count": len(plan.main_frames),
-                "auth_frame_count": len(plan.auth_frames),
-                "shard_frame_count": len(plan.shard_frames),
-            },
-        )
+        plan = plan_from_request(args)
+        plan.emit_plan_progress()
         return plan
 
 
@@ -106,9 +92,7 @@ def execute_recover_plan(
 ) -> RecoverExecutionResult:
     with (
         event_session(event_sink),
-        recovery_kdf_budget(
-            allow_resource_intensive_compatibility=(plan.resource_intensive_compatibility_recovery)
-        ),
+        recovery_kdf_budget(),
     ):
         file_payloads: list[dict[str, object]] = []
 

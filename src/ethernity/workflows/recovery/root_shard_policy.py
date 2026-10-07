@@ -18,13 +18,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 from ethernity.crypto import sharding as sharding_module
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.workflows.recovery.keys import (
     InsufficientShardError,
-    validated_shard_payloads_from_frames,
+    RecoveryTrust,
 )
 
 
@@ -40,26 +40,16 @@ def root_shard_quorum_from_frames(
 ) -> tuple[int | None, int]:
     """Infer a root shard quorum from frames signed by the trusted root signing key."""
 
+    trust = RecoveryTrust(expected_doc_id, expected_doc_hash, sign_pub)
     selected = _select_root_shard_frames(
-        frames,
-        expected_doc_id=expected_doc_id,
-        expected_doc_hash=expected_doc_hash,
-        sign_pub=sign_pub,
-        key_type=key_type,
-        secret_label=secret_label,
+        frames, trust, key_type=key_type, secret_label=secret_label
     )
     if not selected:
         return None, 0
     try:
-        shares = validated_shard_payloads_from_frames(
-            selected,
-            expected_doc_id=expected_doc_id,
-            expected_doc_hash=expected_doc_hash,
-            expected_sign_pub=sign_pub,
-            allow_unsigned=False,
-            key_type=key_type,
-            secret_label=secret_label,
-        )
+        shares = RecoveryTrust(
+            expected_doc_id, expected_doc_hash, sign_pub, False
+        ).validated_shards(selected, key_type=key_type, secret_label=secret_label)
     except InsufficientShardError as exc:
         if not require_quorum and exc.share_count is not None:
             return exc.threshold, exc.share_count
@@ -76,26 +66,31 @@ def has_potential_root_shard_frames(
 ) -> bool:
     """Return whether frames contain shard payloads that appear bound to the root document."""
 
-    for frame in frames:
-        if frame.frame_type != FrameType.KEY_DOCUMENT:
-            continue
-        if expected_doc_id is not None and frame.doc_id != expected_doc_id:
-            continue
-        try:
-            payload = sharding_module.decode_shard_payload(frame.data)
-        except ValueError:
-            continue
+    for _frame, payload in decoded_shard_candidates(frames, doc_id=expected_doc_id):
         if payload.doc_hash == expected_doc_hash:
             return True
     return False
 
 
+def decoded_shard_candidates(
+    frames: Sequence[Frame], *, doc_id: bytes | None = None
+) -> Iterator[tuple[Frame, sharding_module.ShardPayload]]:
+    """Yield valid key payloads for discovery, ignoring unrelated or malformed carriers."""
+    for frame in frames:
+        if frame.frame_type != FrameType.KEY_DOCUMENT:
+            continue
+        if doc_id is not None and frame.doc_id != doc_id:
+            continue
+        try:
+            yield frame, sharding_module.decode_shard_payload(frame.data)
+        except ValueError:
+            continue
+
+
 def _select_root_shard_frames(
     frames: Sequence[Frame],
+    trust: RecoveryTrust,
     *,
-    expected_doc_id: bytes,
-    expected_doc_hash: bytes,
-    sign_pub: bytes,
     key_type: str,
     secret_label: str,
 ) -> list[Frame]:
@@ -103,15 +98,15 @@ def _select_root_shard_frames(
     for frame in frames:
         if frame.frame_type != FrameType.KEY_DOCUMENT:
             continue
-        if frame.doc_id != expected_doc_id:
+        if frame.doc_id != trust.doc_id:
             continue
         try:
             payload = sharding_module.decode_shard_payload(frame.data)
         except ValueError as exc:
             raise ValueError(f"invalid root {secret_label} shard payload: {exc}") from exc
-        if payload.key_type != key_type or payload.doc_hash != expected_doc_hash:
+        if payload.key_type != key_type or payload.doc_hash != trust.doc_hash:
             continue
-        if payload.sign_pub != sign_pub:
+        if payload.sign_pub != trust.sign_pub:
             raise ValueError(
                 f"root {secret_label} shard signing key does not match root signing key"
             )
@@ -120,6 +115,7 @@ def _select_root_shard_frames(
 
 
 __all__ = [
+    "decoded_shard_candidates",
     "has_potential_root_shard_frames",
     "root_shard_quorum_from_frames",
 ]

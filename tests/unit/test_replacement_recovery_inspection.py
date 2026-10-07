@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest import mock
 
@@ -20,14 +21,15 @@ from ethernity.workflows.recovery.planning import (
     RecoveryPlan,
     RecoveryUnlockStatus,
 )
+from ethernity.workflows.recovery.source_state import RecoverySourceFields
 from ethernity.workflows.replacement_recovery.service import (
     _recover_replacement_chain,
     execute_replacement_recovery_operation,
     inspect_replacement_recovery_inputs,
 )
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError as ApiCommandError
-from ethernity.workflows.shared.operation_types import ReplacementRecoveryOperationRequest
+from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
 
 ROOT_SIGNING_SEED = b"\x33" * 32
 ROOT_SIGN_PUB = derive_public_key(ROOT_SIGNING_SEED)
@@ -71,14 +73,6 @@ def _recovery(
         auth_payload=auth_payload,
         auth_status="verified" if auth_payload is not None else "missing",
         allow_unsigned=False,
-        input_label="Scan",
-        input_detail="/tmp/root",
-        main_frames=(),
-        auth_frames=(),
-        shard_frames=(),
-        shard_fallback_files=(),
-        shard_payloads_file=(),
-        shard_scan=(),
         unlock=RecoveryUnlockStatus(
             mode="passphrase" if passphrase is not None else "missing",
             passphrase_provided=passphrase is not None,
@@ -88,6 +82,16 @@ def _recovery(
             resolved_passphrase=passphrase if satisfied else None,
         ),
         blocking_issues=(),
+        source=RecoverySourceFields(
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+        ),
     )
 
 
@@ -105,16 +109,18 @@ def _plan(
         auth_status="verified",
         allow_unsigned=False,
         output_path=None,
-        input_label="Scan",
-        input_detail="/tmp/root",
-        main_frames=(),
-        auth_frames=(),
-        shard_frames=(),
-        shard_fallback_files=(),
-        shard_payloads_file=(),
-        shard_scan=(),
         expected_head_doc_hash=expected_head_doc_hash,
         import_documents=import_documents,
+        source=RecoverySourceFields(
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+        ),
     )
 
 
@@ -150,7 +156,7 @@ def _chain(*, extension: bool = True) -> SimpleNamespace:
 
 class TestReplacementRecoveryInspection(unittest.TestCase):
     def test_inspection_deduplicates_auth_required_blockers(self) -> None:
-        args = ReplacementRecoveryOperationRequest(payloads_file="main.txt", quiet=True)
+        args = ReplacementRecoveryRequest(payloads_file="main.txt", quiet=True)
         auth_required = {
             "code": "AUTH_REQUIRED",
             "message": (
@@ -184,8 +190,8 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         self.assertEqual(len(issues), 1)
 
     def test_inspection_uses_root_binding_after_validating_selected_chain_head(self) -> None:
-        args = ReplacementRecoveryOperationRequest(
-            scan=["/tmp/root"], passphrase="passphrase", quiet=True
+        args = ReplacementRecoveryRequest(
+            scan_paths=["/tmp/root"], passphrase="passphrase", quiet=True
         )
         root_plan = _plan(import_documents=(object(), object()))
         chain = _chain()
@@ -234,8 +240,8 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         recover_chain.assert_called_once_with(root_plan, debug=False, allow_stale_head=False)
 
     def test_chain_failure_does_not_add_misleading_unlock_failure(self) -> None:
-        args = ReplacementRecoveryOperationRequest(
-            scan=["/tmp/root"], passphrase="passphrase", quiet=True
+        args = ReplacementRecoveryRequest(
+            scan_paths=["/tmp/root"], passphrase="passphrase", quiet=True
         )
         with (
             mock.patch(
@@ -269,12 +275,12 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
             inspection = inspect_replacement_recovery_inputs(args)
 
         codes = [item["code"] for item in inspection.blocking_issues]
-        self.assertIn(api_codes.RECOVERY_HEAD_UNTRUSTED, codes)
+        self.assertIn(issue_codes.RECOVERY_HEAD_UNTRUSTED, codes)
         self.assertNotIn("UNLOCK_FAILED", codes)
         self.assertIsNone(inspection.manifest)
 
     def test_inspection_preserves_plan_shard_unlock(self) -> None:
-        args = ReplacementRecoveryOperationRequest(scan=["/tmp/root"], quiet=True)
+        args = ReplacementRecoveryRequest(scan_paths=["/tmp/root"], quiet=True)
         shard_frame = Frame(
             version=VERSION,
             frame_type=FrameType.KEY_DOCUMENT,
@@ -284,14 +290,15 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
             data=b"shard",
         )
         plan = _plan()
-        plan = plan.__class__(
-            **{
-                **plan.__dict__,
-                "passphrase": "derived-passphrase",
-                "shard_frames": (shard_frame,),
-                "shard_fallback_files": ("shard.txt",),
-                "shard_payloads_file": ("payloads.txt",),
-            }
+        plan = replace(
+            plan,
+            passphrase="derived-passphrase",
+            source=replace(
+                plan.source,
+                shard_frames=(shard_frame,),
+                shard_fallback_files=("shard.txt",),
+                shard_payloads_file=("payloads.txt",),
+            ),
         )
         with (
             mock.patch(
@@ -339,8 +346,8 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         self.assertEqual(inspection.recovery.unlock.resolved_passphrase, "derived-passphrase")
 
     def test_execute_passes_selected_head_without_root_directory(self) -> None:
-        args = ReplacementRecoveryOperationRequest(
-            scan=["/tmp/root"],
+        args = ReplacementRecoveryRequest(
+            scan_paths=["/tmp/root"],
             extension_index=0,
             expected_head_doc_hash="ab" * 32,
             quiet=True,
@@ -368,8 +375,8 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         self.assertEqual(captured["extension_index"], 0)
         self.assertEqual(captured["expected_head_doc_hash"], "ab" * 32)
 
-    def test_execute_missing_auth_raises_stable_api_code(self) -> None:
-        args = ReplacementRecoveryOperationRequest(payloads_file="main.txt", quiet=True)
+    def test_execute_missing_auth_raises_issue_code(self) -> None:
+        args = ReplacementRecoveryRequest(payloads_file="main.txt", quiet=True)
         with (
             mock.patch(
                 "ethernity.workflows.replacement_recovery.service._load_replacement_input_state",
@@ -383,7 +390,7 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         ):
             execute_replacement_recovery_operation(args)
 
-        self.assertEqual(caught.exception.code, api_codes.AUTH_REQUIRED)
+        self.assertEqual(caught.exception.code, issue_codes.AUTH_REQUIRED)
 
     def test_replacement_chain_delegates_to_shared_recovery_service(self) -> None:
         plan = _plan(import_documents=(object(), object()))
@@ -408,7 +415,7 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         ):
             _recover_replacement_chain(plan, debug=False)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertEqual(caught.exception.details["validated_head_index"], 1)
 
 

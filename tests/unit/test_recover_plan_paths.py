@@ -21,13 +21,13 @@ from unittest import mock
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.workflows.recovery import inputs as recover_inputs, planning as recover_plan
 from ethernity.workflows.recovery.frame_inputs import FrameInputResult
-from ethernity.workflows.shared.operation_types import RecoverArgs
+from ethernity.workflows.shared.requests import RecoveryRequest
 from tests.support.environment import home_environment
 
 
 class TestRecoverPlanPathNormalization(unittest.TestCase):
     def test_frames_from_args_expands_user_paths(self) -> None:
-        args = RecoverArgs(fallback_file="~/recovery.txt")
+        args = RecoveryRequest(recovery_text_file="~/recovery.txt")
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
@@ -52,7 +52,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         )
 
     def test_frames_from_args_scan_filters_out_shard_documents(self) -> None:
-        args = RecoverArgs(scan=["~/backup-dir"])
+        args = RecoveryRequest(scan_paths=["~/backup-dir"])
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
@@ -76,7 +76,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         )
 
     def test_frames_from_args_root_selection_does_not_change_scan_inputs(self) -> None:
-        args = RecoverArgs(scan=["~/backup-dir"], extension_index=0)
+        args = RecoveryRequest(scan_paths=["~/backup-dir"], extension_index=0)
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
@@ -101,7 +101,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         )
 
     def test_frames_from_args_can_mix_scan_with_fallback_text(self) -> None:
-        args = RecoverArgs(fallback_file="~/extension.txt", scan=["~/root.pdf"])
+        args = RecoveryRequest(recovery_text_file="~/extension.txt", scan_paths=["~/root.pdf"])
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
@@ -135,11 +135,11 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         scan_mock.assert_called_once_with([str(home / "root.pdf")], notice_sink=mock.ANY)
 
     def test_shard_and_auth_paths_expand_user_paths(self) -> None:
-        args = RecoverArgs(
-            auth_fallback_file="~/auth.txt",
-            shard_fallback_file=["~/s1.txt"],
-            shard_payloads_file=["~/s2.txt"],
-            shard_scan=["~/s3.pdf"],
+        args = RecoveryRequest(
+            auth_text_file="~/auth.txt",
+            shard_text_files=["~/s1.txt"],
+            shard_payload_files=["~/s2.txt"],
+            shard_scan_paths=["~/s3.pdf"],
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
@@ -211,7 +211,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
             total=1,
             data=b"shard",
         )
-        args = RecoverArgs(
+        args = RecoveryRequest(
             auth_frames=[auth_frame],
             shard_frames=[shard_frame],
         )
@@ -233,13 +233,15 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertEqual(shard_scan, [])
 
     def test_plan_from_args_expands_output_path(self) -> None:
-        args = RecoverArgs(output="~/recovered")
+        args = RecoveryRequest(output_path="~/recovered")
         fake_plan = object()
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
             with mock.patch.dict("os.environ", home_environment(home), clear=False):
-                with mock.patch.object(recover_plan, "validate_recover_args"):
+                with mock.patch.object(
+                    recover_plan, "normalize_recovery_request", return_value=args
+                ):
                     with mock.patch.object(recover_plan, "resolve_recover_config"):
                         with mock.patch.object(
                             recover_inputs,
@@ -261,7 +263,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                                         "build_recovery_plan",
                                         return_value=fake_plan,
                                     ) as build_mock:
-                                        plan = recover_plan.plan_from_args(args)
+                                        plan = recover_plan.plan_from_request(args)
         self.assertIs(plan, fake_plan)
         self.assertEqual(build_mock.call_args.kwargs["output_path"], str(home / "recovered"))
 

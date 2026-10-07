@@ -11,6 +11,7 @@ from ethernity.formats.document_codec import build_manifest_and_payload, encode_
 from ethernity.formats.manifest import BackupFile
 from ethernity.workflows.recovery.planning import RecoveryPlan
 from ethernity.workflows.recovery.service import execute_recover_plan
+from ethernity.workflows.recovery.source_state import RecoverySourceFields
 
 
 @pytest.mark.parametrize(
@@ -59,15 +60,17 @@ def test_root_recovery_reports_only_the_trust_established_by_verification(
         auth_status="verified" if authenticated else "skipped",
         allow_unsigned=not authenticated,
         output_path=str(tmp_path / "restored.txt"),
-        input_label="Backup documents",
-        input_detail="trusted record test",
-        main_frames=(),
-        auth_frames=(),
-        shard_frames=(),
-        shard_fallback_files=(),
-        shard_payloads_file=(),
-        shard_scan=(),
         expected_head_doc_hash=doc_hash.hex() if pinned else None,
+        source=RecoverySourceFields(
+            input_label="Backup documents",
+            input_detail="trusted record test",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+        ),
     )
 
     result = execute_recover_plan(plan, quiet=True)

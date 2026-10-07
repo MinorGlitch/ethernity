@@ -22,7 +22,8 @@ from ethernity.formats.document_codec import build_manifest_and_payload, encode_
 from ethernity.formats.manifest import BackupFile
 from ethernity.workflows.recovery.execution import decrypt_manifest_and_extract
 from ethernity.workflows.recovery.planning import RecoveryPlan
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError as ApiCommandError
 
 
@@ -57,14 +58,16 @@ class TestRecoverExecution(unittest.TestCase):
             auth_status="verified",
             allow_unsigned=False,
             output_path=None,
-            input_label="QR payloads",
-            input_detail="payloads.txt",
-            main_frames=(),
-            auth_frames=(),
-            shard_frames=(),
-            shard_fallback_files=(),
-            shard_payloads_file=(),
-            shard_scan=(),
+            source=RecoverySourceFields(
+                input_label="QR payloads",
+                input_detail="payloads.txt",
+                main_frames=(),
+                auth_frames=(),
+                shard_frames=(),
+                shard_fallback_files=(),
+                shard_payloads_file=(),
+                shard_scan=(),
+            ),
         )
 
         with self.assertRaisesRegex(
@@ -103,20 +106,22 @@ class TestRecoverExecution(unittest.TestCase):
             auth_status="verified",
             allow_unsigned=False,
             output_path=None,
-            input_label="QR payloads",
-            input_detail="payloads.txt",
-            main_frames=(),
-            auth_frames=(),
-            shard_frames=(),
-            shard_fallback_files=(),
-            shard_payloads_file=(),
-            shard_scan=(),
             expected_head_doc_hash="aa" * 32,
+            source=RecoverySourceFields(
+                input_label="QR payloads",
+                input_detail="payloads.txt",
+                main_frames=(),
+                auth_frames=(),
+                shard_frames=(),
+                shard_fallback_files=(),
+                shard_payloads_file=(),
+                shard_scan=(),
+            ),
         )
 
         with self.assertRaises(ApiCommandError) as caught:
             decrypt_manifest_and_extract(plan, quiet=True, debug=False)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertEqual(caught.exception.details["validated_head_index"], 0)
         self.assertEqual(caught.exception.details["validated_head_doc_hash"], doc_hash.hex())

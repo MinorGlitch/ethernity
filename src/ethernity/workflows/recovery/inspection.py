@@ -18,20 +18,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
-from ethernity.crypto.age_policy import RecoveryWorkLimitExceeded
-from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
-from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload
-from ethernity.crypto.signing import AuthPayload, decode_auth_payload, verify_auth
-from ethernity.encoding.chunking import reassemble_payload
-from ethernity.encoding.frame_sets import (
-    deduplicate_auth_frames,
-    deduplicate_frame_slots,
-    split_main_and_auth_frames,
-)
+from ethernity.crypto.age_policy import RecoveryResourceLimitError
+from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload, recover_passphrase
+from ethernity.crypto.signing import AuthPayload
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.recovery import (
     DecodedExtensionLink,
@@ -41,20 +33,23 @@ from ethernity.extensions.recovery import (
     select_root_import_session,
 )
 from ethernity.workflows.recovery.keys import (
+    AuthValidationError,
     InsufficientShardError,
-    passphrase_from_shard_frames,
+    RecoveryTrust,
     resolve_auth_payload,
-    validated_shard_payloads_from_frames,
 )
 from ethernity.workflows.recovery.models import (
     PassphraseShardRootSelection,
     RecoveryInspection,
     RecoveryUnlockStatus,
 )
-from ethernity.workflows.shared import api_codes
-from ethernity.workflows.shared.notices import WorkflowNoticeSink, send_notice
-
-RECOVERY_SCAN_LABEL = "Backup PDF or images"
+from ethernity.workflows.recovery.source_state import (
+    assemble_recovery_document,
+    require_recovery_frames,
+)
+from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.inspection import blocking_issue
+from ethernity.workflows.shared.notices import WorkflowNoticeSink
 
 
 def inspect_recovery_inputs(
@@ -73,25 +68,18 @@ def inspect_recovery_inputs(
 ) -> RecoveryInspection:
     """Assemble best-effort recovery inspection state from decoded frames."""
 
-    if not frames:
-        hint = "Check the input path and try again."
-        if input_label == RECOVERY_SCAN_LABEL:
-            hint = "Check the scan path and image quality, then try again."
-        raise ValueError(f"no backup data found. {hint}")
+    require_recovery_frames(frames, input_label)
 
-    deduped = deduplicate_frame_slots(frames)
-    main_frames, auth_frames = split_main_and_auth_frames(deduped)
-    if extra_auth_frames:
-        auth_frames = deduplicate_auth_frames([*auth_frames, *extra_auth_frames])
-
-    ciphertext = reassemble_payload(main_frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
-    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
+    document = assemble_recovery_document(
+        frames, extra_auth_frames, input_label=input_label, input_detail=input_detail
+    )
+    auth_frames = list(document.source.auth_frames)
+    doc_id, doc_hash = document.doc_id, document.doc_hash
     auth_payload, auth_status, auth_blocking_issues = _inspect_auth_payload(
         auth_frames,
-        doc_id=doc_id,
-        doc_hash=doc_hash,
-        allow_unsigned=allow_unsigned,
-        require_auth=not allow_unsigned,
+        **RecoveryTrust(doc_id, doc_hash, allow_unsigned=allow_unsigned).auth_options(
+            require_auth=not allow_unsigned
+        ),
         notice_sink=_notice_sink,
     )
     unlock = _inspect_unlock_status(
@@ -106,22 +94,17 @@ def inspect_recovery_inputs(
         unlock = replace(unlock, satisfied=False, resolved_passphrase=None)
     blocking_issues = [*auth_blocking_issues, *unlock.blocking_issues]
     return RecoveryInspection(
-        ciphertext=ciphertext,
+        ciphertext=document.ciphertext,
         doc_id=doc_id,
         doc_hash=doc_hash,
         auth_payload=auth_payload,
         auth_status=auth_status,
         allow_unsigned=allow_unsigned,
-        input_label=input_label,
-        input_detail=input_detail,
-        main_frames=tuple(main_frames),
-        auth_frames=tuple(auth_frames),
-        shard_frames=tuple(shard_frames),
-        shard_fallback_files=tuple(shard_fallback_files),
-        shard_payloads_file=tuple(shard_payloads_file),
-        shard_scan=tuple(shard_scan),
         unlock=unlock,
         blocking_issues=tuple(blocking_issues),
+        source=document.source.with_shards(
+            shard_frames, shard_fallback_files, shard_payloads_file, shard_scan
+        ),
     )
 
 
@@ -142,16 +125,10 @@ def select_root_import_document_from_passphrase_shards(
     for target_document, target_shard_frames in candidates:
         target_auth_payload, _target_auth_status = resolve_auth_payload(
             list(target_document.auth_frames),
-            doc_id=target_document.doc_id,
-            doc_hash=target_document.doc_hash,
-            allow_unsigned=allow_unsigned,
-            require_auth=not allow_unsigned,
-            _notice_sink=lambda notice: send_notice(
-                _notice_sink,
-                notice.code,
-                notice.message,
-                details=notice.details,
-            ),
+            **RecoveryTrust(
+                target_document.doc_id, target_document.doc_hash, allow_unsigned=allow_unsigned
+            ).auth_options(require_auth=not allow_unsigned),
+            _notice_sink=_notice_sink,
         )
         unlock = _inspect_unlock_status(
             passphrase=None,
@@ -172,16 +149,10 @@ def select_root_import_document_from_passphrase_shards(
         root_document = decoded_import_session.root_document
         root_auth_payload, _root_auth_status = resolve_auth_payload(
             list(root_document.auth_frames),
-            doc_id=root_document.doc_id,
-            doc_hash=root_document.doc_hash,
-            allow_unsigned=allow_unsigned,
-            require_auth=not allow_unsigned,
-            _notice_sink=lambda notice: send_notice(
-                _notice_sink,
-                notice.code,
-                notice.message,
-                details=notice.details,
-            ),
+            **RecoveryTrust(
+                root_document.doc_id, root_document.doc_hash, allow_unsigned=allow_unsigned
+            ).auth_options(require_auth=not allow_unsigned),
+            _notice_sink=_notice_sink,
         )
         _verify_shard_target_belongs_to_selected_root(
             target_document=target_document,
@@ -259,7 +230,7 @@ def _verify_shard_target_belongs_to_selected_root(
             debug=False,
             decoded_import_session=decoded_import_session,
         )
-    except RecoveryWorkLimitExceeded:
+    except RecoveryResourceLimitError:
         raise
     except ValueError as exc:
         raise ValueError(
@@ -296,124 +267,21 @@ def _inspect_auth_payload(
     require_auth: bool,
     notice_sink: WorkflowNoticeSink | None,
 ) -> tuple[AuthPayload | None, str, tuple[dict[str, Any], ...]]:
-    if not auth_frames:
-        if require_auth:
-            return (
-                None,
-                "missing",
-                (
-                    _blocking_issue(
-                        api_codes.AUTH_PAYLOAD_MISSING,
-                        "missing AUTH payload; provide AUTH input to check readiness",
-                    ),
-                ),
-            )
-        if allow_unsigned:
-            send_notice(
-                notice_sink,
-                api_codes.AUTH_PAYLOAD_MISSING,
-                "no auth payload provided; skipping auth verification",
-            )
-            return None, "skipped", ()
-        return None, "missing", ()
-    if len(auth_frames) > 1:
-        return (
-            None,
-            "invalid",
-            (_blocking_issue(api_codes.AUTH_PAYLOAD_MULTIPLE, "multiple auth payloads provided"),),
-        )
-
-    frame = auth_frames[0]
-    if frame.doc_id != doc_id:
-        if allow_unsigned:
-            send_notice(
-                notice_sink,
-                api_codes.AUTH_PAYLOAD_INVALID,
-                "auth payload doc_id mismatch; verification skipped",
-                details={"reason": "doc_id_mismatch"},
-            )
-            return None, "ignored", ()
-        return (
-            None,
-            "invalid",
-            (
-                _blocking_issue(
-                    api_codes.AUTH_PAYLOAD_DOC_ID_MISMATCH,
-                    "auth payload doc_id does not match ciphertext",
-                ),
-            ),
-        )
-    if frame.total != 1 or frame.index != 0:
-        return (
-            None,
-            "invalid",
-            (
-                _blocking_issue(
-                    api_codes.AUTH_PAYLOAD_FRAME_INVALID,
-                    "auth payload must be a single-frame payload",
-                ),
-            ),
-        )
-
     try:
-        payload = decode_auth_payload(frame.data)
-    except ValueError as exc:
-        if allow_unsigned:
-            send_notice(
-                notice_sink,
-                api_codes.AUTH_PAYLOAD_INVALID,
-                f"invalid auth payload; verification skipped: {exc}",
-                details={"reason": str(exc)},
-            )
-            return None, "invalid", ()
+        payload, status = resolve_auth_payload(
+            auth_frames,
+            **RecoveryTrust(doc_id, doc_hash, allow_unsigned=allow_unsigned).auth_options(
+                require_auth=require_auth
+            ),
+            _notice_sink=notice_sink,
+        )
+    except AuthValidationError as exc:
         return (
             None,
-            "invalid",
-            (
-                _blocking_issue(
-                    api_codes.AUTH_PAYLOAD_INVALID,
-                    f"invalid auth payload: {exc}",
-                    details={"reason": str(exc)},
-                ),
-            ),
+            exc.status,
+            (blocking_issue(exc.issue_code, exc.inspection_message, details=exc.details),),
         )
-    if payload.doc_hash != doc_hash:
-        if allow_unsigned:
-            send_notice(
-                notice_sink,
-                api_codes.AUTH_DOC_HASH_MISMATCH,
-                "auth doc_hash mismatch; verification skipped",
-            )
-            return None, "ignored", ()
-        return (
-            None,
-            "ignored",
-            (
-                _blocking_issue(
-                    api_codes.AUTH_DOC_HASH_MISMATCH,
-                    "auth doc_hash does not match ciphertext",
-                ),
-            ),
-        )
-    if not verify_auth(doc_hash, sign_pub=payload.sign_pub, signature=payload.signature):
-        if allow_unsigned:
-            send_notice(
-                notice_sink,
-                api_codes.AUTH_SIGNATURE_INVALID,
-                "auth signature verification failed; verification skipped",
-            )
-            return None, "ignored", ()
-        return (
-            None,
-            "ignored",
-            (
-                _blocking_issue(
-                    api_codes.AUTH_SIGNATURE_INVALID,
-                    "invalid auth signature",
-                ),
-            ),
-        )
-    return payload, "verified", ()
+    return payload, status, ()
 
 
 def _inspect_unlock_status(
@@ -429,26 +297,17 @@ def _inspect_unlock_status(
         raise ValueError("use either shard inputs or passphrase, not both")
     if shard_frames:
         try:
-            shard_payloads = validated_shard_payloads_from_frames(
-                shard_frames,
-                expected_doc_id=doc_id,
-                expected_doc_hash=doc_hash,
-                expected_sign_pub=sign_pub,
-                allow_unsigned=allow_unsigned,
-                key_type=KEY_TYPE_PASSPHRASE,
-                secret_label="passphrase",
+            shard_payloads = RecoveryTrust(
+                doc_id, doc_hash, sign_pub, allow_unsigned
+            ).validated_shards(
+                shard_frames, key_type=KEY_TYPE_PASSPHRASE, secret_label="passphrase"
             )
         except InsufficientShardError as exc:
-            return RecoveryUnlockStatus(
-                mode="shards",
-                passphrase_provided=False,
-                validated_shard_count=exc.provided_count,
-                required_shard_threshold=exc.threshold,
-                satisfied=False,
-                shard_share_count=exc.share_count,
-                blocking_issues=(
-                    _blocking_issue(
-                        api_codes.PASSPHRASE_SHARDS_UNDER_QUORUM,
+            return RecoveryUnlockStatus.unavailable(
+                "shards",
+                (
+                    blocking_issue(
+                        issue_codes.PASSPHRASE_SHARDS_UNDER_QUORUM,
                         f"need at least {exc.threshold} shard(s) to recover passphrase",
                         details={
                             "provided_count": exc.provided_count,
@@ -456,30 +315,21 @@ def _inspect_unlock_status(
                         },
                     ),
                 ),
+                provided_count=exc.provided_count,
+                threshold=exc.threshold,
+                share_count=exc.share_count,
             )
         except ValueError as exc:
-            return RecoveryUnlockStatus(
-                mode="shards",
-                passphrase_provided=False,
-                validated_shard_count=0,
-                required_shard_threshold=None,
-                satisfied=False,
-                blocking_issues=(_blocking_issue(api_codes.PASSPHRASE_SHARDS_INVALID, str(exc)),),
+            return RecoveryUnlockStatus.unavailable(
+                "shards", (blocking_issue(issue_codes.PASSPHRASE_SHARDS_INVALID, str(exc)),)
             )
-        recovered = passphrase_from_shard_frames(
-            shard_frames,
-            expected_doc_id=doc_id,
-            expected_doc_hash=doc_hash,
-            expected_sign_pub=sign_pub,
-            allow_unsigned=allow_unsigned,
-        )
         return RecoveryUnlockStatus(
             mode="shards",
             passphrase_provided=False,
             validated_shard_count=len(shard_payloads),
             required_shard_threshold=shard_payloads[0].threshold if shard_payloads else None,
             satisfied=True,
-            resolved_passphrase=recovered,
+            resolved_passphrase=recover_passphrase(shard_payloads, verify_signatures=False),
             shard_share_count=shard_payloads[0].share_count if shard_payloads else None,
         )
     if passphrase:
@@ -491,28 +341,15 @@ def _inspect_unlock_status(
             satisfied=True,
             resolved_passphrase=passphrase,
         )
-    return RecoveryUnlockStatus(
-        mode="missing",
-        passphrase_provided=False,
-        validated_shard_count=0,
-        required_shard_threshold=None,
-        satisfied=False,
-        blocking_issues=(
-            _blocking_issue(
-                api_codes.PASSPHRASE_REQUIRED,
+    return RecoveryUnlockStatus.unavailable(
+        "missing",
+        (
+            blocking_issue(
+                issue_codes.PASSPHRASE_REQUIRED,
                 "passphrase or passphrase shard inputs are required to decrypt this backup",
             ),
         ),
     )
-
-
-def _blocking_issue(
-    code: str,
-    message: str,
-    *,
-    details: Mapping[str, object] | None = None,
-) -> dict[str, Any]:
-    return {"code": code, "message": message, "details": dict(details or {})}
 
 
 __all__ = [

@@ -20,8 +20,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import segno
-import zxingcpp  # noqa: F401
-from PIL import Image  # noqa: F401
 
 from ethernity.config.install import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
@@ -44,7 +42,7 @@ from ethernity.formats.manifest import PAYLOAD_CODEC_GZIP, BackupFile
 from ethernity.formats.payload_codec import encode_payload_for_manifest
 from ethernity.render.fallback_text import format_zbase32_lines
 from ethernity.workflows.recovery.service import execute_recover_plan, prepare_recover_plan
-from ethernity.workflows.shared.operation_types import RecoverArgs
+from ethernity.workflows.shared.requests import RecoveryRequest
 from tests.test_support import suppress_output
 
 TEST_SIGNING_SEED = b"\x11" * 32
@@ -69,7 +67,7 @@ def _auth_frame(*, doc_id: bytes, doc_hash: bytes, sign_priv: bytes, sign_pub: b
     )
 
 
-def _run_recover(args: RecoverArgs) -> None:
+def _run_recover(args: RecoveryRequest) -> None:
     plan = prepare_recover_plan(args)
     execute_recover_plan(plan, quiet=args.quiet)
 
@@ -101,18 +99,17 @@ class TestIntegrationRecover(unittest.TestCase):
             )
             output_path = tmp_path / "out.bin"
 
-            args = RecoverArgs(
-                fallback_file=None,
+            args = RecoveryRequest(
+                recovery_text_file=None,
                 payloads_file=str(frames_path),
-                scan=[],
+                scan_paths=[],
                 passphrase=passphrase,
-                shard_fallback_file=[],
-                shard_payloads_file=[],
-                output=str(output_path),
+                shard_text_files=[],
+                shard_payload_files=[],
+                output_path=str(output_path),
                 allow_unsigned=True,
-                assume_yes=True,
                 quiet=True,
-                config=str(DEFAULT_CONFIG_PATH),
+                config_path=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
                 _run_recover(args)
@@ -149,18 +146,17 @@ class TestIntegrationRecover(unittest.TestCase):
             fallback_path.write_text("\n".join(lines), encoding="utf-8")
             output_path = tmp_path / "out.bin"
 
-            args = RecoverArgs(
-                fallback_file=str(fallback_path),
+            args = RecoveryRequest(
+                recovery_text_file=str(fallback_path),
                 payloads_file=None,
-                scan=[],
+                scan_paths=[],
                 passphrase=passphrase,
-                shard_fallback_file=[],
-                shard_payloads_file=[],
-                output=str(output_path),
+                shard_text_files=[],
+                shard_payload_files=[],
+                output_path=str(output_path),
                 allow_unsigned=True,
-                assume_yes=True,
                 quiet=True,
-                config=str(DEFAULT_CONFIG_PATH),
+                config_path=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
                 _run_recover(args)
@@ -191,18 +187,17 @@ class TestIntegrationRecover(unittest.TestCase):
             qr.save(str(qr_path), kind="png", scale=4, border=2)
             output_path = tmp_path / "out.bin"
 
-            args = RecoverArgs(
-                fallback_file=None,
+            args = RecoveryRequest(
+                recovery_text_file=None,
                 payloads_file=None,
-                scan=[str(qr_path)],
+                scan_paths=[str(qr_path)],
                 passphrase=passphrase,
-                shard_fallback_file=[],
-                shard_payloads_file=[],
-                output=str(output_path),
+                shard_text_files=[],
+                shard_payload_files=[],
+                output_path=str(output_path),
                 allow_unsigned=True,
-                assume_yes=True,
                 quiet=True,
-                config=str(DEFAULT_CONFIG_PATH),
+                config_path=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
                 _run_recover(args)
@@ -240,18 +235,17 @@ class TestIntegrationRecover(unittest.TestCase):
             fallback_path.write_text("\n".join(lines), encoding="utf-8")
             output_dir = tmp_path / "out"
 
-            args = RecoverArgs(
-                fallback_file=str(fallback_path),
+            args = RecoveryRequest(
+                recovery_text_file=str(fallback_path),
                 payloads_file=None,
-                scan=[],
+                scan_paths=[],
                 passphrase=passphrase,
-                shard_fallback_file=[],
-                shard_payloads_file=[],
-                output=str(output_dir),
+                shard_text_files=[],
+                shard_payload_files=[],
+                output_path=str(output_dir),
                 allow_unsigned=True,
-                assume_yes=True,
                 quiet=True,
-                config=str(DEFAULT_CONFIG_PATH),
+                config_path=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
                 _run_recover(args)
@@ -268,14 +262,13 @@ class TestIntegrationRecover(unittest.TestCase):
             created_at=0.0,
             signing_seed=TEST_SIGNING_SEED,
         )
-        encoded_payload, payload_codec, payload_raw_len = encode_payload_for_manifest(
+        encoded_payload, payload_codec = encode_payload_for_manifest(
             payload,
             mode=PAYLOAD_CODEC_GZIP,
         )
         manifest = replace(
             manifest,
             payload_codec=payload_codec,
-            payload_raw_len=payload_raw_len,
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -297,18 +290,17 @@ class TestIntegrationRecover(unittest.TestCase):
             )
             output_path = tmp_path / "out.bin"
 
-            args = RecoverArgs(
-                fallback_file=None,
+            args = RecoveryRequest(
+                recovery_text_file=None,
                 payloads_file=str(frames_path),
-                scan=[],
+                scan_paths=[],
                 passphrase=passphrase,
-                shard_fallback_file=[],
-                shard_payloads_file=[],
-                output=str(output_path),
+                shard_text_files=[],
+                shard_payload_files=[],
+                output_path=str(output_path),
                 allow_unsigned=True,
-                assume_yes=True,
                 quiet=True,
-                config=str(DEFAULT_CONFIG_PATH),
+                config_path=str(DEFAULT_CONFIG_PATH),
             )
             with self.assertRaisesRegex(ValueError, "trailing data"):
                 with suppress_output():
@@ -391,18 +383,17 @@ class TestIntegrationRecover(unittest.TestCase):
             )
             output_path = tmp_path / "out.bin"
 
-            args = RecoverArgs(
-                fallback_file=None,
+            args = RecoveryRequest(
+                recovery_text_file=None,
                 payloads_file=str(frames_path),
-                scan=[],
+                scan_paths=[],
                 passphrase=None,
-                shard_fallback_file=[],
-                shard_payloads_file=[str(shard_frames_path)],
-                output=str(output_path),
+                shard_text_files=[],
+                shard_payload_files=[str(shard_frames_path)],
+                output_path=str(output_path),
                 allow_unsigned=False,
-                assume_yes=True,
                 quiet=True,
-                config=str(DEFAULT_CONFIG_PATH),
+                config_path=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
                 _run_recover(args)

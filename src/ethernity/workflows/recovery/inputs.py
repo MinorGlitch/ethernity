@@ -26,9 +26,10 @@ from ethernity.workflows.recovery.constants import (
     RECOVERY_QR_TEXT_LABEL,
     RECOVERY_SCAN_LABEL,
 )
+from ethernity.workflows.shared.events import emit_phase
 from ethernity.workflows.shared.notices import WorkflowNotice, WorkflowNoticeSink, warn
-from ethernity.workflows.shared.operation_types import RecoverArgs
 from ethernity.workflows.shared.paths import expanduser_cli_path, expanduser_cli_paths
+from ethernity.workflows.shared.requests import RecoveryRequest
 
 
 def _notice_sink(quiet: bool) -> WorkflowNoticeSink:
@@ -44,7 +45,7 @@ def _notice_sink(quiet: bool) -> WorkflowNoticeSink:
 
 
 def load_recovery_frames(
-    args: RecoverArgs,
+    args: RecoveryRequest,
     *,
     allow_unsigned: bool,
     quiet: bool,
@@ -52,9 +53,10 @@ def load_recovery_frames(
 ) -> tuple[list[Frame], str | None, str | None]:
     """Load primary recovery frames from fallback text, payload lists, scans, or mixed inputs."""
 
-    fallback_file = expanduser_cli_path(args.fallback_file)
+    emit_phase(phase="source", label="Reading backup documents")
+    fallback_file = expanduser_cli_path(args.recovery_text_file)
     payloads_file = expanduser_cli_path(args.payloads_file)
-    scan = expanduser_cli_paths(list(args.scan or []))
+    scan = expanduser_cli_paths(args.scan_paths)
     sources: list[tuple[str, str, list[Frame]]] = []
 
     if args.frames:
@@ -66,28 +68,13 @@ def load_recovery_frames(
             )
         )
     if fallback_file:
-        try:
-            sources.append(
-                (
-                    "Recovery text",
-                    fallback_file,
-                    list(
-                        frame_inputs.frames_from_fallback(
-                            fallback_file,
-                            allow_invalid_auth=allow_unsigned,
-                            notice_sink=_notice_sink(quiet),
-                        ).frames
-                    ),
-                )
+        sources.append(
+            (
+                "Recovery text",
+                fallback_file,
+                _load_recovery_fallback(fallback_file, allow_unsigned=allow_unsigned, quiet=quiet),
             )
-        except ValueError as exc:
-            message = str(exc).lower()
-            if fallback_file == "-" and "no recovery lines found" in message:
-                raise ValueError(
-                    "No recovery input found on stdin. Use --fallback-file, --payloads-file, "
-                    "--scan, or provide non-empty stdin."
-                ) from exc
-            raise ValueError(format_fallback_error(exc, context="Recovery text")) from exc
+        )
     if payloads_file:
         try:
             sources.append(
@@ -100,25 +87,15 @@ def load_recovery_frames(
         except ValueError as exc:
             raise ValueError(frame_inputs.format_recovery_input_error(exc)) from exc
     if scan:
-        scan_detail = ", ".join(scan)
-        try:
-            if include_recovery_sheets:
-                scan_frames = frame_inputs.frames_from_scan(scan)
-            else:
-                scan_result = frame_inputs.recovery_frames_from_scan(
-                    scan,
-                    notice_sink=_notice_sink(quiet),
-                )
-                scan_frames = list(scan_result.frames)
-            sources.append(
-                (
-                    RECOVERY_SCAN_LABEL,
-                    scan_detail,
-                    scan_frames,
-                )
+        sources.append(
+            (
+                RECOVERY_SCAN_LABEL,
+                ", ".join(scan),
+                _load_recovery_scan(
+                    scan, include_recovery_sheets=include_recovery_sheets, quiet=quiet
+                ),
             )
-        except ValueError as exc:
-            raise ValueError(frame_inputs.format_recovery_input_error(exc)) from exc
+        )
     if not sources:
         raise ValueError("either --fallback-file, --payloads-file, or --scan is required")
     if len(sources) == 1:
@@ -128,6 +105,37 @@ def load_recovery_frames(
         input_detail = "; ".join(f"{label}: {detail}" for label, detail, _frames in sources)
         frames = [frame for _label, _detail, source_frames in sources for frame in source_frames]
     return frames, input_label, input_detail
+
+
+def _load_recovery_fallback(path: str, *, allow_unsigned: bool, quiet: bool) -> list[Frame]:
+    try:
+        return list(
+            frame_inputs.frames_from_fallback(
+                path,
+                allow_invalid_auth=allow_unsigned,
+                notice_sink=_notice_sink(quiet),
+            ).frames
+        )
+    except ValueError as exc:
+        if path == "-" and "no recovery lines found" in str(exc).lower():
+            raise ValueError(
+                "No recovery input found on stdin. Use --fallback-file, --payloads-file, "
+                "--scan, or provide non-empty stdin."
+            ) from exc
+        raise ValueError(format_fallback_error(exc, context="Recovery text")) from exc
+
+
+def _load_recovery_scan(
+    paths: list[str], *, include_recovery_sheets: bool, quiet: bool
+) -> list[Frame]:
+    try:
+        if include_recovery_sheets:
+            return frame_inputs.frames_from_scan(paths)
+        return list(
+            frame_inputs.recovery_frames_from_scan(paths, notice_sink=_notice_sink(quiet)).frames
+        )
+    except ValueError as exc:
+        raise ValueError(frame_inputs.format_recovery_input_error(exc)) from exc
 
 
 def route_document_frames(
@@ -162,14 +170,15 @@ def document_sheet_frames(frames: list[Frame], *, key_type: str) -> list[Frame]:
 
 
 def load_extra_auth_frames(
-    args: RecoverArgs,
+    args: RecoveryRequest,
     *,
     allow_unsigned: bool,
     quiet: bool,
 ) -> list[Frame]:
     """Load extra AUTH frames from optional auth-specific inputs."""
 
-    auth_fallback_file = expanduser_cli_path(args.auth_fallback_file)
+    emit_phase(phase="authentication", label="Reading authentication inputs")
+    auth_fallback_file = expanduser_cli_path(args.auth_text_file)
     auth_payloads_file = expanduser_cli_path(args.auth_payloads_file)
     if auth_fallback_file and auth_payloads_file:
         raise ValueError("use either --auth-fallback-file or --auth-payloads-file, not both")
@@ -191,15 +200,16 @@ def load_extra_auth_frames(
 
 
 def load_shard_frames(
-    args: RecoverArgs,
+    args: RecoveryRequest,
     *,
     quiet: bool,
 ) -> tuple[list[Frame], list[str], list[str], list[str]]:
     """Load shard frames from shard fallback, payload, and scan inputs."""
 
-    shard_fallback_files = expanduser_cli_paths(list(args.shard_fallback_file or []))
-    shard_payloads_file = expanduser_cli_paths(list(args.shard_payloads_file or []))
-    shard_scan = expanduser_cli_paths(list(args.shard_scan or []))
+    emit_phase(phase="unlock", label="Reading recovery sheets")
+    shard_fallback_files = expanduser_cli_paths(args.shard_text_files)
+    shard_payloads_file = expanduser_cli_paths(args.shard_payload_files)
+    shard_scan = expanduser_cli_paths(args.shard_scan_paths)
     shard_frames: list[Frame] = list(args.shard_frames or [])
     for path in shard_fallback_files:
         try:

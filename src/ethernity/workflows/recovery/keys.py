@@ -19,7 +19,9 @@
 from __future__ import annotations
 
 import hmac
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import TypedDict
 
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
@@ -29,13 +31,73 @@ from ethernity.crypto.sharding import (
     recover_passphrase,
     recover_signing_seed,
     validate_shard_set_consistency,
+    verify_shard_payload,
 )
 from ethernity.crypto.signing import AuthPayload, decode_auth_payload, verify_auth, verify_shard
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.notices import WorkflowNoticeSink, send_notice
 
 ShardPayloadDecoder = Callable[[bytes], ShardPayload]
 ShardVerifier = Callable[..., bool]
+
+
+class AuthVerificationOptions(TypedDict):
+    doc_id: bytes
+    doc_hash: bytes
+    allow_unsigned: bool
+    require_auth: bool
+
+
+@dataclass(frozen=True)
+class RecoveryTrust:
+    """Document identity and signature policy carried through recovery validation."""
+
+    doc_id: bytes
+    doc_hash: bytes
+    sign_pub: bytes | None = None
+    allow_unsigned: bool = False
+
+    def auth_options(self, *, require_auth: bool) -> AuthVerificationOptions:
+        return AuthVerificationOptions(
+            doc_id=self.doc_id,
+            doc_hash=self.doc_hash,
+            allow_unsigned=self.allow_unsigned,
+            require_auth=require_auth,
+        )
+
+    def validated_shards(
+        self, frames: Sequence[Frame], *, key_type: str, secret_label: str
+    ) -> list[ShardPayload]:
+        return validated_shard_payloads_from_frames(
+            frames,
+            expected_doc_id=self.doc_id,
+            expected_doc_hash=self.doc_hash,
+            expected_sign_pub=self.sign_pub,
+            allow_unsigned=self.allow_unsigned,
+            key_type=key_type,
+            secret_label=secret_label,
+        )
+
+
+class AuthValidationError(ValueError):
+    """AUTH failure shared by execution and best-effort inspection."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status: str = "invalid",
+        inspection_message: str | None = None,
+        details: Mapping[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.issue_code = code
+        self.status = status
+        self.inspection_message = inspection_message or message
+        self.details = dict(details or {})
 
 
 def resolve_auth_payload(
@@ -51,60 +113,95 @@ def resolve_auth_payload(
 
     if not auth_frames:
         if require_auth:
-            raise ValueError("missing auth payload; provide AUTH input to verify recovery")
+            raise AuthValidationError(
+                issue_codes.AUTH_PAYLOAD_MISSING,
+                "missing auth payload; provide AUTH input to verify recovery",
+                status="missing",
+                inspection_message="missing AUTH payload; provide AUTH input to check readiness",
+            )
         if allow_unsigned:
             send_notice(
                 _notice_sink,
-                "AUTH_PAYLOAD_MISSING",
+                issue_codes.AUTH_PAYLOAD_MISSING,
                 "no auth payload provided; skipping auth verification",
             )
             return None, "skipped"
         return None, "missing"
     if len(auth_frames) > 1:
-        raise ValueError("multiple auth payloads provided")
+        raise AuthValidationError(
+            issue_codes.AUTH_PAYLOAD_MULTIPLE, "multiple auth payloads provided"
+        )
     frame = auth_frames[0]
     if frame.doc_id != doc_id:
         if allow_unsigned:
             send_notice(
                 _notice_sink,
-                "AUTH_PAYLOAD_INVALID",
+                issue_codes.AUTH_PAYLOAD_INVALID,
                 "auth payload doc_id mismatch; verification skipped",
                 details={"reason": "doc_id_mismatch"},
             )
             return None, "ignored"
-        raise ValueError("auth payload doc_id does not match ciphertext")
+        raise AuthValidationError(
+            issue_codes.AUTH_PAYLOAD_DOC_ID_MISMATCH,
+            "auth payload doc_id does not match ciphertext",
+        )
     if frame.total != 1 or frame.index != 0:
-        raise ValueError("auth payload must be a single-frame payload")
+        raise AuthValidationError(
+            issue_codes.AUTH_PAYLOAD_FRAME_INVALID, "auth payload must be a single-frame payload"
+        )
+    return _decode_and_verify_auth_payload(
+        frame, doc_hash=doc_hash, allow_unsigned=allow_unsigned, notice_sink=_notice_sink
+    )
+
+
+def _decode_and_verify_auth_payload(
+    frame: Frame,
+    *,
+    doc_hash: bytes,
+    allow_unsigned: bool,
+    notice_sink: WorkflowNoticeSink | None,
+) -> tuple[AuthPayload | None, str]:
     try:
         payload = decode_auth_payload(frame.data)
     except ValueError as exc:
         if allow_unsigned:
             send_notice(
-                _notice_sink,
-                "AUTH_PAYLOAD_INVALID",
+                notice_sink,
+                issue_codes.AUTH_PAYLOAD_INVALID,
                 f"invalid auth payload; verification skipped: {exc}",
                 details={"reason": str(exc)},
             )
             return None, "invalid"
-        raise
+        raise AuthValidationError(
+            issue_codes.AUTH_PAYLOAD_INVALID,
+            str(exc),
+            inspection_message=f"invalid auth payload: {exc}",
+            details={"reason": str(exc)},
+        ) from exc
     if not hmac.compare_digest(payload.doc_hash, doc_hash):
         if allow_unsigned:
             send_notice(
-                _notice_sink,
-                "AUTH_DOC_HASH_MISMATCH",
+                notice_sink,
+                issue_codes.AUTH_DOC_HASH_MISMATCH,
                 "auth doc_hash mismatch; verification skipped",
             )
             return None, "ignored"
-        raise ValueError("auth doc_hash does not match ciphertext")
+        raise AuthValidationError(
+            issue_codes.AUTH_DOC_HASH_MISMATCH,
+            "auth doc_hash does not match ciphertext",
+            status="ignored",
+        )
     if not verify_auth(doc_hash, sign_pub=payload.sign_pub, signature=payload.signature):
         if allow_unsigned:
             send_notice(
-                _notice_sink,
-                "AUTH_SIGNATURE_INVALID",
+                notice_sink,
+                issue_codes.AUTH_SIGNATURE_INVALID,
                 "auth signature verification failed; verification skipped",
             )
             return None, "ignored"
-        raise ValueError("invalid auth signature")
+        raise AuthValidationError(
+            issue_codes.AUTH_SIGNATURE_INVALID, "invalid auth signature", status="ignored"
+        )
     return payload, "verified"
 
 
@@ -215,36 +312,15 @@ def _validated_shard_payloads_from_frames(
     doc_hash: bytes | None = expected_doc_hash
     sign_pub: bytes | None = expected_sign_pub
     for frame in frames:
-        if frame.frame_type != FrameType.KEY_DOCUMENT:
-            raise ValueError("shard payloads must be KEY_DOCUMENT type")
-        if expected_doc_id is not None and frame.doc_id != expected_doc_id:
-            raise ValueError("shard payload doc_id does not match ciphertext")
-        if frame.total != 1 or frame.index != 0:
-            raise ValueError("shard payloads must be single-frame payloads")
-        payload = payload_decoder(frame.data)
-        if payload.key_type != key_type:
-            raise ValueError(f"shard payloads must be {secret_label} shards")
-        if doc_hash is None:
-            doc_hash = payload.doc_hash
-        elif not hmac.compare_digest(payload.doc_hash, doc_hash):
-            raise ValueError("shard doc_hash does not match")
-        if sign_pub is None:
-            sign_pub = payload.sign_pub
-        elif not hmac.compare_digest(payload.sign_pub, sign_pub):
-            raise ValueError("shard signing key does not match")
-        if not allow_unsigned and not shard_verifier(
-            doc_hash,
-            shard_version=payload.version,
-            key_type=payload.key_type,
-            threshold=payload.threshold,
-            share_count=payload.share_count,
-            share_index=payload.share_index,
-            secret_len=payload.secret_len,
-            share=payload.share,
-            shard_set_id=payload.shard_set_id,
-            sign_pub=payload.sign_pub,
-            signature=payload.signature,
-        ):
+        payload = _decode_shard_frame(
+            frame,
+            expected_doc_id=expected_doc_id,
+            key_type=key_type,
+            secret_label=secret_label,
+            payload_decoder=payload_decoder,
+        )
+        doc_hash, sign_pub = _bind_shard_identity(payload, doc_hash=doc_hash, sign_pub=sign_pub)
+        if not allow_unsigned and not verify_shard_payload(payload, verifier=shard_verifier):
             raise ValueError("invalid shard signature")
         existing = shares.get(payload.share_index)
         if existing is not None:
@@ -254,6 +330,44 @@ def _validated_shard_payloads_from_frames(
         shares[payload.share_index] = payload
 
     share_list = list(shares.values())
+    _require_shard_quorum(share_list, secret_label=secret_label)
+    return share_list
+
+
+def _decode_shard_frame(
+    frame: Frame,
+    *,
+    expected_doc_id: bytes | None,
+    key_type: str,
+    secret_label: str,
+    payload_decoder: ShardPayloadDecoder,
+) -> ShardPayload:
+    if frame.frame_type != FrameType.KEY_DOCUMENT:
+        raise ValueError("shard payloads must be KEY_DOCUMENT type")
+    if expected_doc_id is not None and frame.doc_id != expected_doc_id:
+        raise ValueError("shard payload doc_id does not match ciphertext")
+    if frame.total != 1 or frame.index != 0:
+        raise ValueError("shard payloads must be single-frame payloads")
+    payload = payload_decoder(frame.data)
+    if payload.key_type != key_type:
+        raise ValueError(f"shard payloads must be {secret_label} shards")
+    return payload
+
+
+def _bind_shard_identity(
+    payload: ShardPayload,
+    *,
+    doc_hash: bytes | None,
+    sign_pub: bytes | None,
+) -> tuple[bytes, bytes]:
+    if doc_hash is not None and not hmac.compare_digest(payload.doc_hash, doc_hash):
+        raise ValueError("shard doc_hash does not match")
+    if sign_pub is not None and not hmac.compare_digest(payload.sign_pub, sign_pub):
+        raise ValueError("shard signing key does not match")
+    return payload.doc_hash, payload.sign_pub
+
+
+def _require_shard_quorum(share_list: list[ShardPayload], *, secret_label: str) -> None:
     if not share_list:
         raise ValueError("no shard payloads provided")
 
@@ -274,11 +388,11 @@ def _validated_shard_payloads_from_frames(
             shard_version=share_list[0].version,
         )
 
-    return share_list
-
 
 __all__ = [
+    "AuthValidationError",
     "InsufficientShardError",
+    "RecoveryTrust",
     "passphrase_from_shard_frames",
     "resolve_auth_payload",
     "signing_seed_from_shard_frames",

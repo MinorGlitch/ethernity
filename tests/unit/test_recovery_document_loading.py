@@ -8,10 +8,10 @@ import pytest
 from ethernity.encoding.framing import Frame
 from ethernity.tasks.recovery_inputs import has_unlock_inputs
 from ethernity.tasks.restore import RestoreTaskState
-from ethernity.workflows.execution import RecoveryRequest, inspect_recovery
+from ethernity.workflows.execution import inspect_recovery
 from ethernity.workflows.recovery.frame_inputs import frames_from_payloads
-from ethernity.workflows.recovery.planning import plan_from_args
-from ethernity.workflows.shared.operation_types import RecoverArgs
+from ethernity.workflows.recovery.planning import plan_from_request
+from ethernity.workflows.shared.requests import RecoveryRequest
 
 _FIXTURE = (
     Path(__file__).resolve().parents[1]
@@ -48,7 +48,7 @@ def test_collection_detects_authenticated_sheets_and_unlocks_without_separate_in
     assert not state.recovery_documents
     assert "authentication found for 1" in assessment.document_summary
 
-    plan = plan_from_args(RecoverArgs(scan=["renamed-folder"], quiet=True))
+    plan = plan_from_request(RecoveryRequest(scan_paths=["renamed-folder"], quiet=True))
     assert plan.shard_frames == tuple(sheets)
     assert plan.passphrase
     assert plan.auth_status == "verified"
