@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-from ethernity.tasks.models import TaskSection
+from ethernity.tasks.file_summary import format_count
+from ethernity.tasks.models import TaskExecutionPlan, TaskSection
 from ethernity.tasks.presentation.models import (
+    ReviewDetail,
     WorkspaceAction,
     WorkspaceGroup,
     WorkspaceValue,
 )
 from ethernity.tasks.presentation.presentation_values import (
-    qr_chunk_size_control_value,
-    qr_chunk_size_summary,
+    advanced_fields_group,
+    qr_density_value,
+    signature_source_value,
 )
-from ethernity.tasks.presentation.recovery import (
-    signature_source_control_value,
-    signature_source_summary,
+from ethernity.tasks.presentation.recovery import unlock_input_summary
+from ethernity.tasks.presentation.review_values import (
+    destination_summary,
+    layout_summary,
 )
 from ethernity.tasks.rebuild import RebuildTaskState
 
@@ -25,32 +29,13 @@ def rebuild_auxiliary_groups(
 
     source_loaded = state.backup_folder is not None or bool(state.source_paths)
     return (
-        WorkspaceGroup(
-            key="advanced",
-            title="Advanced",
-            kind="fields",
+        advanced_fields_group(
+            advanced_section,
             values=(
-                WorkspaceValue(
-                    "signature-source",
-                    "Verification source",
-                    (
-                        signature_source_summary(state.auth_text_file, state.auth_payloads_file)
-                        if source_loaded
-                        or state.auth_text_file is not None
-                        or state.auth_payloads_file is not None
-                        else "Choose a backup first"
-                    ),
-                    control_value=signature_source_control_value(
-                        state.auth_text_file,
-                        state.auth_payloads_file,
-                    ),
+                signature_source_value(
+                    state.auth_text_file, state.auth_payloads_file, source_loaded=source_loaded
                 ),
-                WorkspaceValue(
-                    "qr-chunk-size",
-                    "QR density",
-                    qr_chunk_size_summary(state.qr_chunk_size),
-                    control_value=qr_chunk_size_control_value(state.qr_chunk_size),
-                ),
+                qr_density_value(state.qr_chunk_size),
                 WorkspaceValue(
                     "source-status",
                     "Backup state",
@@ -59,7 +44,29 @@ def rebuild_auxiliary_groups(
                 ),
             ),
             actions=(WorkspaceAction("workspace-rebuild-qr-chunk-size", "Set QR density..."),),
-            status=advanced_section.status,
-            status_summary=advanced_section.summary,
         ),
+    )
+
+
+def review_details(
+    state: RebuildTaskState,
+    plan: TaskExecutionPlan,
+) -> tuple[ReviewDetail, ...]:
+    source = (
+        "Existing backup folder"
+        if state.backup_folder is not None
+        else format_count(len(state.source_paths), "document input")
+    )
+    if state.expected_head_doc_hash is not None:
+        source_version = "Will check trusted fingerprint"
+    else:
+        source_version = "Latest loaded version accepted"
+    return (
+        ReviewDetail("Source", source, "source"),
+        ReviewDetail("Recovery sheets", "Follow the loaded backup's sheet policy"),
+        ReviewDetail("Unlock", unlock_input_summary(state), "unlock"),
+        ReviewDetail("Source version", source_version, "freshness"),
+        ReviewDetail("Documents", "Backup PDF\nRecovery guide", group="output"),
+        ReviewDetail("Layout", layout_summary(state.paper_size, state.design), "layout", "output"),
+        ReviewDetail("Destination", destination_summary(plan), "output", "output"),
     )

@@ -32,7 +32,7 @@ def open_folder(folder: Path) -> None:
         command = ["explorer", str(folder)]
     elif sys.platform != "darwin":
         command = ["xdg-open", str(folder)]
-    subprocess.Popen(command)  # noqa: S603
+    subprocess.Popen(command)
 
 
 def open_documents(paths: tuple[Path, ...]) -> None:
@@ -41,8 +41,8 @@ def open_documents(paths: tuple[Path, ...]) -> None:
     if not paths:
         return
     if sys.platform == "darwin":
-        subprocess.Popen(["open", *(str(path) for path in paths)])  # noqa: S603
+        subprocess.Popen(["open", *(str(path) for path in paths)])
         return
     executable = "explorer" if sys.platform.startswith("win") else "xdg-open"
     for path in paths:
-        subprocess.Popen([executable, str(path)])  # noqa: S603
+        subprocess.Popen([executable, str(path)])

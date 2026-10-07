@@ -21,13 +21,12 @@ from pathlib import Path
 from typing import Literal
 
 from textual.app import ComposeResult
-from textual.containers import Grid, Vertical, VerticalGroup, VerticalScroll
+from textual.containers import Vertical, VerticalGroup, VerticalScroll
 from textual.content import Content
 from textual.message import Message
-from textual.widgets import Button, OptionList, RichLog, Static
+from textual.widgets import Button, Label, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
-from ethernity.app.app_types import ActiveTask
 from ethernity.app.output_paths import (
     common_output_folder,
     open_documents,
@@ -35,13 +34,14 @@ from ethernity.app.output_paths import (
     single_output_folder,
 )
 from ethernity.app.screens.modal import EthernityModalScreen
-from ethernity.app.widgets.actions import ActionButton, inline_action_group, modal_action_row
+from ethernity.app.widgets.actions import ActionButton, action_grid, modal_action_row
 from ethernity.app.widgets.collapsible import collapsible_panel
+from ethernity.app.widgets.form import FormRow, FormSection
 from ethernity.tasks.models import TaskExecutionPlan, TaskExecutionResult, TaskIssue
-from ethernity.tasks.recovery_resources import RecoveryResourceRetry
+from ethernity.tasks.task_types import TaskKey
 
 _DOCUMENT_FINGERPRINT_RE = re.compile(r"[0-9a-fA-F]{64}")
-ResultContextAction = Literal["test_recovery", "test_printed_pages"]
+ResultContextAction = Literal["test_recovery"]
 
 
 class TaskResultScreen(EthernityModalScreen[str | None]):
@@ -50,7 +50,7 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
     BINDINGS = [("escape", "close", "Close")]
 
     class ContextActionRequested(Message):
-        """Ask the app to test recovery or begin a test with physical scans."""
+        """Ask the app to test the backup represented by this completed result."""
 
         def __init__(self, screen: TaskResultScreen, action: ResultContextAction) -> None:
             super().__init__()
@@ -63,19 +63,19 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
     def __init__(
         self,
         *,
-        task: ActiveTask,
+        task: TaskKey,
         title: str,
         result: TaskExecutionResult | None = None,
         error: str | None = None,
         error_detail: str | None = None,
+        failed_stage: str | None = None,
+        output_note: str | None = None,
         recoverable_errors: tuple[TaskIssue, ...] = (),
         reviewed_plan: TaskExecutionPlan | None = None,
         return_section: str | None = None,
         allow_return: bool = True,
         return_callback: Callable[[], Awaitable[None]] | None = None,
         context_actions_enabled: bool = False,
-        resource_retry: RecoveryResourceRetry | None = None,
-        retry_callback: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
         self._task_key = task
@@ -83,24 +83,25 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         self._result = result
         self._error = error
         self._error_detail = error_detail
+        self._failed_stage = failed_stage
+        self._output_note = output_note
         self._recoverable_errors = recoverable_errors
         self._reviewed_plan = reviewed_plan
         self._return_section = return_section
         self._allow_return = allow_return
         self._return_callback = return_callback
         self._context_actions_enabled = context_actions_enabled
-        self._resource_retry = resource_retry
-        self._retry_callback = retry_callback
 
     def compose(self) -> ComposeResult:
         success = self._result is not None and self._result.ok
-        failure_tone = "warning" if self._resource_retry is not None else "failure"
         result_class = (
-            "partial"
+            "cancelled"
+            if self._result is not None and self._result.status == "cancelled"
+            else "partial"
             if self._result is not None and self._result.status == "partially_succeeded"
             else "success"
             if success
-            else failure_tone
+            else "failure"
         )
         with Vertical(id="result-modal", classes=f"document {result_class}"):
             with Vertical(id="result-header", classes="document-header"):
@@ -117,11 +118,17 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
                         classes="warning",
                         markup=False,
                     )
+                if self._failed_stage:
+                    yield Static(
+                        f"Stopped while: {self._failed_stage}", markup=False, classes="detail-text"
+                    )
+                if self._output_note:
+                    yield Static(self._output_note, markup=False, classes="detail-text")
                 if not success:
                     yield Static(
                         self._failure_message(),
                         id="result-status",
-                        classes=failure_tone,
+                        classes="failure",
                         markup=False,
                     )
             with VerticalScroll(id="result-body", classes="document-body"):
@@ -146,16 +153,6 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
                 )
             else:
                 action_buttons[0] = ActionButton("Close", "result-close", variant="primary")
-            if (
-                not success
-                and self._resource_retry is not None
-                and self._retry_callback is not None
-            ):
-                action_buttons.append(
-                    ActionButton(
-                        "Retry with higher limits", "result-retry-resources", variant="warning"
-                    )
-                )
             yield modal_action_row("result-actions", *action_buttons)
 
     def on_mount(self) -> None:
@@ -168,18 +165,11 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         self.query_one(selector, Button).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "result-retry-resources" and self._retry_callback is not None:
-            callback = self._retry_callback
-            self._retry_callback = None
-            self.app.pop_screen()
-            self.app.call_later(callback)
-            return
         if event.button.id == "result-open-documents":
             self._open_documents()
             return
         context_actions: dict[str, ResultContextAction] = {
             "result-test-recovery": "test_recovery",
-            "result-test-printed-pages": "test_printed_pages",
         }
         context_action = context_actions.get(event.button.id or "")
         if context_action is not None and self._context_actions_enabled:
@@ -219,53 +209,42 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         assert result is not None
         next_steps = self._success_next_steps()
 
-        with VerticalGroup(id="result-outcome"):
-            with Grid(id="result-overview", classes="detail-grid"):
-                yield Static("Destination", classes="detail-label", markup=False)
-                yield Static(
-                    self._destination_summary(),
-                    classes="detail-value",
-                    markup=False,
-                )
-                yield Static("Files", classes="detail-label", markup=False)
-                yield Static(
-                    _output_amount(self._task_key, result.output_paths),
-                    classes="detail-value",
-                    markup=False,
-                )
+        with FormSection(
+            Label(_output_section_title(self._task_key), id="result-output-title", markup=False),
+            id="result-outcome",
+        ):
+            with VerticalGroup(id="result-overview"):
+                yield _summary_row("Destination", self._destination_summary())
+                yield _summary_row("Files", _output_amount(self._task_key, result.output_paths))
                 page_count = self._page_count()
                 if page_count is not None:
-                    yield Static("PDF pages", classes="detail-label", markup=False)
-                    yield Static(
-                        str(page_count),
-                        classes="detail-value",
-                        markup=False,
+                    yield _summary_row("PDF pages", str(page_count))
+
+            yield from self._compose_context_actions()
+            if result.output_paths:
+                with VerticalGroup(id="result-output"):
+                    yield _result_path_list(
+                        result.output_paths, base_dir=single_output_folder(result.output_paths)
                     )
 
-        yield from self._compose_context_actions()
-        if self._context_actions_enabled and self._document_paths():
-            yield inline_action_group(
-                ActionButton(
-                    "Test recovery",
-                    "result-test-recovery",
-                    disabled=not result.recovery_check_paths,
-                ),
-                ActionButton("Test printed pages", "result-test-printed-pages"),
-                group_id="result-next-actions",
-                classes="result-context-actions",
-            )
-            yield Static(
-                "Test recovery checks the generated PDFs. Test printed pages uses scans of "
-                "your actual printouts.",
-                id="result-test-guidance",
-                classes="detail-text",
-                markup=False,
-            )
-            yield Static("", id="result-document-checks", markup=False)
-
-        if next_steps:
-            with VerticalGroup(id="result-next-steps"):
-                yield Static("Next steps", classes="section-title", markup=False)
+        if next_steps or (self._context_actions_enabled and self._document_paths()):
+            with FormSection("Next steps", id="result-next-steps"):
+                if self._context_actions_enabled and self._document_paths():
+                    yield action_grid(
+                        ActionButton(
+                            "Test recovery",
+                            "result-test-recovery",
+                            disabled=not result.recovery_check_paths,
+                        ),
+                        id="result-next-actions",
+                    )
+                    yield Static(
+                        "Checks this backup's generated PDFs without keeping restored files.",
+                        id="result-test-guidance",
+                        classes="detail-text",
+                        markup=False,
+                    )
+                    yield Static("", id="result-document-checks", markup=False)
                 for index, step in enumerate(next_steps, start=1):
                     yield Static(
                         f"{index}. {step}",
@@ -273,34 +252,20 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
                         markup=False,
                     )
 
-        if result.output_paths:
-            with VerticalGroup(id="result-output", classes="success-output"):
-                yield Static(
-                    _output_section_title(self._task_key),
-                    id="result-output-title",
-                    markup=False,
-                    classes="section-title",
-                )
-                yield _result_path_list(result.output_paths)
-
     def _compose_failure_body(self) -> ComposeResult:
         result = self._result
 
-        tone = "warning" if self._resource_retry is not None else "failure"
-        with VerticalGroup(id="result-remediation", classes=tone):
+        if result is not None and result.status == "cancelled":
+            yield Static("Your choices are unchanged. Return to the form when ready.", markup=False)
+            return
+
+        with VerticalGroup(id="result-remediation", classes="failure"):
             yield Static(
                 self._remediation_title(),
                 classes="section-title",
                 markup=False,
             )
-            if self._resource_retry is not None:
-                yield Static(
-                    self._resource_retry.message,
-                    id="result-resource-estimate",
-                    classes="result-remediation-line detail-text",
-                    markup=False,
-                )
-            elif self._recoverable_errors:
+            if self._recoverable_errors:
                 for issue in self._recoverable_errors:
                     yield Static(
                         issue.message,
@@ -348,11 +313,7 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
     def _compose_context_actions(self) -> ComposeResult:
         actions = self._context_actions()
         if actions:
-            yield inline_action_group(
-                *actions,
-                group_id="result-context-actions",
-                classes="result-context-actions",
-            )
+            yield action_grid(*actions, id="result-context-actions")
 
     def _compose_technical_details(self) -> ComposeResult:
         result = self._result
@@ -377,8 +338,8 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
             )
 
     def _result_title(self, success: bool) -> str:
-        if self._resource_retry is not None:
-            return "Restore paused"
+        if self._result is not None and self._result.status == "cancelled":
+            return "Cancelled"
         if success and self._result is not None and self._result.message.strip():
             return self._result.message.strip().removesuffix(".")
         if success:
@@ -439,8 +400,6 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         return "Back to workflow" if step == "workflow" else f"Edit {step}"
 
     def _remediation_title(self) -> str:
-        if self._resource_retry is not None:
-            return "Recovery limits"
         if self._recoverable_errors:
             return "Fix before retrying"
         if self._allow_return and self._return_step_label() != "workflow":
@@ -483,17 +442,15 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         checks.set_class(not success, "failure")
         checks.display = True
         self._set_context_actions_disabled(False)
+        checks.call_after_refresh(checks.scroll_visible, animate=False)
 
     def set_context_action_running(self, action: ResultContextAction) -> None:
         self._set_context_actions_disabled(True)
         checks = self.query_one("#result-document-checks", Static)
         checks.remove_class("success", "failure")
-        checks.update(
-            "Testing recovery from generated PDFs..."
-            if action == "test_recovery"
-            else "Testing recovery from printed-page scans..."
-        )
+        checks.update("Testing recovery from generated PDFs...")
         checks.display = True
+        checks.call_after_refresh(checks.scroll_visible, animate=False)
 
     def _set_context_actions_disabled(self, disabled: bool) -> None:
         for button in self.query("#result-next-actions Button").results(Button):
@@ -615,9 +572,17 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         return "The task stopped before it completed."
 
 
-def _result_path_list(paths: tuple[Path, ...]) -> OptionList:
+def _summary_row(label: str, value: str) -> FormRow:
+    return FormRow(
+        Label(label, classes="detail-label", markup=False),
+        Static(value, classes="detail-value", markup=False),
+    )
+
+
+def _result_path_list(paths: tuple[Path, ...], *, base_dir: Path | None = None) -> OptionList:
+    displayed = (path.relative_to(base_dir) if base_dir is not None else path for path in paths)
     return OptionList(
-        *(Option(Content.from_text(str(path), markup=False)) for path in paths),
+        *(Option(Content.from_text(str(path), markup=False)) for path in displayed),
         id="result-output-paths",
         compact=True,
     )
@@ -633,7 +598,7 @@ def _nearest_existing_folder(path: Path | None) -> Path | None:
     return None
 
 
-def _success_outcome_title(task: ActiveTask) -> str:
+def _success_outcome_title(task: TaskKey) -> str:
     return {
         "backup": "Backup created",
         "restore": "Files restored",
@@ -645,7 +610,7 @@ def _success_outcome_title(task: ActiveTask) -> str:
     }[task]
 
 
-def _failure_title(task: ActiveTask) -> str:
+def _failure_title(task: TaskKey) -> str:
     return {
         "backup": "Backup failed",
         "restore": "Restore failed",
@@ -657,7 +622,7 @@ def _failure_title(task: ActiveTask) -> str:
     }[task]
 
 
-def _output_amount(task: ActiveTask, paths: tuple[Path, ...]) -> str:
+def _output_amount(task: TaskKey, paths: tuple[Path, ...]) -> str:
     pdf_count = sum(path.suffix.lower() == ".pdf" for path in paths)
     if pdf_count:
         documents = f"{pdf_count} {'PDF' if pdf_count == 1 else 'PDFs'}"
@@ -700,7 +665,7 @@ def _section_label(section: str) -> str:
     }.get(section, section.replace("_", " "))
 
 
-def _output_section_title(task: ActiveTask) -> str:
+def _output_section_title(task: TaskKey) -> str:
     if task == "restore":
         return "Files restored"
     return "Files created"
@@ -712,7 +677,7 @@ def _result_detail_value(value: str | int | bool | None | tuple[str, ...]) -> st
     return "none" if value is None else str(value)
 
 
-def _success_guidance(task: ActiveTask) -> tuple[str, ...]:
+def _success_guidance(task: TaskKey) -> tuple[str, ...]:
     if task == "backup":
         return (
             "Print every PDF at actual size.",

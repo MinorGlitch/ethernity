@@ -6,7 +6,11 @@ from pathlib import Path
 
 from ethernity.tasks.file_summary import display_path
 from ethernity.tasks.models import TaskSection, TaskValidation
-from ethernity.tasks.presentation.models import WorkspaceValue
+from ethernity.tasks.presentation.models import WorkspaceAction, WorkspaceGroup, WorkspaceValue
+from ethernity.tasks.presentation.recovery import (
+    signature_source_control_value,
+    signature_source_summary,
+)
 
 
 def section_value(section: TaskSection) -> WorkspaceValue:
@@ -74,3 +78,68 @@ def validation_readiness(validation: TaskValidation) -> tuple[int, int]:
     if not validation.ready and ready_count >= required_count:
         ready_count = required_count - 1
     return ready_count, required_count
+
+
+def base_directory_value(base_dir: Path | None) -> WorkspaceValue:
+    return WorkspaceValue(
+        "base-dir",
+        "Base folder",
+        display_path(base_dir) if base_dir is not None else "Based on selected files",
+        control_value="custom" if base_dir is not None else "automatic",
+    )
+
+
+def qr_density_value(chunk_size: int | None) -> WorkspaceValue:
+    return WorkspaceValue(
+        "qr-chunk-size",
+        "QR density",
+        qr_chunk_size_summary(chunk_size),
+        control_value=qr_chunk_size_control_value(chunk_size),
+    )
+
+
+def signature_source_value(
+    text_file: Path | None, payloads_file: Path | None, *, source_loaded: bool = True
+) -> WorkspaceValue:
+    summary = (
+        signature_source_summary(text_file, payloads_file)
+        if source_loaded or text_file is not None or payloads_file is not None
+        else "Choose a backup first"
+    )
+    return WorkspaceValue(
+        "signature-source",
+        "Verification source",
+        summary,
+        control_value=signature_source_control_value(text_file, payloads_file),
+    )
+
+
+def advanced_fields_group(
+    section: TaskSection,
+    *,
+    values: tuple[WorkspaceValue, ...],
+    actions: tuple[WorkspaceAction, ...],
+) -> WorkspaceGroup:
+    return WorkspaceGroup(
+        key="advanced",
+        title="Advanced",
+        kind="fields",
+        values=values,
+        actions=actions,
+        status=section.status,
+        status_summary=section.summary,
+    )
+
+
+def print_layout_group(paper_size: str, design: str, section: TaskSection) -> WorkspaceGroup:
+    return WorkspaceGroup(
+        key=section.key,
+        title="Print setup",
+        kind="layout",
+        values=(
+            WorkspaceValue("paper", "Paper size", paper_size),
+            WorkspaceValue("design", "Print design", design),
+        ),
+        status=section.status,
+        status_summary=section.summary,
+    )

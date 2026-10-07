@@ -1,21 +1,28 @@
 from __future__ import annotations
 
-from ethernity.render.recovery_kit_index import supports_recovery_kit_index_style
 from ethernity.tasks.backup import BackupTaskState
+from ethernity.tasks.backup_facts import BackupFacts
 from ethernity.tasks.backup_inputs import has_selected_inputs
-from ethernity.tasks.file_summary import display_path, format_count
-from ethernity.tasks.models import TaskSection
+from ethernity.tasks.file_summary import format_count, selected_items_summary
+from ethernity.tasks.models import TaskExecutionPlan, TaskSection
 from ethernity.tasks.presentation.models import (
     ChoicePresentation,
+    ReviewDetail,
     WorkspaceAction,
     WorkspaceGroup,
     WorkspaceValue,
 )
 from ethernity.tasks.presentation.presentation_values import (
+    advanced_fields_group,
+    base_directory_value,
     path_values,
-    qr_chunk_size_control_value,
-    qr_chunk_size_summary,
+    print_layout_group,
+    qr_density_value,
     section_value,
+)
+from ethernity.tasks.presentation.review_values import (
+    destination_summary,
+    layout_summary,
 )
 
 
@@ -23,6 +30,7 @@ def backup_groups(
     state: BackupTaskState,
     sections: dict[str, TaskSection],
 ) -> tuple[WorkspaceGroup, ...]:
+    facts = state.facts()
     return (
         WorkspaceGroup(
             key="files",
@@ -39,49 +47,29 @@ def backup_groups(
             ),
             empty_label="No files selected.",
             status=sections["files"].status,
-            status_summary=_backup_files_summary(state),
+            status_summary=_backup_files_summary(facts),
         ),
-        WorkspaceGroup(
-            key="print",
-            title="Print setup",
-            kind="layout",
-            values=(
-                WorkspaceValue("paper", "Paper size", state.paper_size),
-                WorkspaceValue("design", "Print design", state.design),
-            ),
-            status=sections["print"].status,
-            status_summary=sections["print"].summary,
-        ),
+        print_layout_group(state.paper_size, state.design, sections["print"]),
         WorkspaceGroup(
             key="documents",
             title="Documents to print",
             kind="layout",
             values=(
-                WorkspaceValue("inventory", "Output", _backup_inventory(state)),
-                WorkspaceValue("estimate-error", "Print estimate", state.estimate_error() or ""),
+                WorkspaceValue("inventory", "Output", facts.compact_document_summary),
+                WorkspaceValue("estimate-error", "Print estimate", facts.estimate_error or ""),
             ),
         ),
         WorkspaceGroup(
             key="recovery",
             title="Recovery method",
             kind="radio",
-            values=(section_value(sections["recovery"]),),
-            choices=(
-                ChoicePresentation(
-                    "recommended_shards",
-                    "3 sheets, any 2 unlock (recommended)",
-                    state.recovery_method == "recommended_shards",
-                ),
-                ChoicePresentation(
-                    "single_phrase",
-                    "Single recovery phrase",
-                    state.recovery_method == "single_phrase",
-                ),
-                ChoicePresentation(
-                    "custom_shards",
-                    f"Custom: {state.shard_count} sheets; any {state.shard_threshold} required",
-                    state.recovery_method == "custom_shards",
-                ),
+            values=(
+                section_value(sections["recovery"]),
+                WorkspaceValue("storage-note", "Storage", facts.storage_note),
+            ),
+            choices=tuple(
+                ChoicePresentation(option.key, option.label, option.selected)
+                for option in facts.recovery_options
             ),
             actions=(
                 WorkspaceAction(
@@ -110,10 +98,8 @@ def backup_groups(
             status=sections["output"].status,
             status_summary=sections["output"].summary,
         ),
-        WorkspaceGroup(
-            key="advanced",
-            title="Advanced",
-            kind="fields",
+        advanced_fields_group(
+            sections["advanced"],
             values=(
                 WorkspaceValue(
                     "passphrase",
@@ -133,24 +119,12 @@ def backup_groups(
                         else "default"
                     ),
                 ),
-                WorkspaceValue(
-                    "base-dir",
-                    "Base folder",
-                    display_path(state.base_dir)
-                    if state.base_dir is not None
-                    else "Based on selected files",
-                    control_value="custom" if state.base_dir is not None else "automatic",
-                ),
-                WorkspaceValue(
-                    "qr-chunk-size",
-                    "QR density",
-                    qr_chunk_size_summary(state.qr_chunk_size),
-                    control_value=qr_chunk_size_control_value(state.qr_chunk_size),
-                ),
+                base_directory_value(state.base_dir),
+                qr_density_value(state.qr_chunk_size),
                 WorkspaceValue(
                     "signing-key",
                     "Signing-key recovery",
-                    backup_signing_key_summary(state),
+                    facts.signing_summary,
                     control_value=state.signing_key_mode,
                 ),
             ),
@@ -160,46 +134,23 @@ def backup_groups(
                 WorkspaceAction("workspace-backup-qr-chunk-size", "Set QR density..."),
                 WorkspaceAction("workspace-backup-signing-key-shards", "Set quorum..."),
             ),
-            status=sections["advanced"].status,
-            status_summary=sections["advanced"].summary,
         ),
     )
 
 
-def _backup_files_summary(state: BackupTaskState) -> str:
-    estimate = state.current_estimate()
+def _backup_files_summary(facts: BackupFacts) -> str:
+    estimate = facts.estimate
     if estimate is not None:
         return (
             f"{format_count(estimate.file_count, 'file')}, {_compact_bytes(estimate.input_bytes)}"
         )
-    count = len(state.input_paths) + len(state.input_dirs)
+    count = facts.selected_files + facts.selected_folders
     if count == 0:
         return "Choose files to begin"
-    noun = "selected path" if state.input_dirs else "selected file"
-    if state.estimate_error() is not None:
+    noun = "selected path" if facts.selected_folders else "selected file"
+    if facts.estimate_error is not None:
         return f"{format_count(count, noun)}; size unavailable"
     return f"{format_count(count, noun)}; calculating size..."
-
-
-def _backup_inventory(state: BackupTaskState) -> str:
-    estimate = state.current_estimate()
-    backup_pages = (
-        f"About {format_count(estimate.backup_pages, 'backup page')}"
-        if estimate is not None
-        else "Backup pages"
-    )
-    recovery = (
-        "1 recovery phrase"
-        if state.recovery_method == "single_phrase"
-        else format_count(state.shard_count, "recovery sheet")
-    )
-    extras = ["guide"]
-    if supports_recovery_kit_index_style(state.design):
-        extras.append("inventory")
-    if state.signing_key_mode == "sharded" and state.recovery_method != "single_phrase":
-        count = state.signing_key_shard_count or state.shard_count
-        extras.append(format_count(count, "key sheet"))
-    return f"{backup_pages} + {recovery}\nAlso: {', '.join(extras)}"
 
 
 def _compact_bytes(size: int) -> str:
@@ -221,9 +172,49 @@ def backup_passphrase_summary(state: BackupTaskState) -> str:
     return "Generated"
 
 
-def backup_signing_key_summary(state: BackupTaskState) -> str:
-    if state.signing_key_mode != "sharded":
-        return "Embedded in backup"
-    threshold = state.signing_key_shard_threshold or state.shard_threshold
-    count = state.signing_key_shard_count or state.shard_count
-    return f"{count} key sheets; any {threshold} can recover the key"
+def review_details(
+    state: BackupTaskState,
+    plan: TaskExecutionPlan,
+) -> tuple[ReviewDetail, ...]:
+    facts = state.facts()
+    file_count = facts.selected_files
+    folder_count = facts.selected_folders
+    selected = selected_items_summary(file_count, folder_count)
+    recovery = (
+        "One recovery phrase"
+        if facts.recovery is None
+        else f"{facts.recovery.total} sheets, {facts.recovery.required} needed to restore"
+    )
+    signing = (
+        "Encrypted in the backup documents"
+        if facts.signing_key_mode == "embedded"
+        else facts.signing_summary
+    )
+    estimate = facts.estimate
+    if estimate is not None and folder_count:
+        selected = f"{format_count(estimate.file_count, 'file')} from {selected}"
+    print_estimate = (
+        (
+            ReviewDetail(
+                "Backup pages",
+                f"About {format_count(estimate.backup_pages, 'page')} in the main PDF",
+                group="output",
+            ),
+        )
+        if estimate is not None
+        else ()
+    )
+    return (
+        ReviewDetail("Files", selected, "files"),
+        ReviewDetail("Recovery", recovery, "recovery"),
+        ReviewDetail("Signing key", signing, "signature"),
+        ReviewDetail("Documents", facts.document_summary, group="output"),
+        *print_estimate,
+        ReviewDetail("Layout", layout_summary(state.paper_size, state.design), "layout", "output"),
+        ReviewDetail(
+            "Destination",
+            destination_summary(plan),
+            "output",
+            "output",
+        ),
+    )

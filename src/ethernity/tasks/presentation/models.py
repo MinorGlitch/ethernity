@@ -4,40 +4,13 @@ from dataclasses import dataclass, field
 from typing import Literal, TypeAlias
 
 from ethernity.crypto.sharding import MAX_SHARES
-from ethernity.tasks.add_files import AddFilesTaskState
-from ethernity.tasks.backup import BackupTaskState
-from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.models import TaskIssue
-from ethernity.tasks.rebuild import RebuildTaskState
-from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
-from ethernity.tasks.restore import RestoreTaskState
-from ethernity.tasks.settings import SettingsTaskState
-
-PresentationTaskKey = Literal[
-    "backup",
-    "restore",
-    "add_files",
-    "rebuild",
-    "replace_recovery_docs",
-    "kit",
-    "settings",
-]
-PresentationState = (
-    BackupTaskState
-    | RestoreTaskState
-    | AddFilesTaskState
-    | RebuildTaskState
-    | ReplaceRecoveryDocsTaskState
-    | PrintKitTaskState
-    | SettingsTaskState
-)
+from ethernity.tasks.source_types import SourceDescription
+from ethernity.tasks.task_types import TaskKey
 
 StepState = Literal["available", "current", "complete"]
 StepSeverity = Literal["none", "warning", "error"]
 NoticeTone = Literal["info", "warning", "error", "success"]
-SourceKind = Literal[
-    "backup_folder", "scanned_pages", "recovery_text", "payload_files", "recovery_inputs"
-]
 
 
 @dataclass(frozen=True)
@@ -91,14 +64,9 @@ class InlineNoticePresentation:
 
 
 @dataclass(frozen=True, slots=True)
-class SourceAssessmentPresentation:
+class SourceAssessmentPresentation(SourceDescription):
     """Source details supplied by the task layer."""
 
-    source_kind: SourceKind
-    source_label: str
-    source_summary: str
-    backup_identity: str = ""
-    version_summary: str = ""
     document_summary: str = ""
     unlock_summary: str = ""
     has_updates: bool = False
@@ -308,7 +276,7 @@ class SummaryPresentation:
 class WorkflowPresentation:
     """The steps, current selection, and review summary for a guided task."""
 
-    task_key: PresentationTaskKey
+    task_key: TaskKey
     title: str
     active_step: str
     steps: tuple[StepPresentation, ...]
@@ -340,7 +308,7 @@ class WorkflowPresentation:
 
 @dataclass(frozen=True)
 class TaskPresentation:
-    task_key: PresentationTaskKey
+    task_key: TaskKey
     title: str
     ready_count: int
     total_count: int
@@ -370,3 +338,13 @@ def _require_at_most_one_selected(
         raise ValueError(f"{owner} keys must be unique")
     if sum(choice.selected for choice in choices) > 1:
         raise ValueError(f"{owner} may select at most one choice")
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewDetail:
+    """One grouped review row, optionally linked to its editor."""
+
+    label: str
+    value: str
+    section: str | None = None
+    group: Literal["choices", "output"] = "choices"

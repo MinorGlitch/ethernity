@@ -24,7 +24,7 @@ def test_review_edit_prepares_a_new_snapshot_before_any_write(tmp_path: Path) ->
             await pilot.pause()
             original_review = app.screen
             assert isinstance(original_review, ReviewTaskScreen)
-            assert original_review._plan.output_paths == (old_output,)
+            assert original_review._plan.output_paths == (old_output / "backup-<id>",)
             _output_edit_button(original_review).press()
             await pilot.pause()
             assert isinstance(app.screen, FilePickerScreen)
@@ -34,7 +34,7 @@ def test_review_edit_prepares_a_new_snapshot_before_any_write(tmp_path: Path) ->
             assert app.backup_state.output_dir == new_output
             assert isinstance(app.screen, ReviewTaskScreen)
             assert app.screen is not original_review
-            assert app.screen._plan.output_paths == (new_output,)
+            assert app.screen._plan.output_paths == (new_output / "backup-<id>",)
             assert not new_output.exists()
 
     asyncio.run(run())

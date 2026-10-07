@@ -2,38 +2,25 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from textual.worker import WorkerState
 
-from ethernity.app.app_types import ActiveTask, TaskState
-from ethernity.config import get_api_config_snapshot, resolve_config_snapshot_path
-from ethernity.page_sizes import paper_size_display_name
-from ethernity.render.recovery_kit_index import supports_recovery_kit_index_style
-from ethernity.tasks.add_files import AddFilesTaskState
-from ethernity.tasks.backup import BackupTaskState
-from ethernity.tasks.kit import PrintKitTaskState
+from ethernity.config import get_config_snapshot, resolve_config_snapshot_path
+from ethernity.core.failures import FailureStage
 from ethernity.tasks.models import (
     TaskExecutionPlan,
     TaskExecutionResult,
     TaskPreview,
     TaskValidation,
+    TaskValidationError,
 )
-from ethernity.tasks.rebuild import RebuildTaskState
-from ethernity.tasks.recovery_resources import RecoveryResourceRetry, recovery_resource_retry
-from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
-from ethernity.tasks.restore import RestoreTaskState
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewDetail:
-    """One label and value shown in the task review."""
-
-    label: str
-    value: str
-    section: str | None = None
+from ethernity.tasks.presentation.models import ReviewDetail
+from ethernity.tasks.presentation.registry import build_review_details
+from ethernity.tasks.task_types import TaskKey, TaskState
+from ethernity.workflows.shared.failures import failure_from_exception
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +38,7 @@ class ReviewedConfig:
             contents,
             prefix="ethernity-config-validation-",
         ) as validation_path:
-            snapshot = get_api_config_snapshot(validation_path)
+            snapshot = get_config_snapshot(validation_path)
             if snapshot.status != "valid":
                 raise ValueError(f"Ethernity could not load the configuration ({snapshot.status}).")
         return cls(source_path=source_path, contents=contents)
@@ -71,7 +58,7 @@ class ReviewedConfig:
 class ReviewedTask:
     """The exact task state and plan approved for one execution attempt."""
 
-    task: ActiveTask
+    task: TaskKey
     state_snapshot: TaskState = field(repr=False)
     validation: TaskValidation = field(repr=False)
     preview: TaskPreview = field(repr=False)
@@ -80,7 +67,7 @@ class ReviewedTask:
     reviewed_config: ReviewedConfig = field(repr=False)
 
     @classmethod
-    def capture(cls, task: ActiveTask, state: TaskState) -> ReviewedTask:
+    def capture(cls, task: TaskKey, state: TaskState) -> ReviewedTask:
         snapshot = state.model_copy(deep=True)
         reviewed_config = ReviewedConfig.capture(snapshot.config_path)
         with reviewed_config.temporary_path() as config_path:
@@ -108,19 +95,6 @@ class ReviewedTask:
 
         return self.state_snapshot.model_copy(deep=True)
 
-    def retry_with_higher_limits(self) -> ReviewedTask:
-        """Raise limits only on a fresh copy of the failed restore's reviewed state."""
-
-        state = self.execution_state()
-        if (
-            self.task != "restore"
-            or not isinstance(state, RestoreTaskState)
-            or state.resource_intensive_compatibility_recovery
-        ):
-            raise ValueError("higher limits are only available for a normal restore attempt")
-        state.resource_intensive_compatibility_recovery = True
-        return replace(self, state_snapshot=state)
-
     def execute(self) -> TaskExecutionResult:
         """Execute with the reviewed state and config, never their live counterparts."""
 
@@ -138,355 +112,38 @@ class ExecutionOutcome:
     error_message: str | None = None
     error_detail: str | None = None
     allow_retry: bool = True
-    resource_retry: RecoveryResourceRetry | None = None
+    failed_stage: str | None = None
+    output_note: str | None = None
+    failure_section: str | None = None
 
 
-def build_review_details(
-    task: ActiveTask,
-    state: TaskState,
-    plan: TaskExecutionPlan,
-) -> tuple[ReviewDetail, ...]:
-    """Build concise task decisions without parsing preview or validation copy."""
+def execution_failure_section(task: TaskKey, outcome: ExecutionOutcome) -> str | None:
+    """Map typed failure provenance to the corresponding task editor."""
 
-    if task == "backup" and isinstance(state, BackupTaskState):
-        return _backup_review_details(state, plan)
-    if task == "restore" and isinstance(state, RestoreTaskState):
-        return _restore_review_details(state, plan)
-    if task == "add_files" and isinstance(state, AddFilesTaskState):
-        return _add_files_review_details(state, plan)
-    if task == "rebuild" and isinstance(state, RebuildTaskState):
-        return _rebuild_review_details(state, plan)
-    if task == "replace_recovery_docs" and isinstance(state, ReplaceRecoveryDocsTaskState):
-        return _replacement_review_details(state, plan)
-    if task == "kit" and isinstance(state, PrintKitTaskState):
-        return _kit_review_details(state, plan)
-    return ()
-
-
-def infer_execution_failure_section(
-    task: ActiveTask,
-    outcome: ExecutionOutcome,
-) -> str | None:
-    """Map recognizable runtime failures back to a useful workflow section."""
-
-    text = " ".join(
-        part
-        for part in (
-            outcome.error_message,
-            outcome.error_detail,
-            outcome.result.message,
-        )
-        if part
-    ).lower()
-    if not text:
+    if outcome.failure_section is not None:
+        return outcome.failure_section
+    failure = outcome.result.failure
+    if failure is None:
         return None
-
-    if any(
-        phrase in text
-        for phrase in (
-            "not writable",
-            "permission denied",
-            "read-only",
-            "read only",
-            "no space",
-            "disk full",
-            "output path",
-            "output folder",
-            "destination",
-            "failed to write",
-            "could not write",
-            "writing file",
-        )
-    ):
+    if failure.stage == FailureStage.OUTPUT:
         return "output"
-    if any(phrase in text for phrase in ("passphrase", "decrypt", "unlock")):
-        return "unlock"
-    if any(phrase in text for phrase in ("signature", "authentication", "trust source")):
+    if failure.stage == FailureStage.LAYOUT:
+        return "layout"
+    if failure.stage in {FailureStage.INPUT, FailureStage.SOURCE}:
+        return "files" if task in {"backup", "add_files"} else "source"
+    if failure.stage == FailureStage.UNLOCK:
+        return "advanced" if task == "backup" else "unlock"
+    if failure.stage == FailureStage.AUTHENTICATION:
         return {
             "restore": "authentication",
+            "backup": "signature",
             "replace_recovery_docs": "signature",
-        }.get(task, "advanced")
-    if any(
-        phrase in text
-        for phrase in (
-            "scanned page",
-            "scan input",
-            "recovery text",
-            "payload file",
-            "backup source",
-            "source documents",
-        )
-    ):
-        return "source"
+        }.get(task, "source")
+    if failure.stage == FailureStage.SELECTION:
+        return "target" if task == "restore" else "freshness"
+    if failure.stage == FailureStage.RECOVERY:
+        return "recovery"
     return None
-
-
-def _backup_review_details(
-    state: BackupTaskState,
-    plan: TaskExecutionPlan,
-) -> tuple[ReviewDetail, ...]:
-    file_count = len(state.input_paths)
-    folder_count = len(state.input_dirs)
-    selected = _counted_items(file_count, "file", folder_count, "folder")
-    recovery = (
-        "One recovery phrase"
-        if state.recovery_method == "single_phrase"
-        else (
-            "3 sheets, 2 needed to restore"
-            if state.recovery_method == "recommended_shards"
-            else f"{state.shard_count} sheets, {state.shard_threshold} needed to restore"
-        )
-    )
-    signing = (
-        "Encrypted in the backup documents"
-        if state.signing_key_mode == "embedded"
-        else "Stored on separate recovery sheets"
-        if state.signing_key_mode == "sharded"
-        else "Follows saved signing-key policy"
-    )
-    estimate = state.current_estimate()
-    if estimate is not None and folder_count:
-        selected = f"{_counted(estimate.file_count, 'file')} from {selected}"
-    print_estimate = (
-        (
-            ReviewDetail(
-                "Backup pages", f"About {_counted(estimate.backup_pages, 'page')} in the main PDF"
-            ),
-        )
-        if estimate is not None
-        else ()
-    )
-    return (
-        ReviewDetail("Files", selected, "files"),
-        ReviewDetail("Documents", _backup_document_summary(state)),
-        *print_estimate,
-        ReviewDetail("Recovery", recovery, "recovery"),
-        ReviewDetail("Signing key", signing, "signature"),
-        ReviewDetail("Layout", _layout_summary(state.paper_size, state.design), "layout"),
-        ReviewDetail(
-            "Destination",
-            (
-                "Automatic folder named for backup ID"
-                if state.output_dir is None
-                else _destination_summary(plan)
-            ),
-            "output",
-        ),
-    )
-
-
-def _restore_review_details(
-    state: RestoreTaskState,
-    plan: TaskExecutionPlan,
-) -> tuple[ReviewDetail, ...]:
-    source_request = state.source_assessment_request()
-    if source_request is not None and source_request.source_kind == "recovery_inputs":
-        source = "Mixed backup documents"
-    elif state.source_paths:
-        source = _counted(len(state.source_paths), "document input")
-    elif state.recovery_text:
-        source = "Pasted recovery text"
-    elif state.recovery_text_file is not None:
-        source = "Recovery text file"
-    else:
-        source = "Backup payload file"
-
-    if state.target == "original":
-        target = "Initial backup only"
-    elif state.target == "specific_update":
-        target = (
-            f"Update {state.extension_index}"
-            if state.extension_index is not None
-            else "Specific fingerprint"
-        )
-    else:
-        target = "Newest loaded version"
-
-    signature = (
-        "Unsigned legacy backups allowed" if state.allow_unsigned else "Trusted signature required"
-    )
-    return (
-        ReviewDetail("Source", source, "source"),
-        ReviewDetail("Files", "All files in the selected backup version"),
-        ReviewDetail("Unlock", _unlock_summary(state), "unlock"),
-        ReviewDetail("Version", target, "target"),
-        ReviewDetail("Signature", signature, "authentication"),
-        ReviewDetail("Destination", _destination_summary(plan), "output"),
-    )
-
-
-def _add_files_review_details(
-    state: AddFilesTaskState,
-    plan: TaskExecutionPlan,
-) -> tuple[ReviewDetail, ...]:
-    source_request = state.source_assessment_request()
-    if source_request is not None and source_request.source_kind == "recovery_inputs":
-        source = "Mixed backup documents"
-    elif state.source_paths:
-        source = _counted(len(state.source_paths), "document input")
-    elif state.recovery_text:
-        source = "Pasted recovery text"
-    elif state.recovery_text_file is not None:
-        source = "Recovery text file"
-    else:
-        source = "Backup payload file"
-    changes = (
-        f"{_counted_items(len(state.input_paths), 'file', len(state.input_dirs), 'folder')}, "
-        "replacing matching paths"
-    )
-    source_version = (
-        "Will check trusted fingerprint"
-        if state.expected_head_doc_hash is not None
-        else "Newest loaded version accepted"
-    )
-
-    return (
-        ReviewDetail("Backup", source, "source"),
-        ReviewDetail("Changes", changes, "files"),
-        ReviewDetail("Documents", "Update PDF and recovery guide"),
-        ReviewDetail("Source version", source_version, "freshness"),
-        ReviewDetail("Unlock", _unlock_summary(state), "unlock"),
-        ReviewDetail("Recovery sheets", state.recovery_sheet_summary(), "recovery"),
-        ReviewDetail("Destination", _destination_summary(plan), "output"),
-    )
-
-
-def _rebuild_review_details(
-    state: RebuildTaskState,
-    plan: TaskExecutionPlan,
-) -> tuple[ReviewDetail, ...]:
-    source = (
-        "Existing backup folder"
-        if state.backup_folder is not None
-        else _counted(len(state.source_paths), "document input")
-    )
-    if state.expected_head_doc_hash is not None:
-        source_version = "Will check trusted fingerprint"
-    else:
-        source_version = "Latest loaded version accepted"
-    return (
-        ReviewDetail("Source", source, "source"),
-        ReviewDetail("Documents", "Backup PDF and recovery guide"),
-        ReviewDetail("Recovery sheets", "Follow the loaded backup's sheet policy"),
-        ReviewDetail("Unlock", _unlock_summary(state), "unlock"),
-        ReviewDetail("Source version", source_version, "freshness"),
-        ReviewDetail("Layout", _layout_summary(state.paper_size, state.design), "layout"),
-        ReviewDetail("Destination", _destination_summary(plan), "output"),
-    )
-
-
-def _replacement_review_details(
-    state: ReplaceRecoveryDocsTaskState,
-    plan: TaskExecutionPlan,
-) -> tuple[ReviewDetail, ...]:
-    source_request = state.source_assessment_request()
-    if source_request is not None and source_request.source_kind == "recovery_inputs":
-        source = "Mixed backup documents"
-    elif state.source_paths:
-        source = _counted(len(state.source_paths), "document input")
-    elif state.recovery_text:
-        source = "Pasted recovery text"
-    elif state.recovery_text_file is not None:
-        source = "Recovery text file"
-    else:
-        source = "Backup payload file"
-
-    recovery = (
-        f"{state.recovery_document_count} new sheets ({state.recovery_threshold} needed to restore)"
-    )
-    if not state.create_passphrase_recovery:
-        passphrase = "without passphrase sheets"
-    elif state.passphrase_replacement_count is not None:
-        passphrase = f"replacing {state.passphrase_replacement_count} passphrase sheets"
-    else:
-        passphrase = "with passphrase sheets"
-
-    if not state._creates_signing_key_recovery():
-        signing = "None"
-    elif state.signing_key_replacement_count is not None:
-        signing = f"Replace {state.signing_key_replacement_count} sheets"
-    else:
-        threshold = state.signing_key_recovery_threshold or state.recovery_threshold
-        count = state.signing_key_recovery_count or state.recovery_document_count
-        signing = f"{count} new sheets ({threshold} required)"
-    return (
-        ReviewDetail("Source", source, "source"),
-        ReviewDetail("Unlock", _unlock_summary(state), "unlock"),
-        ReviewDetail("Recovery sheets", f"{recovery}, {passphrase}", "recovery"),
-        ReviewDetail("Signing-key sheets", signing, "signature"),
-        ReviewDetail("Layout", _layout_summary(state.paper_size, state.design), "layout"),
-        ReviewDetail("Destination", _destination_summary(plan), "output"),
-    )
-
-
-def _kit_review_details(
-    state: PrintKitTaskState,
-    plan: TaskExecutionPlan,
-) -> tuple[ReviewDetail, ...]:
-    kit_type = "Scanner kit" if state.variant == "scanner" else "Lean offline kit"
-    qr_sizing = "Automatic" if state.chunk_size is None else f"{state.chunk_size}-byte chunks"
-    return (
-        ReviewDetail("Documents", "1 rescue kit PDF"),
-        ReviewDetail("Kit type", kit_type, "variant"),
-        ReviewDetail("Layout", _layout_summary(state.paper_size, state.design), "layout"),
-        ReviewDetail("QR sizing", qr_sizing, "qr"),
-        ReviewDetail("Destination", _destination_summary(plan), "output"),
-    )
-
-
-def _unlock_summary(
-    state: RestoreTaskState | AddFilesTaskState | RebuildTaskState | ReplaceRecoveryDocsTaskState,
-) -> str:
-    if state.passphrase:
-        return "Passphrase"
-    if state.recovery_documents:
-        return _counted(len(state.recovery_documents), "recovery sheet")
-    if state.recovery_payload_files:
-        return _counted(len(state.recovery_payload_files), "recovery payload file")
-    return "Not selected"
-
-
-def _destination_summary(plan: TaskExecutionPlan) -> str:
-    if not plan.writes_files:
-        return "No files will be written"
-    if not plan.output_paths:
-        return "No destination"
-    return "\n".join(str(path.expanduser().absolute()) for path in plan.output_paths)
-
-
-def _backup_document_summary(state: BackupTaskState) -> str:
-    documents = ["Backup PDF", "recovery guide"]
-    request = state.to_backup_request()
-    if request.shard_count is not None:
-        documents.append(_counted(request.shard_count, "recovery sheet"))
-        if request.signing_key_mode == "sharded":
-            count = request.signing_key_shard_count or request.shard_count
-            documents.append(_counted(count, "signing-key recovery sheet"))
-    if supports_recovery_kit_index_style(state.design):
-        documents.append("document inventory PDF")
-    return ", ".join(documents)
-
-
-def _layout_summary(paper_size: str, design: str) -> str:
-    return f"{paper_size_display_name(paper_size)}, {design.title()}"
-
-
-def _counted(count: int, singular: str) -> str:
-    return f"{count} {singular if count == 1 else f'{singular}s'}"
-
-
-def _counted_items(
-    first_count: int,
-    first_singular: str,
-    second_count: int,
-    second_singular: str,
-) -> str:
-    parts = []
-    if first_count:
-        parts.append(_counted(first_count, first_singular))
-    if second_count:
-        parts.append(_counted(second_count, second_singular))
-    return " and ".join(parts) if parts else "Nothing selected"
 
 
 def normalize_execution_outcome(
@@ -494,6 +151,7 @@ def normalize_execution_outcome(
     *,
     value: object = None,
     error: BaseException | None = None,
+    phase: str | None = None,
 ) -> ExecutionOutcome:
     """Convert every worker terminal state into one result-screen value."""
 
@@ -516,17 +174,16 @@ def normalize_execution_outcome(
                 error_message="The task stopped without an error message.",
                 error_detail="The execution worker exited without an exception.",
             )
-        resource_retry = recovery_resource_retry(error)
-        message = (
-            "This backup exceeds the normal recovery work limit."
-            if resource_retry is not None
-            else str(error).strip() or "The task failed without an error message."
-        )
+        message = str(error).strip() or "The task failed without an error message."
         return ExecutionOutcome(
-            result=TaskExecutionResult(status="failed", message="The task failed."),
+            result=TaskExecutionResult(
+                status="failed",
+                message="The task failed.",
+                failure=failure_from_exception(error, phase=phase),
+            ),
+            failure_section=error.section if isinstance(error, TaskValidationError) else None,
             error_message=message,
             error_detail=f"{type(error).__qualname__}: {error}",
-            resource_retry=resource_retry,
         )
 
     if state == WorkerState.CANCELLED:

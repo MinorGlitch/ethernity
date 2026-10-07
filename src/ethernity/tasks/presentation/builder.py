@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-from ethernity.tasks.add_files import AddFilesTaskState
-from ethernity.tasks.backup import BackupTaskState
-from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.models import TaskPreview, TaskValidation
 from ethernity.tasks.presentation.models import (
-    PresentationState,
-    PresentationTaskKey,
     SummaryPresentation,
     TaskPresentation,
     WorkspaceAction,
@@ -14,24 +9,15 @@ from ethernity.tasks.presentation.models import (
     WorkspaceValue,
 )
 from ethernity.tasks.presentation.presentation_values import validation_readiness
-from ethernity.tasks.presentation.workflow_add_files import add_files_auxiliary_groups
-from ethernity.tasks.presentation.workflow_backup import backup_groups
-from ethernity.tasks.presentation.workflow_kit import kit_groups
-from ethernity.tasks.presentation.workflow_rebuild import rebuild_auxiliary_groups
-from ethernity.tasks.presentation.workflow_replace_recovery import (
-    replace_recovery_auxiliary_groups,
-)
-from ethernity.tasks.presentation.workflow_restore import restore_auxiliary_groups
-from ethernity.tasks.rebuild import RebuildTaskState
-from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
-from ethernity.tasks.restore import RestoreTaskState
+from ethernity.tasks.presentation.registry import task_presenter
+from ethernity.tasks.task_types import TaskKey, TaskState
 
 
 def build_task_presentation(
     *,
-    task_key: PresentationTaskKey,
+    task_key: TaskKey,
     title: str,
-    state: PresentationState,
+    state: TaskState,
     validation: TaskValidation,
     preview: TaskPreview,
     primary_label: str,
@@ -65,24 +51,12 @@ def build_task_presentation(
 
 
 def workspace_groups(
-    task_key: PresentationTaskKey,
-    state: PresentationState,
+    task_key: TaskKey,
+    state: TaskState,
     validation: TaskValidation,
 ) -> tuple[WorkspaceGroup, ...]:
     sections = {section.key: section for section in validation.sections}
-    if task_key == "backup" and isinstance(state, BackupTaskState):
-        return backup_groups(state, sections)
-    if task_key == "restore" and isinstance(state, RestoreTaskState):
-        return restore_auxiliary_groups(state)
-    if task_key == "add_files" and isinstance(state, AddFilesTaskState):
-        return add_files_auxiliary_groups(state, sections["advanced"])
-    if task_key == "rebuild" and isinstance(state, RebuildTaskState):
-        return rebuild_auxiliary_groups(state, sections["advanced"])
-    if task_key == "replace_recovery_docs" and isinstance(state, ReplaceRecoveryDocsTaskState):
-        return replace_recovery_auxiliary_groups(state, sections["signature"])
-    if task_key == "kit" and isinstance(state, PrintKitTaskState):
-        return kit_groups(state, sections)
-    return ()
+    return task_presenter(task_key).groups(state, sections)
 
 
 def _primary_action(primary_label: str, validation: TaskValidation) -> WorkspaceAction:

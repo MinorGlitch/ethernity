@@ -20,14 +20,14 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from textual.app import ComposeResult
-from textual.containers import Grid, HorizontalGroup, Vertical, VerticalGroup, VerticalScroll
+from textual.containers import Vertical, VerticalGroup, VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Button, Static
+from textual.widgets import Button, Label, Static
 
-from ethernity.app.execution import ReviewDetail
 from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 from ethernity.app.widgets.collapsible import collapsible_panel
+from ethernity.app.widgets.form import FormRow, FormSection
 from ethernity.tasks.models import (
     PreviewItem,
     TaskExecutionPlan,
@@ -35,6 +35,7 @@ from ethernity.tasks.models import (
     TaskPreview,
     TaskValidation,
 )
+from ethernity.tasks.presentation.models import ReviewDetail
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,16 +79,6 @@ class ReviewTaskScreen(EthernityModalScreen[bool | ReviewEditRequest]):
                 )
 
             with VerticalScroll(id="review-body", classes="document-body"):
-                with Grid(id="review-overview", classes="detail-grid"):
-                    for index, detail in enumerate(self._overview_details()):
-                        yield from self._detail_widgets(detail, index)
-
-                if self._plan.writes_files:
-                    with VerticalGroup(id="review-output-list"):
-                        yield Static("Output locations", classes="section-title", markup=False)
-                        for line in self._output_lines():
-                            yield Static(line, classes="detail-line", markup=False)
-
                 if visible_issues:
                     with VerticalGroup(
                         id="review-attention",
@@ -105,16 +96,18 @@ class ReviewTaskScreen(EthernityModalScreen[bool | ReviewEditRequest]):
                                 markup=False,
                             )
 
-                safety_lines = self._write_safety_lines()
-                if safety_lines:
-                    with VerticalGroup(id="review-write-safety"):
-                        yield Static("Write safety", classes="section-title", markup=False)
-                        for line in safety_lines:
-                            yield Static(
-                                _without_bullet(line),
-                                classes="review-safety-line detail-line",
-                                markup=False,
-                            )
+                with VerticalGroup(id="review-overview"):
+                    details = self._overview_details()
+                    for group, title in (("choices", "Choices"), ("output", "Output")):
+                        rows = [
+                            self._detail_row(detail, index)
+                            for index, detail in enumerate(details)
+                            if detail.group == group
+                        ]
+                        if not rows:
+                            continue
+                        yield FormSection(title, *rows, id=f"review-{group}")
+                yield from self._safety_widgets()
 
                 with collapsible_panel(
                     "review-technical-details",
@@ -159,17 +152,29 @@ class ReviewTaskScreen(EthernityModalScreen[bool | ReviewEditRequest]):
             if issue.code != "FINAL_REVIEW_REQUIRED"
         )
 
-    def _detail_widgets(self, detail: ReviewDetail, index: int) -> Iterable[Widget]:
-        yield Static(detail.label, classes="detail-label", markup=False)
+    def _detail_row(self, detail: ReviewDetail, index: int) -> FormRow:
         value = Static(detail.value, classes="detail-value", markup=False)
+        controls: list[Widget] = [value]
+        label = Label(detail.label, classes="detail-label", markup=False)
         if detail.section is None:
-            yield value
-            return
+            return FormRow(label, *controls)
         button_id = f"review-edit-{detail.section}-{index}"
         self._edit_sections[button_id] = detail.section
-        button = Button("Edit", id=button_id, classes="review-detail-edit text-action")
+        button = Button("Edit", id=button_id, classes="review-detail-edit")
         button.tooltip = f"Edit {detail.label.lower()}"
-        yield HorizontalGroup(value, button, classes="review-detail-field")
+        controls.append(button)
+        return FormRow(label, *controls)
+
+    def _safety_widgets(self) -> ComposeResult:
+        lines = self._write_safety_lines()
+        if not lines:
+            return
+        existing = any(path.exists() for path in self._plan.output_paths)
+        with VerticalGroup(id="review-write-safety", classes="warning" if existing else ""):
+            for line in lines:
+                yield Static(
+                    _without_bullet(line), classes="review-safety-line detail-line", markup=False
+                )
 
     def _read_overview(self) -> str:
         if not self._plan.read_paths:
@@ -182,7 +187,7 @@ class ReviewTaskScreen(EthernityModalScreen[bool | ReviewEditRequest]):
         return (
             ReviewDetail("Action", self._execute_label),
             ReviewDetail("Source", self._read_overview()),
-            ReviewDetail("Destination", self._output_overview()),
+            ReviewDetail("Destination", self._output_overview(), group="output"),
         )
 
     def _output_overview(self) -> str:
@@ -206,13 +211,6 @@ class ReviewTaskScreen(EthernityModalScreen[bool | ReviewEditRequest]):
         if self._plan.recovery_notes:
             yield from _detail_section("Recovery", self._plan.recovery_notes)
 
-    def _output_lines(self) -> tuple[str, ...]:
-        if not self._plan.writes_files:
-            return ()
-        if self._plan.output_paths:
-            return tuple(str(path) for path in self._plan.output_paths)
-        return ("No destination selected.",)
-
     def _read_lines(self) -> tuple[str, ...]:
         return tuple(str(path) for path in self._plan.read_paths)
 
@@ -224,12 +222,7 @@ class ReviewTaskScreen(EthernityModalScreen[bool | ReviewEditRequest]):
 
         existing_paths = [path for path in self._plan.output_paths if path.exists()]
         overwrite_notes = (
-            (
-                f"Existing destination: {_path_summary(existing_paths)}",
-                "Existing files at the destination may be replaced.",
-            )
-            if existing_paths
-            else ()
+            ("Existing files at the destination may be replaced.",) if existing_paths else ()
         )
         return (
             *self._plan.safety_notes,
@@ -254,13 +247,6 @@ def _without_bullet(line: str) -> str:
 
 def _path_overview(paths: Sequence[object]) -> str:
     return "\n".join(str(path) for path in paths)
-
-
-def _path_summary(paths: Sequence[object]) -> str:
-    visible = ", ".join(str(path) for path in paths[:3])
-    if len(paths) > 3:
-        return f"{visible}, and {len(paths) - 3} more"
-    return visible
 
 
 def _attention_class(issues: tuple[TaskIssue, ...]) -> str:

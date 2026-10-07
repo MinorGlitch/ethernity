@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ethernity.tasks.file_summary import display_path, format_count
 from ethernity.tasks.recovery_inputs import UnlockInputs, detected_unlock_summary
+
+if TYPE_CHECKING:
+    from ethernity.tasks.source_assessment import ContentRecoveryTaskState
 
 __all__ = [
     "signature_source_control_value",
@@ -12,6 +16,7 @@ __all__ = [
     "pasted_text_summary",
     "recovery_text_summary",
     "unlock_input_summary",
+    "recovery_source_summary",
 ]
 
 
@@ -62,3 +67,16 @@ def recovery_text_summary(value: str | None) -> str:
     line_count = non_empty_line_count(value)
     noun = "line" if line_count == 1 else "lines"
     return f"Pasted recovery text: {line_count} {noun}"
+
+
+def recovery_source_summary(state: ContentRecoveryTaskState) -> str:
+    request = state.source_assessment_request()
+    if request is not None and request.source_kind == "recovery_inputs":
+        return "Mixed backup documents"
+    if state.source_paths:
+        return format_count(len(state.source_paths), "document input")
+    if state.recovery_text:
+        return "Pasted recovery text"
+    if state.recovery_text_file is not None:
+        return "Recovery text file"
+    return "Backup payload file"
