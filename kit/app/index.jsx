@@ -18,8 +18,12 @@
 import { render } from "microact";
 
 import { App } from "./App.jsx";
+import { configureRecoveryWorker, serveRecoveryWorker } from "./recovery_worker.js";
 
-const root = document.getElementById("app");
-if (root) {
-  render(<App />, root);
+if (typeof document === "undefined") {
+  serveRecoveryWorker();
+} else {
+  configureRecoveryWorker(document.currentScript?.textContent ?? "");
+  const root = document.getElementById("app");
+  if (root) render(<App />, root);
 }

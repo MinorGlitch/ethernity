@@ -2,12 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  decryptAgePassphrase,
   inspectAgeScryptWork,
-  INTENSIVE_SCRYPT_APPROVAL_PREFIX,
-  MAX_AUTOMATIC_AGE_SCRYPT_LOG_N,
-  MAX_AUTOMATIC_RECOVERY_SCRYPT_WORK,
   MAX_BROWSER_AGE_SCRYPT_LOG_N,
-  MAX_COMPATIBILITY_RECOVERY_SCRYPT_WORK,
+  MAX_RECOVERY_SCRYPT_WORK,
   MAX_SCRYPT_LOG_N,
   preflightAgeScryptBatch,
 } from "../lib/age_scrypt.js";
@@ -21,16 +19,15 @@ function buildAgeScryptHeader(logN) {
   );
 }
 
-test("age scrypt preflight accepts calibrated writer profiles through the browser limit", () => {
+test("age scrypt preflight accepts writer profiles through the fixed browser limit", () => {
   assert.equal(MAX_SCRYPT_LOG_N, 20);
   assert.equal(MAX_BROWSER_AGE_SCRYPT_LOG_N, 20);
-  assert.equal(MAX_AUTOMATIC_AGE_SCRYPT_LOG_N, 18);
-  assert.equal(MAX_AUTOMATIC_RECOVERY_SCRYPT_WORK, 8 * 2 ** 18);
   for (const logN of [1, 10, 18, 19, 20]) {
     const profile = inspectAgeScryptWork(buildAgeScryptHeader(logN));
     assert.equal(profile.logN, logN);
     assert.equal(profile.work, 2 ** logN);
     assert.equal(profile.memoryBytes, 128 * 8 * (2 ** logN + 2));
+    assert.deepEqual(preflightAgeScryptBatch([buildAgeScryptHeader(logN)]).errors, [null]);
   }
 });
 
@@ -44,57 +41,69 @@ test("age scrypt preflight rejects profiles above the browser work limit", () =>
 });
 
 test("age scrypt batch preflight reports sequential peak memory and cumulative work", () => {
-  const result = preflightAgeScryptBatch([buildAgeScryptHeader(19), buildAgeScryptHeader(20)], {
-    allowResourceIntensive: true,
-  });
-
+  const result = preflightAgeScryptBatch([buildAgeScryptHeader(19), buildAgeScryptHeader(20)]);
   assert.equal(result.totalWork, 2 ** 19 + 2 ** 20);
   assert.equal(result.peakMemoryBytes, 128 * 8 * (2 ** 20 + 2));
   assert.deepEqual(result.errors, [null, null]);
-  assert.equal(result.requiresResourceIntensiveApproval, true);
 });
 
-test("age scrypt preflight requires explicit approval before resource-intensive work", () => {
-  assert.throws(
-    () => preflightAgeScryptBatch([buildAgeScryptHeader(20)]),
-    new RegExp(`^Error: ${INTENSIVE_SCRYPT_APPROVAL_PREFIX}`),
-  );
-
-  const approved = preflightAgeScryptBatch([buildAgeScryptHeader(20)], {
-    allowResourceIntensive: true,
-  });
-  assert.equal(approved.requiresResourceIntensiveApproval, true);
-});
-
-test("age scrypt preflight gates cumulative automatic work independently of document count", () => {
-  const exactAutomaticBudget = Array.from({ length: 8 }, () => buildAgeScryptHeader(18));
-  const aboveAutomaticBudget = [...exactAutomaticBudget, buildAgeScryptHeader(18)];
-
-  const accepted = preflightAgeScryptBatch(exactAutomaticBudget);
-  assert.equal(accepted.requiresResourceIntensiveApproval, false);
-  assert.throws(
-    () => preflightAgeScryptBatch(aboveAutomaticBudget),
-    new RegExp(`^Error: ${INTENSIVE_SCRYPT_APPROVAL_PREFIX}`),
-  );
-  const approved = preflightAgeScryptBatch(aboveAutomaticBudget, {
-    allowResourceIntensive: true,
-  });
-  assert.equal(approved.requiresResourceIntensiveApproval, true);
+test("age scrypt preflight enforces cumulative work independently of document count", () => {
+  for (const logN of [18, 19, 20]) {
+    const count = MAX_RECOVERY_SCRYPT_WORK / 2 ** logN;
+    const documents = Array.from({ length: count }, () => buildAgeScryptHeader(logN));
+    assert.equal(preflightAgeScryptBatch(documents).totalWork, MAX_RECOVERY_SCRYPT_WORK);
+    assert.throws(
+      () => preflightAgeScryptBatch([...documents, buildAgeScryptHeader(logN)]),
+      /cumulative scrypt work exceeds the recovery work limit/,
+    );
+  }
 });
 
 test("age scrypt batch preflight records unsupported documents without scheduling their work", () => {
   const result = preflightAgeScryptBatch([buildAgeScryptHeader(21), buildAgeScryptHeader(18)]);
-
   assert.equal(result.profiles[0], null);
-  assert.match(result.errors[0], /scrypt work factor must be between 1 and 20/);
+  assert.equal(result.errors[0].code, "RECOVERY_RESOURCE_LIMIT");
+  assert.match(result.errors[0].message, /scrypt work factor must be between 1 and 20/);
   assert.equal(result.profiles[1].logN, 18);
   assert.equal(result.totalWork, 2 ** 18);
 });
 
-test("resource-intensive approval cannot bypass the cumulative hard limit", () => {
-  const excessive = Array.from({ length: 9 }, () => buildAgeScryptHeader(20));
-  assert.throws(
-    () => preflightAgeScryptBatch(excessive, { allowResourceIntensive: true }),
-    new RegExp(`hard compatibility limit \\(${MAX_COMPATIBILITY_RECOVERY_SCRYPT_WORK}\\)`),
+test("age failure codes distinguish malformed input from rejected key authentication", async () => {
+  await assert.rejects(
+    decryptAgePassphrase(new Uint8Array(), "pw"),
+    (error) => error.code === "DOCUMENT_INVALID" && error.stage === "source",
+  );
+  await assert.rejects(
+    decryptAgePassphrase(buildAgeScryptHeader(1), "pw"),
+    (error) => error.code === "PASSPHRASE_AUTH_FAILED" && error.stage === "unlock",
+  );
+});
+
+test("scrypt cannot run on the browser UI thread", async (t) => {
+  Object.defineProperty(globalThis, "window", { value: {}, configurable: true });
+  t.after(() => delete globalThis.window);
+  await assert.rejects(
+    decryptAgePassphrase(buildAgeScryptHeader(1), "pw"),
+    (error) => error.code === "SCRYPT_UNAVAILABLE",
+  );
+});
+
+test("scrypt reports its work interval even when key authentication fails", async () => {
+  const events = [];
+  await assert.rejects(
+    decryptAgePassphrase(buildAgeScryptHeader(1), "pw", {
+      onScrypt: (active) => events.push(active),
+    }),
+    (error) => error.code === "PASSPHRASE_AUTH_FAILED",
+  );
+  assert.deepEqual(events, [true, false]);
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    decryptAgePassphrase(buildAgeScryptHeader(1), "pw", {
+      signal: controller.signal,
+      onScrypt: () => assert.fail("cancelled KDF was started"),
+    }),
+    (error) => error.code === "CANCELLED",
   );
 });

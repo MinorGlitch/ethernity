@@ -104,7 +104,10 @@ export function DiagnosticsList({ items, compact = false }) {
         return (
           <div key={`${item.label}-${index}`} class={rowClass}>
             <div class="diag-label">{item.label}</div>
-            <div class="diag-value">{item.value ?? "-"}</div>
+            <div class="diag-value">
+              {item.value ?? "-"}
+              {item.detail ? <div class="hint">{item.detail}</div> : null}
+            </div>
           </div>
         );
       })}

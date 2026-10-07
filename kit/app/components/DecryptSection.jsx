@@ -28,7 +28,6 @@ export function DecryptSection({
   onExpectedHeadDocHashChange,
   onFreshnessUnknownAcknowledgedChange,
   onDecrypt,
-  onDecryptIntensive,
   onDecryptRootOnly,
   canDecrypt,
   canDecryptRootOnly,
@@ -36,9 +35,7 @@ export function DecryptSection({
   rootOnlyDisabledReason,
   isComplete,
   isDecrypting,
-  onExtract,
   onDownloadDecryptedBackup,
-  canExtract,
   canDownloadDecryptedBackup,
   children,
 }) {
@@ -50,14 +47,6 @@ export function DecryptSection({
       disabledReason: decryptDisabledReason,
     },
   ];
-  if (onDecryptIntensive) {
-    decryptActions.push({
-      label: isDecrypting ? "Unlocking..." : "Retry with higher limits",
-      className: "secondary",
-      onClick: onDecryptIntensive,
-      disabled: isDecrypting,
-    });
-  }
   if (onDecryptRootOnly) {
     decryptActions.push({
       label: isDecrypting ? "Unlocking..." : "Unlock root only",
@@ -68,12 +57,6 @@ export function DecryptSection({
     });
   }
   const backupActions = [
-    {
-      label: "Extract files",
-      onClick: onExtract,
-      disabled: !canExtract,
-      disabledReason: "Unlock the backup first.",
-    },
     {
       label: "Download raw data",
       className: "secondary",

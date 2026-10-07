@@ -32,7 +32,7 @@ import {
   downloadExtract,
   downloadZip,
 } from "./actions_export.js";
-import { clearOutput, decryptCiphertext, extractBackupFiles } from "./actions_recover.js";
+import { clearOutput, decryptCiphertext } from "./actions_recover.js";
 import { DecryptSection } from "./components/DecryptSection.jsx";
 import { FrameCollector } from "./components/FrameCollector.jsx";
 import { RecoveredFiles } from "./components/RecoveredFiles.jsx";
@@ -114,9 +114,6 @@ export function App() {
   const handleDecrypt = () => decryptCiphertext(dispatch, getState);
   const handleDecryptRootOnly = () =>
     decryptCiphertext(dispatch, getState, { extensionTarget: "root" });
-  const handleIntensiveDecrypt = () =>
-    decryptCiphertext(dispatch, getState, { allowResourceIntensiveScrypt: true });
-  const handleExtract = () => extractBackupFiles(dispatch, getState);
   const handleDownloadDecryptedBackup = () => downloadDecryptedBackup(dispatch, getState);
   const handleClearOutput = () => clearOutput(dispatch, getState);
   const handleDownloadZip = () => downloadZip(dispatch, getState);
@@ -272,7 +269,6 @@ export function App() {
             onExpectedHeadDocHashChange={handleExpectedHeadDocHashChange}
             onFreshnessUnknownAcknowledgedChange={handleFreshnessUnknownAcknowledgedChange}
             onDecrypt={handleDecrypt}
-            onDecryptIntensive={state.intensiveRecoveryTarget ? handleIntensiveDecrypt : null}
             onDecryptRootOnly={actionState.hasMultipleDocuments ? handleDecryptRootOnly : null}
             canDecrypt={actionState.canDecryptCiphertext}
             canDecryptRootOnly={actionState.canDecryptRootOnly}
@@ -280,9 +276,7 @@ export function App() {
             rootOnlyDisabledReason={actionState.rootOnlyDisabledReason}
             isComplete={actionState.hasOutput || Boolean(state.decryptedBackup)}
             isDecrypting={state.isDecrypting}
-            onExtract={handleExtract}
             onDownloadDecryptedBackup={handleDownloadDecryptedBackup}
-            canExtract={actionState.canExtractFiles}
             canDownloadDecryptedBackup={actionState.canDownloadDecryptedBackup}
           >
             <RecoveredFiles
@@ -293,7 +287,6 @@ export function App() {
               onDownloadZip={handleDownloadZip}
               onDownloadFile={handleDownloadFile}
               hasOutput={actionState.hasOutput}
-              recoveryComplete={state.recoveryComplete}
             />
           </DecryptSection>
         </StepShell>

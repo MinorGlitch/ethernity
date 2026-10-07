@@ -15,23 +15,20 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { decryptAgePassphrase, INTENSIVE_SCRYPT_APPROVAL_PREFIX } from "../lib/age_scrypt.js";
-import { recoverLatestFromEncryptedDocuments } from "./extensions/recovery.js";
+import { RecoveryError, isPassphraseAuthenticationFailure } from "../lib/errors.js";
+import { decryptAgePassphrase } from "../lib/age_scrypt.js";
+import { recoverDocuments } from "./recovery_worker.js";
+import { isLatestExtensionTarget, normalizeExtensionTarget } from "./extensions/target.js";
+import { collectedRecoveryDocuments } from "./frames_cipher.js";
 import {
-  isLatestExtensionTarget,
-  normalizeExpectedHeadDocHash,
-  normalizeExtensionTarget,
-} from "./extensions/target.js";
-import { extractFiles } from "./backup_document.js";
-import { collectedRecoveryDocuments, reassembleCiphertext } from "./frames_cipher.js";
-import { formatBytes } from "./format.js";
-import { authOnlyDocumentRecords, incompleteDocumentRecords } from "./documents/store.js";
+  authOnlyDocumentRecords,
+  incompleteDocumentRecords,
+  documentCounts,
+} from "./documents/store.js";
 import { cloneState } from "./state/initial.js";
 import {
   applyExtractResult,
-  clearDecryptedBackup,
-  clearRecoveredOutput,
-  cloneLatest,
+  clearRecoveryResult,
   dispatchPatch,
   dispatchState,
   setErrorStatus,
@@ -57,28 +54,21 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     return;
   }
   const prep = cloneState(base);
-  clearRecoveredOutput(prep);
-  clearDecryptedBackup(prep);
+  clearRecoveryResult(prep);
   let didStartDecrypt = false;
   let finalState = null;
   let decryptController = null;
-  let extensionTarget = null;
   try {
-    extensionTarget =
-      options.allowResourceIntensiveScrypt && base.intensiveRecoveryTarget
-        ? base.intensiveRecoveryTarget
-        : resolveExtensionTarget(prep, options);
-    if (prep.conflicts > 0) {
-      throw new Error("conflicting duplicate frames detected");
+    const extensionTarget = resolveExtensionTarget(prep, options);
+    const counts = documentCounts(prep);
+    if (counts.conflicts > 0) {
+      throw new RecoveryError("DOCUMENT_INVALID", "conflicting duplicate frames detected");
     }
-    if (prep.authConflicts > 0) {
-      throw new Error("conflicting AUTH frames detected");
+    if (counts.authConflicts > 0) {
+      throw new RecoveryError("AUTH_CONFLICT", "conflicting AUTH frames detected");
     }
-    if (prep.authErrors > 0) {
-      throw new Error("invalid AUTH frames detected");
-    }
-    if (!prep.ciphertext && prep.total && prep.mainFrames.size === prep.total) {
-      prep.ciphertext = reassembleCiphertext(prep);
+    if (counts.authErrors > 0) {
+      throw new RecoveryError("AUTH_PAYLOAD_INVALID", "invalid AUTH frames detected");
     }
     const allowPartialDocuments = !isLatestExtensionTarget(extensionTarget);
     const ignoredDocumentLines = allowPartialDocuments ? ignoredPartialDocumentLines(prep) : [];
@@ -87,11 +77,10 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
       allowAuthOnly: allowPartialDocuments,
     });
     if (!documents.length) {
-      throw new Error("Collected ciphertext not available yet.");
+      throw new RecoveryError("INPUT_REQUIRED", "Collected ciphertext not available yet.");
     }
     prep.decryptRequestId = base.decryptRequestId + 1;
     prep.isDecrypting = true;
-    prep.intensiveRecoveryTarget = null;
     setLineStatus(prep, "decryptStatus", "Unlocking backup...");
     const requestId = prep.decryptRequestId;
     dispatchState(dispatch, prep);
@@ -108,27 +97,18 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
         verifySignature,
         extensionTarget,
         signal: decryptController.signal,
-        allowResourceIntensiveScrypt: options.allowResourceIntensiveScrypt === true,
         freshnessUnknownAcknowledged: prep.freshnessUnknownAcknowledged === true,
       },
     );
-    const next = cloneLatest(getState);
+    const next = cloneState(getState());
     if (!isCurrentDecryptRequest(next, requestId)) {
       return;
     }
     next.decryptedBackup = result.selectedExtensionIndex === null ? result.decryptedBackup : null;
-    next.decryptedBackupSource = "Collected ciphertext";
     applyExtractResult(next, result);
     next.isDecrypting = false;
-    next.intensiveRecoveryTarget = null;
-    next.recoveryComplete = true;
     next.decryptStatus = {
-      lines: [
-        "Recovery complete.",
-        `${result.files.length} file(s) recovered (${formatBytes(totalRecoveredBytes(result.files))}).`,
-        ...extensionRecoveryLines(result),
-        ...ignoredDocumentLines,
-      ],
+      lines: [...extensionRecoveryLines(result), ...ignoredDocumentLines],
       type: "ok",
     };
     if (next.agePassphrase === base.agePassphrase) {
@@ -136,21 +116,12 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     }
     finalState = next;
   } catch (err) {
-    const next = didStartDecrypt ? cloneLatest(getState) : prep;
+    const next = didStartDecrypt ? cloneState(getState()) : prep;
     if (didStartDecrypt && !isCurrentDecryptRequest(next, prep.decryptRequestId)) {
       return;
     }
     next.isDecrypting = false;
-    const errorMsg = String(err);
-    const friendlyError = recoveryFriendlyError(errorMsg);
-    const intensiveApprovalRequired = errorMsg.includes(INTENSIVE_SCRYPT_APPROVAL_PREFIX);
-    next.intensiveRecoveryTarget = intensiveApprovalRequired ? extensionTarget : null;
-    setLineStatus(
-      next,
-      "decryptStatus",
-      friendlyError,
-      intensiveApprovalRequired ? "warn" : "error",
-    );
+    setErrorStatus(next, "decryptStatus", err, recoveryFriendlyError(err));
     finalState = next;
   } finally {
     if (activeDecryptController === decryptController) {
@@ -167,18 +138,13 @@ async function recoverWithMnemonicWhitespaceFallback(
   recoveryOptions,
 ) {
   try {
-    return await recoverLatestFromEncryptedDocuments(
-      documents,
-      passphrase,
-      decrypt,
-      recoveryOptions,
-    );
+    return await recoverDocuments(documents, passphrase, decrypt, recoveryOptions);
   } catch (error) {
     const fallback = mnemonicWhitespaceFallback(passphrase);
     if (fallback === null || !isPassphraseAuthenticationFailure(error)) {
       throw error;
     }
-    return recoverLatestFromEncryptedDocuments(documents, fallback, decrypt, recoveryOptions);
+    return recoverDocuments(documents, fallback, decrypt, recoveryOptions);
   }
 }
 
@@ -196,39 +162,22 @@ function mnemonicWhitespaceFallback(passphrase) {
   return normalized === passphrase ? null : normalized;
 }
 
-function isPassphraseAuthenticationFailure(error) {
-  return String(error).toLowerCase().includes("invalid passphrase");
-}
-
 function isCurrentDecryptRequest(state, requestId) {
   return state.isDecrypting && state.decryptRequestId === requestId;
 }
 
-function recoveryFriendlyError(errorMsg) {
-  if (errorMsg.includes(INTENSIVE_SCRYPT_APPROVAL_PREFIX)) {
-    return errorMsg.split(INTENSIVE_SCRYPT_APPROVAL_PREFIX, 2)[1].trim();
-  }
-  if (
-    errorMsg.includes("selected extension doc_hash") ||
-    errorMsg.includes("supplied backup documents")
-  ) {
-    return errorMsg;
-  }
-  if (errorMsg.includes("password")) {
+function recoveryFriendlyError(error) {
+  if (isPassphraseAuthenticationFailure(error)) {
     return "Incorrect passphrase.";
   }
-  if (errorMsg.includes("decrypt")) {
-    return "Could not unlock backup. Check passphrase.";
-  }
-  return errorMsg;
+  return error instanceof Error ? error.message : String(error);
 }
 
 function resolveExtensionTarget(state, options) {
-  const expectedHeadDocHashHex = normalizeExpectedHeadDocHash(state.expectedHeadDocHashText);
-  if (options.extensionTarget !== undefined) {
-    return normalizeExtensionTarget(options.extensionTarget, expectedHeadDocHashHex);
-  }
-  return normalizeExtensionTarget(state.extensionTargetText, expectedHeadDocHashHex);
+  return normalizeExtensionTarget(
+    options.extensionTarget ?? state.extensionTargetText,
+    state.expectedHeadDocHashText,
+  );
 }
 
 function ignoredPartialDocumentLines(state) {
@@ -244,12 +193,15 @@ function ignoredPartialDocumentLines(state) {
   return lines;
 }
 
-function totalRecoveredBytes(files) {
-  return files.reduce((sum, file) => sum + file.data.length, 0);
-}
-
 function extensionRecoveryLines(result) {
   const trustLines = recoveryTrustLines(result);
+  if (result.updateMode) {
+    trustLines.unshift(
+      result.updateMode === "cumulative"
+        ? "Cumulative update: original backup plus the selected update."
+        : "Incremental update: original backup and every update through the selected version.",
+    );
+  }
   if (result.replayTarget === "root") {
     return ["Replay target: root backup only.", ...trustLines];
   }
@@ -285,22 +237,6 @@ function recoveryTrustLines(result) {
     lines.push("Freshness: unknown beyond supplied pages; explicit acknowledgement used.");
   }
   return lines;
-}
-
-export async function extractBackupFiles(dispatch, getState) {
-  const base = cloneState(getState());
-  try {
-    clearRecoveredOutput(base);
-    if (!base.decryptedBackup) {
-      throw new Error("No decrypted document available yet.");
-    }
-    const result = await extractFiles(base.decryptedBackup);
-    applyExtractResult(base, result);
-    dispatchState(dispatch, base);
-  } catch (err) {
-    setErrorStatus(base, "extractStatus", err);
-    dispatchState(dispatch, base);
-  }
 }
 
 export function clearOutput(dispatch, getState) {
