@@ -12,7 +12,6 @@ from ethernity.app.widgets.workflow.controls import (
     ActionEditor,
     EditorValueChanged,
     InlineNotice,
-    WorkspaceActionGroup,
     child_id,
     merge_classes,
     post_workspace_action,
@@ -23,13 +22,12 @@ from ethernity.app.widgets.workflow.controls import (
 from ethernity.tasks.presentation.models import (
     DestinationBodyPresentation,
     PathSelectionBodyPresentation,
-    WorkspaceAction,
 )
 
 __all__ = ["DestinationEditor", "PathSelectionEditor"]
 
 
-class PathSelectionEditor(ActionEditor):
+class PathSelectionEditor(ActionEditor[PathSelectionBodyPresentation]):
     """Compact selectable path summary with explicit local actions."""
 
     class SelectionChanged(Message):
@@ -49,7 +47,6 @@ class PathSelectionEditor(ActionEditor):
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
-        self._presentation = presentation
         self._summary = Static("", classes="guided-summary", markup=False)
         self._paths: SelectionList[str] = SelectionList(
             id=child_id(id, "paths"),
@@ -57,18 +54,14 @@ class PathSelectionEditor(ActionEditor):
             compact=True,
         )
         self._empty = Static("", classes="guided-empty", markup=False)
-        self._actions = WorkspaceActionGroup(presentation.actions)
-        self._notice = InlineNotice(presentation.notice)
         super().__init__(
+            presentation,
             self._summary,
             self._paths,
             self._empty,
-            self._actions,
-            self._notice,
             id=id,
-            classes=merge_classes("guided-step-body", classes),
+            classes=classes,
         )
-        self.sync_presentation(presentation)
 
     @property
     def selected_keys(self) -> tuple[str, ...]:
@@ -110,9 +103,6 @@ class PathSelectionEditor(ActionEditor):
         event.stop()
         self._sync_selection_actions()
         self.post_message(self.SelectionChanged(self, self.selected_keys))
-
-    def action_presentations(self) -> tuple[WorkspaceAction, ...]:
-        return self._presentation.actions
 
     def _sync_selection_actions(self) -> None:
         has_selection = bool(self.selected_keys)

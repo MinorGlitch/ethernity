@@ -13,7 +13,6 @@ from ethernity.app.widgets.workflow.controls import (
     InlineNotice,
     KeyedRadioSet,
     WorkflowIntegerInput,
-    WorkspaceActionGroup,
     child_id,
     merge_classes,
     sync_action,
@@ -24,7 +23,6 @@ from ethernity.tasks.presentation.models import (
     OptionsBodyPresentation,
     QuorumBodyPresentation,
     SelectFieldPresentation,
-    WorkspaceAction,
 )
 
 __all__ = ["OptionsEditor", "QuorumEditor"]
@@ -188,7 +186,7 @@ class QuorumEditor(VerticalGroup):
             self._count.value = _input_value(self._presentation.count)
 
 
-class OptionsEditor(ActionEditor):
+class OptionsEditor(ActionEditor[OptionsBodyPresentation]):
     """Compact renderer for values, choices, native Select fields, and local actions."""
 
     class ChoiceChanged(Message):
@@ -224,7 +222,6 @@ class OptionsEditor(ActionEditor):
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
-        self._presentation = presentation
         self._values = tuple(
             Static("", classes="guided-detail", markup=False) for _ in presentation.values
         )
@@ -267,18 +264,14 @@ class OptionsEditor(ActionEditor):
             )
         )
         self._selects = VerticalGroup(*self._select_rows, classes="guided-selects")
-        self._actions = WorkspaceActionGroup(presentation.actions)
-        self._notice = InlineNotice(presentation.notice)
         super().__init__(
+            presentation,
             *self._values,
             self._choice_set,
             self._selects,
-            self._actions,
-            self._notice,
             id=id,
-            classes=merge_classes("guided-step-body", classes),
+            classes=classes,
         )
-        self.sync_presentation(presentation)
 
     def on_mount(self) -> None:
         self.sync_presentation(self._presentation)
@@ -349,9 +342,6 @@ class OptionsEditor(ActionEditor):
         choice_key = self._choice_set.key_for_button(event.pressed)
         if choice_key is not None:
             self.post_message(self.ChoiceChanged(self, choice_key))
-
-    def action_presentations(self) -> tuple[WorkspaceAction, ...]:
-        return self._presentation.actions
 
     def on_select_changed(self, event: Select.Changed) -> None:
         try:

@@ -15,6 +15,8 @@ from ethernity.app.widgets.actions import ResponsiveActions
 from ethernity.tasks.presentation.models import (
     ChoicePresentation,
     InlineNoticePresentation,
+    OptionsBodyPresentation,
+    PathSelectionBodyPresentation,
     WorkspaceAction,
 )
 
@@ -225,15 +227,42 @@ class WorkspaceActionGroup(ResponsiveActions):
         super().__init__(*self.buttons, classes="guided-actions")
 
 
-class ActionEditor(VerticalGroup):
-    _actions: WorkspaceActionGroup
+_ActionPresentation = TypeVar(
+    "_ActionPresentation", OptionsBodyPresentation, PathSelectionBodyPresentation
+)
+
+
+class ActionEditor(VerticalGroup, Generic[_ActionPresentation]):
+    """Workflow editor with shared action buttons and a trailing notice."""
+
+    def __init__(
+        self,
+        presentation: _ActionPresentation,
+        *children: Widget,
+        id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        self._presentation = presentation
+        self._actions = WorkspaceActionGroup(presentation.actions)
+        self._notice = InlineNotice(presentation.notice)
+        super().__init__(
+            *children,
+            self._actions,
+            self._notice,
+            id=id,
+            classes=merge_classes("guided-step-body", classes),
+        )
+        self.sync_presentation(presentation)
+
+    def sync_presentation(self, presentation: _ActionPresentation) -> None:
+        raise NotImplementedError
 
     @property
     def _action_buttons(self) -> tuple[Button, ...]:
         return self._actions.buttons
 
     def action_presentations(self) -> tuple[WorkspaceAction, ...]:
-        raise NotImplementedError
+        return self._presentation.actions
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         post_workspace_action(self, event, self._action_buttons, self.action_presentations())
