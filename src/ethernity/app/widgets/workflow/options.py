@@ -292,12 +292,8 @@ class OptionsEditor(ActionEditor[OptionsBodyPresentation]):
         ):
             label.update(Content.from_text(select.label, markup=False))
             if select_widget.is_attached:
-                with select_widget.prevent(Select.Changed):
-                    select_widget.set_options(_select_options(select))
-                    select_widget.value = select.value if select.value is not None else Select.NULL
-                    # set_options() selects the first option internally. Force the watcher even
-                    # when that is also the desired value so SelectCurrent receives its label.
-                    select_widget.mutate_reactive(Select.value)
+                select_widget.sync_options(_select_options(select))
+                select_widget.sync_value(select.value if select.value is not None else Select.NULL)
             select_widget.disabled = not select.enabled
             select_widget.tooltip = (
                 Content.from_text(select.description, markup=False) if select.description else None

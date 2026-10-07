@@ -294,11 +294,11 @@ def selected_choice(choices: tuple[ChoicePresentation, ...]) -> str:
 
 
 def set_select(select: Select, value: str) -> None:
-    with select.prevent(Select.Changed):
-        if value:
-            select.value = value
-        else:
-            select.clear()
+    if isinstance(select, FormSelect):
+        select.sync_value(value or Select.NULL)
+    else:
+        with select.prevent(Select.Changed):
+            select.value = value or Select.NULL
 
 
 def update_buttons(widget: Widget, actions: tuple[WorkspaceAction, ...]) -> None:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TypeVar
 
+from rich.console import RenderableType
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -11,7 +13,7 @@ from textual.containers import HorizontalGroup, VerticalGroup, VerticalScroll
 from textual.visual import Padding, Visual
 from textual.widget import Widget
 from textual.widgets import Button, Label, Select
-from textual.widgets._select import SelectCurrent, SelectOverlay
+from textual.widgets._select import NoSelection, SelectCurrent, SelectOverlay
 from textual.widgets.option_list import Option
 
 from ethernity.app.widgets.actions import button_min_width
@@ -96,6 +98,27 @@ class FormSelect(Select[SelectValue], inherit_bindings=False):
         Binding("tab", "leave(1)", "Next control", show=False),
         Binding("shift+tab", "leave(-1)", "Previous control", show=False),
     ]
+
+    _presented_value: object = object()
+    _presented_options: tuple[tuple[RenderableType, SelectValue], ...] | None = None
+
+    def sync_value(self, value: SelectValue | NoSelection) -> None:
+        """Apply model changes without overwriting an unprocessed user selection."""
+        if value == self._presented_value:
+            return
+        self._presented_value = value
+        with self.prevent(Select.Changed):
+            self.value = value
+            self.mutate_reactive(Select.value)
+
+    def sync_options(self, options: Iterable[tuple[RenderableType, SelectValue]]) -> None:
+        options = tuple(options)
+        if options == self._presented_options:
+            return
+        self._presented_options = options
+        self._presented_value = object()
+        with self.prevent(Select.Changed):
+            self.set_options(options)
 
     def compose(self) -> ComposeResult:
         yield SelectCurrent(self.prompt)

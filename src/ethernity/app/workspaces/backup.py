@@ -5,7 +5,7 @@ from textual.containers import HorizontalGroup
 from textual.widgets import Button, Collapsible, Select, Static
 
 from ethernity.app.widgets.collapsible import AppCollapsible, sync_collapsible_panel
-from ethernity.app.widgets.form import FormScroll, FormSection
+from ethernity.app.widgets.form import FormScroll, FormSection, FormSelect
 from ethernity.app.widgets.static_text import update_static_text
 from ethernity.app.widgets.workflow.controls import InlineNotice, KeyedRadioSet
 from ethernity.app.workspaces.workspace_controls import (
@@ -189,14 +189,13 @@ class BackupWorkspace(BaseWorkspace):
             value(recovery, "storage-note"),
         )
         print_setup = group(presentation, "print")
-        paper_select = self.query_one("#workspace-backup-paper-size", Select)
+        paper_select = self.query_one("#workspace-backup-paper-size", FormSelect)
         design = value(print_setup, "design")
         definition = load_design_definition_by_name(design)
         names = supported_paper_size_names(
             design, doc_types=definition.documents & BACKUP_RENDER_DOC_TYPES
         )
-        with paper_select.prevent(Select.Changed):
-            paper_select.set_options([(paper_size_display_name(name), name) for name in names])
+        paper_select.sync_options([(paper_size_display_name(name), name) for name in names])
         set_select(paper_select, value(print_setup, "paper"))
         set_select(self.query_one("#workspace-backup-design", Select), design)
         documents = group(presentation, "documents")

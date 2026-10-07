@@ -20,6 +20,9 @@ class _SourceAssessmentHost(Protocol):
     active_task: TaskKey
     workflow_ui_states: dict[TaskKey, WorkflowUiState]
 
+    @property
+    def is_running(self) -> bool: ...
+
     def refresh_task_view(self) -> None: ...
 
 
@@ -131,7 +134,8 @@ class SourceAssessmentController:
         completion = self._completion.get(task)
         if completion is not None:
             completion.set()
-        self._app.refresh_task_view()
+        if self._app.is_running:
+            self._app.refresh_task_view()
 
     def _next_generation(self, task: TaskKey) -> int:
         if task in self._generation:

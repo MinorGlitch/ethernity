@@ -115,6 +115,29 @@ def test_backup_print_overrides_survive_navigation_without_changing_settings() -
 
 
 @pytest.mark.parametrize(
+    "control,value,attribute,expected",
+    (
+        ("passphrase-words", "18", "passphrase_words", 18),
+        ("paper-size", "LETTER", "paper_size", "LETTER"),
+        ("design", "maritime", "design", "maritime"),
+    ),
+)
+def test_background_refresh_preserves_pending_select_edits(control, value, attribute, expected):
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(120, 36)) as pilot:
+            select = app.query_one(f"#workspace-backup-{control}", Select)
+            select.value = value
+            # An estimate can finish before the queued Select.Changed is handled.
+            app.refresh_task_view()
+            await pilot.pause()
+            assert getattr(app.backup_state, attribute) == expected
+            assert select.value == value
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
     "backup_state",
     (
         BackupTaskState(),

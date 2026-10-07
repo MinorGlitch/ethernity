@@ -3,7 +3,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.widgets import Button, Select, Static
 
-from ethernity.app.widgets.form import FormRow, FormScroll, FormSection
+from ethernity.app.widgets.form import FormRow, FormScroll, FormSection, FormSelect
 from ethernity.app.widgets.static_text import PathLabel, update_static_text
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.app.workspaces.workspace_controls import (
@@ -64,17 +64,16 @@ class KitWorkspace(BaseWorkspace):
             value(variant, "variant"),
         )
         layout = group(presentation, "layout")
-        paper_select = self.query_one("#workspace-kit-paper", Select)
+        paper_select = self.query_one("#workspace-kit-paper", FormSelect)
         design_name = value(layout, "design")
         definition = load_design_definition_by_name(design_name)
         supported_names = supported_paper_size_names(
             design_name,
             doc_types=definition.documents & KIT_RENDER_DOC_TYPES,
         )
-        with paper_select.prevent(Select.Changed):
-            paper_select.set_options(
-                [(paper_size_display_name(name), name) for name in supported_names]
-            )
+        paper_select.sync_options(
+            [(paper_size_display_name(name), name) for name in supported_names]
+        )
         set_select(paper_select, value(layout, "paper"))
         set_select(self.query_one("#workspace-kit-design", Select), value(layout, "design"))
 

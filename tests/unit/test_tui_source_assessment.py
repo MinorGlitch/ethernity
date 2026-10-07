@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ from ethernity.tasks.source_assessment import (
     source_freshness_status,
 )
 from ethernity.workflows.recovery.models import RecoveryUnlockStatus
+from tests.support.pilot import wait_for_condition
 
 
 def _missing_unlock() -> RecoveryUnlockStatus:
@@ -263,6 +265,36 @@ def test_source_mutation_runs_assessment_in_background(monkeypatch) -> None:
             assert assessment is not None
             assert assessment.backup_identity == "deadcafe"
             assert not app.workflow_ui_states["restore"].source_assessment_loading
+
+    asyncio.run(run())
+
+
+def test_shutdown_during_source_assessment_does_not_refresh_removed_widgets(monkeypatch) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def assess(request) -> SourceAssessment:
+        started.set()
+        assert release.wait(timeout=10)
+        return SourceAssessment(
+            source_kind=request.source_kind,
+            source_label=request.source_label,
+            source_summary=request.source_summary,
+        )
+
+    monkeypatch.setattr("ethernity.tasks.source_assessment.assess_source_request", assess)
+
+    async def run() -> None:
+        app = EthernityApp()
+        try:
+            async with app.run_test(size=(120, 36)) as pilot:
+                await pilot.press("2")
+                app._apply_restore_sources_picked((Path("scan.pdf"),))
+                await wait_for_condition(pilot, started.is_set, "source assessment to start")
+                assert app.workflow_ui_states["restore"].source_assessment_loading
+            assert not app.workflow_ui_states["restore"].source_assessment_loading
+        finally:
+            release.set()
 
     asyncio.run(run())
 
