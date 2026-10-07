@@ -29,6 +29,8 @@ import {
 import {
   DOCUMENT_MAGIC,
   BACKUP_DOCUMENT_VERSION,
+  BACKUP_DOCUMENT_VERSIONS,
+  LEGACY_BACKUP_DOCUMENT_VERSION,
   MANIFEST_VERSION,
   MAX_DECOMPRESSED_PAYLOAD_BYTES,
   MAX_MANIFEST_CBOR_BYTES,
@@ -41,7 +43,6 @@ const PAYLOAD_CODEC_RAW = "raw";
 const PAYLOAD_CODEC_GZIP = "gzip";
 const GZIP_PAYLOAD_MESSAGES = [
   "gzip payload requires DecompressionStream support",
-  "gzip payload contains trailing data",
   "decoded payload exceeds manifest payload_raw_len",
   "decoded payload length does not match manifest payload_raw_len",
   "invalid gzip payload",
@@ -60,7 +61,7 @@ function decodeBackupDocument(bytes) {
   let idx = 2;
   const versionRes = readUvarint(bytes, idx);
   idx = versionRes.offset;
-  if (version !== BACKUP_DOCUMENT_VERSION)
+  if (!BACKUP_DOCUMENT_VERSIONS.has(version))
     throw new Error(`unsupported document version: ${version}`);
 
   const manifestLenRes = readUvarint(bytes, idx);
@@ -85,34 +86,34 @@ function decodeBackupDocument(bytes) {
   const payload = bytes.slice(idx, payloadEnd);
 
   const manifest = decodeDeterministicCbor(manifestBytes, "manifest");
-  return { manifest, payload };
+  return { manifest, payload, version };
 }
 
-function parseManifest(manifest) {
+function parseManifest(manifest, documentVersion) {
+  const legacy = documentVersion === LEGACY_BACKUP_DOCUMENT_VERSION;
   if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
     throw new Error("manifest must be a map");
   }
-  for (const key of [
-    "version",
-    "created",
-    "sealed",
-    "seed",
-    "input_origin",
-    "input_roots",
-    "path_encoding",
-    "files",
-  ]) {
+  for (const key of ["created", "seed", "input_origin", "input_roots", "path_encoding", "files"]) {
     if (!(key in manifest)) {
       throw new Error(`manifest ${key} is required`);
     }
   }
 
-  const formatVersion = manifest.version;
-  if (!Number.isInteger(formatVersion)) {
-    throw new Error("manifest version must be an int");
-  }
-  if (formatVersion !== MANIFEST_VERSION) {
-    throw new Error(`unsupported manifest version: ${formatVersion}`);
+  if (legacy) {
+    if (!("version" in manifest)) throw new Error("manifest version is required");
+    if (!Number.isInteger(manifest.version)) throw new Error("manifest version must be an int");
+    if (manifest.version !== MANIFEST_VERSION) {
+      throw new Error(`unsupported manifest version: ${manifest.version}`);
+    }
+    if (!("sealed" in manifest)) throw new Error("manifest sealed is required");
+  } else {
+    for (const key of ["version", "sealed", "payload_raw_len"]) {
+      if (key in manifest)
+        throw new Error(
+          `manifest ${key} is not allowed in document version ${BACKUP_DOCUMENT_VERSION}`,
+        );
+    }
   }
 
   const createdAt = manifest.created;
@@ -120,7 +121,7 @@ function parseManifest(manifest) {
     throw new Error("manifest created must be a number");
   }
 
-  const sealed = manifest.sealed;
+  const sealed = legacy ? manifest.sealed : manifest.seed === null;
   if (typeof sealed !== "boolean") {
     throw new Error("manifest sealed must be a boolean");
   }
@@ -205,16 +206,19 @@ function parseManifest(manifest) {
     throw new Error("manifest payload_codec must be one of: raw, gzip");
   }
   const expectedRawLen = entries.reduce((sum, entry) => sum + entry.size, 0);
+  if (!Number.isSafeInteger(expectedRawLen) || expectedRawLen > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
+    throw new Error("manifest file sizes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES");
+  }
   let payloadRawLen = null;
   if (payloadCodecRaw === PAYLOAD_CODEC_RAW) {
-    if ("payload_raw_len" in manifest && manifest.payload_raw_len !== null) {
+    if (legacy && "payload_raw_len" in manifest && manifest.payload_raw_len !== null) {
       throw new Error("manifest payload_raw_len must be null for raw payload_codec");
     }
   } else {
-    if (!("payload_raw_len" in manifest)) {
+    if (legacy && !("payload_raw_len" in manifest)) {
       throw new Error("manifest payload_raw_len is required for gzip payload_codec");
     }
-    payloadRawLen = manifest.payload_raw_len;
+    payloadRawLen = legacy ? manifest.payload_raw_len : expectedRawLen;
     if (!Number.isInteger(payloadRawLen) || payloadRawLen <= 0) {
       throw new Error("manifest payload_raw_len must be a positive int");
     }
@@ -229,7 +233,6 @@ function parseManifest(manifest) {
   }
 
   return {
-    formatVersion,
     createdAt,
     sealed,
     signingSeed,
@@ -344,8 +347,8 @@ async function decodePayloadFromManifest(parsedManifest, payload) {
 }
 
 export async function extractFiles(documentBytes) {
-  const { manifest, payload } = decodeBackupDocument(documentBytes);
-  const parsed = parseManifest(manifest);
+  const { manifest, payload, version } = decodeBackupDocument(documentBytes);
+  const parsed = parseManifest(manifest, version);
   const normalizedPayload = await decodePayloadFromManifest(parsed, payload);
   const files = [];
   let offset = 0;

@@ -7,6 +7,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { extractFiles } from "../app/backup_document.js";
 import {
   DOCUMENT_MAGIC,
+  LEGACY_BACKUP_DOCUMENT_VERSION,
   BACKUP_DOCUMENT_VERSION,
   FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
@@ -27,11 +28,11 @@ import {
 
 ensureAtob();
 
-function buildBackupDocument(manifest, payload) {
+function buildBackupDocument(manifest, payload, version = LEGACY_BACKUP_DOCUMENT_VERSION) {
   const manifestBytes = encodeCbor(manifest);
   return concatBytes([
     Uint8Array.from(DOCUMENT_MAGIC),
-    encodeUvarint(BACKUP_DOCUMENT_VERSION),
+    encodeUvarint(version),
     encodeUvarint(manifestBytes.length),
     manifestBytes,
     encodeUvarint(payload.length),
@@ -244,7 +245,7 @@ test("document decoder rejects framing-length and hash mismatches", async () => 
 
   const truncatedManifest = concatBytes([
     Uint8Array.from(DOCUMENT_MAGIC),
-    encodeUvarint(BACKUP_DOCUMENT_VERSION),
+    encodeUvarint(LEGACY_BACKUP_DOCUMENT_VERSION),
     encodeUvarint(manifestBytes.length + 10),
     manifestBytes,
     encodeUvarint(payload.length),
@@ -254,7 +255,7 @@ test("document decoder rejects framing-length and hash mismatches", async () => 
 
   const payloadMismatch = concatBytes([
     Uint8Array.from(DOCUMENT_MAGIC),
-    encodeUvarint(BACKUP_DOCUMENT_VERSION),
+    encodeUvarint(LEGACY_BACKUP_DOCUMENT_VERSION),
     encodeUvarint(manifestBytes.length),
     manifestBytes,
     encodeUvarint(payload.length + 1),
@@ -406,5 +407,57 @@ test("frame parser rejects invalid auth/key frame invariants", () => {
   assert.throws(
     () => parseAutoPayload(createInitialState(), mainBad),
     /neither valid QR payloads nor valid fallback text/,
+  );
+});
+
+test("current and released documents normalize to the same manifest", async () => {
+  const payload = new TextEncoder().encode("backup contents".repeat(20));
+  for (const sealed of [true, false]) {
+    for (const codec of ["raw", "gzip"]) {
+      for (const pathEncoding of ["direct", "prefix_table"]) {
+        const legacy = validManifest(payload);
+        legacy.sealed = sealed;
+        legacy.seed = sealed ? null : new Uint8Array(32).fill(7);
+        legacy.payload_codec = codec;
+        legacy.path_encoding = pathEncoding;
+        if (codec === "gzip") legacy.payload_raw_len = payload.length;
+        if (pathEncoding === "prefix_table") {
+          legacy.path_prefixes = [""];
+          legacy.files = legacy.files.map(([path, ...rest]) => [0, path, ...rest]);
+        }
+        const current = { ...legacy };
+        delete current.version;
+        delete current.sealed;
+        delete current.payload_raw_len;
+        const stored = codec === "gzip" ? gzipPayload(payload) : payload;
+        assert.deepEqual(
+          await extractFiles(buildBackupDocument(current, stored, BACKUP_DOCUMENT_VERSION)),
+          await extractFiles(buildBackupDocument(legacy, stored)),
+        );
+      }
+    }
+  }
+});
+
+test("current documents reject removed fields and bound gzip by file sizes", async () => {
+  const payload = Uint8Array.of(1, 2, 3);
+  const manifest = validManifest(payload);
+  delete manifest.version;
+  delete manifest.sealed;
+  for (const key of ["version", "sealed", "payload_raw_len"]) {
+    await assert.rejects(
+      () =>
+        extractFiles(
+          buildBackupDocument({ ...manifest, [key]: null }, payload, BACKUP_DOCUMENT_VERSION),
+        ),
+      /not allowed/,
+    );
+  }
+  manifest.payload_codec = "gzip";
+  manifest.files[0][1] = 2;
+  await assert.rejects(
+    () =>
+      extractFiles(buildBackupDocument(manifest, gzipPayload(payload), BACKUP_DOCUMENT_VERSION)),
+    /exceeds/,
   );
 });

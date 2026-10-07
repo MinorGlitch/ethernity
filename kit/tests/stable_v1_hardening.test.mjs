@@ -1,3 +1,7 @@
+import { concatByteParts as concatBytes } from "../lib/bytes.js";
+import { documentCounts } from "../app/documents/store.js";
+import { activeShardSetRecord } from "../app/shard_store.js";
+import { createTestDocument, createTestShardSet } from "./protocol_test_data.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
@@ -7,7 +11,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { extractFiles } from "../app/backup_document.js";
 import {
   DOCUMENT_MAGIC,
-  BACKUP_DOCUMENT_VERSION,
+  LEGACY_BACKUP_DOCUMENT_VERSION,
   FRAME_MAGIC,
   FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
@@ -46,17 +50,6 @@ function encodeUvarint(value) {
   return Uint8Array.from(out);
 }
 
-function concatBytes(parts) {
-  const total = parts.reduce((sum, part) => sum + part.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
-
 function toUnpaddedBase64(bytes) {
   return Buffer.from(bytes).toString("base64").replace(/=+$/u, "");
 }
@@ -65,7 +58,7 @@ function buildBackupDocument(manifest, payload) {
   const manifestBytes = encodeCbor(manifest);
   return concatBytes([
     Uint8Array.from(DOCUMENT_MAGIC),
-    encodeUvarint(BACKUP_DOCUMENT_VERSION),
+    encodeUvarint(LEGACY_BACKUP_DOCUMENT_VERSION),
     encodeUvarint(manifestBytes.length),
     manifestBytes,
     encodeUvarint(payload.length),
@@ -193,7 +186,7 @@ test("extractFiles rejects gzip payloads with trailing members", async () => {
 
   await assert.rejects(
     () => extractFiles(buildBackupDocument(manifest, payload)),
-    /gzip payload contains trailing data/,
+    /invalid gzip payload/,
   );
 });
 
@@ -223,7 +216,7 @@ test("extractFiles rejects nondeterministic manifest CBOR", async () => {
   const nondeterministicManifest = Uint8Array.of(0x18, 0x01);
   const document = concatBytes([
     Uint8Array.from(DOCUMENT_MAGIC),
-    encodeUvarint(BACKUP_DOCUMENT_VERSION),
+    encodeUvarint(LEGACY_BACKUP_DOCUMENT_VERSION),
     encodeUvarint(nondeterministicManifest.length),
     nondeterministicManifest,
     encodeUvarint(0),
@@ -267,8 +260,8 @@ test("parseAutoPayload rejects nondeterministic AUTH CBOR payload", () => {
 
   const added = parseAutoPayload(state, toUnpaddedBase64(frame));
   assert.equal(added, 0);
-  assert.equal(state.authErrors, 1);
-  assert.equal(state.authPayload, null);
+  assert.equal(documentCounts(state).authErrors, 1);
+  assert.equal(Array.from(state.documents.values())[0].authPayload, null);
 });
 
 test("parseAutoShard rejects structurally invalid shard payload share lengths", () => {
@@ -290,7 +283,7 @@ test("parseAutoShard rejects structurally invalid shard payload share lengths", 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
   assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
-  assert.equal(state.shardFrames.size, 0);
+  assert.equal(activeShardSetRecord(state)?.shardFrames.size ?? 0, 0);
 });
 
 test("parseAutoShard rejects shard payloads above MAX_SHARD_SHARES", () => {
@@ -312,7 +305,7 @@ test("parseAutoShard rejects shard payloads above MAX_SHARD_SHARES", () => {
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
   assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
-  assert.equal(state.shardFrames.size, 0);
+  assert.equal(activeShardSetRecord(state)?.shardFrames.size ?? 0, 0);
 });
 
 test("parseAutoShard rejects non-32-byte signing-seed shard payloads", () => {
@@ -334,7 +327,7 @@ test("parseAutoShard rejects non-32-byte signing-seed shard payloads", () => {
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
   assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
-  assert.equal(state.shardFrames.size, 0);
+  assert.equal(activeShardSetRecord(state)?.shardFrames.size ?? 0, 0);
 });
 
 test("parseAutoShard rejects nondeterministic shard CBOR payload", () => {
@@ -357,7 +350,7 @@ test("parseAutoShard rejects nondeterministic shard CBOR payload", () => {
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
   assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
-  assert.equal(state.shardFrames.size, 0);
+  assert.equal(activeShardSetRecord(state)?.shardFrames.size ?? 0, 0);
 });
 
 test("parseAutoPayload rejects fallback input above MAX_FALLBACK_LINES", () => {
@@ -381,11 +374,13 @@ test("parseAutoShard rejects fallback input above MAX_FALLBACK_NORMALIZED_CHARS"
 
 test("autoRecoverShardSecret rejects shard/doc hash mismatch before reconstruction", () => {
   const state = createInitialState();
-  state.total = 1;
-  state.mainFrames.set(0, { data: Uint8Array.of(9, 8, 7) });
-  state.shardThreshold = 1;
-  state.shardDocHashHex = "00".repeat(32);
-  state.shardFrames.set(1, {
+  const document = createTestDocument(state, Uint8Array.of(9, 8, 7));
+  const shards = createTestShardSet(state);
+  document.total = 1;
+  document.mainFrames.set(0, { data: Uint8Array.of(9, 8, 7) });
+  shards.threshold = 1;
+  shards.docHashHex = "00".repeat(32);
+  shards.shardFrames.set(1, {
     version: 1,
     keyType: SHARD_KEY_PASSPHRASE,
     threshold: 1,

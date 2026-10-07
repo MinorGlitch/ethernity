@@ -15,9 +15,14 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import {
+  RecoveryError,
+  asRecoveryError,
+  isPassphraseAuthenticationFailure,
+} from "../../lib/errors.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesEqual, bytesToHex } from "../../lib/bytes.js";
-import { EXTENSION_DOCUMENT_VERSION, BACKUP_DOCUMENT_VERSION } from "../constants.js";
+import { EXTENSION_DOCUMENT_VERSION, BACKUP_DOCUMENT_VERSIONS } from "../constants.js";
 import { documentIdentityFromCiphertext } from "../documents/identity.js";
 import { extractFiles, readDocumentVersion } from "../backup_document.js";
 import { decodeExtensionDocumentHeader, reconstructLatestFilesFromDocuments } from "./document.js";
@@ -27,7 +32,7 @@ import {
   verifyAuthSignature,
 } from "../auth.js";
 import { enforceRecoveryDocumentBudget } from "../frames_cipher.js";
-import { normalizeExtensionTarget } from "./target.js";
+import { normalizeExtensionTarget, requireFreshnessDecision } from "./target.js";
 
 export async function recoverLatestFromPlaintextDocuments(
   documents,
@@ -38,7 +43,7 @@ export async function recoverLatestFromPlaintextDocuments(
   } = {},
 ) {
   if (!documents.length) {
-    throw new Error("Collected ciphertext not available yet.");
+    throw new RecoveryError("INPUT_REQUIRED", "Collected ciphertext not available yet.");
   }
   enforceRecoveryDocumentBudget(documents, { byteField: "plaintext", byteLabel: "plaintext" });
   const target = normalizeExtensionTarget(extensionTarget);
@@ -49,7 +54,7 @@ export async function recoverLatestFromPlaintextDocuments(
   for (const document of documents) {
     try {
       const version = readDocumentVersion(document.plaintext);
-      if (version === BACKUP_DOCUMENT_VERSION) {
+      if (BACKUP_DOCUMENT_VERSIONS.has(version)) {
         decoded.push({
           kind: "root",
           document,
@@ -61,32 +66,50 @@ export async function recoverLatestFromPlaintextDocuments(
           document,
         });
       } else {
-        decodeErrors.push({ document, message: `unsupported document version: ${version}` });
+        decodeErrors.push({
+          document,
+          error: new RecoveryError("DOCUMENT_INVALID", `unsupported document version: ${version}`),
+        });
       }
     } catch (err) {
-      decodeErrors.push({ document, message: String(err) });
+      decodeErrors.push({ document, error: asRecoveryError(err) });
     }
   }
 
   const roots = decoded.filter((item) => item.kind === "root");
   if (roots.length !== 1) {
     if (!roots.length && decodeErrors.length) {
-      throw new Error(
-        `content import did not contain a decryptable root backup: ${decodeErrors[0].message}`,
+      throw new RecoveryError(
+        "DOCUMENT_INVALID",
+        `content import did not contain a decryptable root backup: ${decodeErrors[0].error.message}`,
+        { cause: decodeErrors[0].error },
       );
     }
-    throw new Error(`content import must contain exactly one root backup (${roots.length} found)`);
+    throw new RecoveryError(
+      "DOCUMENT_INVALID",
+      `content import must contain exactly one root backup (${roots.length} found)`,
+    );
   }
   const root = roots[0];
   const rawExtensions = decoded.filter((item) => item.kind === "extension");
   for (const failure of decodeErrors) {
-    throwIfSelectedDocHashFailure(target, failure.document, "decoded", failure.message);
+    throwIfSelectedDocHashFailure(target, failure.document, "decoded", failure.error);
   }
   if (decodeErrors.length && documents.length > 1 && target.kind === "latest") {
-    throw new Error("one or more supplied backup documents could not be decoded");
+    throw new RecoveryError(
+      "SUPPLIED_DOCUMENT_FAILED",
+      "one or more supplied backup documents could not be decoded",
+      { cause: decodeErrors[0].error },
+    );
   }
   const suppliedRootAuthPayload = await verifySuppliedRootAuth(root, verifySignature);
-  if (rootOnly) {
+  if (rootOnly || !rawExtensions.length) {
+    if (!rootOnly && target.kind !== "latest") {
+      throw new RecoveryError(
+        "RECOVERY_TARGET_INVALID",
+        "requested extension target was not supplied",
+      );
+    }
     ensureExpectedHeadSatisfied(target, root.document.docHashHex);
     return {
       files: root.extracted.files,
@@ -98,24 +121,6 @@ export async function recoverLatestFromPlaintextDocuments(
       ...recoveryTrustDetails(target, root.extracted.manifest),
       decryptedBackup: root.document.plaintext,
       replayTarget: rootOnly ? "root" : "latest",
-      suppliedDocumentCount: documents.length,
-    };
-  }
-  if (!rawExtensions.length) {
-    if (target.kind !== "latest") {
-      throw new Error("requested extension target was not supplied");
-    }
-    ensureExpectedHeadSatisfied(target, root.document.docHashHex);
-    return {
-      files: root.extracted.files,
-      manifest: root.extracted.manifest,
-      selectedExtensionIndex: null,
-      selectedExtensionDocHash: null,
-      freshnessScope: null,
-      freshnessDecision,
-      ...recoveryTrustDetails(target, root.extracted.manifest),
-      decryptedBackup: root.document.plaintext,
-      replayTarget: "latest",
       suppliedDocumentCount: documents.length,
     };
   }
@@ -135,40 +140,26 @@ export async function recoverLatestFromPlaintextDocuments(
         verifySignature,
       );
     } catch (err) {
-      throwIfSelectedDocHashFailure(target, item.document, "trusted", String(err));
-      extensionFailures.push({
-        authenticated: false,
-        message: String(err),
-      });
+      throwIfSelectedDocHashFailure(target, item.document, "trusted", err);
+      extensionFailures.push(asRecoveryError(err, "AUTH_VERIFICATION_FAILED"));
       continue;
     }
     let header;
     try {
       header = decodeExtensionDocumentHeader(item.document.plaintext);
     } catch (err) {
-      throwIfSelectedDocHashFailure(
-        target,
-        item.document,
-        "decoded",
-        `extension signed by the root key could not be decoded: ${String(err)}`,
-      );
-      extensionFailures.push({
-        authenticated: true,
-        message: `extension signed by the root key could not be decoded: ${String(err)}`,
-      });
+      const error = extensionDecodeFailure(err);
+      throwIfSelectedDocHashFailure(target, item.document, "decoded", error);
+      extensionFailures.push(error);
       continue;
     }
     if (!bytesEqual(header.rootDocHash, root.document.docHash)) {
-      throwIfSelectedDocHashFailure(
-        target,
-        item.document,
-        "trusted",
+      const error = new RecoveryError(
+        "DOCUMENT_INTEGRITY_FAILED",
         "extension root_doc_hash does not match root backup",
       );
-      extensionFailures.push({
-        authenticated: true,
-        message: "extension root_doc_hash does not match root backup",
-      });
+      throwIfSelectedDocHashFailure(target, item.document, "trusted", error);
+      extensionFailures.push(error);
       continue;
     }
     authenticatedExtensions.push({
@@ -187,14 +178,11 @@ export async function recoverLatestFromPlaintextDocuments(
         verifySignature,
       )
     ) {
-      extensionFailures.push({
-        authenticated: true,
-        message: `extension signed by the root key could not be decoded: ${failure.message}`,
-      });
+      extensionFailures.push(extensionDecodeFailure(failure.error));
     }
   }
   if (target.kind === "latest" && extensionFailures.length) {
-    throw new Error(extensionFailures[0].message);
+    throw extensionFailures[0];
   }
 
   const selectedHeaders = selectSuppliedChainForTarget(authenticatedExtensions, target);
@@ -210,16 +198,12 @@ export async function recoverLatestFromPlaintextDocuments(
       })),
     );
   } catch (err) {
+    const error = extensionDecodeFailure(err);
     const selectedDocument = selectedHeaders.at(-1)?.document;
     if (selectedDocument) {
-      throwIfSelectedDocHashFailure(
-        target,
-        selectedDocument,
-        "decoded",
-        `extension signed by the root key could not be decoded: ${String(err)}`,
-      );
+      throwIfSelectedDocHashFailure(target, selectedDocument, "decoded", error);
     }
-    throw new Error(`extension signed by the root key could not be decoded: ${String(err)}`);
+    throw error;
   }
   const latest = selectedHeaders.at(-1);
   ensureExpectedHeadSatisfied(target, latest?.docHashHex ?? root.document.docHashHex);
@@ -229,6 +213,7 @@ export async function recoverLatestFromPlaintextDocuments(
       ? manifestForRecoveredFiles(root.extracted.manifest, files)
       : root.extracted.manifest,
     selectedExtensionIndex: latest?.header.index ?? null,
+    updateMode: latest?.header.updateMode ?? null,
     selectedExtensionDocHash: latest?.docHashHex ?? null,
     freshnessScope: selectedHeaders.length ? "supplied_carriers_only" : null,
     freshnessDecision,
@@ -247,7 +232,6 @@ export async function recoverLatestFromEncryptedDocuments(
     verifySignature = verifyAuthSignature,
     extensionTarget = "latest",
     signal,
-    allowResourceIntensiveScrypt = false,
     freshnessUnknownAcknowledged = false,
   } = {},
 ) {
@@ -257,41 +241,39 @@ export async function recoverLatestFromEncryptedDocuments(
   const authPreflight = await preflightEncryptedDocumentAuth(documents, verifySignature);
   const decryptPreflight =
     typeof decrypt.preflightBatch === "function"
-      ? decrypt.preflightBatch(
-          documents.map((document) => document.ciphertext),
-          {
-            allowResourceIntensive: allowResourceIntensiveScrypt,
-          },
-        )
+      ? decrypt.preflightBatch(documents.map((document) => document.ciphertext))
       : null;
   if (target.kind === "latest") {
     const firstAuthError = authPreflight.errors.find(Boolean);
     if (firstAuthError) {
-      throw new Error(firstAuthError);
+      throw firstAuthError;
     }
     if (authPreflight.hasMultipleSigningKeys) {
-      throw new Error("supplied AUTH payloads contain multiple signing keys");
+      throw new RecoveryError(
+        "ROOT_SIGNING_KEY_MISMATCH",
+        "supplied AUTH payloads contain multiple signing keys",
+      );
     }
     const firstPreflightError = decryptPreflight?.errors?.find(Boolean);
     if (firstPreflightError) {
-      throw new Error(firstPreflightError);
+      throw firstPreflightError;
     }
   }
   const plaintextDocuments = [];
   const decryptErrors = [];
   for (const [documentIndex, document] of authPreflight.documents.entries()) {
     if (signal?.aborted) {
-      throw new Error("recovery decryption was cancelled");
+      throw new RecoveryError("CANCELLED", "recovery decryption was cancelled");
     }
     const identifiedDocument = document;
     try {
       const authError = authPreflight.errors[documentIndex];
       if (authError) {
-        throw new Error(authError);
+        throw authError;
       }
       const preflightError = decryptPreflight?.errors?.[documentIndex];
       if (preflightError) {
-        throw new Error(preflightError);
+        throw preflightError;
       }
       const plaintext = await decrypt(document.ciphertext, passphrase, { signal });
       plaintextDocuments.push({
@@ -299,17 +281,37 @@ export async function recoverLatestFromEncryptedDocuments(
         plaintext,
       });
     } catch (err) {
-      decryptErrors.push({ document: identifiedDocument, message: String(err) });
+      const error = asRecoveryError(err);
+      if (error.code === "CANCELLED") throw error;
+      decryptErrors.push({ document: identifiedDocument, error });
     }
   }
+  const failures = decryptErrors.map((failure) => failure.error);
+  // Retry a mnemonic only when every document rejected the exact passphrase.
+  if (
+    !plaintextDocuments.length &&
+    failures.length &&
+    failures.every(isPassphraseAuthenticationFailure)
+  ) {
+    throw failures[0];
+  }
   for (const failure of decryptErrors) {
-    throwIfSelectedDocHashFailure(target, failure.document, "decrypted", failure.message);
+    throwIfSelectedDocHashFailure(target, failure.document, "decrypted", failure.error);
   }
   if (!plaintextDocuments.length) {
-    throw new Error(decryptErrors[0]?.message ?? "Could not unlock backup. Check passphrase.");
+    throw (
+      failures.find((error) => !isPassphraseAuthenticationFailure(error)) ??
+      new RecoveryError("INPUT_REQUIRED", "Collected ciphertext not available yet.")
+    );
   }
   if (decryptErrors.length && documents.length > 1 && target.kind === "latest") {
-    throw new Error("one or more supplied backup documents could not be decrypted");
+    throw new RecoveryError(
+      "SUPPLIED_DOCUMENT_FAILED",
+      "one or more supplied backup documents could not be decrypted",
+      {
+        cause: decryptErrors[0].error,
+      },
+    );
   }
   const result = await recoverLatestFromPlaintextDocuments(plaintextDocuments, {
     verifySignature,
@@ -334,14 +336,14 @@ async function preflightEncryptedDocumentAuth(documents, verifySignature) {
       };
       assertSuppliedDocumentIdentityMatches(document, identity);
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      error = asRecoveryError(err);
     }
     if (identifiedDocument.authPayload) {
       try {
         const payload = await requireVerifiedAuthPayload(identifiedDocument, null, verifySignature);
         signingKeys.add(bytesToHex(payload.signPub));
       } catch (err) {
-        error ??= err instanceof Error ? err.message : String(err);
+        error ??= asRecoveryError(err, "AUTH_VERIFICATION_FAILED");
       }
     }
     identifiedDocuments.push(identifiedDocument);
@@ -366,10 +368,13 @@ function assertSuppliedBytesMatch(value, expected, label) {
     return;
   }
   if (!(value instanceof Uint8Array)) {
-    throw new Error(`supplied ${label} must be bytes`);
+    throw new RecoveryError("DOCUMENT_INTEGRITY_FAILED", `supplied ${label} must be bytes`);
   }
   if (!bytesEqual(value, expected)) {
-    throw new Error(`supplied ${label} does not match derived ciphertext identity`);
+    throw new RecoveryError(
+      "DOCUMENT_INTEGRITY_FAILED",
+      `supplied ${label} does not match derived ciphertext identity`,
+    );
   }
 }
 
@@ -378,7 +383,10 @@ function assertSuppliedHexMatch(value, expected, label) {
     return;
   }
   if (String(value).toLowerCase() !== expected) {
-    throw new Error(`supplied ${label} does not match derived ciphertext identity`);
+    throw new RecoveryError(
+      "DOCUMENT_INTEGRITY_FAILED",
+      `supplied ${label} does not match derived ciphertext identity`,
+    );
   }
 }
 
@@ -399,21 +407,6 @@ function manifestForRecoveredFiles(rootManifest, files) {
   };
 }
 
-function requireFreshnessDecision(target, freshnessUnknownAcknowledged) {
-  if (target.expectedHeadDocHashHex || target.kind === "doc_hash") {
-    return "manual_expected_head";
-  }
-  if (target.kind === "latest" && freshnessUnknownAcknowledged === true) {
-    return "supplied_pages_freshness_unknown";
-  }
-  if (target.kind === "latest") {
-    throw new Error(
-      "latest recovery requires an expected head hash or explicit freshness-unknown acknowledgement",
-    );
-  }
-  throw new Error("selected recovery target requires an expected head hash");
-}
-
 function recoveryTrustDetails(target, manifest) {
   if (target.expectedHeadDocHashHex || target.kind === "doc_hash") {
     return {
@@ -429,24 +422,38 @@ function ensureExpectedHeadSatisfied(target, actualHeadDocHashHex) {
     return;
   }
   if (actualHeadDocHashHex !== target.expectedHeadDocHashHex) {
-    throw new Error(
+    throw new RecoveryError(
+      "RECOVERY_TARGET_INVALID",
       `validated extension head doc_hash does not match expected head ${target.expectedHeadDocHashHex}; latest supplied head is ${actualHeadDocHashHex}`,
     );
   }
 }
 
-function throwIfSelectedDocHashFailure(target, document, verb, message) {
+function extensionDecodeFailure(error) {
+  return new RecoveryError(
+    "DOCUMENT_INVALID",
+    `extension signed by the root key could not be decoded: ${String(error)}`,
+    { cause: error },
+  );
+}
+
+function throwIfSelectedDocHashFailure(target, document, verb, error) {
   if (target.kind !== "doc_hash" || document.docHashHex !== target.docHashHex) {
     return;
   }
-  throw new Error(
-    `selected extension doc_hash ${target.docHashHex} could not be ${verb}: ${message}`,
+  throw new RecoveryError(
+    "SELECTED_DOCUMENT_FAILED",
+    `selected extension doc_hash ${target.docHashHex} could not be ${verb}: ${error instanceof Error ? error.message : String(error)}`,
+    { cause: error },
   );
 }
 
 function deriveRootSigningPublicKey(manifest) {
   if (!manifest?.signingSeed) {
-    throw new Error("extension replay requires an unsealed root backup with its signing seed");
+    throw new RecoveryError(
+      "AUTH_REQUIRED",
+      "extension replay requires an unsealed root backup with its signing seed",
+    );
   }
   return deriveSigningPublicKey(manifest.signingSeed);
 }
@@ -467,7 +474,8 @@ function selectLatestSuppliedChain(extensions) {
     const index = extension.header.index;
     const existing = byIndex.get(index);
     if (existing && existing.docHashHex !== extension.docHashHex) {
-      throw new Error(
+      throw new RecoveryError(
+        "RECOVERY_TARGET_INVALID",
         `content import contains multiple authenticated extensions for index ${index}`,
       );
     }
@@ -488,7 +496,10 @@ function selectSuppliedChainForTarget(extensions, target) {
     );
     const latest = selected.at(-1);
     if (!latest || latest.header.index !== target.index) {
-      throw new Error(`extension index target was not supplied: ${target.index}`);
+      throw new RecoveryError(
+        "RECOVERY_TARGET_INVALID",
+        `extension index target was not supplied: ${target.index}`,
+      );
     }
     return selected;
   }
@@ -497,13 +508,16 @@ function selectSuppliedChainForTarget(extensions, target) {
       (extension) => extension.docHashHex === target.docHashHex,
     );
     if (!targetExtension) {
-      throw new Error(`extension doc_hash target was not supplied: ${target.docHashHex}`);
+      throw new RecoveryError(
+        "RECOVERY_TARGET_INVALID",
+        `extension doc_hash target was not supplied: ${target.docHashHex}`,
+      );
     }
     return selectLatestSuppliedChain(
       extensions.filter((extension) => extension.header.index <= targetExtension.header.index),
     );
   }
-  throw new Error("unknown extension recovery target");
+  throw new RecoveryError("RECOVERY_TARGET_INVALID", "unknown extension recovery target");
 }
 
 async function documentHasVerifiedRootSignature(document, expectedSignPub, verifySignature) {

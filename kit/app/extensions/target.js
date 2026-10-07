@@ -7,6 +7,8 @@
  * (at your option) any later version.
  */
 
+import { RecoveryError } from "../../lib/errors.js";
+
 const DOC_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 export function normalizeExpectedHeadDocHash(value) {
@@ -14,7 +16,10 @@ export function normalizeExpectedHeadDocHash(value) {
   if (!text) return null;
   const hash = text.toLowerCase();
   if (!DOC_HASH_PATTERN.test(hash)) {
-    throw new Error("expected head doc hash must be 64 hex characters");
+    throw new RecoveryError(
+      "RECOVERY_TARGET_INVALID",
+      "expected head doc hash must be 64 hex characters",
+    );
   }
   return hash;
 }
@@ -40,20 +45,29 @@ export function normalizeExtensionTarget(value, expectedHeadValue = null) {
   return attachExpectedHead(target, expectedHeadDocHashHex);
 }
 
-export function inspectExtensionTarget(value, expectedHeadValue = null) {
+export function inspectExtensionTarget(
+  value,
+  expectedHeadValue = null,
+  freshnessUnknownAcknowledged = false,
+) {
   try {
-    return { target: normalizeExtensionTarget(value, expectedHeadValue), error: null };
+    const target = normalizeExtensionTarget(value, expectedHeadValue);
+    try {
+      return {
+        target,
+        decision: requireFreshnessDecision(target, freshnessUnknownAcknowledged),
+        error: null,
+      };
+    } catch (error) {
+      return { target, decision: null, error };
+    }
   } catch (error) {
-    return { target: null, error };
+    return { target: null, decision: null, error };
   }
 }
 
 export function isLatestExtensionTarget(target) {
   return target?.kind === "latest";
-}
-
-export function isRootExtensionTarget(target) {
-  return target?.kind === "root";
 }
 
 function targetFromText(value) {
@@ -84,13 +98,19 @@ function targetFromObject(value) {
     target = { kind: "root" };
   } else if (value.kind === "index") {
     if (!Number.isInteger(value.index) || value.index < 0) {
-      throw new Error("extension index target must be a non-negative integer");
+      throw new RecoveryError(
+        "RECOVERY_TARGET_INVALID",
+        "extension index target must be a non-negative integer",
+      );
     }
     target = value.index === 0 ? { kind: "root" } : { kind: "index", index: value.index };
   } else if (value.kind === "doc_hash") {
     const docHashHex = String(value.docHashHex ?? "").toLowerCase();
     if (!DOC_HASH_PATTERN.test(docHashHex)) {
-      throw new Error("extension doc_hash target must be 64 hex characters");
+      throw new RecoveryError(
+        "RECOVERY_TARGET_INVALID",
+        "extension doc_hash target must be 64 hex characters",
+      );
     }
     target = { kind: "doc_hash", docHashHex };
   } else {
@@ -102,13 +122,36 @@ function targetFromObject(value) {
 function attachExpectedHead(target, expectedHeadDocHashHex) {
   if (!expectedHeadDocHashHex) return target;
   if (target.expectedHeadDocHashHex && target.expectedHeadDocHashHex !== expectedHeadDocHashHex) {
-    throw new Error("expected head doc hash conflicts with extension recovery target");
+    throw new RecoveryError(
+      "RECOVERY_TARGET_INVALID",
+      "expected head doc hash conflicts with extension recovery target",
+    );
   }
   return { ...target, expectedHeadDocHashHex };
 }
 
 function invalidTargetError() {
-  return new Error(
+  return new RecoveryError(
+    "RECOVERY_TARGET_INVALID",
     "extension target must be latest, latest:<doc hash>, root, an extension index, or a doc hash",
+  );
+}
+
+export function requireFreshnessDecision(target, freshnessUnknownAcknowledged) {
+  if (target.expectedHeadDocHashHex || target.kind === "doc_hash") {
+    return "manual_expected_head";
+  }
+  if (target.kind === "latest" && freshnessUnknownAcknowledged === true) {
+    return "supplied_pages_freshness_unknown";
+  }
+  if (target.kind === "latest") {
+    throw new RecoveryError(
+      "RECOVERY_TARGET_INVALID",
+      "latest recovery requires an expected head hash or explicit freshness-unknown acknowledgement",
+    );
+  }
+  throw new RecoveryError(
+    "RECOVERY_TARGET_INVALID",
+    "selected recovery target requires an expected head hash",
   );
 }

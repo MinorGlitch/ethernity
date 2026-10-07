@@ -16,8 +16,7 @@ test("reusable kit metadata carries no chain-specific trust claim", () => {
   globalThis.__ETHERNITY_KIT_METADATA__ = {
     capability: "ethernity-unanchored-rescue",
     version: 1,
-    supported_extension_envelope_versions: [2],
-    supported_extension_schema_versions: [1],
+    supported_document_versions: [1, 2, 3],
   };
 
   assert.deepEqual(readEmbeddedKitMetadata(), {
@@ -35,8 +34,7 @@ test("embedded chain-bound metadata is rejected", () => {
     root_document_hash: HASH_A,
     root_signing_public_key_fingerprint: HASH_B,
     expected_latest_head_hash: HASH_C,
-    supported_extension_envelope_versions: [2],
-    supported_extension_schema_versions: [1],
+    supported_document_versions: [1, 2, 3],
   };
 
   assert.throws(() => readEmbeddedKitMetadata(), /unsupported recovery kit capability/u);
