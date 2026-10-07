@@ -24,9 +24,10 @@ import io
 import os
 import sys
 import time
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any
 
 from ethernity.security.resource_worker import (
     DisposableWorkerError,
@@ -168,6 +169,8 @@ def scan_qr_payloads(
 
 def scan_qr_payloads_with_sources(
     paths: Sequence[str | Path],
+    *,
+    on_progress: Callable[[int], None] | None = None,
 ) -> list[ScannedQrPayload]:
     """Scan one or more paths and return decoded QR payload bytes with source paths."""
 
@@ -176,6 +179,8 @@ def scan_qr_payloads_with_sources(
     scan_file_count = 0
     started_at = time.monotonic()
     for scan_input in _expand_paths(paths):
+        if on_progress is not None:
+            on_progress(scan_file_count)
         path = scan_input.path
         scan_file_count += 1
         if scan_file_count > MAX_SCAN_INPUT_FILES:
@@ -208,6 +213,9 @@ def scan_qr_payloads_with_sources(
             )
             for payload in source_payloads
         )
+
+    if on_progress is not None:
+        on_progress(scan_file_count)
 
     if not payloads:
         raise NoQrPayloadsError("no QR codes found in scan inputs")

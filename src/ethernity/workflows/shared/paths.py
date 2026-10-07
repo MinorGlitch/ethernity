@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ntpath
 import posixpath
+from collections.abc import Sequence
 from pathlib import Path
 
 from ethernity.core.paths import expand_user_path, expand_user_paths
@@ -32,7 +33,7 @@ def expanduser_cli_path(path: str | Path | None, *, preserve_stdin: bool = True)
     return expand_user_path(path, preserve_stdin=preserve_stdin)
 
 
-def expanduser_cli_paths(paths: list[str] | tuple[str, ...] | None) -> list[str]:
+def expanduser_cli_paths(paths: Sequence[str | Path] | None) -> list[str]:
     """Normalize a sequence of user-provided CLI paths."""
 
     return expand_user_paths(paths)

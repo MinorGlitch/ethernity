@@ -20,7 +20,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import active_event_sink, emit_warning
 
 
@@ -56,7 +56,7 @@ def warn(
     message: str,
     *,
     quiet: bool,
-    code: str = api_codes.WARNING,
+    code: str = issue_codes.WARNING,
     details: dict[str, Any] | None = None,
 ) -> None:
     if active_event_sink() is not None:

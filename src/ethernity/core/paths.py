@@ -33,7 +33,7 @@ def expand_user_path(path: str | Path | None, *, preserve_stdin: bool = True) ->
     return str(Path(text).expanduser())
 
 
-def expand_user_paths(paths: Sequence[str] | None) -> list[str]:
+def expand_user_paths(paths: Sequence[str | Path] | None) -> list[str]:
     """Expand a sequence of user paths."""
 
     if not paths:

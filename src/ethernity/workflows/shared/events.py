@@ -16,12 +16,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Protocol
+
+from ethernity.core.failures import FailureStage
+from ethernity.workflows.shared.execution_control import begin_final_write, cancellation_point
 
 
 @dataclass
@@ -29,6 +31,7 @@ class CommandError(ValueError):
     code: str
     message: str
     details: dict[str, Any] = field(default_factory=dict)
+    stage: FailureStage | None = None
 
     def __post_init__(self) -> None:
         ValueError.__init__(self, self.message)
@@ -39,15 +42,10 @@ class EventSink(Protocol):
 
 
 _ACTIVE_SINK: ContextVar[EventSink | None] = ContextVar("event_sink", default=None)
-_STARTED_EMITTED: ContextVar[bool] = ContextVar("event_started_emitted", default=False)
 
 
 def active_event_sink() -> EventSink | None:
     return _ACTIVE_SINK.get()
-
-
-def started_event_emitted() -> bool:
-    return _STARTED_EMITTED.get()
 
 
 @contextmanager
@@ -55,49 +53,29 @@ def event_session(sink: EventSink | None) -> Generator[EventSink | None, None, N
     if sink is None:
         yield active_event_sink()
         return
-    reset_started = active_event_sink() is None
     token = _ACTIVE_SINK.set(sink)
-    started_token = _STARTED_EMITTED.set(False) if reset_started else None
     try:
         yield sink
     finally:
-        if started_token is not None:
-            _STARTED_EMITTED.reset(started_token)
         _ACTIVE_SINK.reset(token)
-
-
-def _safe_value(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, bytes):
-        return value.hex()
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, tuple):
-        return [_safe_value(item) for item in value]
-    if isinstance(value, list):
-        return [_safe_value(item) for item in value]
-    if isinstance(value, dict):
-        return {str(key): _safe_value(item) for key, item in value.items()}
-    return str(value)
 
 
 def emit_event(event_type: str, **payload: Any) -> None:
     sink = active_event_sink()
     if sink is None:
         return
-    sink.emit(event_type, **{key: _safe_value(value) for key, value in payload.items()})
-
-
-def emit_started(*, command: str, args: dict[str, Any], schema_version: int) -> None:
-    if active_event_sink() is None or started_event_emitted():
-        return
-    _STARTED_EMITTED.set(True)
-    emit_event("started", command=command, schema_version=schema_version, args=args)
+    sink.emit(event_type, **payload)
 
 
 def emit_phase(*, phase: str, label: str) -> None:
+    cancellation_point()
     emit_event("phase", id=phase, label=label)
+
+
+def emit_finalizing() -> None:
+    """Announce the point after which cancellation can no longer undo the run."""
+    begin_final_write()
+    emit_phase(phase="save", label="Saving output")
 
 
 def emit_warning(*, code: str, message: str, details: dict[str, Any] | None = None) -> None:
@@ -111,8 +89,9 @@ def emit_progress(
     total: int | None = None,
     unit: str | None = None,
     label: str | None = None,
-    details: dict[str, Any] | None = None,
+    details: Mapping[str, Any] | None = None,
 ) -> None:
+    cancellation_point()
     emit_event(
         "progress",
         phase=phase,
@@ -128,12 +107,15 @@ def emit_written_file(*, kind: str, path: str, details: dict[str, Any] | None = 
     emit_event("file", kind=kind, path=path, details=details or {})
 
 
-def emit_result(**payload: Any) -> None:
-    emit_event("result", ok=True, **payload)
-
-
-def emit_error(*, code: str, message: str, details: dict[str, Any] | None = None) -> None:
-    emit_event("error", ok=False, code=code, message=message, details=details or {})
+def report_render_page(doc_type: str, current: int, total: int) -> None:
+    """Adapt the renderer's page callback to workflow progress without UI dependencies."""
+    emit_progress(
+        phase="render",
+        current=current,
+        total=total,
+        unit="pages",
+        details={"document_type": doc_type},
+    )
 
 
 __all__ = [
@@ -141,13 +123,11 @@ __all__ = [
     "EventSink",
     "active_event_sink",
     "emit_written_file",
-    "emit_error",
     "emit_event",
     "emit_phase",
+    "emit_finalizing",
     "emit_progress",
-    "emit_result",
-    "emit_started",
     "emit_warning",
     "event_session",
-    "started_event_emitted",
+    "report_render_page",
 ]

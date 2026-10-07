@@ -17,13 +17,13 @@
 from __future__ import annotations
 
 from ethernity.crypto import MNEMONIC_WORD_COUNTS
-from ethernity.crypto.sharding import MAX_SHARES
-from ethernity.workflows.shared.operation_types import BackupArgs
+from ethernity.workflows.shared.quorum import validate_quorum, validate_quorum_pair
+from ethernity.workflows.shared.requests import BackupRequest
 
-__all__ = ["validate_backup_args"]
+__all__ = ["validate_backup_request"]
 
 
-def validate_backup_args(args: BackupArgs) -> None:
+def validate_backup_request(args: BackupRequest) -> None:
     if args.passphrase == "":
         raise ValueError("passphrase cannot be empty")
     if (
@@ -38,6 +38,12 @@ def validate_backup_args(args: BackupArgs) -> None:
         raise ValueError("use either --passphrase or --generate-passphrase, not both")
     if args.qr_chunk_size is not None and args.qr_chunk_size <= 0:
         raise ValueError("qr chunk size must be a positive integer")
+    _validate_backup_sharding(args)
+    if args.passphrase_words is not None:
+        _validate_passphrase_words(args.passphrase_words)
+
+
+def _validate_backup_sharding(args: BackupRequest) -> None:
     if args.signing_key_mode is not None and args.signing_key_mode not in ("embedded", "sharded"):
         raise ValueError("signing key mode must be 'embedded' or 'sharded'")
     if args.signing_key_shard_threshold is not None or args.signing_key_shard_count is not None:
@@ -47,31 +53,19 @@ def validate_backup_args(args: BackupArgs) -> None:
             )
         if args.signing_key_mode != "sharded":
             raise ValueError("signing key shard quorum requires --signing-key-mode sharded")
-        if args.signing_key_shard_threshold < 1:
-            raise ValueError("signing key shard threshold must be >= 1")
-        if args.signing_key_shard_threshold > MAX_SHARES:
-            raise ValueError(f"signing key shard threshold must be <= {MAX_SHARES}")
-        if args.signing_key_shard_count < args.signing_key_shard_threshold:
-            raise ValueError("signing key shard count must be >= signing key shard threshold")
-        if args.signing_key_shard_count > MAX_SHARES:
-            raise ValueError(f"signing key shard count must be <= {MAX_SHARES}")
+        validate_quorum(
+            args.signing_key_shard_threshold,
+            args.signing_key_shard_count,
+            label="signing key shard",
+        )
     if args.signing_key_mode == "sharded":
         if args.shard_threshold is None or args.shard_count is None:
             raise ValueError("signing key sharding requires passphrase sharding")
-    if args.shard_threshold is not None or args.shard_count is not None:
-        if args.shard_threshold is None or args.shard_count is None:
-            raise ValueError("both --shard-threshold and --shard-count are required")
-    if args.shard_threshold is not None and args.shard_count is not None:
-        if args.shard_threshold < 1:
-            raise ValueError("shard threshold must be >= 1")
-        if args.shard_threshold > MAX_SHARES:
-            raise ValueError(f"shard threshold must be <= {MAX_SHARES}")
-        if args.shard_count < args.shard_threshold:
-            raise ValueError("shard count must be >= shard threshold")
-        if args.shard_count > MAX_SHARES:
-            raise ValueError(f"shard count must be <= {MAX_SHARES}")
-    if args.passphrase_words is not None:
-        _validate_passphrase_words(args.passphrase_words)
+    validate_quorum_pair(
+        args.shard_threshold,
+        args.shard_count,
+        pair_label="--shard-threshold and --shard-count",
+    )
 
 
 def _validate_passphrase_words(words: int) -> None:

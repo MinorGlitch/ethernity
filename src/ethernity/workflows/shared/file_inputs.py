@@ -22,7 +22,7 @@ import errno
 import os
 import stat as stat_module
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Literal, Protocol
@@ -30,6 +30,8 @@ from typing import BinaryIO, Literal, Protocol
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ethernity.core.paths import expand_user_path
 from ethernity.core.validation import normalize_path
+from ethernity.workflows.shared.events import emit_progress
+from ethernity.workflows.shared.streams import StreamSizeLimitError, read_bounded_bytes
 
 SCAN_UPDATE_INTERVAL = 1
 READ_PROGRESS_UPDATE_INTERVAL = 10
@@ -68,6 +70,7 @@ class _ScanTracker:
 
     def tick(self) -> None:
         self.scanned += 1
+        emit_progress(phase="input", current=self.scanned, unit="files")
         if self.progress is None or self.task_id is None:
             return
         if self.scanned == 1 or self.scanned % self.update_interval == 0:
@@ -76,6 +79,17 @@ class _ScanTracker:
                 description=f"Scanning input files... ({self.scanned} found)",
             )
             self.progress.refresh()
+
+    def finish(self) -> None:
+        if self.progress is None or self.task_id is None:
+            return
+        self.progress.update(
+            self.task_id,
+            total=self.scanned,
+            completed=self.scanned,
+            description=f"Scanning input files... ({self.scanned} found)",
+        )
+        self.progress.refresh()
 
 
 @dataclass(frozen=True)
@@ -86,19 +100,22 @@ class _PlannedInputFile:
     file_stat: os.stat_result
 
 
+@dataclass(frozen=True)
+class _InputSources:
+    paths: list[Path]
+    stdin_requested: bool
+    origin: Literal["file", "directory", "mixed"]
+    roots: list[str]
+
+
 def load_input_files(
-    input_paths: list[str],
-    input_dirs: list[str],
-    base_dir: str | None,
+    input_paths: Sequence[str | Path],
+    input_dirs: Sequence[str | Path],
+    base_dir: str | Path | None,
     *,
     allow_stdin: bool,
     progress: InputLoadProgress | None = None,
 ) -> tuple[list[InputFile], Path | None, Literal["file", "directory", "mixed"], list[str]]:
-    paths: list[Path] = []
-    stdin_requested = False
-    has_directory_source = False
-    has_file_source = False
-    input_roots: list[str] = []
     has_scan_inputs = any(raw != "-" for raw in input_paths) or bool(input_dirs)
     scan_task_id = (
         progress.add_task("Scanning input files...", total=None)
@@ -108,6 +125,31 @@ def load_input_files(
     if progress is not None and scan_task_id is not None:
         progress.refresh()
     tracker = _ScanTracker(progress, scan_task_id, SCAN_UPDATE_INTERVAL)
+    sources = _collect_input_sources(input_paths, input_dirs, tracker=tracker)
+    if sources.stdin_requested and not allow_stdin:
+        raise ValueError("stdin input is not supported here")
+    if not sources.paths and not sources.stdin_requested:
+        raise ValueError("no input files found")
+    tracker.finish()
+
+    base = _resolve_base_dir(sources.paths, base_dir)
+    planned_files = _plan_input_files(sources.paths, base)
+    entries = _read_planned_input_files(planned_files, progress=progress)
+    if sources.stdin_requested:
+        entries.append(_stdin_input_file(planned_files))
+
+    entries.sort(key=lambda item: item.relative_path)
+    return entries, base, sources.origin, sources.roots
+
+
+def _collect_input_sources(
+    input_paths: Sequence[str | Path], input_dirs: Sequence[str | Path], *, tracker: _ScanTracker
+) -> _InputSources:
+    paths: list[Path] = []
+    stdin_requested = False
+    has_directory_source = False
+    has_file_source = False
+    input_roots: list[str] = []
 
     for raw in input_paths:
         if raw == "-":
@@ -136,32 +178,26 @@ def load_input_files(
         input_roots.append(directory_root_label(path))
         paths.extend(_walk_directory(path, on_file=tracker.tick))
 
-    if stdin_requested and not allow_stdin:
-        raise ValueError("stdin input is not supported here")
-    if not paths and not stdin_requested:
-        raise ValueError("no input files found")
+    if has_directory_source and has_file_source:
+        input_origin: Literal["file", "directory", "mixed"] = "mixed"
+    elif has_directory_source:
+        input_origin = "directory"
+    else:
+        input_origin = "file"
+    return _InputSources(paths, stdin_requested, input_origin, input_roots)
 
-    scanned = tracker.scanned
-    if progress is not None and scan_task_id is not None:
-        progress.update(
-            scan_task_id,
-            total=scanned,
-            completed=scanned,
-            description=f"Scanning input files... ({scanned} found)",
-        )
-        progress.refresh()
 
-    base = _resolve_base_dir(paths, base_dir)
-    planned_files = _plan_input_files(paths, base)
+def _read_planned_input_files(
+    planned_files: list[_PlannedInputFile], *, progress: InputLoadProgress | None
+) -> list[InputFile]:
     entries: list[InputFile] = []
-    total = len(paths)
+    total = len(planned_files)
     read_task_id = progress.add_task("Reading input files...", total=total) if progress else None
     if progress is not None and read_task_id is not None:
         progress.refresh()
     read = 0
-    seen = {plan.relative_path: plan.absolute_path for plan in planned_files}
-    total_input_bytes = sum(plan.file_stat.st_size for plan in planned_files)
     for plan in planned_files:
+        emit_progress(phase="input", current=read, total=total, unit="files")
         data = _read_planned_input_file(plan)
         mtime = int(plan.file_stat.st_mtime)
         entries.append(
@@ -182,37 +218,30 @@ def load_input_files(
                 )
                 progress.refresh()
 
-    if stdin_requested:
-        rel = normalize_path("data.txt", label="relative path")
-        if rel in seen:
-            raise ValueError(f"duplicate relative path '{rel}' from stdin")
-        if len(planned_files) + 1 > MAX_MANIFEST_FILES:
-            raise ValueError(
-                f"input files exceed MAX_MANIFEST_FILES ({MAX_MANIFEST_FILES}): "
-                f"{len(planned_files) + 1}"
-            )
-        data = _read_stdin_input_with_limit(total_input_bytes)
-        if not data:
-            raise ValueError(
-                "stdin input is empty; provide data with --input - or use --input/--input-dir"
-            )
-        entries.append(
-            InputFile(
-                source_path=None,
-                relative_path=rel,
-                data=data,
-                mtime=None,
-            )
-        )
+    return entries
 
-    entries.sort(key=lambda item: item.relative_path)
-    if has_directory_source and has_file_source:
-        input_origin: Literal["file", "directory", "mixed"] = "mixed"
-    elif has_directory_source:
-        input_origin = "directory"
-    else:
-        input_origin = "file"
-    return entries, base, input_origin, input_roots
+
+def _stdin_input_file(planned_files: list[_PlannedInputFile]) -> InputFile:
+    rel = normalize_path("data.txt", label="relative path")
+    if any(plan.relative_path == rel for plan in planned_files):
+        raise ValueError(f"duplicate relative path '{rel}' from stdin")
+    if len(planned_files) + 1 > MAX_MANIFEST_FILES:
+        raise ValueError(
+            f"input files exceed MAX_MANIFEST_FILES ({MAX_MANIFEST_FILES}): "
+            f"{len(planned_files) + 1}"
+        )
+    total_input_bytes = sum(plan.file_stat.st_size for plan in planned_files)
+    data = _read_stdin_input_with_limit(total_input_bytes)
+    if not data:
+        raise ValueError(
+            "stdin input is empty; provide data with --input - or use --input/--input-dir"
+        )
+    return InputFile(
+        source_path=None,
+        relative_path=rel,
+        data=data,
+        mtime=None,
+    )
 
 
 def _plan_input_files(paths: list[Path], base_dir: Path | None) -> list[_PlannedInputFile]:
@@ -308,18 +337,10 @@ def _read_planned_input_file(plan: _PlannedInputFile) -> bytes:
 
 
 def _read_file_bytes_with_limit(handle: BinaryIO, *, max_bytes: int) -> bytes:
-    chunks: list[bytes] = []
-    total_bytes = 0
-    while True:
-        remaining = max_bytes + 1 - total_bytes
-        chunk = handle.read(min(64 * 1024, remaining))
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total_bytes += len(chunk)
-        if total_bytes > max_bytes:
-            raise ValueError("input file changed while reading")
-    return b"".join(chunks)
+    try:
+        return read_bounded_bytes(handle, max_bytes=max_bytes)
+    except StreamSizeLimitError as exc:
+        raise ValueError("input file changed while reading") from exc
 
 
 def _read_stdin_input_with_limit(existing_bytes: int) -> bytes:
@@ -361,7 +382,7 @@ def _walk_directory(path: Path, *, on_file: Callable[[], None] | None = None) ->
     return files
 
 
-def _resolve_base_dir(paths: list[Path], base_dir: str | None) -> Path | None:
+def _resolve_base_dir(paths: list[Path], base_dir: str | Path | None) -> Path | None:
     if base_dir:
         raw_base = Path(expand_user_path(base_dir, preserve_stdin=False) or "")
         _reject_symlink(raw_base, "base dir")

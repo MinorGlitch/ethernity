@@ -17,9 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
-from ethernity.encoding.framing import Frame
 from ethernity.workflows.shared.file_inputs import InputFile as InputFile
 
 
@@ -40,108 +38,6 @@ class BackupResult:
     doc_hash: bytes | None = None
 
 
-@dataclass
-class BackupArgs:
-    """Typed container for backup command arguments."""
-
-    config: str | None = None
-    paper: str | None = None
-    design: str | None = None
-    input: list[str] | None = None
-    input_dir: list[str] | None = None
-    base_dir: str | None = None
-    output_dir: str | None = None
-    output_dir_existing_parent: bool = False
-    layout_debug_dir: str | None = None
-    qr_chunk_size: int | None = None
-    passphrase: str | None = None
-    passphrase_generate: bool = False
-    passphrase_words: int | None = None
-    sealed: bool = False
-    shard_threshold: int | None = None
-    shard_count: int | None = None
-    signing_key_mode: Literal["embedded", "sharded"] | None = None
-    signing_key_shard_threshold: int | None = None
-    signing_key_shard_count: int | None = None
-    debug: bool = False
-    debug_max_bytes: int = 0
-    debug_reveal_secrets: bool = False
-    assume_yes: bool = False
-    quiet: bool = False
-
-
-@dataclass
-class RecoverArgs:
-    """Typed container for recover command arguments."""
-
-    config: str | None = None
-    paper: str | None = None
-    fallback_file: str | None = None
-    payloads_file: str | None = None
-    scan: list[str] | None = None
-    frames: list[Frame] | None = None
-    passphrase: str | None = None
-    shard_fallback_file: list[str] | None = None
-    shard_payloads_file: list[str] | None = None
-    shard_scan: list[str] | None = None
-    shard_frames: list[Frame] | None = None
-    auth_fallback_file: str | None = None
-    auth_payloads_file: str | None = None
-    auth_frames: list[Frame] | None = None
-    extension_index: int | None = None
-    extension_doc_hash: str | None = None
-    expected_head_doc_hash: str | None = None
-    output: str | None = None
-    allow_unsigned: bool = False
-    resource_intensive_compatibility_recovery: bool = False
-    assume_yes: bool = False
-    debug_max_bytes: int = 0
-    debug_reveal_secrets: bool = False
-    quiet: bool = False
-
-
-@dataclass
-class ReplacementRecoveryOperationRequest:
-    """Typed container for replacement-recovery operation arguments."""
-
-    config: str | None = None
-    paper: str | None = None
-    design: str | None = None
-    fallback_file: str | None = None
-    payloads_file: str | None = None
-    frames: list[Frame] | None = None
-    input_label: str | None = None
-    input_detail: str | None = None
-    scan: list[str] | None = None
-    passphrase: str | None = None
-    shard_fallback_file: list[str] | None = None
-    shard_payloads_file: list[str] | None = None
-    shard_scan: list[str] | None = None
-    shard_frames: list[Frame] | None = None
-    auth_fallback_file: str | None = None
-    auth_payloads_file: str | None = None
-    extension_index: int | None = None
-    extension_doc_hash: str | None = None
-    expected_head_doc_hash: str | None = None
-    allow_stale_head: bool = False
-    signing_key_shard_fallback_file: list[str] | None = None
-    signing_key_shard_payloads_file: list[str] | None = None
-    signing_key_shard_scan: list[str] | None = None
-    signing_key_shard_frames: list[Frame] | None = None
-    output_dir: str | None = None
-    output_dir_existing_parent: bool = False
-    layout_debug_dir: str | None = None
-    shard_threshold: int | None = None
-    shard_count: int | None = None
-    signing_key_shard_threshold: int | None = None
-    signing_key_shard_count: int | None = None
-    passphrase_replacement_count: int | None = None
-    signing_key_replacement_count: int | None = None
-    create_passphrase_shards: bool = True
-    create_signing_key_shards: bool = True
-    quiet: bool = False
-
-
 @dataclass(frozen=True)
 class ReplacementRecoveryOperationResult:
     doc_id: bytes
@@ -153,28 +49,3 @@ class ReplacementRecoveryOperationResult:
     notes: tuple[str, ...] = ()
     selected_extension_index: int | None = None
     selected_extension_doc_hash: str | None = None
-
-
-@dataclass
-class RebuildOperationRequest:
-    """Typed container for rebuild command arguments."""
-
-    config: str | None = None
-    paper: str | None = None
-    design: str | None = None
-    root_dir: str | None = None
-    scan: list[str] | None = None
-    output_dir: str | None = None
-    shard_fallback_file: list[str] | None = None
-    shard_payloads_file: list[str] | None = None
-    shard_scan: list[str] | None = None
-    shard_frames: list[Frame] | None = None
-    auth_fallback_file: str | None = None
-    auth_payloads_file: str | None = None
-    auth_frames: list[Frame] | None = None
-    layout_debug_dir: str | None = None
-    qr_chunk_size: int | None = None
-    passphrase: str | None = None
-    expected_head_doc_hash: str | None = None
-    allow_stale_head: bool = False
-    quiet: bool = False

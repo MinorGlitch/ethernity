@@ -15,31 +15,31 @@
 
 import unittest
 
-from ethernity.workflows.shared.backup_validation import validate_backup_args
-from ethernity.workflows.shared.operation_types import BackupArgs
+from ethernity.workflows.shared.backup_validation import validate_backup_request
+from ethernity.workflows.shared.requests import BackupRequest
 
 
 class TestBackupArgsValidation(unittest.TestCase):
     def test_qr_chunk_size_zero_rejected(self) -> None:
-        args = BackupArgs(qr_chunk_size=0)
+        args = BackupRequest(qr_chunk_size=0)
         with self.assertRaises(ValueError) as ctx:
-            validate_backup_args(args)
+            validate_backup_request(args)
         self.assertIn("qr chunk size", str(ctx.exception).lower())
 
     def test_qr_chunk_size_negative_rejected(self) -> None:
-        args = BackupArgs(qr_chunk_size=-1)
+        args = BackupRequest(qr_chunk_size=-1)
         with self.assertRaises(ValueError) as ctx:
-            validate_backup_args(args)
+            validate_backup_request(args)
         self.assertIn("qr chunk size", str(ctx.exception).lower())
 
     def test_shard_count_over_255_rejected(self) -> None:
-        args = BackupArgs(shard_threshold=2, shard_count=256)
+        args = BackupRequest(shard_threshold=2, shard_count=256)
         with self.assertRaises(ValueError) as ctx:
-            validate_backup_args(args)
+            validate_backup_request(args)
         self.assertIn("shard count", str(ctx.exception).lower())
 
     def test_signing_key_shard_count_over_255_rejected(self) -> None:
-        args = BackupArgs(
+        args = BackupRequest(
             shard_threshold=2,
             shard_count=3,
             signing_key_mode="sharded",
@@ -47,20 +47,20 @@ class TestBackupArgsValidation(unittest.TestCase):
             signing_key_shard_count=256,
         )
         with self.assertRaises(ValueError) as ctx:
-            validate_backup_args(args)
+            validate_backup_request(args)
         self.assertIn("signing key shard count", str(ctx.exception).lower())
 
     def test_base_dir_existence_is_not_validated_in_preflight(self) -> None:
-        args = BackupArgs(base_dir="~/definitely-missing")
-        validate_backup_args(args)
+        args = BackupRequest(base_dir="~/definitely-missing")
+        validate_backup_request(args)
 
     def test_directly_printed_passphrase_rejects_control_characters(self) -> None:
         with self.assertRaisesRegex(ValueError, "manually enterable printable text"):
-            validate_backup_args(BackupArgs(passphrase="alpha\tbeta"))
+            validate_backup_request(BackupRequest(passphrase="alpha\tbeta"))
 
     def test_sharded_passphrase_preserves_exact_control_characters(self) -> None:
-        validate_backup_args(
-            BackupArgs(
+        validate_backup_request(
+            BackupRequest(
                 passphrase="alpha\tbeta",
                 shard_threshold=2,
                 shard_count=3,
