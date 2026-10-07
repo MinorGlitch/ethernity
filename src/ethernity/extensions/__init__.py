@@ -16,21 +16,18 @@
 
 """Public API for building and replaying authenticated extensions."""
 
+from ethernity.extensions import chain
 from ethernity.extensions.build import VerifiedExtensionCandidate, build_extension
 from ethernity.extensions.chain import (
-    AuthenticatedExtensionChainLink,
-    ExtensionReplayError,
-    ReconstructedFile,
-    ValidatedChainState,
-    replay_authenticated_chain,
+    AuthenticatedExtensionChainLink as AuthenticatedExtensionChainLink,
+    ExtensionReplayError as ExtensionReplayError,
+    ReconstructedFile as ReconstructedFile,
+    ValidatedChainState as ValidatedChainState,
+    replay_authenticated_chain as replay_authenticated_chain,
 )
 
 __all__ = [
-    "AuthenticatedExtensionChainLink",
-    "ExtensionReplayError",
-    "ReconstructedFile",
-    "ValidatedChainState",
+    *(name for name in chain.__all__ if name != "extract_root_files"),
     "VerifiedExtensionCandidate",
     "build_extension",
-    "replay_authenticated_chain",
 ]

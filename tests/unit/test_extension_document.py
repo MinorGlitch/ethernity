@@ -68,8 +68,6 @@ def _make_test_document() -> ExtensionDocument:
             parent_doc_hash=TEST_DOC_HASH,
             root_doc_hash=TEST_ROOT_DOC_HASH,
             chunking=_make_profile(),
-            input_origin="file",
-            input_roots=(),
             created_at=123,
         ),
         files=(
@@ -134,8 +132,6 @@ class TestExtensionDocument(unittest.TestCase):
             parent_doc_hash=TEST_DOC_HASH,
             root_doc_hash=TEST_ROOT_DOC_HASH,
             chunking=_make_profile(),
-            input_origin="file",
-            input_roots=(),
             created_at=123,
         )
         self.assertEqual(header.index, 127)
@@ -145,8 +141,6 @@ class TestExtensionDocument(unittest.TestCase):
                 parent_doc_hash=TEST_DOC_HASH,
                 root_doc_hash=TEST_ROOT_DOC_HASH,
                 chunking=_make_profile(),
-                input_origin="file",
-                input_roots=(),
                 created_at=123,
             )
 
@@ -157,8 +151,6 @@ class TestExtensionDocument(unittest.TestCase):
                 parent_doc_hash=TEST_DOC_HASH,
                 root_doc_hash=TEST_ROOT_DOC_HASH,
                 chunking=_make_profile(),
-                input_origin="file",
-                input_roots=(),
                 created_at=MAX_JS_SAFE_INTEGER + 1,
             )
         with self.assertRaisesRegex(ValueError, "JavaScript safe integer range"):
@@ -190,8 +182,6 @@ class TestExtensionDocument(unittest.TestCase):
             parent_doc_hash=TEST_DOC_HASH,
             root_doc_hash=TEST_ROOT_DOC_HASH,
             chunking=_make_profile(),
-            input_origin="file",
-            input_roots=(),
             created_at=123,
         )
         document = ExtensionDocument(
@@ -234,8 +224,6 @@ class TestExtensionDocument(unittest.TestCase):
             parent_doc_hash=TEST_DOC_HASH,
             root_doc_hash=TEST_ROOT_DOC_HASH,
             chunking=_make_profile(),
-            input_origin="file",
-            input_roots=(),
             created_at=123,
         )
         document = ExtensionDocument(
@@ -270,8 +258,6 @@ class TestExtensionDocument(unittest.TestCase):
             parent_doc_hash=TEST_DOC_HASH,
             root_doc_hash=TEST_ROOT_DOC_HASH,
             chunking=_make_profile(),
-            input_origin="file",
-            input_roots=(),
             created_at=123,
         )
         document = ExtensionDocument(
@@ -334,8 +320,6 @@ class TestExtensionDocument(unittest.TestCase):
                 parent_doc_hash=TEST_DOC_HASH,
                 root_doc_hash=TEST_ROOT_DOC_HASH,
                 chunking=_make_profile(),
-                input_origin="file",
-                input_roots=(),
                 created_at=123,
             ),
             files=(
@@ -356,32 +340,12 @@ class TestExtensionDocument(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "locked chunking profile"):
             document.reconstruct_files()
 
-    def test_directory_input_roots_preserve_whitespace(self) -> None:
-        header = build_extension_header(
-            index=1,
-            parent_doc_hash=TEST_DOC_HASH,
-            root_doc_hash=TEST_ROOT_DOC_HASH,
-            chunking=_make_profile(),
-            input_origin="directory",
-            input_roots=(" demo ",),
-            created_at=123,
-        )
-
-        self.assertEqual(header.input_roots, (" demo ",))
-
-    def test_directory_input_roots_use_manifest_path_validation(self) -> None:
-        for root in (".", "..", "docs/\u0001", "C:notes", "docs/root"):
-            with self.subTest(root=root):
-                with self.assertRaises(ValueError):
-                    build_extension_header(
-                        index=1,
-                        parent_doc_hash=TEST_DOC_HASH,
-                        root_doc_hash=TEST_ROOT_DOC_HASH,
-                        chunking=_make_profile(),
-                        input_origin="directory",
-                        input_roots=(root,),
-                        created_at=123,
-                    )
+    def test_header_omits_removed_fields_and_rejects_draft_keys(self) -> None:
+        header = _make_test_document().header.to_cbor()
+        self.assertEqual(set(header), {2, 4, 5, 7, 10, 13})
+        for key in (1, 11, 12):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "unknown keys"):
+                ExtensionHeader.from_cbor({**header, key: None})
 
     def test_rejects_unknown_header_keys(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown keys"):
@@ -399,13 +363,12 @@ class TestExtensionDocument(unittest.TestCase):
                 }
             )
 
-    def test_decode_rejects_header_without_required_input_keys(self) -> None:
+    def test_decode_rejects_header_without_required_mode(self) -> None:
         document = _make_test_document()
         header, body = document.to_cbor_sections()
-        del header[11]
-        del header[12]
+        del header[13]
 
-        with self.assertRaisesRegex(ValueError, "extension header 11 is required"):
+        with self.assertRaisesRegex(ValueError, "extension header 13 is required"):
             ExtensionDocument.decode(_encode_sections(header, body))
 
     def test_rejects_non_integer_header_keys(self) -> None:
@@ -417,8 +380,6 @@ class TestExtensionDocument(unittest.TestCase):
                 parent_doc_hash=TEST_DOC_HASH,
                 root_doc_hash=TEST_ROOT_DOC_HASH,
                 chunking=_make_profile(),
-                input_origin="file",
-                input_roots=(),
                 created_at=123,
             ),
             files=(
@@ -478,8 +439,6 @@ class TestExtensionDocument(unittest.TestCase):
                 parent_doc_hash=TEST_DOC_HASH,
                 root_doc_hash=TEST_ROOT_DOC_HASH,
                 chunking=_make_profile(),
-                input_origin="file",
-                input_roots=(),
                 created_at=123,
             ),
             files=(
@@ -521,30 +480,6 @@ class TestExtensionDocument(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "keys must be integers"):
             ExtensionDocument.decode(malformed)
-
-    def test_rejects_file_origin_with_non_empty_input_roots(self) -> None:
-        with self.assertRaisesRegex(ValueError, "input_roots must be empty"):
-            build_extension_header(
-                index=1,
-                parent_doc_hash=TEST_DOC_HASH,
-                root_doc_hash=TEST_ROOT_DOC_HASH,
-                chunking=_make_profile(),
-                input_origin="file",
-                input_roots=("demo",),
-                created_at=123,
-            )
-
-    def test_rejects_directory_origin_with_empty_input_roots(self) -> None:
-        with self.assertRaisesRegex(ValueError, "input_roots must be non-empty"):
-            build_extension_header(
-                index=1,
-                parent_doc_hash=TEST_DOC_HASH,
-                root_doc_hash=TEST_ROOT_DOC_HASH,
-                chunking=_make_profile(),
-                input_origin="directory",
-                input_roots=(),
-                created_at=123,
-            )
 
     def test_rejects_unsupported_chunking_algorithm(self) -> None:
         with self.assertRaisesRegex(ValueError, "CHUNK_ALGORITHM_FASTCDC"):
@@ -601,8 +536,6 @@ class TestExtensionDocument(unittest.TestCase):
                 parent_doc_hash=TEST_DOC_HASH,
                 root_doc_hash=TEST_ROOT_DOC_HASH,
                 chunking=_make_profile(),
-                input_origin="file",
-                input_roots=(),
                 created_at=123,
             ),
             files=(
@@ -654,8 +587,6 @@ class TestExtensionDocument(unittest.TestCase):
             parent_doc_hash=TEST_DOC_HASH,
             root_doc_hash=TEST_ROOT_DOC_HASH,
             chunking=_make_profile(),
-            input_origin="file",
-            input_roots=(),
             created_at=123,
         )
         document = ExtensionDocument(
@@ -696,8 +627,6 @@ class TestExtensionDocument(unittest.TestCase):
             parent_doc_hash=TEST_DOC_HASH,
             root_doc_hash=TEST_ROOT_DOC_HASH,
             chunking=_make_profile(),
-            input_origin="file",
-            input_roots=(),
             created_at=123,
         )
         document = ExtensionDocument(
@@ -738,8 +667,6 @@ class TestExtensionDocument(unittest.TestCase):
             parent_doc_hash=TEST_DOC_HASH,
             root_doc_hash=TEST_ROOT_DOC_HASH,
             chunking=_make_profile(),
-            input_origin="file",
-            input_roots=(),
             created_at=123,
         )
         document = ExtensionDocument(
@@ -780,8 +707,6 @@ class TestExtensionDocument(unittest.TestCase):
                 parent_doc_hash=TEST_DOC_HASH,
                 root_doc_hash=TEST_ROOT_DOC_HASH,
                 chunking=_make_profile(),
-                input_origin="file",
-                input_roots=(),
                 created_at=123,
             ),
             files=(
@@ -852,8 +777,6 @@ class TestExtensionDocument(unittest.TestCase):
             parent_doc_hash=TEST_DOC_HASH,
             root_doc_hash=TEST_ROOT_DOC_HASH,
             chunking=_make_profile(),
-            input_origin="directory",
-            input_roots=("root",),
             created_at=123,
         )
         with self.assertRaisesRegex(ValueError, "ordered by normalized path"):
@@ -915,8 +838,6 @@ class TestExtensionDocument(unittest.TestCase):
                     parent_doc_hash=TEST_DOC_HASH,
                     root_doc_hash=TEST_ROOT_DOC_HASH,
                     chunking=_make_profile(),
-                    input_origin="directory",
-                    input_roots=("root",),
                     created_at=123,
                 ),
                 files=(
@@ -1138,8 +1059,6 @@ class TestExtensionDocument(unittest.TestCase):
                 parent_doc_hash=TEST_DOC_HASH,
                 root_doc_hash=TEST_ROOT_DOC_HASH,
                 chunking=_make_profile(),
-                input_origin="file",
-                input_roots=(),
                 created_at=123,
             ),
             files=(

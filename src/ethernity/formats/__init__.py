@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+from ethernity.formats import extension_constants
 from ethernity.formats.document_codec import (
     MAGIC as DOCUMENT_MAGIC,
     VERSION as BACKUP_DOCUMENT_VERSION,
@@ -28,12 +29,11 @@ from ethernity.formats.document_codec import (
     extract_payloads,
 )
 from ethernity.formats.extension_constants import (
-    CHAIN_ID_PERSONALIZATION,
-    CHUNK_ALGORITHM_FASTCDC,
-    CHUNK_CODEC_GZIP,
-    CHUNK_CODEC_RAW,
-    EXTENSION_DOCUMENT_VERSION,
-    EXTENSION_SCHEMA_VERSION,
+    CHAIN_ID_PERSONALIZATION as CHAIN_ID_PERSONALIZATION,
+    CHUNK_ALGORITHM_FASTCDC as CHUNK_ALGORITHM_FASTCDC,
+    CHUNK_CODEC_GZIP as CHUNK_CODEC_GZIP,
+    CHUNK_CODEC_RAW as CHUNK_CODEC_RAW,
+    EXTENSION_DOCUMENT_VERSION as EXTENSION_DOCUMENT_VERSION,
 )
 from ethernity.formats.extension_document import (
     ExtensionChunkingProfile,
@@ -52,14 +52,9 @@ from ethernity.formats.payload_codec import (
 )
 
 __all__ = [
+    *(name for name in extension_constants.__all__ if name != "MIN_EXTENSION_CHUNK_SIZE"),
     "DOCUMENT_MAGIC",
     "BACKUP_DOCUMENT_VERSION",
-    "CHAIN_ID_PERSONALIZATION",
-    "CHUNK_ALGORITHM_FASTCDC",
-    "CHUNK_CODEC_GZIP",
-    "CHUNK_CODEC_RAW",
-    "EXTENSION_DOCUMENT_VERSION",
-    "EXTENSION_SCHEMA_VERSION",
     "BackupManifest",
     "ExtensionDocument",
     "ExtensionHeader",

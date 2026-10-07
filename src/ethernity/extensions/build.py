@@ -47,6 +47,7 @@ from ethernity.formats.extension_document import (
     ExtensionFile,
     build_extension_header,
 )
+from ethernity.formats.extension_mode import UpdateMode, resolve_update_mode
 
 
 @dataclass(frozen=True)
@@ -89,24 +90,30 @@ class ExtensionInputScope(Protocol):
     @property
     def input_files(self) -> Sequence[ExtensionInputFile]: ...
 
-    @property
-    def input_origin(self) -> str: ...
-
-    @property
-    def input_roots(self) -> Sequence[str]: ...
-
     def contains_path(self, path: str) -> bool: ...
+
+
+@dataclass(frozen=True)
+class _SnapshotInputFile:
+    relative_path: str
+    data: bytes
+    mtime: int | None
 
 
 def build_extension(
     chain: ValidatedChainState,
     changes: ExtensionInputScope,
+    *,
+    update_mode: UpdateMode | None = None,
 ) -> VerifiedExtensionCandidate:
     """Build and replay-verify an extension against authenticated chain state."""
 
     _require_validated_chain_state(chain)
+    mode = resolve_update_mode(chain.update_mode, update_mode)
     current_files = {item.path: item for item in chain.files}
     desired_files = {item.relative_path: item for item in changes.input_files}
+    if len(desired_files) != len(changes.input_files):
+        raise ValueError("duplicate extension input paths")
     missing_paths = tuple(
         sorted(
             path
@@ -126,17 +133,36 @@ def build_extension(
     if not input_files:
         raise ValueError("extension requires at least one changed or new file")
 
+    base_files = chain.files
+    base_chunks = chain.available_chunks
+    if mode == UpdateMode.CUMULATIVE:
+        base_files = chain.root_files
+        base_chunks = chain.root_chunks
+        target: dict[str, ExtensionInputFile] = {
+            item.path: _SnapshotInputFile(item.path, item.data, item.mtime) for item in chain.files
+        }
+        target.update(desired_files)
+        original = {item.path: item for item in base_files}
+        input_files = tuple(
+            item
+            for path, item in sorted(target.items())
+            if path not in original
+            or item.data != original[path].data
+            or item.mtime != original[path].mtime
+        )
+
     built = _build_extension_document(
         index=chain.head_index + 1,
-        parent_doc_hash=chain.head_doc_hash,
+        parent_doc_hash=chain.root_doc_hash
+        if mode == UpdateMode.CUMULATIVE
+        else chain.head_doc_hash,
         root_doc_hash=chain.root_doc_hash,
         chunking=chain.chunking,
         input_files=input_files,
-        input_origin=changes.input_origin,
-        input_roots=changes.input_roots,
-        existing_file_sizes={item.path: item.size for item in chain.files},
-        existing_chunks=dict(chain.available_chunks),
-        existing_file_bytes=sum(item.size for item in chain.files),
+        existing_file_sizes={item.path: item.size for item in base_files},
+        existing_chunks=dict(base_chunks),
+        existing_file_bytes=sum(item.size for item in base_files),
+        update_mode=mode,
     )
     resulting_state = _replay_extension_candidate(chain, built.document)
     return VerifiedExtensionCandidate(
@@ -153,11 +179,10 @@ def _build_extension_document(
     root_doc_hash: bytes,
     chunking: ExtensionChunkingProfile,
     input_files: Sequence[ExtensionInputFile],
-    input_origin: str,
-    input_roots: Sequence[str],
     existing_file_sizes: Mapping[str, int],
     existing_chunks: Mapping[bytes, bytes] | None = None,
     existing_file_bytes: int = 0,
+    update_mode: UpdateMode = UpdateMode.INCREMENTAL,
 ) -> _BuiltExtensionDocument:
     """Build a validated extension document from changed/new input files."""
 
@@ -170,7 +195,7 @@ def _build_extension_document(
             ),
         )
     )
-    if not normalized_files:
+    if not normalized_files and update_mode != UpdateMode.CUMULATIVE:
         raise ValueError("extension document requires at least one changed file")
 
     files: list[ExtensionFile] = []
@@ -239,8 +264,7 @@ def _build_extension_document(
             parent_doc_hash=parent_doc_hash,
             root_doc_hash=root_doc_hash,
             chunking=chunking,
-            input_origin=input_origin,
-            input_roots=tuple(input_roots),
+            update_mode=update_mode,
         ),
         files=tuple(files),
         chunks=chunks,

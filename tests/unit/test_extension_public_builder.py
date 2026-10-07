@@ -107,8 +107,6 @@ def test_builder_replays_candidate_and_resolves_authenticated_historical_referen
         root_doc_hash=ROOT_DOC_HASH,
         chunking=profile,
         input_files=(InputFile(None, "state.txt", latest_bytes, 2),),
-        input_origin="file",
-        input_roots=(),
         existing_file_sizes={"state.txt": len(root_bytes)},
         existing_chunks={hashlib.sha256(root_bytes).digest(): root_bytes},
         existing_file_bytes=len(root_bytes),

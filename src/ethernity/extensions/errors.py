@@ -38,10 +38,21 @@ class ExtensionRecoveryError(ValueError):
         ValueError.__init__(self, self.message)
 
 
+class OrphanAuthFramesError(ValueError):
+    """AUTH carriers refer to documents whose MAIN carriers were not supplied."""
+
+    def __init__(self, doc_ids: tuple[bytes, ...], *, source_label: str) -> None:
+        self.doc_ids = doc_ids
+        self.source_label = source_label
+        preview = ", ".join(doc_id.hex() for doc_id in doc_ids[:3])
+        super().__init__(f"{source_label} contains AUTH frame(s) without matching MAIN: {preview}")
+
+
 __all__ = [
     "AUTH_DOC_HASH_MISMATCH",
     "AUTH_SIGNATURE_INVALID",
     "ExtensionRecoveryError",
+    "OrphanAuthFramesError",
     "RECOVERY_HEAD_UNTRUSTED",
     "ROOT_SIGNING_KEY_MISMATCH",
 ]

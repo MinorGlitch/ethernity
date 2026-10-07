@@ -33,7 +33,6 @@ from ethernity.core.bounds import (
     MAX_RECOVERY_DECODED_CHUNK_BYTES,
 )
 from ethernity.core.validation import (
-    normalize_input_root_label,
     normalize_manifest_path,
     require_bytes,
     require_dict,
@@ -44,8 +43,6 @@ from ethernity.core.validation import (
     require_non_empty_str,
     require_non_negative_int,
     require_positive_int,
-    require_str,
-    validate_input_origin_roots,
     validate_manifest_file_tree,
 )
 from ethernity.encoding.cbor import dumps_deterministic, loads_deterministic
@@ -58,30 +55,26 @@ from ethernity.formats.extension_constants import (
     CHUNK_CODEC_GZIP,
     CHUNK_CODEC_RAW,
     EXTENSION_DOCUMENT_VERSION,
-    EXTENSION_SCHEMA_VERSION,
     MIN_EXTENSION_CHUNK_SIZE,
 )
+from ethernity.formats.extension_mode import UpdateMode
 from ethernity.formats.manifest import MAX_MANIFEST_FILES
 
-_HEADER_VERSION = 1
 _HEADER_INDEX = 2
 _HEADER_PARENT_DOC_HASH = 4
 _HEADER_ROOT_DOC_HASH = 5
 _HEADER_CREATED_AT = 7
 _HEADER_CHUNKING = 10
-_HEADER_INPUT_ORIGIN = 11
-_HEADER_INPUT_ROOTS = 12
+_HEADER_UPDATE_MODE = 13
 
 _ALLOWED_HEADER_KEYS = frozenset(
     {
-        _HEADER_VERSION,
         _HEADER_INDEX,
         _HEADER_PARENT_DOC_HASH,
         _HEADER_ROOT_DOC_HASH,
         _HEADER_CREATED_AT,
         _HEADER_CHUNKING,
-        _HEADER_INPUT_ORIGIN,
-        _HEADER_INPUT_ROOTS,
+        _HEADER_UPDATE_MODE,
     }
 )
 
@@ -169,7 +162,7 @@ class ExtensionChunkingProfile:
         return [self.algorithm_id, self.target_size, self.min_size, self.max_size]
 
     @classmethod
-    def from_cbor(cls, value: object) -> "ExtensionChunkingProfile":
+    def from_cbor(cls, value: object) -> ExtensionChunkingProfile:
         fields = require_list(value, 4, label="extension chunking")
         if len(fields) != 4:
             raise ValueError("extension chunking must contain exactly 4 items")
@@ -209,7 +202,7 @@ class ExtensionChunkRef:
         return [self.chunk_id, self.uncompressed_len]
 
     @classmethod
-    def from_cbor(cls, value: object) -> "ExtensionChunkRef":
+    def from_cbor(cls, value: object) -> ExtensionChunkRef:
         fields = require_list(value, 2, label="extension chunk_ref")
         if len(fields) != 2:
             raise ValueError("extension chunk_ref must contain exactly 2 items")
@@ -265,7 +258,7 @@ class ExtensionFile:
         ]
 
     @classmethod
-    def from_cbor(cls, value: object) -> "ExtensionFile":
+    def from_cbor(cls, value: object) -> ExtensionFile:
         fields = require_list(value, 5, label="extension file")
         if len(fields) != 5:
             raise ValueError("extension file must contain exactly 5 items")
@@ -322,7 +315,7 @@ class ExtensionChunkRecord:
         return decoded
 
     @classmethod
-    def from_cbor(cls, value: object) -> "ExtensionChunkRecord":
+    def from_cbor(cls, value: object) -> ExtensionChunkRecord:
         fields = require_list(value, 4, label="extension chunk")
         if len(fields) != 4:
             raise ValueError("extension chunk must contain exactly 4 items")
@@ -340,19 +333,16 @@ class ExtensionChunkRecord:
 class ExtensionHeader:
     """Authenticated extension header metadata."""
 
-    version: int
     index: int
     parent_doc_hash: bytes
     root_doc_hash: bytes
     created_at: int
     chunking: ExtensionChunkingProfile
-    input_origin: str
-    input_roots: tuple[str, ...]
+    update_mode: UpdateMode = UpdateMode.INCREMENTAL
 
     def __post_init__(self) -> None:
-        version = require_int(self.version, label="extension header version")
-        if version != EXTENSION_SCHEMA_VERSION:
-            raise ValueError(f"unsupported extension header version: {version}")
+        mode = UpdateMode(self.update_mode)
+        object.__setattr__(self, "update_mode", mode)
         index = require_positive_int(self.index, label="extension header index")
         if index > MAX_EXTENSION_INDEX:
             raise ValueError(
@@ -374,72 +364,34 @@ class ExtensionHeader:
         chunking = self.chunking
         if not isinstance(chunking, ExtensionChunkingProfile):
             raise ValueError("extension header chunking must be an ExtensionChunkingProfile")
-        input_origin = require_str(self.input_origin, label="extension header input_origin")
-        if input_origin not in {"file", "directory", "mixed"}:
-            raise ValueError("extension header input_origin must be one of: file, directory, mixed")
-        normalized_roots = tuple(
-            normalize_input_root_label(root, label="extension header input_root")
-            for root in self.input_roots
-        )
-        validate_input_origin_roots(
-            input_origin,
-            normalized_roots,
-            label="extension header input_roots",
-        )
-        object.__setattr__(self, "version", version)
         object.__setattr__(self, "index", index)
         object.__setattr__(self, "parent_doc_hash", parent_doc_hash)
         object.__setattr__(self, "root_doc_hash", root_doc_hash)
         object.__setattr__(self, "created_at", created_at)
         object.__setattr__(self, "chunking", chunking)
-        object.__setattr__(self, "input_origin", input_origin)
-        object.__setattr__(self, "input_roots", normalized_roots)
 
     def to_cbor(self) -> dict[int, object]:
         return {
-            _HEADER_VERSION: self.version,
             _HEADER_INDEX: self.index,
             _HEADER_PARENT_DOC_HASH: self.parent_doc_hash,
             _HEADER_ROOT_DOC_HASH: self.root_doc_hash,
             _HEADER_CREATED_AT: self.created_at,
             _HEADER_CHUNKING: self.chunking.to_cbor(),
-            _HEADER_INPUT_ORIGIN: self.input_origin,
-            _HEADER_INPUT_ROOTS: list(self.input_roots),
+            _HEADER_UPDATE_MODE: self.update_mode.value,
         }
 
     @classmethod
-    def from_cbor(cls, value: object) -> "ExtensionHeader":
+    def from_cbor(cls, value: object) -> ExtensionHeader:
         header = require_dict(value, label="extension header")
         _require_exact_int_keys(header, allowed_keys=_ALLOWED_HEADER_KEYS, label="extension header")
-        require_keys(
-            header,
-            (
-                _HEADER_VERSION,
-                _HEADER_INDEX,
-                _HEADER_PARENT_DOC_HASH,
-                _HEADER_ROOT_DOC_HASH,
-                _HEADER_CREATED_AT,
-                _HEADER_CHUNKING,
-                _HEADER_INPUT_ORIGIN,
-                _HEADER_INPUT_ROOTS,
-            ),
-            label="extension header",
-        )
-        roots = require_list(header[_HEADER_INPUT_ROOTS], 0, label="extension header input_roots")
+        require_keys(header, tuple(_ALLOWED_HEADER_KEYS), label="extension header")
         return cls(
-            version=require_int(header[_HEADER_VERSION], label="extension header version"),
             index=require_int(header[_HEADER_INDEX], label="extension header index"),
             parent_doc_hash=header[_HEADER_PARENT_DOC_HASH],
             root_doc_hash=header[_HEADER_ROOT_DOC_HASH],
             created_at=require_int(header[_HEADER_CREATED_AT], label="extension header created_at"),
             chunking=ExtensionChunkingProfile.from_cbor(header[_HEADER_CHUNKING]),
-            input_origin=require_str(
-                header[_HEADER_INPUT_ORIGIN], label="extension header input_origin"
-            ),
-            input_roots=tuple(
-                normalize_input_root_label(root, label="extension header input_root")
-                for root in roots
-            ),
+            update_mode=UpdateMode(header[_HEADER_UPDATE_MODE]),
         )
 
 
@@ -454,25 +406,14 @@ class ExtensionDocument:
     def __post_init__(self) -> None:
         files = tuple(self.files)
         chunks = tuple(self.chunks)
-        if not files:
+        if not files and self.header.update_mode != UpdateMode.CUMULATIVE:
             raise ValueError("extension body files are required")
         if len(files) > MAX_MANIFEST_FILES:
             raise ValueError(
                 "extension files exceed MAX_MANIFEST_FILES "
                 f"({MAX_MANIFEST_FILES}): {len(files)} entries"
             )
-        seen_paths: set[str] = set()
-        previous_path = ""
-        referenced_chunk_ids: set[bytes] = set()
-        for file_entry in files:
-            if file_entry.path in seen_paths:
-                raise ValueError(f"duplicate extension file path: {file_entry.path}")
-            if previous_path and file_entry.path < previous_path:
-                raise ValueError("extension files must be ordered by normalized path")
-            previous_path = file_entry.path
-            seen_paths.add(file_entry.path)
-            referenced_chunk_ids.update(chunk_ref.chunk_id for chunk_ref in file_entry.chunk_refs)
-        validate_manifest_file_tree(seen_paths, label="extension file paths")
+        referenced_chunk_ids = self._file_chunk_references(files)
         seen_chunk_ids: set[bytes] = set()
         previous_chunk_id = b""
         total_inline_chunk_bytes = 0
@@ -495,6 +436,21 @@ class ExtensionDocument:
             )
         object.__setattr__(self, "files", files)
         object.__setattr__(self, "chunks", chunks)
+
+    def _file_chunk_references(self, files: tuple[ExtensionFile, ...]) -> set[bytes]:
+        seen_paths: set[str] = set()
+        previous_path = ""
+        referenced_chunk_ids: set[bytes] = set()
+        for file_entry in files:
+            if file_entry.path in seen_paths:
+                raise ValueError(f"duplicate extension file path: {file_entry.path}")
+            if previous_path and file_entry.path < previous_path:
+                raise ValueError("extension files must be ordered by normalized path")
+            previous_path = file_entry.path
+            seen_paths.add(file_entry.path)
+            referenced_chunk_ids.update(chunk_ref.chunk_id for chunk_ref in file_entry.chunk_refs)
+        validate_manifest_file_tree(seen_paths, label="extension file paths")
+        return referenced_chunk_ids
 
     def to_cbor_sections(self) -> tuple[dict[int, object], dict[int, object]]:
         header = self.header.to_cbor()
@@ -569,7 +525,7 @@ class ExtensionDocument:
         data: bytes,
         *,
         max_inline_chunk_bytes: int = MAX_RECOVERY_DECODED_CHUNK_BYTES,
-    ) -> "ExtensionDocument":
+    ) -> ExtensionDocument:
         if (
             isinstance(max_inline_chunk_bytes, bool)
             or not isinstance(max_inline_chunk_bytes, int)
@@ -618,7 +574,11 @@ class ExtensionDocument:
             label="extension body",
         )
         require_keys(body, (_BODY_FILES, _BODY_CHUNKS), label="extension body")
-        files_raw = require_list(body[_BODY_FILES], 1, label="extension body files")
+        files_raw = require_list(
+            body[_BODY_FILES],
+            0 if header.update_mode == UpdateMode.CUMULATIVE else 1,
+            label="extension body files",
+        )
         chunks_raw = require_list(body[_BODY_CHUNKS], 0, label="extension body chunks")
         _require_inline_chunk_raw_len_bounds(
             chunks_raw,
@@ -673,23 +633,20 @@ def build_extension_header(
     parent_doc_hash: bytes,
     root_doc_hash: bytes,
     chunking: ExtensionChunkingProfile,
-    input_origin: str,
-    input_roots: tuple[str, ...] | list[str],
     created_at: int | None = None,
+    update_mode: UpdateMode = UpdateMode.INCREMENTAL,
 ) -> ExtensionHeader:
-    """Build a validated extension header with the derived chain id."""
+    """Build a header with an explicit authenticated update mode."""
 
     created = int(time.time()) if created_at is None else created_at
     root_hash = require_bytes(root_doc_hash, 32, label="root_doc_hash")
     return ExtensionHeader(
-        version=EXTENSION_SCHEMA_VERSION,
         index=index,
         parent_doc_hash=parent_doc_hash,
         root_doc_hash=root_hash,
         created_at=created,
         chunking=chunking,
-        input_origin=input_origin,
-        input_roots=tuple(input_roots),
+        update_mode=update_mode,
     )
 
 

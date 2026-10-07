@@ -19,7 +19,8 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Literal
 
@@ -45,8 +46,10 @@ from ethernity.formats.extension_document import (
     ExtensionChunkingProfile,
     ExtensionDocument,
     ExtensionFile,
+    ExtensionHeader,
     _reconstruct_extension_file_bytes,
 )
+from ethernity.formats.extension_mode import UpdateMode, resolve_update_mode
 from ethernity.formats.manifest import BackupManifest
 
 _VALIDATED_CHAIN_STATE_SEAL = object()
@@ -221,7 +224,10 @@ class ValidatedChainState:
     root_doc_hash: bytes
     head_doc_hash: bytes
     head_index: int
+    update_mode: UpdateMode | None
     chunking: ExtensionChunkingProfile
+    root_files: tuple[ReconstructedFile, ...]
+    root_chunks: tuple[tuple[bytes, bytes], ...]
     files: tuple[ReconstructedFile, ...]
     available_chunks: tuple[tuple[bytes, bytes], ...]
     links: tuple[AuthenticatedExtensionChainLink, ...]
@@ -289,7 +295,7 @@ def replay_authenticated_chain(
 
     chunking = extensions[0].document.header.chunking if extensions else root_chunking
     root_state = extract_root_files(manifest, payload)
-    files, available_chunks, decoded_chunk_bytes = _replay_chain_from_root_state(
+    files, available_chunks, decoded_chunk_bytes, root_chunks = _replay_chain_from_root_state(
         root_state=root_state,
         root_doc_hash=authenticated_root_doc_hash,
         expected_sign_pub=trusted_sign_pub,
@@ -301,8 +307,15 @@ def replay_authenticated_chain(
     state = object.__new__(ValidatedChainState)
     object.__setattr__(state, "root_doc_hash", authenticated_root_doc_hash)
     object.__setattr__(state, "head_doc_hash", head_doc_hash)
-    object.__setattr__(state, "head_index", len(extensions))
+    object.__setattr__(
+        state, "head_index", extensions[-1].document.header.index if extensions else 0
+    )
+    object.__setattr__(
+        state, "update_mode", extensions[-1].document.header.update_mode if extensions else None
+    )
     object.__setattr__(state, "chunking", chunking)
+    object.__setattr__(state, "root_files", root_state)
+    object.__setattr__(state, "root_chunks", tuple(sorted(root_chunks.items())))
     object.__setattr__(state, "files", files)
     object.__setattr__(state, "available_chunks", tuple(sorted(available_chunks.items())))
     object.__setattr__(state, "links", tuple(extensions))
@@ -341,7 +354,7 @@ def _replay_chain_from_root_state(
     expected_sign_pub: bytes,
     extensions: Sequence[AuthenticatedExtensionChainLink],
     chunking: ExtensionChunkingProfile,
-) -> tuple[tuple[ReconstructedFile, ...], dict[bytes, bytes], int]:
+) -> tuple[tuple[ReconstructedFile, ...], dict[bytes, bytes], int, dict[bytes, bytes]]:
     """Validate ancestry and replay links once while retaining append-ready chunks."""
 
     expected_root_doc_hash = require_bytes(root_doc_hash, 32, label="root_doc_hash")
@@ -360,108 +373,83 @@ def _replay_chain_from_root_state(
     if total_file_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
         raise ValueError("root file bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES")
 
-    available_chunks = _chunk_root_files(root_state, chunking)
+    root_chunks = _chunk_root_files(root_state, chunking)
+    available_chunks = dict(root_chunks)
     current_sizes = {item.path: item.size for item in current_state.values()}
     expected_parent_doc_hash = expected_root_doc_hash
     expected_index = 1
     last_validated_head_index = 0
     last_validated_head_hash = expected_root_doc_hash
     decoded_chunk_bytes = 0
+    locked_mode = extensions[0].document.header.update_mode if extensions else None
 
     for link in extensions:
         header = link.document.header
-        try:
+        with _replay_phase(
+            "auth",
+            link,
+            last_validated_head_index,
+            last_validated_head_hash,
+        ):
             if not isinstance(link, AuthenticatedExtensionChainLink):
                 raise ValueError("authenticated extension chain requires authenticated links")
             if link.expected_sign_pub != trusted_sign_pub:
                 raise ValueError("extension AUTH signing key does not match root signing key")
-        except ValueError as exc:
-            raise _extension_replay_error(
-                exc,
-                phase="auth",
-                link=link,
-                last_validated_head_index=last_validated_head_index,
-                last_validated_head_hash=last_validated_head_hash,
-            ) from exc
 
-        try:
-            if header.index != expected_index:
-                raise ValueError(
-                    "extension index sequence is invalid: "
-                    f"expected {expected_index}, got {header.index}"
-                )
-            if header.root_doc_hash != expected_root_doc_hash:
-                raise ValueError("extension root_doc_hash does not match root backup")
-            if header.parent_doc_hash != expected_parent_doc_hash:
-                raise ValueError("extension parent_doc_hash does not match previous document")
-            if header.chunking != chunking:
-                raise ValueError("extension chunking profile must match the locked chain profile")
-        except ValueError as exc:
-            raise _extension_replay_error(
-                exc,
-                phase="lineage",
-                link=link,
+        with _replay_phase(
+            "lineage",
+            link,
+            last_validated_head_index,
+            last_validated_head_hash,
+        ):
+            cumulative = _validate_extension_lineage(
+                header,
+                locked_mode=locked_mode,
                 last_validated_head_index=last_validated_head_index,
-                last_validated_head_hash=last_validated_head_hash,
-            ) from exc
+                expected_index=expected_index,
+                expected_root_doc_hash=expected_root_doc_hash,
+                expected_parent_doc_hash=expected_parent_doc_hash,
+                chunking=chunking,
+            )
 
-        try:
+        if cumulative:
+            # Each cumulative document is replayed independently against the original.
+            current_state = {item.path: item for item in root_state}
+            current_sizes = {item.path: item.size for item in root_state}
+            available_chunks = dict(root_chunks)
+
+        with _replay_phase(
+            "chunks",
+            link,
+            last_validated_head_index,
+            last_validated_head_hash,
+        ):
             _merge_new_extension_chunks(
                 available_chunks,
                 link.document,
             )
-        except ValueError as exc:
-            raise _extension_replay_error(
-                exc,
-                phase="chunks",
-                link=link,
-                last_validated_head_index=last_validated_head_index,
-                last_validated_head_hash=last_validated_head_hash,
-            ) from exc
 
-        try:
-            decoded_chunk_bytes += link.document.inline_chunk_raw_bytes
-            if decoded_chunk_bytes > MAX_RECOVERY_DECODED_CHUNK_BYTES:
-                raise ValueError(
-                    "extension chain inline chunk bytes exceed "
-                    "MAX_RECOVERY_DECODED_CHUNK_BYTES "
-                    f"({MAX_RECOVERY_DECODED_CHUNK_BYTES}); rebuild the latest file set as "
-                    "a fresh standalone backup before adding more files"
-                )
-            projected_sizes = dict(current_sizes)
-            for file_entry in link.document.files:
-                projected_sizes[file_entry.path] = file_entry.size
-            if len(projected_sizes) > MAX_MANIFEST_FILES:
-                raise ValueError(
-                    "latest file set exceeds MAX_MANIFEST_FILES "
-                    f"({MAX_MANIFEST_FILES}): {len(projected_sizes)} entries"
-                )
-            projected_file_bytes = sum(projected_sizes.values())
-            if projected_file_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
-                raise ValueError("latest file set exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES")
-        except ValueError as exc:
-            raise _extension_replay_error(
-                exc,
-                phase="limits",
-                link=link,
-                last_validated_head_index=last_validated_head_index,
-                last_validated_head_hash=last_validated_head_hash,
-            ) from exc
+        with _replay_phase(
+            "limits",
+            link,
+            last_validated_head_index,
+            last_validated_head_hash,
+        ):
+            decoded_chunk_bytes, projected_sizes, projected_file_bytes = _project_extension_sizes(
+                link.document, current_sizes, decoded_chunk_bytes
+            )
 
-        try:
+        with _replay_phase(
+            "files",
+            link,
+            last_validated_head_index,
+            last_validated_head_hash,
+        ):
             validate_manifest_file_tree(projected_sizes, label="reconstructed file paths")
             resolved_states = tuple(
                 _resolve_extension_file_state(file_entry, available_chunks, chunking)
                 for file_entry in link.document.files
             )
-        except ValueError as exc:
-            raise _extension_replay_error(
-                exc,
-                phase="files",
-                link=link,
-                last_validated_head_index=last_validated_head_index,
-                last_validated_head_hash=last_validated_head_hash,
-            ) from exc
         for file_state in resolved_states:
             current_state[file_state.path] = file_state
         current_sizes = projected_sizes
@@ -475,7 +463,61 @@ def _replay_chain_from_root_state(
         tuple(current_state[path] for path in sorted(current_state)),
         available_chunks,
         decoded_chunk_bytes,
+        root_chunks,
     )
+
+
+def _project_extension_sizes(
+    document: ExtensionDocument, current_sizes: dict[str, int], decoded_chunk_bytes: int
+) -> tuple[int, dict[str, int], int]:
+    decoded_chunk_bytes += document.inline_chunk_raw_bytes
+    if decoded_chunk_bytes > MAX_RECOVERY_DECODED_CHUNK_BYTES:
+        raise ValueError(
+            "extension chain inline chunk bytes exceed "
+            "MAX_RECOVERY_DECODED_CHUNK_BYTES "
+            f"({MAX_RECOVERY_DECODED_CHUNK_BYTES}); rebuild the latest file set as "
+            "a fresh standalone backup before adding more files"
+        )
+    projected_sizes = dict(current_sizes)
+    for file_entry in document.files:
+        projected_sizes[file_entry.path] = file_entry.size
+    if len(projected_sizes) > MAX_MANIFEST_FILES:
+        raise ValueError(
+            "latest file set exceeds MAX_MANIFEST_FILES "
+            f"({MAX_MANIFEST_FILES}): {len(projected_sizes)} entries"
+        )
+    projected_file_bytes = sum(projected_sizes.values())
+    if projected_file_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise ValueError("latest file set exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES")
+    return decoded_chunk_bytes, projected_sizes, projected_file_bytes
+
+
+def _validate_extension_lineage(
+    header: ExtensionHeader,
+    *,
+    locked_mode: UpdateMode | None,
+    last_validated_head_index: int,
+    expected_index: int,
+    expected_root_doc_hash: bytes,
+    expected_parent_doc_hash: bytes,
+    chunking: ExtensionChunkingProfile,
+) -> bool:
+    resolve_update_mode(locked_mode, header.update_mode)
+    cumulative = header.update_mode == UpdateMode.CUMULATIVE
+    if header.index <= last_validated_head_index or (
+        not cumulative and header.index != expected_index
+    ):
+        raise ValueError(
+            f"extension index sequence is invalid: expected {expected_index}, got {header.index}"
+        )
+    if header.root_doc_hash != expected_root_doc_hash:
+        raise ValueError("extension root_doc_hash does not match root backup")
+    parent = expected_root_doc_hash if cumulative else expected_parent_doc_hash
+    if header.parent_doc_hash != parent:
+        raise ValueError("extension parent_doc_hash does not match previous document")
+    if header.chunking != chunking:
+        raise ValueError("extension chunking profile must match the locked chain profile")
+    return cumulative
 
 
 def _extension_replay_error(
@@ -519,17 +561,19 @@ def _replay_extension_candidate(
         raise ValueError("extension candidate index does not follow the authenticated head")
     if header.root_doc_hash != chain.root_doc_hash:
         raise ValueError("extension candidate root_doc_hash does not match the authenticated root")
-    if header.parent_doc_hash != chain.head_doc_hash:
+    mode = resolve_update_mode(chain.update_mode, header.update_mode)
+    cumulative = mode == UpdateMode.CUMULATIVE
+    if header.parent_doc_hash != (chain.root_doc_hash if cumulative else chain.head_doc_hash):
         raise ValueError(
             "extension candidate parent_doc_hash does not match the authenticated head"
         )
     if header.chunking != chain.chunking:
         raise ValueError("extension candidate chunking does not match the locked chain profile")
 
-    available_chunks = dict(chain.available_chunks)
+    available_chunks = dict(chain.root_chunks if cumulative else chain.available_chunks)
     _merge_new_extension_chunks(available_chunks, document)
 
-    current_state = {item.path: item for item in chain.files}
+    current_state = {item.path: item for item in (chain.root_files if cumulative else chain.files)}
     projected_sizes = {path: item.size for path, item in current_state.items()}
     for file_entry in document.files:
         projected_sizes[file_entry.path] = file_entry.size
@@ -597,3 +641,23 @@ def _resolve_extension_file_state(
 ) -> ReconstructedFile:
     file_bytes = _reconstruct_extension_file_bytes(file_entry, available_chunks, chunking)
     return ReconstructedFile._from_verified_extension(file_entry, file_bytes)
+
+
+@contextmanager
+def _replay_phase(
+    phase: ReplayFailurePhase,
+    link: AuthenticatedExtensionChainLink,
+    last_validated_head_index: int,
+    last_validated_head_hash: bytes,
+) -> Iterator[None]:
+    """Attach the same validated-prefix context to each replay failure."""
+    try:
+        yield
+    except ValueError as exc:
+        raise _extension_replay_error(
+            exc,
+            phase=phase,
+            link=link,
+            last_validated_head_index=last_validated_head_index,
+            last_validated_head_hash=last_validated_head_hash,
+        ) from exc

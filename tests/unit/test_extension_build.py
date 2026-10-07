@@ -79,8 +79,6 @@ class TestExtensionBuild(unittest.TestCase):
                                 mtime=1,
                             ),
                         ),
-                        input_origin="file",
-                        input_roots=(),
                         existing_file_sizes={existing_path: 3},
                         existing_file_bytes=3,
                     )
@@ -165,8 +163,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=1,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
             existing_file_sizes={},
             existing_chunks=existing_chunks,
         )
@@ -196,8 +192,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=2,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
             existing_file_sizes={},
         )
 
@@ -237,8 +231,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=2,
                 ),
             ),
-            input_origin="directory",
-            input_roots=("root",),
             existing_file_sizes={},
         )
 
@@ -258,8 +250,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=None,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
             existing_file_sizes={},
         )
 
@@ -286,8 +276,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=5,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
             existing_file_sizes={},
             existing_chunks={shared_chunk_id: shared},
         )
@@ -313,8 +301,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=1,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
             existing_file_sizes={},
         )
 
@@ -342,8 +328,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=1,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
             existing_file_sizes={},
         )
 
@@ -369,8 +353,6 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
                 existing_file_bytes=MAX_DECOMPRESSED_PAYLOAD_BYTES - 4,
                 existing_file_sizes={"existing.bin": MAX_DECOMPRESSED_PAYLOAD_BYTES - 4},
             )
@@ -390,8 +372,6 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
                 existing_file_sizes={},
                 existing_file_bytes=-1,
             )
@@ -416,8 +396,6 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
                 existing_file_bytes=7,
                 existing_file_sizes=None,
             )
@@ -437,8 +415,6 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
                 existing_file_bytes=0,
                 existing_file_sizes={"updated.bin": -1},
             )
@@ -461,8 +437,6 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
                 existing_file_bytes=10,
                 existing_file_sizes={"updated.bin": 2},
             )
@@ -488,8 +462,6 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
                 existing_file_bytes=25,
                 existing_file_sizes={"a.bin": 5, "z.bin": 20},
             )
@@ -515,8 +487,6 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
                 existing_file_bytes=MAX_MANIFEST_FILES,
                 existing_file_sizes={
                     f"existing-{index:04d}.txt": 1 for index in range(MAX_MANIFEST_FILES)
@@ -542,8 +512,6 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
                 existing_file_bytes=0,
                 existing_file_sizes={
                     f"existing-{index:04d}.txt": 0 for index in range(MAX_MANIFEST_FILES)
@@ -564,8 +532,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=1,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
             existing_file_bytes=MAX_MANIFEST_FILES,
             existing_file_sizes={
                 f"existing-{index:04d}.txt": 1 for index in range(MAX_MANIFEST_FILES)

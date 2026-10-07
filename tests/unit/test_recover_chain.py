@@ -24,7 +24,7 @@ from ethernity.crypto.signing import AuthPayload, derive_public_key, encode_auth
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.extensions.build import _build_extension_document
 from ethernity.extensions.chain import ExtensionReplayError
-from ethernity.extensions.errors import ExtensionRecoveryError
+from ethernity.extensions.errors import ExtensionRecoveryError, OrphanAuthFramesError
 from ethernity.extensions.recovery import (
     ImportedRecoveryDocument,
     decode_imported_extension_link,
@@ -42,7 +42,8 @@ from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
 from ethernity.formats.extension_document import ExtensionChunkingProfile
 from ethernity.formats.manifest import BackupFile
 from ethernity.workflows.recovery.planning import RecoveryPlan
-from ethernity.workflows.shared import api_codes
+from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.operation_types import InputFile
 
 
@@ -84,8 +85,6 @@ def _extension_ciphertext(
                 mtime=2,
             ),
         ),
-        input_origin="file",
-        input_roots=(),
         existing_file_sizes={},
     )
     return encode_extension_document(built.document)
@@ -157,17 +156,19 @@ def _recovery_plan(
         auth_status="verified",
         allow_unsigned=False,
         output_path=None,
-        input_label="Backup PDF or images",
-        input_detail="loose scans",
-        main_frames=(),
-        auth_frames=(),
-        shard_frames=(),
-        shard_fallback_files=(),
-        shard_payloads_file=(),
-        shard_scan=(),
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
         expected_head_doc_hash=expected_head_doc_hash,
+        source=RecoverySourceFields(
+            input_label="Backup PDF or images",
+            input_detail="loose scans",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+        ),
     )
 
 
@@ -412,7 +413,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.AUTH_SIGNATURE_INVALID)
+        self.assertEqual(caught.exception.code, issue_codes.AUTH_SIGNATURE_INVALID)
 
     def test_recover_chain_entries_rejects_unexpected_default_head_doc_hash(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
@@ -444,7 +445,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("does not match expected head", caught.exception.message)
         self.assertEqual(caught.exception.details["expected_head_doc_hash"], "aa" * 32)
         self.assertEqual(
@@ -509,8 +510,10 @@ class TestRecoverChain(unittest.TestCase):
         _root_ciphertext_bytes, _root_doc_id, root_doc_hash = _root_ciphertext()
         auth_frame = _extension_auth_frame(b"\xaa" * 8, root_doc_hash)
 
-        with self.assertRaisesRegex(ValueError, "AUTH frame.*without matching MAIN"):
+        with self.assertRaises(OrphanAuthFramesError) as raised:
             imported_documents_from_recovery_frames([auth_frame])
+        self.assertEqual(raised.exception.doc_ids, (auth_frame.doc_id,))
+        self.assertEqual(raised.exception.source_label, "content import")
 
     def test_recover_chain_entries_rejects_duplicate_authenticated_extension_index(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
@@ -544,7 +547,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("multiple authenticated extensions for index 1", str(caught.exception))
         self.assertEqual(caught.exception.details["stage"], "selection")
         self.assertEqual(caught.exception.details["extension_index"], 1)
@@ -571,7 +574,7 @@ class TestRecoverChain(unittest.TestCase):
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             mock.patch(
-                "ethernity.extensions.recovery.replay_authenticated_chain",
+                "ethernity.extensions.validation.chain.replay_authenticated_chain",
                 side_effect=ExtensionReplayError(
                     "extension parent_doc_hash does not match previous document",
                     failure_phase="lineage",
@@ -585,7 +588,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("recovery head could not be trusted", str(caught.exception))
         self.assertEqual(caught.exception.details["stage"], "replay")
         replay.assert_called_once()
@@ -648,7 +651,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertEqual(caught.exception.details["failure_stage"], "lineage")
         self.assertEqual(caught.exception.details["failure_head_index"], 2)
         self.assertEqual(
@@ -780,7 +783,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn(
             "unsigned recovery is not supported for extension replay",
             caught.exception.message,
@@ -817,7 +820,7 @@ class TestRecoverChain(unittest.TestCase):
             ):
                 recover_chain_entries(plan)
 
-            self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+            self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
             self.assertIn("requires verified root AUTH", caught.exception.message)
             self.assertEqual(caught.exception.details["stage"], "auth")
             self.assertEqual(caught.exception.details["root_auth_status"], plan.auth_status)
@@ -893,7 +896,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("extension index 2 was not found", caught.exception.message)
         self.assertEqual(caught.exception.details["stage"], "selection")
         self.assertEqual(caught.exception.details["latest_head_index"], 1)
@@ -936,7 +939,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn(
             f"extension doc_hash {requested_doc_hash} was not found", caught.exception.message
         )
@@ -980,7 +983,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("could not be decoded", caught.exception.message)
         self.assertNotIn("was not found", caught.exception.message)
         self.assertEqual(caught.exception.details["stage"], "decode")
@@ -1005,7 +1008,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("extension index 1 was not found", caught.exception.message)
         self.assertEqual(caught.exception.details["stage"], "selection")
         self.assertIsNone(caught.exception.details["latest_head_index"])
@@ -1056,7 +1059,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("signing key does not match", caught.exception.message)
         self.assertNotIn(extension_ciphertext, decrypt_calls)
 
@@ -1104,7 +1107,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("imported extension AUTH could not be verified", caught.exception.message)
         self.assertEqual(caught.exception.details["stage"], "auth")
         self.assertNotIn(extension_ciphertext, decrypt_calls)
@@ -1154,7 +1157,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("signing key does not match", caught.exception.message)
         self.assertEqual(caught.exception.details["stage"], "auth")
         self.assertEqual(caught.exception.details["extension_doc_hash"], extension_doc_hash.hex())
@@ -1219,7 +1222,7 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("did not decode as an extension document", caught.exception.message)
 
     def test_select_root_import_document_rejects_missing_decryptable_root(self) -> None:

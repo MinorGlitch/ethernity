@@ -11,27 +11,31 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
 from pypdf import PdfReader
 
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.encoding.framing import encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
+from ethernity.formats.extension_mode import UpdateMode
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.workflows.add_files.request import AddFilesRequest
 from ethernity.workflows.add_files.service import assess_add_files, execute_add_files
 from ethernity.workflows.backup.service import execute_prepared_backup, prepare_backup_run
 from ethernity.workflows.recovery.service import execute_recover_plan, prepare_recover_plan
-from ethernity.workflows.shared.operation_types import (
-    BackupArgs,
-    RecoverArgs,
+from ethernity.workflows.shared.requests import (
+    BackupRequest,
+    RecoveryRequest,
 )
 from tests.test_support import suppress_output, temp_env
 
 TEST_PASSPHRASE = "extension-integration-passphrase"
 
 
+@pytest.mark.parametrize("mode", list(UpdateMode))
 def test_renamed_scans_can_be_extended_directly_and_combined_with_text_inputs(
     tmp_path: Path,
+    mode: UpdateMode,
 ) -> None:
     source = tmp_path / "source"
     original = tmp_path / "original"
@@ -45,7 +49,7 @@ def test_renamed_scans_can_be_extended_directly_and_combined_with_text_inputs(
     (source / "alpha.txt").write_text("root-alpha", encoding="utf-8")
 
     with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
-        _run_backup(source, original)
+        original = _run_backup(source, original)
         root_snapshot = _snapshot_tree(original)
         renamed_root = scans / "camera-page.pdf"
         shutil.copy2(original / "qr_document.pdf", renamed_root)
@@ -56,6 +60,7 @@ def test_renamed_scans_can_be_extended_directly_and_combined_with_text_inputs(
             first_output,
             scan=[renamed_root],
             layout_debug_dir=debug,
+            update_mode=mode,
         )
 
         assert {path.name for path in first.final_dir.iterdir()} == {
@@ -95,12 +100,22 @@ def test_renamed_scans_can_be_extended_directly_and_combined_with_text_inputs(
         shutil.copy2(first.qr_document_path, loose_first)
         shutil.copy2(appended.qr_document_path, loose_second)
         _run_recover(
-            [loose_second, moved_root, loose_first],
+            [loose_second, moved_root]
+            if mode == UpdateMode.CUMULATIVE
+            else [loose_second, moved_root, loose_first],
             recovered,
             expected_head_doc_hash=appended.doc_hash.hex(),
         )
         assert _snapshot_tree(original) == root_snapshot
         assert _snapshot_tree(first_output) == first_snapshot
+        expected_guidance = (
+            "earlier updates are not required"
+            if mode == UpdateMode.CUMULATIVE
+            else "every update through this one"
+        )
+        for document in (appended.qr_document_path, appended.recovery_document_path):
+            text = " ".join(page.extract_text() for page in PdfReader(document).pages)
+            assert expected_guidance in " ".join(text.lower().split())
 
     assert appended.index == 2
     assert appended.parent_head_doc_hash == first.doc_hash.hex()
@@ -123,7 +138,7 @@ def test_add_files_replacement_sheets_recover_root_after_update_is_lost(
     (source / "alpha.txt").write_text("root-alpha", encoding="utf-8")
 
     with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
-        _run_backup(source, root, shard_threshold=2, shard_count=3)
+        root = _run_backup(source, root, shard_threshold=2, shard_count=3)
         root_shards = sorted(root.glob("shard-*.pdf"))
         assert len(root_shards) == 3
 
@@ -194,13 +209,13 @@ def _run_backup(
     *,
     shard_threshold: int | None = None,
     shard_count: int | None = None,
-) -> None:
+) -> Path:
     with suppress_output():
         result = execute_prepared_backup(
             prepare_backup_run(
-                BackupArgs(
-                    config=str(DEFAULT_CONFIG_PATH),
-                    input_dir=[str(source)],
+                BackupRequest(
+                    config_path=str(DEFAULT_CONFIG_PATH),
+                    input_dirs=[str(source)],
                     base_dir=str(source),
                     output_dir=str(root),
                     passphrase=TEST_PASSPHRASE,
@@ -213,6 +228,7 @@ def _run_backup(
         )
     assert Path(result.qr_path).is_file()
     assert Path(result.recovery_path).is_file()
+    return Path(result.qr_path).parent
 
 
 def _run_add_files(
@@ -225,6 +241,7 @@ def _run_add_files(
     passphrase: str | None = TEST_PASSPHRASE,
     shard_scan: list[Path] | None = None,
     layout_debug_dir: Path | None = None,
+    update_mode: UpdateMode | None = None,
 ):
     with suppress_output():
         assessment = assess_add_files(
@@ -238,6 +255,7 @@ def _run_add_files(
                 input_directories=(str(source),),
                 base_directory=str(source),
                 passphrase=passphrase,
+                update_mode=update_mode,
                 shard_scan_paths=tuple(str(path) for path in shard_scan or ()),
                 layout_debug_directory=(
                     str(layout_debug_dir) if layout_debug_dir is not None else None
@@ -261,14 +279,13 @@ def _run_recover(
     expected_head_doc_hash: str | None = None,
 ) -> None:
     with suppress_output():
-        args = RecoverArgs(
-            config=str(DEFAULT_CONFIG_PATH),
-            scan=[str(path) for path in scan],
+        args = RecoveryRequest(
+            config_path=str(DEFAULT_CONFIG_PATH),
+            scan_paths=[str(path) for path in scan],
             expected_head_doc_hash=expected_head_doc_hash,
             passphrase=passphrase,
-            shard_scan=[str(path) for path in shard_scan or ()] or None,
-            output=str(output),
-            assume_yes=True,
+            shard_scan_paths=[str(path) for path in shard_scan or ()] or None,
+            output_path=str(output),
             quiet=True,
         )
         execute_recover_plan(prepare_recover_plan(args), quiet=True)

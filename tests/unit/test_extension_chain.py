@@ -211,8 +211,6 @@ class TestExtensionChain(unittest.TestCase):
                         parent_doc_hash=ROOT_DOC_HASH,
                         root_doc_hash=ROOT_DOC_HASH,
                         chunking=_profile(),
-                        input_origin="file",
-                        input_roots=(),
                         created_at=2,
                     ),
                     files=(
@@ -290,8 +288,6 @@ class TestExtensionChain(unittest.TestCase):
                 parent_doc_hash=ROOT_DOC_HASH,
                 root_doc_hash=ROOT_DOC_HASH,
                 chunking=_profile(),
-                input_origin="file",
-                input_roots=(),
                 created_at=2,
             ),
             files=(
@@ -335,8 +331,6 @@ class TestExtensionChain(unittest.TestCase):
                 parent_doc_hash=ROOT_DOC_HASH,
                 root_doc_hash=ROOT_DOC_HASH,
                 chunking=_profile(),
-                input_origin="file",
-                input_roots=(),
                 created_at=2,
             ),
             files=(
@@ -440,8 +434,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=ROOT_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="directory",
-                    input_roots=("docs",),
                     created_at=2,
                 ),
                 files=(
@@ -482,8 +474,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=EXT1_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="directory",
-                    input_roots=("docs",),
                     created_at=3,
                 ),
                 files=(
@@ -567,8 +557,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=ROOT_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="file",
-                    input_roots=(),
                     created_at=2,
                 ),
                 files=(
@@ -596,8 +584,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=EXT1_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="file",
-                    input_roots=(),
                     created_at=3,
                 ),
                 files=(
@@ -652,8 +638,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=ROOT_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="file",
-                    input_roots=(),
                     created_at=2,
                 ),
                 files=(
@@ -681,8 +665,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=EXT1_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="file",
-                    input_roots=(),
                     created_at=3,
                 ),
                 files=(
@@ -742,8 +724,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=ROOT_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="file",
-                    input_roots=(),
                     created_at=2,
                 ),
                 files=(
@@ -771,8 +751,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=EXT1_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="file",
-                    input_roots=(),
                     created_at=3,
                 ),
                 files=(
@@ -823,8 +801,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=b"\x99" * 32,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="file",
-                    input_roots=(),
                     created_at=2,
                 ),
                 files=(
@@ -861,8 +837,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=ROOT_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="file",
-                    input_roots=(),
                     created_at=2,
                 ),
                 files=(
@@ -911,8 +885,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=ROOT_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="file",
-                    input_roots=(),
                     created_at=2,
                 ),
                 files=(
@@ -963,8 +935,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=ROOT_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="file",
-                    input_roots=(),
                     created_at=2,
                 ),
                 files=(
@@ -1005,8 +975,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=ROOT_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="directory",
-                    input_roots=("docs",),
                     created_at=2,
                 ),
                 files=(
@@ -1054,8 +1022,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=ROOT_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="directory",
-                    input_roots=("docs",),
                     created_at=2,
                 ),
                 files=(
@@ -1111,8 +1077,6 @@ class TestExtensionChain(unittest.TestCase):
                     parent_doc_hash=ROOT_DOC_HASH,
                     root_doc_hash=ROOT_DOC_HASH,
                     chunking=_profile(),
-                    input_origin="directory",
-                    input_roots=("docs",),
                     created_at=2,
                 ),
                 files=(

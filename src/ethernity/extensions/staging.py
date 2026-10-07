@@ -25,10 +25,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ethernity.core.bounds import MAX_EXTENSION_INDEX
+from ethernity.core.validation import require_bytes, require_positive_int
 from ethernity.encoding.framing import DOC_ID_LEN
 from ethernity.publication import create_sibling_staging_dir, discard_staging_directory
 
 DirectoryIdentity = tuple[int, int]
+
+
+def extension_output_directory_name(root_doc_hash: bytes, index: int) -> str:
+    """Name an update destination from its verified original and sequence number."""
+
+    root_hash = require_bytes(root_doc_hash, 32, label="root_doc_hash")
+    index = require_positive_int(index, label="extension index")
+    if index > MAX_EXTENSION_INDEX:
+        raise ValueError(f"extension index must be at most {MAX_EXTENSION_INDEX}")
+    return f"backup-{root_hash[:DOC_ID_LEN].hex()}-update-{index:02d}"
 
 
 @dataclass(frozen=True)
@@ -130,6 +141,10 @@ def validate_staged_extension_dir(paths: StagedExtensionPaths) -> None:
     expected_names = {path.name for path in expected_paths}
     if len(expected_names) != len(expected_paths):
         raise ValueError("extension output paths must be distinct")
+    _validate_staged_inventory(staging_dir, expected_names)
+
+
+def _validate_staged_inventory(staging_dir: Path, expected_names: set[str]) -> None:
     actual_names: set[str] = set()
     for entry in staging_dir.iterdir():
         if entry.is_symlink():
