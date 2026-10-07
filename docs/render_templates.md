@@ -212,6 +212,12 @@ for PDFs, raster
 previews, layout reports, and scan checks. `RenderInputs.layout_debug_json_path` adds diagnostics
 without changing the document.
 
+All built-in template fonts are embedded as subsets. Helvetica, Courier, and Times resolve to
+the bundled Nimbus Sans, Nimbus Mono PS, and Nimbus Roman faces, with their original template
+line boxes retained. Font files, license texts, and the pinned upstream source are under
+`resources/designs/_shared/assets/fonts`. This avoids viewer-dependent font substitution and
+allows the same visual references to run on macOS, Linux, and Windows.
+
 ```sh
 uv run pytest tests/unit/test_original_render_designs.py
 ```

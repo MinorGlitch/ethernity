@@ -218,6 +218,15 @@ def test_kit_rejects_a_duplicated_loader_with_a_consistent_physical_layout(
 def test_actual_output_matches_inputs(tmp_path: Path, design: str, role: str) -> None:
     inputs = _inputs(tmp_path, design, role)
     _validate(inputs, render_frames_to_pdf(inputs))
+    for page in PdfReader(inputs.output_path).pages:
+        fonts = page["/Resources"]["/Font"]
+        assert fonts
+        for reference in fonts.values():
+            font = reference.get_object()
+            assert font["/Subtype"] == "/Type0", font["/BaseFont"]
+            descendant = font["/DescendantFonts"][0].get_object()
+            descriptor = descendant["/FontDescriptor"]
+            assert descriptor["/FontFile2"].get_data(), font["/BaseFont"]
 
 
 def test_blank_pdf_with_original_layouts_and_resources_is_rejected(tmp_path: Path) -> None:

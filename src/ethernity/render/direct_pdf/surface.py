@@ -127,7 +127,9 @@ class FpdfSurface:
         font_path = Path(path)
         if not font_path.is_file():
             raise FileNotFoundError(font_path)
-        self._pdf.add_font(family, style, str(font_path))
+        # fpdf2 reserves the standard PDF family names for unembedded fonts.
+        # Keep template names stable while registering explicit font programs.
+        self._pdf.add_font(f"embedded-{family}", style, str(font_path))
         self._registered_fonts.add((family, style))
 
     def measure_text_width(self, text: str, style: TextStyle) -> float:
@@ -144,7 +146,11 @@ class FpdfSurface:
         if not text.strip():
             return TextInkMetrics(0.0, 0.0)
         font = self._pdf.current_font
-        if isinstance(font, TTFFont):
+        if isinstance(font, TTFFont) and style.family.lower() not in {
+            "helvetica",
+            "courier",
+            "times",
+        }:
             glyph_set = font.ttfont.getGlyphSet()
             bottom, top = 0.0, 0.0
             for character in set(text):
@@ -162,8 +168,8 @@ class FpdfSurface:
             scale = style.size_pt * _POINT_TO_MM / font.ttfont["head"].unitsPerEm
             return TextInkMetrics(top * scale, -bottom * scale)
 
-        # Standard PDF fonts have no embedded outlines. Their font bounding boxes
-        # conservatively cover every glyph, including accented capitals and descenders.
+        # Preserve the template's standard-family line boxes when embedding their
+        # replacements. These extents include accented capitals and descenders.
         ascent, descent = _core_font_extents(style.family)
         scale = style.size_pt * _POINT_TO_MM / 1000.0
         return TextInkMetrics(ascent * scale, descent * scale)
@@ -301,7 +307,12 @@ class FpdfSurface:
         return frozenset(self._registered_fonts)
 
     def _set_text_style(self, style: TextStyle) -> None:
-        self._pdf.set_font(style.family, style=style.style, size=cast(int, style.size_pt))
+        family = (
+            f"embedded-{style.family}"
+            if (style.family, style.style) in self._registered_fonts
+            else style.family
+        )
+        self._pdf.set_font(family, style=style.style, size=cast(int, style.size_pt))
         self._pdf.set_char_spacing(style.char_spacing_pt)
 
     def _set_text_color(self, color: PdfColor) -> None:

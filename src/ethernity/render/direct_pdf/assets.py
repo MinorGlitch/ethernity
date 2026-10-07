@@ -51,6 +51,11 @@ def packaged_direct_pdf_assets() -> DirectPdfAssets:
 
     return DirectPdfAssets(
         fonts=(
+            BundledFont("Helvetica", _SHARED_ASSET_DIR / "fonts/NimbusSans-Regular.ttf"),
+            BundledFont("Helvetica", _SHARED_ASSET_DIR / "fonts/NimbusSans-Bold.ttf", "B"),
+            BundledFont("Courier", _SHARED_ASSET_DIR / "fonts/NimbusMonoPS-Regular.ttf"),
+            BundledFont("Courier", _SHARED_ASSET_DIR / "fonts/NimbusMonoPS-Bold.ttf", "B"),
+            BundledFont("Times", _SHARED_ASSET_DIR / "fonts/NimbusRoman-Bold.ttf", "B"),
             BundledFont(
                 family=MATERIAL_SYMBOLS_FAMILY,
                 path=_SHARED_ASSET_DIR / MATERIAL_SYMBOLS_FONT_NAME,

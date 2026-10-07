@@ -161,7 +161,8 @@ def _validate_text_visibility(
             _set_active(obj, isinstance(obj, pdfium.PdfTextObj))
         isolated = _render_page(page, transparent=True)
         try:
-            mask = isolated.getchannel("A").point(lambda alpha: 255 if alpha >= 240 else 0)
+            alpha = isolated.getchannel("A")
+            mask = alpha.point(lambda value: 255 if value >= 240 else 0)
             difference = ImageChops.difference(composed, without_text)
             red, green, blue = difference.split()
             contrast = ImageChops.lighter(ImageChops.lighter(red, green), blue)
@@ -170,11 +171,21 @@ def _validate_text_visibility(
             if hidden.getbbox() is not None:
                 raise RenderValidationError(f"{label} has covered or unreadable printed text")
             for obj in texts:
-                if (
-                    obj.extract().strip()
-                    and mask.crop(_object_pixel_box(obj, page)).getbbox() is None
-                ):
-                    raise RenderValidationError(f"{label} has invisible printed text")
+                box = _object_pixel_box(obj, page)
+                if obj.extract().strip() and mask.crop(box).getbbox() is None:
+                    # A thin underscore may have no nearly opaque pixels. Check
+                    # its darkest ink instead, with a half-coverage minimum.
+                    glyph_alpha = alpha.crop(box)
+                    threshold = max(128, min(240, glyph_alpha.getextrema()[1]))
+                    ink = glyph_alpha.point(
+                        lambda value, threshold=threshold: 255 if value >= threshold else 0
+                    )
+                    if ink.getbbox() is None:
+                        raise RenderValidationError(f"{label} has invisible printed text")
+                    if ImageChops.subtract(ink, visible.crop(box)).getbbox() is not None:
+                        raise RenderValidationError(
+                            f"{label} has covered or unreadable printed text"
+                        )
         finally:
             isolated.close()
     finally:

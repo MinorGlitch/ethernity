@@ -21,6 +21,9 @@ release archive rather than GitHub's automatically generated tag archive.
 
 Verify each Sigstore bundle before using its archive.
 
+Packages include the template fonts and their license notices. PDFs embed subsets of those fonts;
+users do not need to install matching system fonts to view or print them.
+
 SBOMs are platform-specific. The release workflow scans each final, signed archive with the
 repository-pinned Anchore SBOM action and Syft version. It does not reuse a dependency manifest as
 the SBOM for multiple release files.
