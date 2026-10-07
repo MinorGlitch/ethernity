@@ -439,14 +439,7 @@ def _generate_full_golden() -> None:
     source_root = repo_root / "tests" / "fixtures" / "v1_0" / "source"
     golden_root = repo_root / "tests" / "fixtures" / "v1_1" / "golden"
 
-    for child in golden_root.iterdir():
-        if child.name in {"build_golden.py", "README.md"}:
-            continue
-        if child.is_dir():
-            shutil.rmtree(child)
-        else:
-            child.unlink()
-
+    _clear_golden_outputs(golden_root)
     scenarios = [
         scenario
         for scenario in _scenario_definitions(source_root)
@@ -478,99 +471,15 @@ def _generate_full_golden() -> None:
                 encoding="utf-8",
             )
             for scenario in scenarios:
-                backup_args_raw = cast(list[str], scenario["backup_args"])
-                expected_relative_paths = cast(list[str], scenario["expected_relative_paths"])
-                expected_source_root = cast(Path, scenario["expected_source_root"])
-                shard_payload_count = cast(int, scenario["shard_payload_count"])
-                scenario_id = str(scenario["id"])
-                scenario_root = profile_root / scenario_id
-                backup_dir = scenario_root / "backup"
-                scenario_root.mkdir(parents=True, exist_ok=True)
-                backup_args = [
-                    "backup",
-                    *backup_args_raw,
-                    "--design",
-                    "forge",
-                    "--output-dir",
-                    str(backup_dir),
-                    "--yes",
-                ]
-                _run_cli(repo_root, backup_args, xdg_config_home, profile_config_path)
-
-                main_payloads = scenario_root / "main_payloads.txt"
-                main_payloads_binary = scenario_root / "main_payloads.bin"
-                main_payload_bytes = _scan_payload_bytes([backup_dir / "qr_document.pdf"])
-                _write_payloads_text_file(main_payload_bytes, main_payloads)
-                _write_payloads_binary_file(main_payload_bytes, main_payloads_binary)
-
-                shard_paths = sorted(backup_dir.glob("shard-*.pdf"))
-                shard_payloads_path = scenario_root / "shard_payloads_threshold.txt"
-                shard_payloads_binary_path = scenario_root / "shard_payloads_threshold.bin"
-                if shard_payload_count > 0:
-                    shard_payload_bytes = _scan_payload_bytes(shard_paths[:shard_payload_count])
-                    _write_payloads_text_file(shard_payload_bytes, shard_payloads_path)
-                    _write_payloads_binary_file(shard_payload_bytes, shard_payloads_binary_path)
-                else:
-                    if shard_payloads_path.exists():
-                        shard_payloads_path.unlink()
-                    if shard_payloads_binary_path.exists():
-                        shard_payloads_binary_path.unlink()
-                _write_signing_key_payload_fixtures(scenario_root)
-                signing_key_paths = sorted(backup_dir.glob("signing-key-shard-*.pdf"))
-
-                file_hashes = {}
-                for file in sorted(backup_dir.glob("*.pdf")):
-                    file_hashes[file.name] = _file_sha256(file)
-                file_hashes["main_payloads.txt"] = _file_sha256(main_payloads)
-                file_hashes["main_payloads.bin"] = _file_sha256(main_payloads_binary)
-                if shard_payload_count > 0:
-                    file_hashes["shard_payloads_threshold.txt"] = _file_sha256(shard_payloads_path)
-                    file_hashes["shard_payloads_threshold.bin"] = _file_sha256(
-                        shard_payloads_binary_path
-                    )
-                signing_key_binary_path = scenario_root / _signing_key_payloads_binary()
-                if signing_key_binary_path.exists():
-                    file_hashes[_signing_key_payloads_text()] = _file_sha256(
-                        scenario_root / _signing_key_payloads_text()
-                    )
-                    file_hashes[_signing_key_payloads_binary()] = _file_sha256(
-                        signing_key_binary_path
-                    )
-
-                expected_files = {}
-                for relative_path in expected_relative_paths:
-                    source_path = expected_source_root / str(relative_path)
-                    expected_files[str(relative_path)] = _file_sha256(source_path)
-
-                snapshot = {
-                    "scenario_id": scenario_id,
-                    "profile": profile_name,
-                    "qr_payload_codec": qr_codec,
-                    "passphrase": PASS_PHRASE,
-                    "expected_relative_paths": expected_relative_paths,
-                    "expected_file_sha256": expected_files,
-                    "file_hashes": file_hashes,
-                    "backup_shard_projections": _shard_details_by_file(
-                        shard_paths + signing_key_paths
-                    ),
-                    "manifest_projection": _manifest_details(main_payloads, PASS_PHRASE),
-                    "shard_payload_count": shard_payload_count,
-                    "expected_shard_pdfs": len(shard_paths),
-                    "expected_signing_key_shard_pdfs": len(signing_key_paths),
-                }
-                (scenario_root / "snapshot.json").write_text(
-                    json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8",
+                scenario_id = _generate_scenario(
+                    repo_root,
+                    scenario,
+                    profile_root,
+                    profile_name,
+                    qr_codec,
+                    xdg_config_home,
+                    profile_config_path,
                 )
-                if _replacement_cases_for_scenario(scenario_id):
-                    _write_replacement_snapshot(
-                        repo_root,
-                        scenario_root=scenario_root,
-                        scenario_id=scenario_id,
-                        profile_name=profile_name,
-                        profile_config_path=profile_config_path,
-                        xdg_config_home=xdg_config_home,
-                    )
                 profile_index["scenarios"].append(
                     {
                         "id": scenario_id,
@@ -591,6 +500,136 @@ def _generate_full_golden() -> None:
         json.dumps(index, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _generate_scenario(
+    repo_root: Path,
+    scenario: dict[str, Any],
+    profile_root: Path,
+    profile_name: str,
+    qr_codec: str,
+    xdg_config_home: Path,
+    profile_config_path: Path,
+) -> str:
+    backup_args_raw = cast(list[str], scenario["backup_args"])
+    expected_relative_paths = cast(list[str], scenario["expected_relative_paths"])
+    expected_source_root = cast(Path, scenario["expected_source_root"])
+    shard_payload_count = cast(int, scenario["shard_payload_count"])
+    scenario_id = str(scenario["id"])
+    scenario_root = profile_root / scenario_id
+    backup_dir = scenario_root / "backup"
+    scenario_root.mkdir(parents=True, exist_ok=True)
+    backup_args = [
+        "backup",
+        *backup_args_raw,
+        "--design",
+        "forge",
+        "--output-dir",
+        str(backup_dir),
+        "--yes",
+    ]
+    _run_cli(repo_root, backup_args, xdg_config_home, profile_config_path)
+
+    main_payloads = scenario_root / "main_payloads.txt"
+    main_payloads_binary = scenario_root / "main_payloads.bin"
+    main_payload_bytes = _scan_payload_bytes([backup_dir / "qr_document.pdf"])
+    _write_payloads_text_file(main_payload_bytes, main_payloads)
+    _write_payloads_binary_file(main_payload_bytes, main_payloads_binary)
+
+    shard_paths = sorted(backup_dir.glob("shard-*.pdf"))
+    shard_payloads_path = scenario_root / "shard_payloads_threshold.txt"
+    shard_payloads_binary_path = scenario_root / "shard_payloads_threshold.bin"
+    if shard_payload_count > 0:
+        shard_payload_bytes = _scan_payload_bytes(shard_paths[:shard_payload_count])
+        _write_payloads_text_file(shard_payload_bytes, shard_payloads_path)
+        _write_payloads_binary_file(shard_payload_bytes, shard_payloads_binary_path)
+    else:
+        if shard_payloads_path.exists():
+            shard_payloads_path.unlink()
+        if shard_payloads_binary_path.exists():
+            shard_payloads_binary_path.unlink()
+    _write_signing_key_payload_fixtures(scenario_root)
+    signing_key_paths = sorted(backup_dir.glob("signing-key-shard-*.pdf"))
+
+    file_hashes = _scenario_file_hashes(
+        backup_dir,
+        scenario_root,
+        main_payloads,
+        main_payloads_binary,
+        shard_payload_count,
+        shard_payloads_path,
+        shard_payloads_binary_path,
+    )
+    expected_files = {}
+    for relative_path in expected_relative_paths:
+        source_path = expected_source_root / str(relative_path)
+        expected_files[str(relative_path)] = _file_sha256(source_path)
+
+    snapshot = {
+        "scenario_id": scenario_id,
+        "profile": profile_name,
+        "qr_payload_codec": qr_codec,
+        "passphrase": PASS_PHRASE,
+        "expected_relative_paths": expected_relative_paths,
+        "expected_file_sha256": expected_files,
+        "file_hashes": file_hashes,
+        "backup_shard_projections": _shard_details_by_file(shard_paths + signing_key_paths),
+        "manifest_projection": _manifest_details(main_payloads, PASS_PHRASE),
+        "shard_payload_count": shard_payload_count,
+        "expected_shard_pdfs": len(shard_paths),
+        "expected_signing_key_shard_pdfs": len(signing_key_paths),
+    }
+    (scenario_root / "snapshot.json").write_text(
+        json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    if _replacement_cases_for_scenario(scenario_id):
+        _write_replacement_snapshot(
+            repo_root,
+            scenario_root=scenario_root,
+            scenario_id=scenario_id,
+            profile_name=profile_name,
+            profile_config_path=profile_config_path,
+            xdg_config_home=xdg_config_home,
+        )
+    return scenario_id
+
+
+def _scenario_file_hashes(
+    backup_dir: Path,
+    scenario_root: Path,
+    main_payloads: Path,
+    main_payloads_binary: Path,
+    shard_payload_count: int,
+    shard_payloads_path: Path,
+    shard_payloads_binary_path: Path,
+) -> dict[str, str]:
+    file_hashes = {}
+    for file in sorted(backup_dir.glob("*.pdf")):
+        file_hashes[file.name] = _file_sha256(file)
+    file_hashes["main_payloads.txt"] = _file_sha256(main_payloads)
+    file_hashes["main_payloads.bin"] = _file_sha256(main_payloads_binary)
+    if shard_payload_count > 0:
+        file_hashes["shard_payloads_threshold.txt"] = _file_sha256(shard_payloads_path)
+        file_hashes["shard_payloads_threshold.bin"] = _file_sha256(shard_payloads_binary_path)
+    signing_key_binary_path = scenario_root / _signing_key_payloads_binary()
+    if signing_key_binary_path.exists():
+        file_hashes[_signing_key_payloads_text()] = _file_sha256(
+            scenario_root / _signing_key_payloads_text()
+        )
+        file_hashes[_signing_key_payloads_binary()] = _file_sha256(signing_key_binary_path)
+
+    return file_hashes
+
+
+def _clear_golden_outputs(golden_root: Path) -> None:
+    for child in golden_root.iterdir():
+        if child.name in {"build_golden.py", "README.md"}:
+            continue
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
 
 
 def main() -> None:

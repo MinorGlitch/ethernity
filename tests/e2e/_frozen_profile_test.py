@@ -23,7 +23,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -58,7 +58,7 @@ def _run_cli_subprocess(*args: Any, **kwargs: Any) -> subprocess.CompletedProces
     return subprocess.run(*args, **kwargs)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _scan_unchanged_pdf(path: str, _sha256: str) -> tuple[bytes | str, ...]:
     """Decode an immutable PDF once while invalidating the cache when its bytes change."""
     return tuple(scan_qr_payloads([path]))

@@ -1,3 +1,4 @@
+import { activeShardSetRecord } from "../app/shard_store.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -68,7 +69,7 @@ async function recoverPassphraseFromShardFixture(snapshotPath, { payloadName, sh
   const shardText = fs.readFileSync(path.join(scenarioDir, shardFixture.text), "utf8");
   const addedShards = parseAutoShard(state, shardText);
   assert.equal(addedShards, shardFixture.threshold);
-  assert.equal(state.shardFrames.size, shardFixture.threshold);
+  assert.equal(activeShardSetRecord(state).shardFrames.size, shardFixture.threshold);
 
   const signatures = await verifyCollectedShardSignatures(state);
   assert.equal(signatures.invalid, 0);
@@ -92,8 +93,11 @@ async function restoreScenarioWithPassphrase(snapshotPath, passphrase) {
     documents,
     passphrase,
     decryptAgePassphrase,
-    { freshnessUnknownAcknowledged: true, allowResourceIntensiveScrypt: true },
+    { freshnessUnknownAcknowledged: true },
   );
+  const extension = snapshot.document_projection.find((document) => document.kind === "extension");
+  assert.equal(extension.schema_version, undefined);
+  assert.equal(result.updateMode, extension.update_mode);
   return { result, snapshot };
 }
 

@@ -88,7 +88,7 @@ class TestKitInterop(unittest.TestCase):
         input_files = tuple(
             BackupFile(
                 path=f"vault/customer_{idx:02d}/record_{idx:02d}.txt",
-                data=f"entry-{idx}".encode("utf-8"),
+                data=f"entry-{idx}".encode(),
                 mtime=1700000000 + idx,
             )
             for idx in range(10)
@@ -151,8 +151,6 @@ class TestKitInterop(unittest.TestCase):
                 SimpleNamespace(relative_path="plain.txt", data=b"updated value", mtime=1),
                 SimpleNamespace(relative_path="extra.txt", data=b"added value", mtime=2),
             ),
-            input_origin="directory",
-            input_roots=("vault",),
             existing_file_sizes={item.path: item.size for item in restored_root_files},
             existing_chunks=existing_chunks,
             existing_file_bytes=sum(item.size for item in restored_root_files),

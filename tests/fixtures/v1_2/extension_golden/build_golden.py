@@ -42,6 +42,7 @@ from ethernity.encoding.qr_payloads import (
     encode_qr_payload,
 )
 from ethernity.formats.document_codec import decode_document, extract_payloads
+from ethernity.formats.document_constants import BACKUP_DOCUMENT_VERSIONS
 from ethernity.formats.extension_constants import CHUNK_CODEC_GZIP, CHUNK_CODEC_RAW
 from ethernity.formats.extension_document import ExtensionDocument
 from ethernity.qr.scan import scan_qr_payloads
@@ -64,6 +65,7 @@ def _scenarios() -> tuple[dict[str, Any], ...]:
             "checks": [
                 "40 KiB raw root",
                 "20 KiB and 28 KiB raw extension updates",
+                "incremental mode requires every update",
                 "latest, index, and doc-hash selection",
                 "root shards unlock the full extension chain",
             ],
@@ -76,6 +78,7 @@ def _scenarios() -> tuple[dict[str, Any], ...]:
             "checks": [
                 "gzip-coded root replay",
                 "gzip-coded extension chunks",
+                "cumulative mode is the default",
                 "replacement, inherited files, and empty files",
             ],
         },
@@ -89,7 +92,7 @@ def _scenarios() -> tuple[dict[str, Any], ...]:
     )
 
 
-def _run_cli(repo_root: Path, args: list[str], *, config_path: Path, xdg_home: Path) -> None:
+def _run_cli(repo_root: Path, args: list[str], *, config_path: Path, xdg_home: Path) -> str:
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = str(xdg_home)
     result = subprocess.run(
@@ -102,6 +105,7 @@ def _run_cli(repo_root: Path, args: list[str], *, config_path: Path, xdg_home: P
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return result.stdout
 
 
 def _profile_config(base_config: str, *, qr_codec: str, payload_codec: str) -> str:
@@ -178,14 +182,20 @@ def _backup(
         "--design",
         design,
         "--output-dir",
-        str(chain_dir),
+        str(chain_dir.parent),
         "--yes",
     ]
     if shards is not None:
         args.extend(["--recovery-threshold", str(shards[0]), "--recovery-count", str(shards[1])])
     else:
         args.extend(["--recovery-count", "0"])
+    existing = set(chain_dir.parent.glob("backup-*"))
     _run_cli(repo_root, args, config_path=config_path, xdg_home=xdg_home)
+    created = set(chain_dir.parent.glob("backup-*")) - existing
+    if len(created) != 1:
+        raise RuntimeError(f"expected one new backup folder under {chain_dir.parent}")
+    # Fixtures keep stable paths independently of the app's generated backup folder name.
+    created.pop().rename(chain_dir)
 
 
 def _add_files(
@@ -197,19 +207,27 @@ def _add_files(
     root_dir: Path,
     passphrase: str | None,
     design: str = "forge",
+    update_mode: str | None = None,
 ) -> None:
+    previous_updates = sorted((root_dir / "extensions").glob("[0-9][0-9]/qr_document-*.pdf"))
+    index = len(previous_updates) + 1
     args = [
         "add-files",
-        "--backup-folder",
-        str(root_dir),
+        "--output-dir",
+        str(root_dir / "extensions" / f"{index:02d}"),
         "--input-dir",
         str(source_dir),
         "--base-dir",
         str(source_dir),
         "--design",
         design,
+        "--allow-stale-head",
         "--yes",
     ]
+    for document in (root_dir / "qr_document.pdf", *previous_updates):
+        args.extend(["--scan", str(document)])
+    if update_mode is not None:
+        args.extend(["--update-mode", update_mode])
     if passphrase is not None:
         args.extend(["--passphrase", passphrase])
     _run_cli(repo_root, args, config_path=config_path, xdg_home=xdg_home)
@@ -258,6 +276,7 @@ def _build_large_raw_two_extension_chain(
         source_dir=source,
         root_dir=chain,
         passphrase=PASS_PHRASE,
+        update_mode="incremental",
     )
     states["extension_01"] = _hash_tree(source)
     _write_file(
@@ -541,11 +560,12 @@ def _document_details(payloads_file: Path, passphrase: str) -> list[dict[str, An
         plaintext = decrypt_bytes(ciphertext, passphrase=passphrase)
         version, decoded = decode_document(plaintext)
         doc_hash = hashlib.blake2b(ciphertext, digest_size=32).hexdigest()
-        if version == 1:
+        if version in BACKUP_DOCUMENT_VERSIONS:
             manifest, payload = decoded
             details.append(
                 {
                     "kind": "root",
+                    "document_version": version,
                     "doc_id": doc_id.hex(),
                     "doc_hash": doc_hash,
                     "payload_codec": manifest.payload_codec,
@@ -576,6 +596,7 @@ def _extension_details(
         "doc_id": doc_id,
         "doc_hash": doc_hash,
         "index": document.header.index,
+        "update_mode": document.header.update_mode.value,
         "parent_doc_hash": document.header.parent_doc_hash.hex(),
         "root_doc_hash": document.header.root_doc_hash.hex(),
         "files": [
@@ -651,8 +672,6 @@ def _generate_scenario(
     if not isinstance(builder, Callable):
         raise TypeError("scenario builder must be callable")
     built = builder(repo_root, scenario_root, xdg_home, config_path)
-    for lock_path in built["chain"].rglob(".chain.lock"):
-        lock_path.unlink()
     qr_codec = profile_root.name
     if qr_codec not in {"base64", "raw"}:
         raise ValueError(f"unsupported fixture QR payload codec: {qr_codec}")

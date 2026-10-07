@@ -35,7 +35,7 @@ _FIXTURE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_2" / "extension_golden"
 _BINARY_PAYLOADS_MAGIC = b"EQPB"
 _BINARY_PAYLOADS_VERSION = 1
 _EXTENSION_DOCUMENT_RE = re.compile(
-    r"^(qr_document|recovery_document|head_anchor)-(?P<index>\d+)-(?P<doc_id>[0-9a-f]{16})\.pdf$"
+    r"^(qr_document|recovery_document)-(?P<index>\d+)-(?P<doc_id>[0-9a-f]{16})\.pdf$"
 )
 
 
@@ -109,10 +109,10 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                 pdf_names = {path.name for path in extension_dir.glob("*.pdf")}
                 matches = [_EXTENSION_DOCUMENT_RE.fullmatch(name) for name in pdf_names]
                 self.assertTrue(all(matches), msg=f"unexpected extension files: {pdf_names}")
-                self.assertEqual(len(pdf_names), 3)
+                self.assertEqual(len(pdf_names), 2)
                 self.assertEqual(
                     {match.group(1) for match in matches if match is not None},
-                    {"qr_document", "recovery_document", "head_anchor"},
+                    {"qr_document", "recovery_document"},
                 )
                 self.assertEqual(
                     len(

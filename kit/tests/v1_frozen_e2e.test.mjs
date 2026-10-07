@@ -1,3 +1,5 @@
+import { primaryDocumentRecord } from "../app/documents/store.js";
+import { activeShardSetRecord } from "../app/shard_store.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,7 +10,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 
 import { addPayloads, addShardPayloads } from "../app/actions_collect.js";
 import { extractFiles } from "../app/backup_document.js";
-import { ensureCiphertextAndHash } from "../app/frames_cipher.js";
+import { ensureDocumentCiphertextAndHash } from "../app/frames_cipher.js";
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { verifyCollectedShardSignatures } from "../app/shard_auth.js";
 import { autoRecoverShardSecret } from "../app/shards.js";
@@ -36,10 +38,10 @@ async function restoreScenario(scenarioPath) {
   const mainAdded = parseAutoPayload(state, mainPayloadText);
   assert.ok(mainAdded >= 1);
 
-  const cipherHash = ensureCiphertextAndHash(state);
+  const cipherHash = ensureDocumentCiphertextAndHash(primaryDocumentRecord(state));
   assert.ok(cipherHash instanceof Uint8Array);
-  assert.equal(state.ciphertext instanceof Uint8Array, true);
-  assert.equal(state.cipherDocHashHex, bytesToHex(cipherHash));
+  assert.equal(primaryDocumentRecord(state).ciphertext instanceof Uint8Array, true);
+  assert.equal(primaryDocumentRecord(state).cipherDocHashHex, bytesToHex(cipherHash));
 
   if (snapshot.shard_payload_count > 0) {
     const shardPayloadText = fs.readFileSync(
@@ -48,7 +50,7 @@ async function restoreScenario(scenarioPath) {
     );
     const shardAdded = parseAutoShard(state, shardPayloadText);
     assert.equal(shardAdded, snapshot.shard_payload_count);
-    assert.equal(state.shardFrames.size, snapshot.shard_payload_count);
+    assert.equal(activeShardSetRecord(state).shardFrames.size, snapshot.shard_payload_count);
     const shardSignatures = await verifyCollectedShardSignatures(state);
     assert.equal(shardSignatures.invalid, 0);
     assert.equal(shardSignatures.verified, snapshot.shard_payload_count);
@@ -58,7 +60,10 @@ async function restoreScenario(scenarioPath) {
     state.agePassphrase = snapshot.passphrase;
   }
 
-  const documentBytes = await decryptAgePassphrase(state.ciphertext, state.agePassphrase);
+  const documentBytes = await decryptAgePassphrase(
+    primaryDocumentRecord(state).ciphertext,
+    state.agePassphrase,
+  );
   const extracted = await extractFiles(documentBytes);
   const expectedPaths = snapshot.expected_relative_paths.slice().sort();
   const actualPaths = extracted.files.map((file) => file.path).sort();
@@ -76,23 +81,26 @@ function profileFixtureRoot(profileName) {
   return path.join(FIXTURES_ROOT, profileName);
 }
 
-function profileIndex(profileName) {
-  return readJson(path.join(profileFixtureRoot(profileName), "index.json"));
+for (const release of ["v1_0", "v1_1"]) {
+  for (const profile of ["base64", "raw"]) {
+    test(`frozen ${release} ${profile} fixtures restore end-to-end in the kit`, async () => {
+      const root = path.resolve(
+        testDir,
+        "..",
+        "..",
+        "tests",
+        "fixtures",
+        release,
+        "golden",
+        profile,
+      );
+      const index = readJson(path.join(root, "index.json"));
+      for (const scenario of index.scenarios) {
+        await restoreScenario(path.join(root, scenario.path));
+      }
+    });
+  }
 }
-
-test("frozen v1.0 base64 fixtures restore end-to-end in the kit", async () => {
-  const index = profileIndex("base64");
-  for (const scenario of index.scenarios) {
-    await restoreScenario(path.join(profileFixtureRoot("base64"), scenario.path));
-  }
-});
-
-test("frozen v1.0 raw fixtures restore end-to-end in the kit", async () => {
-  const index = profileIndex("raw");
-  for (const scenario of index.scenarios) {
-    await restoreScenario(path.join(profileFixtureRoot("raw"), scenario.path));
-  }
-});
 
 test("shard-first then main frames triggers recovery without re-pasting shards", async () => {
   for (const profileName of ["base64", "raw"]) {

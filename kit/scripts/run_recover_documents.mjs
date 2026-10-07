@@ -105,7 +105,6 @@ async function main() {
     {
       extensionTarget,
       freshnessUnknownAcknowledged,
-      allowResourceIntensiveScrypt: true,
     },
   );
   const files = result.files.map((file) => ({

@@ -88,6 +88,7 @@ class TestStableV1Baseline(unittest.TestCase):
                 workspace,
                 config_path=config_path,
             )
+            [output_dir] = output_dir.glob("backup-*")
             self._assert_backup_files(output_dir, expected_shards=0, expected_signing_shards=0)
             self._assert_manifest_matches_frozen(
                 output_dir,
@@ -132,6 +133,7 @@ class TestStableV1Baseline(unittest.TestCase):
                 ],
                 workspace,
             )
+            [output_dir] = output_dir.glob("backup-*")
             self._assert_backup_files(output_dir, expected_shards=0, expected_signing_shards=0)
             self._assert_manifest_matches_frozen(
                 output_dir,
@@ -183,6 +185,7 @@ class TestStableV1Baseline(unittest.TestCase):
                 ],
                 workspace,
             )
+            [output_dir] = output_dir.glob("backup-*")
             self._assert_backup_files(output_dir, expected_shards=0, expected_signing_shards=0)
             self._assert_manifest_matches_frozen(
                 output_dir,
@@ -234,6 +237,7 @@ class TestStableV1Baseline(unittest.TestCase):
                 ],
                 workspace,
             )
+            [output_dir] = output_dir.glob("backup-*")
             shard_paths, signing_paths = self._assert_backup_files(
                 output_dir,
                 expected_shards=3,
@@ -301,6 +305,7 @@ class TestStableV1Baseline(unittest.TestCase):
                 ],
                 workspace,
             )
+            [output_dir] = output_dir.glob("backup-*")
             shard_paths, signing_paths = self._assert_backup_files(
                 output_dir,
                 expected_shards=3,
@@ -419,6 +424,7 @@ class TestStableV1Baseline(unittest.TestCase):
                 frames.append(frame)
         ciphertext = reassemble_payload(frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
         plaintext = decrypt_bytes(ciphertext, passphrase=_TEST_PASSPHRASE)
+        self.assertEqual(plaintext[:3], b"AY\x03")
         manifest, _payload = decode_backup_document(plaintext)
         files = sorted(
             (
@@ -432,7 +438,6 @@ class TestStableV1Baseline(unittest.TestCase):
             key=lambda item: item["path"],
         )
         details = {
-            "version": manifest.format_version,
             "sealed": manifest.sealed,
             "input_origin": manifest.input_origin,
             "input_roots": list(manifest.input_roots),
@@ -440,7 +445,9 @@ class TestStableV1Baseline(unittest.TestCase):
         }
         snapshot_path = _FROZEN_ROOT / profile / scenario_id / "snapshot.json"
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
-        self.assertEqual(details, snapshot["manifest_projection"])
+        legacy_projection = dict(snapshot["manifest_projection"])
+        self.assertEqual(legacy_projection.pop("version"), 1)
+        self.assertEqual(details, legacy_projection)
 
     @staticmethod
     def _profile_config_path(workspace: Path, qr_payload_codec: str) -> Path:
