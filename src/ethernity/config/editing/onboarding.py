@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ethernity.config._toml_support import write_text_atomic
-from ethernity.config.api.models import ConfigPatchError, ConfigTargetSource
+from ethernity.config.editing.models import ConfigPatchError, ConfigTargetSource
 from ethernity.config.install import (
     ONBOARDING_FIELDS,
     clear_first_run_onboarding_marker,
@@ -53,30 +53,7 @@ def build_onboarding_patch_plan(
 
     mark_complete = onboarding.get("mark_complete")
     configured_fields = onboarding.get("configured_fields")
-    normalized_fields: set[str] | None = None
-    if configured_fields is not None:
-        if not isinstance(configured_fields, list):
-            raise ConfigPatchError(
-                code="CONFIG_INVALID_VALUE",
-                message="onboarding.configured_fields must be an array of strings",
-                details={"field": "onboarding.configured_fields"},
-            )
-        normalized_fields = set()
-        for value in configured_fields:
-            if not isinstance(value, str) or not value.strip():
-                raise ConfigPatchError(
-                    code="CONFIG_INVALID_VALUE",
-                    message="onboarding.configured_fields entries must be non-empty strings",
-                    details={"field": "onboarding.configured_fields"},
-                )
-            normalized = value.strip()
-            if normalized not in ONBOARDING_FIELDS:
-                raise ConfigPatchError(
-                    code="CONFIG_UNKNOWN_FIELD",
-                    message=f"unknown onboarding field: {normalized}",
-                    details={"field": "onboarding.configured_fields", "value": normalized},
-                )
-            normalized_fields.add(normalized)
+    normalized_fields = _normalize_configured_fields(configured_fields)
 
     if mark_complete is None:
         raise ConfigPatchError(
@@ -103,6 +80,34 @@ def build_onboarding_patch_plan(
             frozenset() if normalized_fields is None else frozenset(normalized_fields)
         ),
     )
+
+
+def _normalize_configured_fields(configured_fields: object) -> set[str] | None:
+    if configured_fields is None:
+        return None
+    if not isinstance(configured_fields, list):
+        raise ConfigPatchError(
+            code="CONFIG_INVALID_VALUE",
+            message="onboarding.configured_fields must be an array of strings",
+            details={"field": "onboarding.configured_fields"},
+        )
+    normalized_fields = set()
+    for value in configured_fields:
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigPatchError(
+                code="CONFIG_INVALID_VALUE",
+                message="onboarding.configured_fields entries must be non-empty strings",
+                details={"field": "onboarding.configured_fields"},
+            )
+        normalized = value.strip()
+        if normalized not in ONBOARDING_FIELDS:
+            raise ConfigPatchError(
+                code="CONFIG_UNKNOWN_FIELD",
+                message=f"unknown onboarding field: {normalized}",
+                details={"field": "onboarding.configured_fields", "value": normalized},
+            )
+        normalized_fields.add(normalized)
+    return normalized_fields
 
 
 def apply_onboarding_plan(plan: OnboardingPatchPlan) -> None:

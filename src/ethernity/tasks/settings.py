@@ -19,15 +19,14 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ethernity.config import apply_api_config_patch, get_api_config_snapshot
+from ethernity.config import apply_config_patch, get_config_snapshot
 from ethernity.config.types import DEFAULT_EXTENSION_CHUNKING_PROFILE
+from ethernity.config.validation import ConfigIssue, assess_config_values
 from ethernity.core.app_paths import DEFAULT_CONFIG_FILENAME, user_config_file_path
-from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
-from ethernity.formats.extension_document import ExtensionChunkingProfile
 from ethernity.page_sizes import DEFAULT_PAPER_SIZE_NAME, PaperSizeName, resolve_paper_size
 from ethernity.tasks.models import (
     PreviewItem,
@@ -153,13 +152,13 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
         "backup_output_dir",
         ("defaults", "backup", "output_dir"),
         "Backup defaults",
-        "Backup output folder",
+        "Backup parent folder",
         "save_path",
         "Choose folder...",
-        "Automatic creates a folder named for the backup ID in the current folder.",
+        "Each backup gets a new backup-<id> folder inside this destination.",
         None,
-        placeholder="custom-folder",
-        empty_label="Automatic: named for backup ID",
+        placeholder="parent-folder",
+        empty_label="Current folder",
     ),
     SettingDescriptor(
         "backup_shard_threshold",
@@ -341,7 +340,7 @@ RISKY_CUSTOM_SETTING_MESSAGES: dict[str, str] = {
 
 
 class SettingsTaskState(BaseModel):
-    """User-facing settings state backed by the config API."""
+    """User-facing settings state backed by the config editing service."""
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
@@ -353,7 +352,7 @@ class SettingsTaskState(BaseModel):
 
     @classmethod
     def from_current(cls, config_path: Path | None = None) -> SettingsTaskState:
-        snapshot = get_api_config_snapshot(config_path)
+        snapshot = get_config_snapshot(config_path)
         return cls(
             config_path=config_path,
             values=copy.deepcopy(snapshot.values),
@@ -445,7 +444,7 @@ class SettingsTaskState(BaseModel):
             return ""
         if value is None or value == "":
             return descriptor.empty_label
-        if descriptor.kind == "bool":
+        if descriptor.kind == "bool" and isinstance(value, bool):
             return "On" if value is True else "Off"
         if str(value) == "auto":
             return "Automatic"
@@ -504,12 +503,9 @@ class SettingsTaskState(BaseModel):
 
     def execute(self) -> TaskExecutionResult:
         validation = self.validate_task()
-        if not validation.ready:
-            first_issue = validation.issues[0] if validation.issues else None
-            message = first_issue.message if first_issue is not None else "Settings are not ready."
-            raise ValueError(message)
+        validation.require_ready("Settings are not ready.")
 
-        snapshot = apply_api_config_patch(self.config_path, self._config_patch())
+        snapshot = apply_config_patch(self.config_path, self._config_patch())
         return TaskExecutionResult(
             status="succeeded",
             message="Settings saved.",
@@ -528,10 +524,8 @@ class SettingsTaskState(BaseModel):
         return str(user_config_file_path(DEFAULT_CONFIG_FILENAME))
 
     def _local_issues(self) -> tuple[TaskIssue, ...]:
-        issues: list[TaskIssue] = []
-        for descriptor in SETTING_DESCRIPTORS:
-            issues.extend(self._setting_issues(descriptor))
-        issues.extend(self._relationship_issues())
+        _, config_issues = assess_config_values(self.values)
+        issues = [_setting_issue(issue) for issue in config_issues]
         error_sections = {issue.section for issue in issues if issue.severity == "error"}
         for key, message in RISKY_CUSTOM_SETTING_MESSAGES.items():
             if key in error_sections or not self.setting_is_risky_custom(key):
@@ -544,80 +538,6 @@ class SettingsTaskState(BaseModel):
                     section=key,
                 )
             )
-        return tuple(issues)
-
-    def _setting_issues(self, descriptor: SettingDescriptor) -> tuple[TaskIssue, ...]:
-        value = self.setting_value(descriptor.key)
-        if descriptor.kind == "enum":
-            options = self.options.get(descriptor.option_key or "", ())
-            if value is None:
-                return ()
-            if options and str(value) not in options:
-                return (
-                    TaskIssue(
-                        code="SETTINGS_UNSUPPORTED_VALUE",
-                        message=f"{descriptor.title} must be one of: {', '.join(options)}.",
-                        section=descriptor.key,
-                    ),
-                )
-        if descriptor.kind == "int" and not _is_positive_int(value):
-            return (
-                TaskIssue(
-                    code="SETTINGS_POSITIVE_INTEGER_REQUIRED",
-                    message=f"{descriptor.title} must be a positive whole number.",
-                    section=descriptor.key,
-                ),
-            )
-        if descriptor.kind == "optional_int" and value is not None and not _is_positive_int(value):
-            return (
-                TaskIssue(
-                    code="SETTINGS_POSITIVE_INTEGER_REQUIRED",
-                    message=f"{descriptor.title} must be a positive whole number or blank.",
-                    section=descriptor.key,
-                ),
-            )
-        return ()
-
-    def _relationship_issues(self) -> tuple[TaskIssue, ...]:
-        issues: list[TaskIssue] = []
-        issues.extend(
-            _paired_count_issues(
-                threshold=self.setting_value("backup_shard_threshold"),
-                count=self.setting_value("backup_shard_count"),
-                section="backup_shard_threshold",
-                label="Backup recovery",
-            )
-        )
-        issues.extend(
-            _paired_count_issues(
-                threshold=self.setting_value("backup_signing_key_shard_threshold"),
-                count=self.setting_value("backup_signing_key_shard_count"),
-                section="backup_signing_key_shard_threshold",
-                label="Backup signing key",
-            )
-        )
-        chunk_sizes = (
-            self.setting_value("extension_chunk_target"),
-            self.setting_value("extension_chunk_min"),
-            self.setting_value("extension_chunk_max"),
-        )
-        if all(_is_positive_int(value) for value in chunk_sizes):
-            target_size, min_size, max_size = (cast(int, value) for value in chunk_sizes)
-            try:
-                ExtensionChunkingProfile(
-                    algorithm_id=CHUNK_ALGORITHM_FASTCDC,
-                    target_size=target_size,
-                    min_size=min_size,
-                    max_size=max_size,
-                )
-            except ValueError as exc:
-                issues.append(
-                    TaskIssue(
-                        code="SETTINGS_EXTENSION_CHUNKING_INVALID",
-                        message=str(exc),
-                        section="extension_chunk_target",
-                    )
-                )
         return tuple(issues)
 
 
@@ -655,38 +575,24 @@ def _path_or_none(value: object) -> Path | None:
     return None
 
 
-def _is_positive_int(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
-def _paired_count_issues(
-    *,
-    threshold: object,
-    count: object,
-    section: str,
-    label: str,
-) -> tuple[TaskIssue, ...]:
-    if threshold is None and count is None:
-        return ()
-    if not _is_positive_int(threshold) or not _is_positive_int(count):
-        return (
-            TaskIssue(
-                code="SETTINGS_PAIRED_COUNT_REQUIRED",
-                message=(
-                    f"Set both the required and created sheet counts for {label.lower()}, "
-                    "or leave both blank."
-                ),
-                section=section,
-            ),
+def _setting_issue(issue: ConfigIssue) -> TaskIssue:
+    path = tuple(issue.field.split("."))
+    descriptor = next((item for item in SETTING_DESCRIPTORS if item.path == path), None)
+    if descriptor is None:
+        descriptor = next(
+            (item for item in SETTING_DESCRIPTORS if item.path[: len(path)] == path), None
         )
-    count_int = cast(int, count)
-    threshold_int = cast(int, threshold)
-    if count_int < threshold_int:
-        return (
-            TaskIssue(
-                code="SETTINGS_COUNT_BELOW_THRESHOLD",
-                message=f"{label}: sheets created must be at least the number required.",
-                section=section,
-            ),
-        )
-    return ()
+    codes = {
+        "choice": "SETTINGS_UNSUPPORTED_VALUE",
+        "integer": "SETTINGS_POSITIVE_INTEGER_REQUIRED",
+        "positive": "SETTINGS_POSITIVE_INTEGER_REQUIRED",
+        "paired_count": "SETTINGS_PAIRED_COUNT_REQUIRED",
+        "count_below_threshold": "SETTINGS_COUNT_BELOW_THRESHOLD",
+        "chunking": "SETTINGS_EXTENSION_CHUNKING_INVALID",
+    }
+    title = descriptor.title if descriptor is not None else "Settings"
+    return TaskIssue(
+        code=codes.get(issue.reason, "SETTINGS_INVALID_VALUE"),
+        message=f"{title} {issue.message}.",
+        section=descriptor.key if descriptor is not None else "config",
+    )

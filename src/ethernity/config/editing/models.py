@@ -19,7 +19,7 @@ class ConfigPatchError(ValueError):
 
 
 @dataclass(frozen=True)
-class ApiConfigSnapshot:
+class ConfigSnapshot:
     path: str
     source: ConfigTargetSource
     status: Literal["valid", "invalid_toml", "invalid_values"]
@@ -29,4 +29,4 @@ class ApiConfigSnapshot:
     onboarding: dict[str, object]
 
 
-__all__ = ["ApiConfigSnapshot", "ConfigPatchError", "ConfigTargetSource"]
+__all__ = ["ConfigSnapshot", "ConfigPatchError", "ConfigTargetSource"]

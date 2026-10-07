@@ -36,6 +36,7 @@ max_size = 65536
 # payload_codec = "auto" # one of: auto | raw | gzip
 # qr_payload_codec = "raw" # required: raw | base64
 base_dir = ""
+# Parent directory; each backup is saved in its own backup-<id> folder inside it.
 output_dir = ""
 shard_threshold = 0
 shard_count = 0

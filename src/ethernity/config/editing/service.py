@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 import copy
+import tomllib
 from pathlib import Path
 
 from ethernity.config._toml_support import write_text_atomic
-from ethernity.config.api.models import ApiConfigSnapshot, ConfigPatchError, ConfigTargetSource
-from ethernity.config.api.onboarding import (
+from ethernity.config.editing.models import ConfigPatchError, ConfigSnapshot, ConfigTargetSource
+from ethernity.config.editing.onboarding import (
     apply_onboarding_plan,
     build_onboarding_patch_plan,
     read_marker_state,
     restore_marker_state,
 )
-from ethernity.config.api.snapshots import snapshot_from_path
-from ethernity.config.api.toml_writer import update_config_toml
-from ethernity.config.api.validation import (
+from ethernity.config.editing.snapshots import snapshot_from_path
+from ethernity.config.editing.toml_writer import update_config_toml
+from ethernity.config.editing.validation import (
     merge_values_patch,
     validate_config_values,
     validate_patch_shape,
@@ -24,15 +25,15 @@ from ethernity.config.install import resolve_config_snapshot_path, resolve_writa
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 
 
-def get_api_config_snapshot(path: str | Path | None = None) -> ApiConfigSnapshot:
+def get_config_snapshot(path: str | Path | None = None) -> ConfigSnapshot:
     target_path, source = _resolve_config_target(path, for_write=False)
     return snapshot_from_path(target_path, source=source)
 
 
-def apply_api_config_patch(
+def apply_config_patch(
     path: str | Path | None,
     patch: dict[str, object],
-) -> ApiConfigSnapshot:
+) -> ConfigSnapshot:
     target_path, source = _resolve_config_target(path, for_write=True)
     validate_patch_shape(patch)
     onboarding_plan = build_onboarding_patch_plan(patch.get("onboarding"), source=source)
@@ -51,12 +52,9 @@ def apply_api_config_patch(
         merge_values_patch(current_values, patch_values, prefix=("values",))
 
     validated_values = validate_config_values(current_values)
-    base_text = (
-        original_text
-        if original_text is not None and current.status != "invalid_toml"
-        else DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
+    updated = _prepare_config_text(
+        original_text, validated_values, replace_invalid_toml=current.status == "invalid_toml"
     )
-    updated = update_config_toml(base_text, validated_values)
     config_changed = original_text is None or updated != original_text
     marker_state = read_marker_state() if onboarding_plan is not None else None
     writable_target_path: Path | None = None
@@ -82,6 +80,27 @@ def apply_api_config_patch(
     return snapshot_from_path(writable_target_path or target_path, source=source)
 
 
+def _prepare_config_text(
+    original: str | None, values: dict[str, object], *, replace_invalid_toml: bool
+) -> str:
+    """Check the complete TOML write plan before changing a file or onboarding marker."""
+    base = (
+        DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
+        if original is None or replace_invalid_toml
+        else original
+    )
+    updated = update_config_toml(base, values)
+    try:
+        tomllib.loads(updated)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigPatchError(
+            code="CONFIG_INVALID_VALUE",
+            message="Repair the existing TOML structure before saving these settings.",
+            details={"field": "values"},
+        ) from exc
+    return updated
+
+
 def _resolve_config_target(
     path: str | Path | None,
     *,
@@ -96,4 +115,4 @@ def _resolve_config_target(
     return target_path, source
 
 
-__all__ = ["apply_api_config_patch", "get_api_config_snapshot"]
+__all__ = ["apply_config_patch", "get_config_snapshot"]

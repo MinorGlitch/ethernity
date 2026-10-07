@@ -119,27 +119,6 @@ class TestConfigInstaller(unittest.TestCase):
                     frozenset({installer.ONBOARDING_FIELD_PAGE_SIZE}),
                 )
 
-    def test_resolve_api_defaults_config_path_refreshes_existing_user_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config_root = Path(tmpdir) / "config"
-            paths = installer.ConfigPaths(
-                user_config_dir=config_root,
-                user_config_path=config_root / "config.toml",
-                user_required_files=(),
-            )
-            paths.user_config_path.parent.mkdir(parents=True, exist_ok=True)
-            paths.user_config_path.write_text("[ui]\nquiet = false\n", encoding="utf-8")
-            with (
-                mock.patch.object(installer, "build_config_paths", return_value=paths),
-                mock.patch.object(
-                    installer, "_ensure_user_config", return_value=True
-                ) as ensure_user,
-            ):
-                resolved = installer.resolve_api_defaults_config_path()
-
-        self.assertEqual(resolved, paths.user_config_path)
-        ensure_user.assert_called_once_with(paths)
-
     def test_apply_first_run_defaults_updates_existing_config(self) -> None:
         initial = (
             """

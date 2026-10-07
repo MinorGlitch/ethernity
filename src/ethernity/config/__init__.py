@@ -15,13 +15,13 @@
 
 """Load, resolve, and install Ethernity configuration."""
 
-from ethernity.config.api.models import (
-    ApiConfigSnapshot,
+from ethernity.config.editing.models import (
     ConfigPatchError,
+    ConfigSnapshot,
 )
-from ethernity.config.api.service import (
-    apply_api_config_patch,
-    get_api_config_snapshot,
+from ethernity.config.editing.service import (
+    apply_config_patch,
+    get_config_snapshot,
 )
 from ethernity.config.install import (
     ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
@@ -41,7 +41,6 @@ from ethernity.config.install import (
     init_user_config,
     list_render_styles,
     mark_first_run_onboarding_complete,
-    resolve_api_defaults_config_path,
     resolve_config_path,
     resolve_config_snapshot_path,
     resolve_render_style_path,
@@ -75,7 +74,7 @@ from ethernity.config.types import (
 
 __all__ = [
     "AppConfig",
-    "ApiConfigSnapshot",
+    "ConfigSnapshot",
     "BackupDefaults",
     "CliDefaults",
     "ConfigPatchError",
@@ -90,7 +89,6 @@ __all__ = [
     "UiDefaults",
     "DEFAULT_PAPER_SIZE",
     "DEFAULT_RENDER_STYLE",
-    "resolve_api_defaults_config_path",
     "resolve_config_snapshot_path",
     "resolve_config_path",
     "resolve_render_style_path",
@@ -113,10 +111,10 @@ __all__ = [
     "list_render_styles",
     "mark_first_run_onboarding_complete",
     "user_config_needs_init",
-    "apply_api_config_patch",
+    "apply_config_patch",
     "apply_render_style",
     "build_qr_config",
-    "get_api_config_snapshot",
+    "get_config_snapshot",
     "load_app_config",
     "load_cli_defaults",
 ]

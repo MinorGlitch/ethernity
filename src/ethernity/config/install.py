@@ -23,9 +23,9 @@ import json
 import re
 import shutil
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from ethernity.config._toml_support import (
     toml_quote as _toml_quote,
@@ -187,17 +187,6 @@ def resolve_config_snapshot_path(path: str | Path | None = None) -> Path:
     return DEFAULT_CONFIG_PATH
 
 
-def resolve_api_defaults_config_path() -> Path:
-    """Resolve the config path API commands should use for default CLI settings."""
-
-    paths = build_config_paths()
-    if paths.user_config_path.exists():
-        if not _ensure_user_config(paths):
-            raise OSError(f"unable to refresh user config at {paths.user_config_path}")
-        return paths.user_config_path
-    return DEFAULT_CONFIG_PATH
-
-
 def first_run_onboarding_marker_path() -> Path:
     """Return the marker file path used to gate first-run onboarding prompts."""
 
@@ -309,146 +298,110 @@ def apply_first_run_defaults(
     if qr_chunk_size <= 0:
         raise ValueError("qr_chunk_size must be a positive integer")
 
-    if (shard_threshold is None) != (shard_count is None):
-        raise ValueError("shard_threshold and shard_count must be set together")
-    if shard_threshold is not None and shard_count is not None:
-        if shard_threshold < 1:
-            raise ValueError("shard_threshold must be >= 1")
-        if shard_threshold > 255:
-            raise ValueError("shard_threshold must be <= 255")
-        if shard_count < shard_threshold:
-            raise ValueError("shard_count must be >= shard_threshold")
-        if shard_count > 255:
-            raise ValueError("shard_count must be <= 255")
-
-    if signing_key_mode not in {None, "embedded", "sharded"}:
-        raise ValueError("signing_key_mode must be 'embedded', 'sharded', or None")
-    if signing_key_mode == "sharded" and (shard_threshold is None or shard_count is None):
-        raise ValueError("signing_key_mode='sharded' requires passphrase sharding")
-    if (signing_key_shard_threshold is None) != (signing_key_shard_count is None):
-        raise ValueError(
-            "signing_key_shard_threshold and signing_key_shard_count must be set together"
-        )
-    if signing_key_shard_threshold is not None and signing_key_shard_count is not None:
-        if signing_key_mode != "sharded":
-            raise ValueError("signing key shard counts require signing_key_mode='sharded'")
-        if signing_key_shard_threshold < 1:
-            raise ValueError("signing_key_shard_threshold must be >= 1")
-        if signing_key_shard_threshold > 255:
-            raise ValueError("signing_key_shard_threshold must be <= 255")
-        if signing_key_shard_count < signing_key_shard_threshold:
-            raise ValueError("signing_key_shard_count must be >= signing_key_shard_threshold")
-        if signing_key_shard_count > 255:
-            raise ValueError("signing_key_shard_count must be <= 255")
+    _validate_passphrase_shard_defaults(shard_threshold, shard_count)
+    _validate_signing_shard_defaults(
+        signing_key_mode,
+        has_passphrase_shards=shard_threshold is not None,
+        threshold=signing_key_shard_threshold,
+        count=signing_key_shard_count,
+    )
 
     config_path = resolve_config_path(path)
     original = config_path.read_text(encoding="utf-8")
     line_ending = "\r\n" if "\r\n" in original else "\n"
 
+    updates = [
+        ("render", "style", f'"{design}"'),
+        ("defaults.backup", "payload_codec", f'"{payload_codec}"'),
+        ("defaults.backup", "qr_payload_codec", f'"{qr_payload_codec}"'),
+        ("qr", "error", f'"{qr_error_correction}"'),
+        ("page", "size", f'"{resolved_page_size}"'),
+        ("defaults.backup", "output_dir", _toml_quote(backup_output_dir or "")),
+        ("qr", "chunk_size", str(qr_chunk_size)),
+    ]
+    shard_defaults = _first_run_shard_values(
+        shard_threshold,
+        shard_count,
+        signing_key_mode,
+        signing_key_shard_threshold,
+        signing_key_shard_count,
+    )
+    updates.extend(("defaults.backup", key, value) for key, value in shard_defaults.items())
     updated = original
-    updated = _upsert_table_key(updated, table="render", key="style", value=f'"{design}"')
-    updated = _upsert_table_key(
-        updated,
-        table="defaults.backup",
-        key="payload_codec",
-        value=f'"{payload_codec}"',
-    )
-    updated = _upsert_table_key(
-        updated,
-        table="defaults.backup",
-        key="qr_payload_codec",
-        value=f'"{qr_payload_codec}"',
-    )
-    updated = _upsert_table_key(updated, table="qr", key="error", value=f'"{qr_error_correction}"')
-    updated = _upsert_table_key(
-        updated,
-        table="page",
-        key="size",
-        value=f'"{resolved_page_size}"',
-    )
-    updated = _upsert_table_key(
-        updated,
-        table="defaults.backup",
-        key="output_dir",
-        value=_toml_quote(backup_output_dir or ""),
-    )
-    updated = _upsert_table_key(updated, table="qr", key="chunk_size", value=str(qr_chunk_size))
-
-    if shard_threshold is None or shard_count is None:
-        updated = _upsert_table_key(
-            updated, table="defaults.backup", key="shard_threshold", value="0"
-        )
-        updated = _upsert_table_key(updated, table="defaults.backup", key="shard_count", value="0")
-        updated = _upsert_table_key(
-            updated,
-            table="defaults.backup",
-            key="signing_key_mode",
-            value='""',
-        )
-        updated = _upsert_table_key(
-            updated,
-            table="defaults.backup",
-            key="signing_key_shard_threshold",
-            value="0",
-        )
-        updated = _upsert_table_key(
-            updated,
-            table="defaults.backup",
-            key="signing_key_shard_count",
-            value="0",
-        )
-    else:
-        updated = _upsert_table_key(
-            updated,
-            table="defaults.backup",
-            key="shard_threshold",
-            value=str(shard_threshold),
-        )
-        updated = _upsert_table_key(
-            updated,
-            table="defaults.backup",
-            key="shard_count",
-            value=str(shard_count),
-        )
-        if signing_key_mode is None:
-            signing_key_mode = "embedded"
-        updated = _upsert_table_key(
-            updated,
-            table="defaults.backup",
-            key="signing_key_mode",
-            value=_toml_quote(signing_key_mode),
-        )
-        if signing_key_mode != "sharded":
-            updated = _upsert_table_key(
-                updated,
-                table="defaults.backup",
-                key="signing_key_shard_threshold",
-                value="0",
-            )
-            updated = _upsert_table_key(
-                updated,
-                table="defaults.backup",
-                key="signing_key_shard_count",
-                value="0",
-            )
-        else:
-            updated = _upsert_table_key(
-                updated,
-                table="defaults.backup",
-                key="signing_key_shard_threshold",
-                value=str(signing_key_shard_threshold or 0),
-            )
-            updated = _upsert_table_key(
-                updated,
-                table="defaults.backup",
-                key="signing_key_shard_count",
-                value=str(signing_key_shard_count or 0),
-            )
-
+    for table, key, value in updates:
+        updated = _upsert_table_key(updated, table=table, key=key, value=value)
     if not updated.endswith(("\n", "\r\n")):
         updated += line_ending
     _write_text_atomic(config_path, updated)
     return config_path
+
+
+def _validate_passphrase_shard_defaults(threshold: int | None, count: int | None) -> None:
+    if (threshold is None) != (count is None):
+        raise ValueError("shard_threshold and shard_count must be set together")
+    if threshold is not None and count is not None:
+        _validate_shard_count_bounds(
+            threshold, count, threshold_name="shard_threshold", count_name="shard_count"
+        )
+
+
+def _validate_signing_shard_defaults(
+    mode: SigningKeyMode | None,
+    *,
+    has_passphrase_shards: bool,
+    threshold: int | None,
+    count: int | None,
+) -> None:
+    if mode not in {None, "embedded", "sharded"}:
+        raise ValueError("signing_key_mode must be 'embedded', 'sharded', or None")
+    if mode == "sharded" and not has_passphrase_shards:
+        raise ValueError("signing_key_mode='sharded' requires passphrase sharding")
+    if (threshold is None) != (count is None):
+        raise ValueError(
+            "signing_key_shard_threshold and signing_key_shard_count must be set together"
+        )
+    if threshold is not None and count is not None:
+        if mode != "sharded":
+            raise ValueError("signing key shard counts require signing_key_mode='sharded'")
+        _validate_shard_count_bounds(
+            threshold,
+            count,
+            threshold_name="signing_key_shard_threshold",
+            count_name="signing_key_shard_count",
+        )
+
+
+def _validate_shard_count_bounds(
+    threshold: int, count: int, *, threshold_name: str, count_name: str
+) -> None:
+    if threshold < 1:
+        raise ValueError(f"{threshold_name} must be >= 1")
+    if threshold > 255:
+        raise ValueError(f"{threshold_name} must be <= 255")
+    if count < threshold:
+        raise ValueError(f"{count_name} must be >= {threshold_name}")
+    if count > 255:
+        raise ValueError(f"{count_name} must be <= 255")
+
+
+def _first_run_shard_values(
+    threshold: int | None,
+    count: int | None,
+    mode: SigningKeyMode | None,
+    signing_threshold: int | None,
+    signing_count: int | None,
+) -> dict[str, str]:
+    if threshold is None or count is None:
+        mode = None
+    else:
+        mode = mode or "embedded"
+    return {
+        "shard_threshold": str(threshold or 0),
+        "shard_count": str(count or 0),
+        "signing_key_mode": _toml_quote(mode or ""),
+        "signing_key_shard_threshold": str(signing_threshold or 0) if mode == "sharded" else "0",
+        "signing_key_shard_count": str(signing_count or 0) if mode == "sharded" else "0",
+    }
 
 
 def _ensure_user_config(paths: ConfigPaths) -> bool:

@@ -1,4 +1,4 @@
-"""Shared fixtures for config API tests."""
+"""Shared fixtures for config editing service tests."""
 
 from __future__ import annotations
 

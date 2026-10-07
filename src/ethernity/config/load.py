@@ -18,18 +18,18 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Literal, cast
 
 from pydantic import (
-    BaseModel,
     ConfigDict,
     ValidationError,
     ValidationInfo,
     field_validator,
 )
 
+from ethernity.config import validation as config_validation
 from ethernity.config._toml_support import load_toml
 from ethernity.config.install import resolve_config_path, resolve_render_style_path
 from ethernity.config.paths import (
@@ -37,7 +37,6 @@ from ethernity.config.paths import (
     DEFAULT_RENDER_STYLE,
 )
 from ethernity.config.types import (
-    DEFAULT_EXTENSION_CHUNKING_PROFILE,
     AddFilesDefaults,
     AppConfig,
     BackupDefaults,
@@ -48,43 +47,29 @@ from ethernity.config.types import (
 )
 from ethernity.config.value_constraints import PAGE_SIZES, QR_ERROR_LEVELS
 from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
-from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
 from ethernity.formats.extension_document import ExtensionChunkingProfile
-from ethernity.page_sizes import normalize_paper_size_name
 from ethernity.qr.codec import QrConfig
 
-_QR_ERROR_LEVELS = frozenset(QR_ERROR_LEVELS)
-_PAGE_SIZES = frozenset(PAGE_SIZES)
 
-
-class _QrSectionData(BaseModel):
+class _QrSectionData(QrConfig):
     """Parsed and validated `[qr]` TOML values."""
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
-    error: str = "M"
-    scale: int = 4
-    border: int = 4
-    kind: str = "png"
-    dark: str | tuple[int, int, int] | tuple[int, int, int, int] | None = None
-    light: str | tuple[int, int, int] | tuple[int, int, int, int] | None = None
-    version: int | None = None
-    mask: int | None = None
-    micro: bool | None = None
-    boost_error: bool = True
     chunk_size: int | None = None
 
     @field_validator("error", mode="before")
     @classmethod
     def _validate_error(cls, value: object) -> str:
-        if not isinstance(value, str) or value not in _QR_ERROR_LEVELS:
-            raise ValueError("qr.error must be one of: L, M, Q, H")
-        return value
+        return cast(
+            str,
+            config_validation.normalize_choice(value, field="qr.error", choices=QR_ERROR_LEVELS),
+        )
 
     @field_validator("scale", mode="before")
     @classmethod
     def _validate_scale(cls, value: object) -> int:
-        parsed = _require_int(value, field="qr.scale")
+        parsed = config_validation.require_int(value, field="qr.scale")
         if parsed <= 0:
             raise ValueError("qr.scale must be a positive integer")
         return parsed
@@ -92,7 +77,7 @@ class _QrSectionData(BaseModel):
     @field_validator("border", mode="before")
     @classmethod
     def _validate_border(cls, value: object) -> int:
-        parsed = _require_int(value, field="qr.border")
+        parsed = config_validation.require_int(value, field="qr.border")
         if parsed < 0:
             raise ValueError("qr.border must be a non-negative integer")
         return parsed
@@ -119,7 +104,7 @@ class _QrSectionData(BaseModel):
     def _validate_version(cls, value: object) -> int | None:
         if value is None:
             return None
-        parsed = _require_int(value, field="qr.version")
+        parsed = config_validation.require_int(value, field="qr.version")
         if parsed < 1 or parsed > 40:
             raise ValueError("qr.version must be between 1 and 40")
         return parsed
@@ -129,7 +114,7 @@ class _QrSectionData(BaseModel):
     def _validate_mask(cls, value: object) -> int | None:
         if value is None:
             return None
-        parsed = _require_int(value, field="qr.mask")
+        parsed = config_validation.require_int(value, field="qr.mask")
         if parsed < 0 or parsed > 7:
             raise ValueError("qr.mask must be between 0 and 7")
         return parsed
@@ -139,22 +124,19 @@ class _QrSectionData(BaseModel):
     def _validate_micro(cls, value: object) -> bool | None:
         if value is None:
             return None
-        return _require_bool(value, field="qr.micro")
+        return config_validation.require_bool(value, field="qr.micro")
 
     @field_validator("boost_error", mode="before")
     @classmethod
     def _validate_boost_error(cls, value: object) -> bool:
-        return _require_bool(value, field="qr.boost_error")
+        return config_validation.require_bool(value, field="qr.boost_error")
 
     @field_validator("chunk_size", mode="before")
     @classmethod
     def _validate_chunk_size(cls, value: object) -> int | None:
         if value is None:
             return None
-        parsed = _require_int(value, field="qr.chunk_size")
-        if parsed <= 0:
-            raise ValueError("qr.chunk_size must be a positive integer")
-        return parsed
+        return cast(int, config_validation.normalize_value("qr.chunk_size", value))
 
     def to_qr_config(self) -> QrConfig:
         return QrConfig(
@@ -225,20 +207,7 @@ def _parse_qr_section(cfg: dict[str, object]) -> _QrSectionData:
 
 
 def _parse_extension_chunking_profile(cfg: dict[str, object]) -> ExtensionChunkingProfile:
-    defaults = DEFAULT_EXTENSION_CHUNKING_PROFILE
-
-    def configured_size(field: str, default: int) -> int:
-        value = cfg.get(field)
-        if value is None:
-            return default
-        return _parse_int_strict(value, field=f"extension.chunking.{field}")
-
-    return ExtensionChunkingProfile(
-        algorithm_id=CHUNK_ALGORITHM_FASTCDC,
-        target_size=configured_size("target_size", defaults.target_size),
-        min_size=configured_size("min_size", defaults.min_size),
-        max_size=configured_size("max_size", defaults.max_size),
-    )
+    return config_validation.build_chunking_profile(cfg)
 
 
 def _resolve_page_size(*, override: str | None, configured: object) -> str:
@@ -250,23 +219,18 @@ def _resolve_page_size(*, override: str | None, configured: object) -> str:
 
 
 def _parse_page_size(value: object, *, field: str) -> str:
-    choices = ", ".join(PAGE_SIZES)
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be one of: {choices}")
-    normalized = normalize_paper_size_name(value)
-    if normalized not in _PAGE_SIZES:
-        raise ValueError(f"{field} must be one of: {choices}")
-    return normalized
+    return cast(str, config_validation.normalize_choice(value, field=field, choices=PAGE_SIZES))
 
 
 def _resolve_render_style(cfg: dict[str, object]) -> str:
     """Resolve the single user-facing built-in render style setting."""
 
-    style = _parse_optional_style_name(cfg.get("style"), field="render.style")
-    if style is None:
-        return DEFAULT_RENDER_STYLE
-    _ = _resolve_style_path(style, field="render.style")
-    return style.strip().lower()
+    value = cfg.get("style")
+    return (
+        DEFAULT_RENDER_STYLE
+        if value is None
+        else cast(str, config_validation.normalize_value("render.style", value))
+    )
 
 
 def build_qr_config(cfg: dict[str, object] | None = None) -> QrConfig:
@@ -290,7 +254,7 @@ def _parse_cli_defaults(data: dict[str, object]) -> CliDefaults:
 def _parse_backup_defaults(cfg: dict[str, object]) -> BackupDefaults:
     """Parse `[defaults.backup]` values."""
 
-    return BackupDefaults(
+    defaults = BackupDefaults(
         base_dir=_parse_optional_unset_str(cfg.get("base_dir"), field="defaults.backup.base_dir"),
         output_dir=_parse_optional_unset_str(
             cfg.get("output_dir"), field="defaults.backup.output_dir"
@@ -324,6 +288,12 @@ def _parse_backup_defaults(cfg: dict[str, object]) -> BackupDefaults:
             field="defaults.backup.qr_payload_codec",
         ),
     )
+
+    issues = config_validation.backup_default_issues(asdict(defaults))
+    if issues:
+        issue = issues[0]
+        raise ValueError(f"{issue.field} {issue.message}")
+    return defaults
 
 
 def _parse_recover_defaults(cfg: dict[str, object]) -> RecoverDefaults:
@@ -387,28 +357,6 @@ def _first_pydantic_value_error(exc: ValidationError) -> str:
     return str(exc)
 
 
-def _resolve_style_path(style: str, *, field: str) -> Path:
-    """Resolve a render style and rewrite errors with config field context."""
-
-    try:
-        return resolve_render_style_path(style)
-    except ValueError as exc:
-        raise ValueError(f"{field}: {exc}") from exc
-
-
-def _parse_optional_style_name(value: object, *, field: str) -> str | None:
-    """Parse an optional render style name, rejecting blank strings."""
-
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be a non-empty string")
-    name = value.strip()
-    if not name:
-        raise ValueError(f"{field} must be a non-empty string")
-    return name
-
-
 def _get_dict(data: dict[str, object], key: str) -> dict[str, object]:
     """Return a dict section or an empty dict when absent."""
 
@@ -439,12 +387,7 @@ def _get_nested_dict(data: dict[str, object], *keys: str) -> dict[str, object]:
 def _parse_optional_unset_str(value: object, *, field: str) -> str | None:
     """Parse a string field where empty string means unset."""
 
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be a string")
-    normalized = value.strip()
-    return normalized or None
+    return cast(str | None, config_validation.normalize_value(field, value))
 
 
 def _parse_bool(value: object, *, field: str, default: bool) -> bool:
@@ -452,7 +395,7 @@ def _parse_bool(value: object, *, field: str, default: bool) -> bool:
 
     if value is None:
         return default
-    return _require_bool(value, field=field)
+    return config_validation.require_bool(value, field=field)
 
 
 def _parse_optional_signing_key_mode(
@@ -462,16 +405,9 @@ def _parse_optional_signing_key_mode(
 ) -> Literal["embedded", "sharded"] | None:
     """Parse the optional signing-key storage mode."""
 
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be 'embedded', 'sharded', or empty")
-    normalized = value.strip().lower()
-    if not normalized:
-        return None
-    if normalized not in {"embedded", "sharded"}:
-        raise ValueError(f"{field} must be 'embedded', 'sharded', or empty")
-    return cast(Literal["embedded", "sharded"], normalized)
+    return cast(
+        Literal["embedded", "sharded"] | None, config_validation.normalize_value(field, value)
+    )
 
 
 def _parse_payload_codec(
@@ -481,16 +417,10 @@ def _parse_payload_codec(
 ) -> Literal["auto", "raw", "gzip"]:
     """Parse backup payload codec mode."""
 
-    if value is None:
-        return "auto"
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be 'auto', 'raw', or 'gzip'")
-    normalized = value.strip().lower()
-    if not normalized:
-        raise ValueError(f"{field} must be 'auto', 'raw', or 'gzip'")
-    if normalized not in {"auto", "raw", "gzip"}:
-        raise ValueError(f"{field} must be 'auto', 'raw', or 'gzip'")
-    return cast(Literal["auto", "raw", "gzip"], normalized)
+    return cast(
+        Literal["auto", "raw", "gzip"],
+        config_validation.normalize_value(field, "auto" if value is None else value),
+    )
 
 
 def _parse_required_qr_payload_codec(
@@ -500,45 +430,13 @@ def _parse_required_qr_payload_codec(
 ) -> Literal["raw", "base64"]:
     """Parse required backup QR payload transport mode."""
 
-    if value is None:
-        raise ValueError(f"{field} is required and must be 'raw' or 'base64'")
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be 'raw' or 'base64'")
-    normalized = value.strip().lower()
-    if normalized not in {"raw", "base64"}:
-        raise ValueError(f"{field} must be 'raw' or 'base64'")
-    return cast(Literal["raw", "base64"], normalized)
+    return cast(Literal["raw", "base64"], config_validation.normalize_value(field, value))
 
 
 def _parse_optional_positive_int_or_unset_zero(value: object, *, field: str) -> int | None:
     """Parse positive integers where `0` means unset."""
 
-    if value is None:
-        return None
-    parsed = _parse_int_strict(value, field=field)
-    if parsed == 0:
-        return None
-    if parsed < 0:
-        raise ValueError(f"{field} must be a positive integer or 0")
-    return parsed
-
-
-def _parse_int_strict(value: object, *, field: str) -> int:
-    """Parse a TOML integer field without scalar coercion."""
-
-    return _require_int(value, field=field)
-
-
-def _require_int(value: object, *, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    return value
-
-
-def _require_bool(value: object, *, field: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return value
+    return cast(int | None, config_validation.normalize_value(field, value))
 
 
 def _parse_color(
@@ -558,7 +456,7 @@ def _parse_color(
         if len(value) not in {3, 4}:
             raise ValueError(f"{field} must be a color string or RGB/RGBA tuple")
         channels = tuple(
-            _parse_int_strict(component, field=f"{field}[{index}]")
+            config_validation.require_int(component, field=f"{field}[{index}]")
             for index, component in enumerate(value)
         )
         if len(channels) == 3:

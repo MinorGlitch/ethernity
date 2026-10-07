@@ -9,17 +9,17 @@ from unittest import mock
 import pytest
 
 import ethernity.config.install as installer
-from ethernity.config.api.models import ConfigPatchError
-from ethernity.config.api.service import apply_api_config_patch
+from ethernity.config.editing.models import ConfigPatchError
+from ethernity.config.editing.service import apply_config_patch
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
-from tests.unit.config.api._support import isolated_user_config, temporary_config_path
+from tests.unit.config.editing._support import isolated_user_config, temporary_config_path
 
 
 def test_patch_updates_values_and_onboarding_marker() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         config_root = Path(tmpdir) / "config"
         with isolated_user_config(config_root):
-            snapshot = apply_api_config_patch(
+            snapshot = apply_config_patch(
                 None,
                 {
                     "values": {
@@ -83,7 +83,7 @@ def test_patch_repairs_invalid_current_values() -> None:
             1,
         )
     ) as path:
-        snapshot = apply_api_config_patch(path, {"values": {"ui": {"quiet": True}}})
+        snapshot = apply_config_patch(path, {"values": {"ui": {"quiet": True}}})
         parsed = tomllib.loads(path.read_text(encoding="utf-8"))
 
     assert snapshot.status == "valid"
@@ -93,7 +93,7 @@ def test_patch_repairs_invalid_current_values() -> None:
 
 def test_patch_repairs_invalid_toml() -> None:
     with temporary_config_path('[defaults.backup\noutput_dir = "oops"\n') as path:
-        snapshot = apply_api_config_patch(path, {"values": {"page": {"size": "LETTER"}}})
+        snapshot = apply_config_patch(path, {"values": {"page": {"size": "LETTER"}}})
         parsed = tomllib.loads(path.read_text(encoding="utf-8"))
 
     assert snapshot.status == "valid"
@@ -104,7 +104,7 @@ def test_patch_resets_onboarding_marker() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         config_root = Path(tmpdir) / "config"
         with isolated_user_config(config_root):
-            apply_api_config_patch(
+            apply_config_patch(
                 None,
                 {
                     "onboarding": {
@@ -113,7 +113,7 @@ def test_patch_resets_onboarding_marker() -> None:
                     }
                 },
             )
-            snapshot = apply_api_config_patch(
+            snapshot = apply_config_patch(
                 None,
                 {"onboarding": {"mark_complete": False}},
             )
@@ -129,7 +129,7 @@ def test_patch_preserves_existing_render_style() -> None:
         1,
     )
     with temporary_config_path(initial) as path:
-        snapshot = apply_api_config_patch(path, {"values": {"ui": {"quiet": True}}})
+        snapshot = apply_config_patch(path, {"values": {"ui": {"quiet": True}}})
         parsed = tomllib.loads(path.read_text(encoding="utf-8"))
 
     render = cast(dict[str, Any], snapshot.values["render"])
@@ -152,7 +152,7 @@ def test_patch_reverts_config_when_marker_write_fails() -> None:
 
             with (
                 mock.patch(
-                    "ethernity.config.api.service.write_text_atomic",
+                    "ethernity.config.editing.service.write_text_atomic",
                     side_effect=_fail_on_marker,
                 ),
                 mock.patch.object(
@@ -162,7 +162,7 @@ def test_patch_reverts_config_when_marker_write_fails() -> None:
                 ),
                 pytest.raises(OSError),
             ):
-                apply_api_config_patch(
+                apply_config_patch(
                     None,
                     {
                         "values": {"page": {"size": "LETTER"}},
@@ -179,7 +179,7 @@ def test_invalid_values_do_not_initialize_user_config() -> None:
         config_path = config_root / "config.toml"
         with isolated_user_config(config_root):
             with pytest.raises(ConfigPatchError) as raised:
-                apply_api_config_patch(None, {"values": "not-an-object"})
+                apply_config_patch(None, {"values": "not-an-object"})
 
     assert raised.value.code == "CONFIG_INVALID_VALUE"
     assert not config_path.exists()

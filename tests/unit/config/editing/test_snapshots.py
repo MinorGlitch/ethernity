@@ -4,17 +4,17 @@ import tempfile
 from pathlib import Path
 from typing import Any, cast
 
-from ethernity.config.api.service import get_api_config_snapshot
+from ethernity.config.editing.service import get_config_snapshot
 from ethernity.config.install import ONBOARDING_FIELDS
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
-from tests.unit.config.api._support import isolated_user_config, temporary_config_path
+from tests.unit.config.editing._support import isolated_user_config, temporary_config_path
 
 
 def test_snapshot_uses_default_target_when_user_config_is_missing() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         config_root = Path(tmpdir) / "config"
         with isolated_user_config(config_root):
-            snapshot = get_api_config_snapshot()
+            snapshot = get_config_snapshot()
 
     render = cast(dict[str, Any], snapshot.values["render"])
     assert snapshot.source == "default"
@@ -43,7 +43,7 @@ def test_snapshot_uses_user_config_target_when_present() -> None:
             encoding="utf-8",
         )
         with isolated_user_config(config_root):
-            snapshot = get_api_config_snapshot()
+            snapshot = get_config_snapshot()
 
     assert snapshot.source == "user"
     assert snapshot.status == "valid"
@@ -52,7 +52,7 @@ def test_snapshot_uses_user_config_target_when_present() -> None:
 
 def test_snapshot_reports_invalid_toml_and_defaults() -> None:
     with temporary_config_path('[defaults.backup\noutput_dir = "oops"\n') as path:
-        snapshot = get_api_config_snapshot(path)
+        snapshot = get_config_snapshot(path)
 
     page = cast(dict[str, Any], snapshot.values["page"])
     assert snapshot.status == "invalid_toml"
@@ -62,7 +62,7 @@ def test_snapshot_reports_invalid_toml_and_defaults() -> None:
 
 def test_explicit_config_snapshot_hides_onboarding_state() -> None:
     with temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
-        snapshot = get_api_config_snapshot(path)
+        snapshot = get_config_snapshot(path)
 
     assert snapshot.source == "explicit"
     assert not snapshot.onboarding["needed"]

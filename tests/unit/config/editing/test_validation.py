@@ -2,23 +2,23 @@ from __future__ import annotations
 
 import pytest
 
-from ethernity.config.api.models import ConfigPatchError
-from ethernity.config.api.service import apply_api_config_patch
+from ethernity.config.editing.models import ConfigPatchError
+from ethernity.config.editing.service import apply_config_patch
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
-from tests.unit.config.api._support import temporary_config_path
+from tests.unit.config.editing._support import temporary_config_path
 
 
 def test_patch_rejects_unknown_field() -> None:
     with temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
         with pytest.raises(ConfigPatchError) as raised:
-            apply_api_config_patch(path, {"values": {"unknown": {"value": True}}})
+            apply_config_patch(path, {"values": {"unknown": {"value": True}}})
 
     assert raised.value.code == "CONFIG_UNKNOWN_FIELD"
 
 
 def test_patch_accepts_custom_extension_chunking_settings() -> None:
     with temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
-        snapshot = apply_api_config_patch(
+        snapshot = apply_config_patch(
             path,
             {
                 "values": {
@@ -55,7 +55,7 @@ def test_patch_rejects_invalid_extension_chunking_settings(
 ) -> None:
     with temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
         with pytest.raises(ConfigPatchError) as raised:
-            apply_api_config_patch(
+            apply_config_patch(
                 path,
                 {"values": {"extension": {"chunking": chunking}}},
             )
@@ -82,7 +82,7 @@ def test_patch_rejects_invalid_extension_chunking_settings(
 def test_patch_rejects_removed_add_files_policy_fields(patch_values: dict[str, object]) -> None:
     with temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
         with pytest.raises(ConfigPatchError) as raised:
-            apply_api_config_patch(
+            apply_config_patch(
                 path,
                 {"values": {"defaults": {"add_files": patch_values}}},
             )
