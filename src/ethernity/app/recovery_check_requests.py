@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from ethernity.app.execution import ReviewedTask
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.models import TaskExecutionResult
 from ethernity.tasks.recovery_check import GeneratedRecoveryCheckRequest
 from ethernity.tasks.recovery_inputs import recovery_text_frames
-from ethernity.workflows.execution import RecoveryRequest
+from ethernity.workflows.shared.requests import RecoveryRequest
 
 
 def generated_recovery_request(
@@ -29,6 +28,7 @@ def generated_recovery_request(
             shard_payload_files=tuple(state.recovery_payload_files),
             auth_text_file=state.auth_text_file,
             auth_payloads_file=state.auth_payloads_file,
+            quiet=True,
         )
     return GeneratedRecoveryCheckRequest(
         documents=result.recovery_check_paths,
@@ -36,19 +36,6 @@ def generated_recovery_request(
         config_path=state.config_path,
         expected_head_doc_hash=_result_head(result),
         base_request=ancestry,
-    )
-
-
-def printed_recovery_request(
-    reviewed: ReviewedTask,
-    result: TaskExecutionResult,
-    scans: tuple[Path, ...],
-) -> GeneratedRecoveryCheckRequest:
-    """Use only the selected scans so generated PDFs cannot mask damaged printing."""
-    return GeneratedRecoveryCheckRequest(
-        documents=scans,
-        config_path=reviewed.state_snapshot.config_path,
-        expected_head_doc_hash=_result_head(result),
     )
 
 

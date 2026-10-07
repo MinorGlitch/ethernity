@@ -81,3 +81,56 @@ def test_source_chooser_loading_state_explains_what_is_happening() -> None:
             assert app.source_actions == []
 
     asyncio.run(run())
+
+
+def test_source_actions_reflow_on_resize_and_remain_clickable() -> None:
+    async def run() -> None:
+        chooser = SourceChooser(sample_source_body(), id="source")
+        app = WorkflowWidgetHarness(chooser)
+        async with app.run_test(size=(120, 40)) as pilot:
+            for width, columns in ((120, 3), (60, 2), (36, 1), (120, 3)):
+                await pilot.resize_terminal(width, 40)
+                await pilot.pause()
+                actions = chooser.query_one(".guided-source-actions")
+                buttons = list(actions.query(Button))
+                assert actions.styles.grid_size_columns == columns
+                for button in buttons:
+                    assert actions.region.contains_region(button.region)
+                    assert (
+                        str(button.label)
+                        in button.render_line(button.content_size.height // 2).text
+                    )
+                if columns == 3:
+                    assert len({button.region.y for button in buttons}) == 1
+                elif columns == 2:
+                    assert buttons[0].region.width == actions.content_size.width
+                    assert buttons[1].region.y == buttons[2].region.y > buttons[0].region.bottom
+                else:
+                    assert len({button.region.y for button in buttons}) == 3
+                for button in buttons:
+                    await pilot.click(button)
+                await pilot.pause()
+                assert app.source_actions[-3:] == ["load", "text", "payloads"]
+
+    asyncio.run(run())
+
+
+def test_hidden_source_actions_release_their_columns() -> None:
+    async def run() -> None:
+        body = sample_source_body()
+        chooser = SourceChooser(body, id="source")
+        app = WorkflowWidgetHarness(chooser)
+        async with app.run_test(size=(120, 40)) as pilot:
+            chooser.sync_presentation(replace(body, secondary_actions=()))
+            await pilot.pause()
+            actions = chooser.query_one(".guided-source-actions")
+            primary = chooser.query_one("#source-load", Button)
+            assert actions.styles.grid_size_columns == 1
+            assert primary.region.width <= 34
+            assert actions.region.width == chooser.content_size.width
+            chooser.sync_presentation(body)
+            await pilot.pause()
+            assert actions.styles.grid_size_columns == 3
+            assert actions.region.width == chooser.content_size.width
+
+    asyncio.run(run())

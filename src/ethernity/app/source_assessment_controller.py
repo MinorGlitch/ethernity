@@ -5,7 +5,6 @@ from typing import Protocol, cast
 
 from textual.app import App
 
-from ethernity.app.app_types import ActiveTask
 from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.security.resource_worker import terminate_active_workers
 from ethernity.tasks import source_assessment as source_assessment_module
@@ -14,11 +13,12 @@ from ethernity.tasks.source_assessment import (
     SourceAssessment,
     SourceAssessmentRequest,
 )
+from ethernity.tasks.task_types import TaskKey
 
 
 class _SourceAssessmentHost(Protocol):
-    active_task: ActiveTask
-    workflow_ui_states: dict[ActiveTask, WorkflowUiState]
+    active_task: TaskKey
+    workflow_ui_states: dict[TaskKey, WorkflowUiState]
 
     def refresh_task_view(self) -> None: ...
 
@@ -28,10 +28,10 @@ class SourceAssessmentController:
 
     def __init__(self, app: _SourceAssessmentHost) -> None:
         self._app = app
-        self._generation: dict[ActiveTask, int] = {}
-        self._completion: dict[ActiveTask, asyncio.Event] = {}
+        self._generation: dict[TaskKey, int] = {}
+        self._completion: dict[TaskKey, asyncio.Event] = {}
 
-    def request(self, task: ActiveTask) -> None:
+    def request(self, task: TaskKey) -> None:
         """Schedule an assessment after a source mutation without blocking the UI."""
 
         state = self._state(task)
@@ -59,7 +59,7 @@ class SourceAssessmentController:
             exclusive=True,
         )
 
-    async def ensure_current(self, task: ActiveTask) -> SourceAssessment | None:
+    async def ensure_current(self, task: TaskKey) -> SourceAssessment | None:
         """Await a missing current assessment before opening final review."""
 
         state = self._state(task)
@@ -104,7 +104,7 @@ class SourceAssessmentController:
 
     async def _assess(
         self,
-        task: ActiveTask,
+        task: TaskKey,
         generation: int,
         request: SourceAssessmentRequest,
     ) -> None:
@@ -122,7 +122,7 @@ class SourceAssessmentController:
         finally:
             self._finish(task, generation)
 
-    def _finish(self, task: ActiveTask, generation: int) -> None:
+    def _finish(self, task: TaskKey, generation: int) -> None:
         if self._generation.get(task) != generation:
             return
         ui_state = self._app.workflow_ui_states.get(task)
@@ -133,7 +133,7 @@ class SourceAssessmentController:
             completion.set()
         self._app.refresh_task_view()
 
-    def _next_generation(self, task: ActiveTask) -> int:
+    def _next_generation(self, task: TaskKey) -> int:
         if task in self._generation:
             terminate_active_workers()
         completion = self._completion.get(task)
@@ -143,6 +143,6 @@ class SourceAssessmentController:
         self._generation[task] = generation
         return generation
 
-    def _state(self, task: ActiveTask) -> SourceAssessableTaskState | None:
+    def _state(self, task: TaskKey) -> SourceAssessableTaskState | None:
         state = getattr(self._app, f"{task}_state", None)
         return state if isinstance(state, SourceAssessableTaskState) else None

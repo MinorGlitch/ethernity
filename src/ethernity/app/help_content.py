@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from ethernity.app.app_types import ActiveTask
 from ethernity.app.screens.help import HelpContent, HelpMode, HelpSection, HelpShortcut
 from ethernity.app.workflow_registry import workflow_definition
+from ethernity.tasks.task_types import TaskKey
 
 COMMON_SHORTCUTS = (
     HelpShortcut(("Esc",), "Close"),
@@ -43,9 +43,8 @@ HELP_MODES: tuple[HelpMode, ...] = (
             _section(
                 "Result",
                 (
-                    "Without an output folder, Ethernity creates a folder named for the backup ID "
-                    "in the current folder. Review shows the inputs, destination, and whether "
-                    "files at that destination may be replaced."
+                    "Ethernity creates a new backup-<id> folder inside the selected destination, "
+                    "or in the current folder if none is selected. Existing backups stay unchanged."
                 ),
                 "Recommended recovery creates three sheets; any two can restore.",
             ),
@@ -92,14 +91,12 @@ HELP_MODES: tuple[HelpMode, ...] = (
                     "cannot check for newer copies elsewhere."
                 ),
                 (
-                    "For mixed-version scans, enter the fingerprint printed on the version you "
-                    "trust as latest."
+                    "Enter a separately saved full fingerprint to check the version you trust "
+                    "as latest. Use Copy fingerprint after creating a backup or update to save it."
                 ),
                 (
                     "Keep signature verification on unless you are restoring legacy unsigned "
-                    "backups. Treat recovery sheets and recovery payload files as secrets. "
-                    "If unlocking exceeds the normal work limit, the result shows estimated memory "
-                    "and offers Retry with higher limits for that attempt."
+                    "backups. Treat recovery sheets and recovery payload files as secrets."
                 ),
             ),
         ),
@@ -114,6 +111,10 @@ HELP_MODES: tuple[HelpMode, ...] = (
                 (
                     "Load backup documents from PDFs, scans, images, recovery text, or exported "
                     "payloads. Unlock the backup and choose the files or folders to add."
+                ),
+                (
+                    "Cumulative series need the original backup and selected update. Incremental "
+                    "series also need every earlier update."
                 ),
             ),
             _section(
@@ -158,15 +159,16 @@ HELP_MODES: tuple[HelpMode, ...] = (
                 "Before you start",
                 (
                     "Load a backup folder or scanned pages, choose an unlock method, and select an "
-                    "output folder. Confirm you loaded the latest version or enter the fingerprint "
-                    "printed on the version you trust as latest."
+                    "output folder. Enter a separately saved full fingerprint, or acknowledge "
+                    "that newer documents may be missing."
                 ),
             ),
             _section(
                 "Result",
                 (
-                    "Ethernity writes a standalone backup set to the output folder and leaves the "
-                    "source untouched. Rebuild does not add or remove backed-up files."
+                    "Ethernity creates a new backup-<id> folder inside the selected destination "
+                    "and leaves the source untouched. Rebuild does not add or remove "
+                    "backed-up files."
                 ),
                 (
                     "The rebuilt set gets new recovery sheets. It keeps "
@@ -195,9 +197,8 @@ HELP_MODES: tuple[HelpMode, ...] = (
                 "Before you start",
                 (
                     "Load backup documents, unlock it with a passphrase, current recovery sheets, "
-                    "or recovery payload files, then choose an output folder. For scans, confirm "
-                    "you loaded the latest version or enter the fingerprint printed on the version "
-                    "you trust as latest."
+                    "or recovery payload files, then choose an output folder. Enter a separately "
+                    "saved full fingerprint, or acknowledge that newer documents may be missing."
                 ),
                 (
                     "Load signing-key payload files only when you are replacing signing-key "
@@ -297,7 +298,7 @@ HELP_MODES: tuple[HelpMode, ...] = (
 )
 
 
-def build_help_content(*, task: ActiveTask) -> HelpContent:
+def build_help_content(*, task: TaskKey) -> HelpContent:
     mode = next(mode for mode in HELP_MODES if mode.key == task)
     return HelpContent(
         title=workflow_definition(task).title,

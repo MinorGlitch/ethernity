@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from ethernity.app.application import EthernityApp
-from ethernity.app.workflow_presenter import build_guided_workflow
+from ethernity.app.workflow_registry import build_guided_workflow
 from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.encoding.framing import Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32

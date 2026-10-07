@@ -7,7 +7,6 @@ from typing import TypeVar, cast
 
 from pydantic import BaseModel
 
-from ethernity.app.app_types import ActiveTask
 from ethernity.app.workflow_registry import workflow_definition
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
@@ -16,12 +15,13 @@ from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.settings import SettingsTaskState
+from ethernity.tasks.task_types import TaskKey
 
 TaskStateModel = TypeVar("TaskStateModel", bound=BaseModel)
 
 
 def fresh_task_state(
-    task: ActiveTask,
+    task: TaskKey,
     *,
     settings_config_path: Path | None = None,
 ) -> BaseModel:

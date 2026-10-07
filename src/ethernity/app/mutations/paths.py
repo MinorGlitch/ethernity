@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ethernity.app.app_types import ActiveTask
 from ethernity.app.input_parsers import parse_paths
 from ethernity.app.mutations.state import TaskStateMutationActions
 from ethernity.app.path_selection import split_file_dir_paths
+from ethernity.tasks.task_types import TaskKey
 
 
 class TaskPathMutationActions(TaskStateMutationActions):
-    def _source_changed(self, task: ActiveTask) -> None:
+    def _source_changed(self, task: TaskKey) -> None:
         ui_state = self.workflow_ui_states.get(task)
         if ui_state is not None:
             ui_state.touch("source")
@@ -115,6 +115,7 @@ class TaskPathMutationActions(TaskStateMutationActions):
 
     def _apply_add_files_sources_picked(self, paths: tuple[Path, ...] | None) -> None:
         if paths is not None:
+            self.add_files_state.update_mode = None
             self.add_files_state.source_paths = list(paths)
             self.add_files_state.recovery_text = None
             self.add_files_state.recovery_text_file = None
@@ -125,6 +126,7 @@ class TaskPathMutationActions(TaskStateMutationActions):
 
     def _apply_add_files_recovery_text(self, value: str | None) -> None:
         if value is not None:
+            self.add_files_state.update_mode = None
             self.add_files_state.recovery_text = _normalized_pasted_text(value)
             self.add_files_state.recovery_text_file = None
             self.add_files_state.payloads_file = None
@@ -135,6 +137,7 @@ class TaskPathMutationActions(TaskStateMutationActions):
 
     def _apply_add_files_payloads_picked(self, paths: tuple[Path, ...] | None) -> None:
         if paths is not None:
+            self.add_files_state.update_mode = None
             self.add_files_state.payloads_file = paths[0] if paths else None
             self.add_files_state.recovery_text = None
             self.add_files_state.recovery_text_file = None

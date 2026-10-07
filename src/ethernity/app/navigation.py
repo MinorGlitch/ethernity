@@ -7,22 +7,22 @@ from textual.containers import HorizontalGroup
 from textual.widget import Widget
 from textual.widgets import Label, ListItem, ListView
 
-from ethernity.app.app_types import ActiveTask
 from ethernity.app.task_catalog import TASK_TITLES
 from ethernity.app.workflow_registry import (
     WORKFLOWS,
     workflow_definition,
 )
 from ethernity.tasks.models import TaskIssue
+from ethernity.tasks.task_types import TaskKey
 from ethernity.version import get_ethernity_version
 
 NavMenu = Literal["manage", "tools"]
-NAV_MENUS: dict[NavMenu, tuple[ActiveTask, ...]] = {
+NAV_MENUS: dict[NavMenu, tuple[TaskKey, ...]] = {
     "manage": ("add_files", "rebuild", "replace_recovery_docs"),
     "tools": ("kit", "settings"),
 }
-NAV_NUMBERS: dict[ActiveTask, str] = {workflow.key: workflow.shortcut for workflow in WORKFLOWS}
-NAV_LABELS: dict[ActiveTask, str] = {
+NAV_NUMBERS: dict[TaskKey, str] = {workflow.key: workflow.shortcut for workflow in WORKFLOWS}
+NAV_LABELS: dict[TaskKey, str] = {
     "backup": "Create backup",
     "restore": "Restore files",
     "add_files": "Add files",
@@ -44,7 +44,7 @@ async def run_directional_widget_binding(focused: Widget | None, key: str) -> bo
     return await focused.app.run_action(active_binding.binding.action, default_namespace=focused)
 
 
-def nav_items(active_task: ActiveTask | None = None) -> tuple[ListItem, ...]:
+def nav_items(active_task: TaskKey | None = None) -> tuple[ListItem, ...]:
     return tuple(
         _nav_item(task_key, active_task)
         for task_keys in NAV_MENUS.values()
@@ -57,8 +57,8 @@ NavTaskState = Literal["", "in-progress", "ready", "attention"]
 
 def sync_nav_active(
     nav: ListView,
-    active_task: ActiveTask,
-    task_states: Mapping[ActiveTask, NavTaskState] | None = None,
+    active_task: TaskKey,
+    task_states: Mapping[TaskKey, NavTaskState] | None = None,
     *,
     menu: NavMenu = "manage",
 ) -> None:
@@ -84,15 +84,15 @@ def sync_nav_active(
         nav.index = next((index for index, item in enumerate(nav.children) if item.display), None)
 
 
-def workspace_focus_selector(task: ActiveTask) -> str:
+def workspace_focus_selector(task: TaskKey) -> str:
     return workflow_definition(task).initial_focus
 
 
-def blocker_focus_selector(task: ActiveTask, section: str | None) -> str:
+def blocker_focus_selector(task: TaskKey, section: str | None) -> str:
     return workflow_definition(task).focus_for_section(section)
 
 
-def issue_focus_selector(task: ActiveTask, issue: TaskIssue | None) -> str:
+def issue_focus_selector(task: TaskKey, issue: TaskIssue | None) -> str:
     if issue is None:
         return workspace_focus_selector(task)
     return workflow_definition(task).focus_for_issue(issue.code, issue.section)
@@ -103,14 +103,14 @@ def app_version_label() -> str:
     return f"v{version}" if version else "dev"
 
 
-def _nav_item_task(item: ListItem) -> ActiveTask | None:
+def _nav_item_task(item: ListItem) -> TaskKey | None:
     item_id = item.id
     if item_id in TASK_TITLES:
-        return cast(ActiveTask, item_id)
+        return cast(TaskKey, item_id)
     return None
 
 
-def _nav_item(task_key: ActiveTask, active_task: ActiveTask | None) -> ListItem:
+def _nav_item(task_key: TaskKey, active_task: TaskKey | None) -> ListItem:
     active = task_key == active_task
     return ListItem(
         HorizontalGroup(

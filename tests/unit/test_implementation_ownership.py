@@ -34,7 +34,33 @@ def _implementation_body(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[a
         and isinstance(body[0].value.value, str)
     ):
         body = body[1:]
+    # Typed message constructors can share field-assignment boilerplate without
+    # sharing behavior. Their distinct types are part of event dispatch.
+    if (
+        node.name == "__init__"
+        and body
+        and ast.unparse(body[0]) == "super().__init__()"
+        and all(_copies_constructor_argument(statement, node.args) for statement in body[1:])
+    ):
+        return []
     return body
+
+
+def _copies_constructor_argument(statement: ast.stmt, arguments: ast.arguments) -> bool:
+    if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+        return False
+    target = statement.targets[0]
+    return (
+        isinstance(target, ast.Attribute)
+        and isinstance(target.value, ast.Name)
+        and target.value.id == "self"
+        and isinstance(statement.value, ast.Name)
+        and statement.value.id
+        in {
+            argument.arg
+            for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)
+        }
+    )
 
 
 def test_production_features_have_no_exact_duplicate_multistep_function_bodies() -> None:

@@ -47,7 +47,7 @@ def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> N
             await pilot.click(rail.button_for("review"))
             await pilot.pause()
             assert isinstance(app.screen, ReviewTaskScreen)
-            assert app.screen._plan.output_paths == (output,)
+            assert app.screen._plan.output_paths == (output / "backup-<id>",)
             assert not output.exists()
             await pilot.press("escape")
             assert canvas.active_step == "files"

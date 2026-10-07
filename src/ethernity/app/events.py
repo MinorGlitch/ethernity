@@ -8,14 +8,10 @@ from textual.widget import Widget
 from textual.widgets import Button, Input, ListView, MaskedInput, RadioSet, Select, Switch
 
 from ethernity.app.app_context import EthernityAppContext
-from ethernity.app.app_types import ActiveTask, UnlockTaskState
+from ethernity.app.app_types import UnlockTaskState
+from ethernity.app.editing.definitions import OutputEditorDefinition
 from ethernity.app.help_content import build_help_content
-from ethernity.app.path_selection import picker_root
-from ethernity.app.recovery_check_requests import (
-    generated_recovery_request,
-    printed_recovery_request,
-)
-from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
+from ethernity.app.recovery_check_requests import generated_recovery_request
 from ethernity.app.screens.help import HelpScreen
 from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.widgets.task_canvas import TaskCanvas
@@ -28,7 +24,10 @@ from ethernity.app.widgets.workflow.options import OptionsEditor, QuorumEditor
 from ethernity.app.widgets.workflow.paths import DestinationEditor, PathSelectionEditor
 from ethernity.app.widgets.workflow.steps import WorkflowStep
 from ethernity.app.widgets.workflow.unlock import UnlockEditor
+from ethernity.app.workflow_presenter import step_for_section
+from ethernity.app.workflow_registry import WORKFLOWS, workflow_definition
 from ethernity.app.workspaces.workspace_controls import BaseWorkspace
+from ethernity.tasks.task_types import TaskKey
 
 
 class AppEventHandlers(EthernityAppContext):
@@ -70,35 +69,10 @@ class AppEventHandlers(EthernityAppContext):
             or self.screen is not event.screen
         ):
             return
-        if event.action == "test_recovery":
-            if not event.result.recovery_check_paths:
-                return
-            self.recovery_check_controller.start(
-                generated_recovery_request(reviewed, event.result), event.screen, event.action
-            )
+        if not event.result.recovery_check_paths:
             return
-
-        def check_scans(paths: tuple[Path, ...] | None) -> None:
-            if paths and self.screen is event.screen:
-                self.recovery_check_controller.start(
-                    printed_recovery_request(reviewed, event.result, paths),
-                    event.screen,
-                    event.action,
-                )
-
-        await self.push_screen(
-            FilePickerScreen(
-                title="Test printed pages",
-                prompt=(
-                    "Select scans or photos of the printed backup and recovery sheets. "
-                    "Include the original backup and every update needed for recovery."
-                ),
-                root=picker_root(event.result.output_paths),
-                mode=FilePickerMode.OPEN_PATHS,
-                selected_paths=(),
-                allow_clear=False,
-            ),
-            check_scans,
+        self.recovery_check_controller.start(
+            generated_recovery_request(reviewed, event.result), event.screen, event.action
         )
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -111,11 +85,7 @@ class AppEventHandlers(EthernityAppContext):
             self.call_after_refresh(self._focus_active_task, self.active_task)
         elif button_id in {"nav-manage", "nav-tools"}:
             event.stop()
-            menu = "manage" if button_id == "nav-manage" else "tools"
-            if self._nav_menu_open and self._nav_menu == menu:
-                self._close_nav_menu()
-            else:
-                self._open_nav_menu(menu)
+            self._toggle_navigation_menu(button_id)
         elif button_id == "canvas-back":
             event.stop()
             key = self.query_one(TaskCanvas).adjacent_step(-1)
@@ -134,12 +104,19 @@ class AppEventHandlers(EthernityAppContext):
             event.stop()
             await self._handle_workspace_button(button_id)
 
+    def _toggle_navigation_menu(self, button_id: str) -> None:
+        menu = "manage" if button_id == "nav-manage" else "tools"
+        if self._nav_menu_open and self._nav_menu == menu:
+            self._close_nav_menu()
+        else:
+            self._open_nav_menu(menu)
+
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.item.id is None:
             return
         if event.list_view.id == "nav-list":
             event.stop()
-            self._show_task(cast(ActiveTask, event.item.id))
+            self._show_task(cast(TaskKey, event.item.id))
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         if event.item is None or event.item.id is None:
@@ -242,17 +219,15 @@ class AppEventHandlers(EthernityAppContext):
         event.stop()
         path = Path(event.value).expanduser() if event.value else None
         task = _owning_task(event.editor)
-        if task == "restore":
-            self.restore_state.output_path = path
-        elif task == "add_files":
-            self.add_files_state.output_dir = path
-        elif task == "rebuild":
-            self.rebuild_state.output_dir = path
-        elif task == "replace_recovery_docs":
-            self.replace_recovery_docs_state.output_dir = path
-        else:
+        if task is None:
             return
-        self.workflow_ui_states[task].touch("destination" if task == "restore" else "output")
+        editor = workflow_definition(task).output_editor
+        if not isinstance(editor, OutputEditorDefinition):
+            return
+        editor.set_path(self._state_for_task(task), path)
+        step = step_for_section(task, "output")
+        if step is not None:
+            self.workflow_ui_states[task].touch(step)
         self.refresh_task_view()
 
     async def on_options_editor_choice_changed(
@@ -377,10 +352,10 @@ class AppEventHandlers(EthernityAppContext):
         )
 
 
-def _owning_task(editor: Widget) -> ActiveTask | None:
+def _owning_task(editor: Widget) -> TaskKey | None:
     return next(
         (
-            cast(ActiveTask, ancestor.task_key)
+            cast(TaskKey, ancestor.task_key)
             for ancestor in editor.ancestors
             if isinstance(ancestor, BaseWorkspace)
         ),
@@ -395,20 +370,16 @@ def _owning_workflow_section(editor: Widget) -> str | None:
     )
 
 
-def _workspace_select_task(select_id: str) -> ActiveTask | None:
-    if select_id.startswith("workspace-add-files-"):
-        return "add_files"
-    if select_id.startswith("workspace-replace-"):
-        return "replace_recovery_docs"
-    if select_id.startswith("workspace-backup-"):
-        return "backup"
-    if select_id.startswith("workspace-restore-"):
-        return "restore"
-    if select_id.startswith("workspace-rebuild-"):
-        return "rebuild"
-    if select_id.startswith("workspace-kit-"):
-        return "kit"
-    return None
+def _workspace_select_task(select_id: str) -> TaskKey | None:
+    return next(
+        (
+            workflow.key
+            for workflow in WORKFLOWS
+            if workflow.workspace_prefix is not None
+            and select_id.startswith(workflow.workspace_prefix)
+        ),
+        None,
+    )
 
 
 def _setting_input_value(input_widget: Input, value: str) -> str:

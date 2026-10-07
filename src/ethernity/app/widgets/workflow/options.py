@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
-from textual.containers import HorizontalGroup, VerticalGroup
+from textual.containers import VerticalGroup
 from textual.content import Content
 from textual.message import Message
-from textual.widgets import Button, Input, Label, RadioSet, Select, Static
+from textual.widgets import Input, Label, RadioSet, Select, Static
 
 from ethernity.app.widgets.form import FormRow, FormSelect
 from ethernity.app.widgets.workflow.controls import (
+    ActionEditor,
     InlineNotice,
     KeyedRadioSet,
     WorkflowIntegerInput,
+    WorkspaceActionGroup,
     child_id,
     merge_classes,
-    post_workspace_action,
     sync_action,
     sync_static,
 )
@@ -23,6 +24,7 @@ from ethernity.tasks.presentation.models import (
     OptionsBodyPresentation,
     QuorumBodyPresentation,
     SelectFieldPresentation,
+    WorkspaceAction,
 )
 
 __all__ = ["OptionsEditor", "QuorumEditor"]
@@ -87,17 +89,15 @@ class QuorumEditor(VerticalGroup):
         )
         self._summary = Static("", classes="guided-summary", markup=False)
         self._notice = InlineNotice(presentation.notice, classes="guided-quorum-notice")
-        threshold_field = HorizontalGroup(
+        threshold_field = FormRow(
             self._threshold_label,
             self._threshold,
-            classes="guided-quorum-field",
         )
-        count_field = HorizontalGroup(
+        count_field = FormRow(
             self._count_label,
             self._count,
-            classes="guided-quorum-field",
         )
-        fields = HorizontalGroup(
+        fields = VerticalGroup(
             threshold_field,
             count_field,
             classes="guided-quorum-fields",
@@ -188,7 +188,7 @@ class QuorumEditor(VerticalGroup):
             self._count.value = _input_value(self._presentation.count)
 
 
-class OptionsEditor(VerticalGroup):
+class OptionsEditor(ActionEditor):
     """Compact renderer for values, choices, native Select fields, and local actions."""
 
     class ChoiceChanged(Message):
@@ -267,15 +267,7 @@ class OptionsEditor(VerticalGroup):
             )
         )
         self._selects = VerticalGroup(*self._select_rows, classes="guided-selects")
-        self._action_buttons = tuple(
-            Button(
-                Content.from_text(action.label, markup=False),
-                id=action.key,
-                classes="workspace-control",
-            )
-            for action in presentation.actions
-        )
-        self._actions = HorizontalGroup(*self._action_buttons, classes="guided-actions")
+        self._actions = WorkspaceActionGroup(presentation.actions)
         self._notice = InlineNotice(presentation.notice)
         super().__init__(
             *self._values,
@@ -292,29 +284,7 @@ class OptionsEditor(VerticalGroup):
         self.sync_presentation(self._presentation)
 
     def sync_presentation(self, presentation: OptionsBodyPresentation) -> None:
-        if tuple(value.key for value in self._presentation.values) != tuple(
-            value.key for value in presentation.values
-        ):
-            raise ValueError("option value keys cannot change after composition")
-        if tuple(action.key for action in self._presentation.actions) != tuple(
-            action.key for action in presentation.actions
-        ):
-            raise ValueError("option action keys cannot change after composition")
-        if tuple(select.key for select in self._presentation.selects) != tuple(
-            select.key for select in presentation.selects
-        ):
-            raise ValueError("option select keys cannot change after composition")
-        for previous, current in zip(
-            self._presentation.selects,
-            presentation.selects,
-            strict=True,
-        ):
-            if previous.allow_blank != current.allow_blank:
-                raise ValueError("option select blank policy cannot change after composition")
-            if tuple(option.key for option in previous.options) != tuple(
-                option.key for option in current.options
-            ):
-                raise ValueError("option select choice keys cannot change after composition")
+        self._validate_options_shape(presentation)
         self._presentation = presentation
         for static, value in zip(self._values, presentation.values, strict=True):
             sync_static(static, f"{value.label}: {value.value}" if value.value else "")
@@ -347,6 +317,31 @@ class OptionsEditor(VerticalGroup):
         self._notice.sync_presentation(presentation.notice)
         self.display = _options_have_visible_content(presentation)
 
+    def _validate_options_shape(self, presentation: OptionsBodyPresentation) -> None:
+        if tuple(value.key for value in self._presentation.values) != tuple(
+            value.key for value in presentation.values
+        ):
+            raise ValueError("option value keys cannot change after composition")
+        if tuple(action.key for action in self._presentation.actions) != tuple(
+            action.key for action in presentation.actions
+        ):
+            raise ValueError("option action keys cannot change after composition")
+        if tuple(select.key for select in self._presentation.selects) != tuple(
+            select.key for select in presentation.selects
+        ):
+            raise ValueError("option select keys cannot change after composition")
+        for previous, current in zip(
+            self._presentation.selects,
+            presentation.selects,
+            strict=True,
+        ):
+            if previous.allow_blank != current.allow_blank:
+                raise ValueError("option select blank policy cannot change after composition")
+            if tuple(option.key for option in previous.options) != tuple(
+                option.key for option in current.options
+            ):
+                raise ValueError("option select choice keys cannot change after composition")
+
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         if event.radio_set is not self._choice_set:
             return
@@ -355,13 +350,8 @@ class OptionsEditor(VerticalGroup):
         if choice_key is not None:
             self.post_message(self.ChoiceChanged(self, choice_key))
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        post_workspace_action(
-            self,
-            event,
-            self._action_buttons,
-            self._presentation.actions,
-        )
+    def action_presentations(self) -> tuple[WorkspaceAction, ...]:
+        return self._presentation.actions
 
     def on_select_changed(self, event: Select.Changed) -> None:
         try:

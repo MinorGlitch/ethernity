@@ -9,6 +9,13 @@ from ethernity.app.widgets.task_canvas import TaskCanvas
 
 
 def compose_app_shell() -> ComposeResult:
+    with Vertical(id="app-shell"):
+        with Vertical(id="workbench-frame"):
+            yield from _compose_workbench()
+    yield Footer(show_command_palette=False, compact=True)
+
+
+def _compose_workbench() -> ComposeResult:
     with Horizontal(id="app-header"):
         yield Label("ETHERNITY", id="app-header-brand")
         yield Label("Paper backup & recovery", id="app-header-title")
@@ -39,4 +46,3 @@ def compose_app_shell() -> ComposeResult:
                 )
         with Vertical(id="workspace"):
             yield TaskCanvas(id="task-canvas")
-    yield Footer(show_command_palette=False, compact=True)

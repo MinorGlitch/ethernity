@@ -16,9 +16,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import Sequence
 
 from rich.text import Text
 from textual import events

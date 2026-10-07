@@ -1,6 +1,15 @@
 /* Shared control skins, text roles and action rows. Geometry belongs to the layout owners. */
 $control-height: 3;
 
+/* Keep the track one cell wide, with two blank cells between it and content. */
+Widget {
+    scrollbar-size: 1 3;
+}
+
+ScrollBar.-ethernity-vertical {
+    padding: 0 0 0 2;
+}
+
 Screen {
     background: $background;
     color: $text;
@@ -134,7 +143,6 @@ Select:focus > SelectCurrent {
 Select {
     height: $control-height;
     width: 1fr;
-    max-width: 48;
 }
 
 Select > SelectCurrent {
@@ -350,8 +358,18 @@ Collapsible > Contents {
     max-width: 30;
 }
 
-.inline-action-group {
-    width: auto;
+.responsive-actions {
+    width: 1fr;
+    height: auto;
+    grid-rows: auto;
+    grid-gutter: 1;
+}
+
+.responsive-actions Button {
+    width: 1fr;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0 1;
 }
 
 Screen.-ethernity-short Button,

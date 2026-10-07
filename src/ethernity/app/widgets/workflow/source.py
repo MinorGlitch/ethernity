@@ -5,6 +5,7 @@ from __future__ import annotations
 from textual.containers import HorizontalGroup, VerticalGroup
 from textual.widgets import Button, LoadingIndicator, Static
 
+from ethernity.app.widgets.actions import ResponsiveActions
 from ethernity.app.widgets.workflow.controls import (
     InlineNotice,
     WorkspaceActionRequested,
@@ -39,7 +40,7 @@ class SourceChooser(VerticalGroup):
             Button("", id=child_id(id, f"secondary-{index}"), classes="workspace-control")
             for index in range(2)
         )
-        self._actions = VerticalGroup(
+        self._actions = ResponsiveActions(
             self._primary,
             *self._secondary,
             classes="guided-source-actions",

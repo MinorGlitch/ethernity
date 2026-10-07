@@ -20,28 +20,12 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Button, Label, Static, TextArea
 
-from ethernity.app.screens.modal import EthernityModalScreen
+from ethernity.app.screens.text_entry import TextEntryScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 
 
-class PasteTextScreen(EthernityModalScreen[str | None]):
+class PasteTextScreen(TextEntryScreen):
     """Modal for pasting multiline recovery text."""
-
-    BINDINGS = [("escape", "cancel", "Cancel")]
-
-    def __init__(
-        self,
-        *,
-        title: str,
-        prompt: str,
-        value: str = "",
-        placeholder: str = "",
-    ) -> None:
-        super().__init__()
-        self._field_title = title
-        self._prompt = prompt
-        self._value = value
-        self._placeholder = placeholder
 
     def compose(self) -> ComposeResult:
         with Vertical(id="paste-text-modal", classes="dialog"):
@@ -73,6 +57,3 @@ class PasteTextScreen(EthernityModalScreen[str | None]):
             self.dismiss("")
         elif button_id == "paste-text-cancel":
             self.dismiss(None)
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)

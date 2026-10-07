@@ -35,6 +35,7 @@ from ethernity.app.workspaces.workspace_controls import (
 )
 from ethernity.page_sizes import paper_size_display_name
 from ethernity.render.designs import load_design_definition_by_name, supported_paper_size_names
+from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.page_layout import BACKUP_RENDER_DOC_TYPES
 from ethernity.tasks.presentation.models import TaskPresentation, WorkspaceAction
 
@@ -85,10 +86,9 @@ class BackupWorkspace(BaseWorkspace):
                 yield status_note("backup-recovery-status")
                 yield choice_group(
                     "workspace-backup-recovery",
-                    (
-                        ("recommended_shards", "3 sheets, any 2 unlock (recommended)"),
-                        ("single_phrase", "Single recovery phrase"),
-                        ("custom_shards", "Custom quorum"),
+                    tuple(
+                        (option.key, option.label)
+                        for option in BackupTaskState().facts().recovery_options
                     ),
                 )
                 yield field_row(
@@ -186,7 +186,7 @@ class BackupWorkspace(BaseWorkspace):
         update_buttons(self, recovery.actions)
         update_static_text(
             self.query_one("#backup-recovery-help", Static),
-            _backup_recovery_help(selected_choice(recovery.choices)),
+            value(recovery, "storage-note"),
         )
         print_setup = group(presentation, "print")
         paper_select = self.query_one("#workspace-backup-paper-size", Select)
@@ -221,30 +221,23 @@ class BackupWorkspace(BaseWorkspace):
         advanced = group(presentation, "advanced")
         update_issue_note(self, "backup-qr-notice", presentation, "BACKUP_CUSTOM_QR_DENSITY")
 
-        update_static_text(
-            self.query_one("#backup-passphrase-value", Static),
-            value(advanced, "passphrase"),
+        self.sync_values(
+            advanced,
+            {
+                "passphrase": "#backup-passphrase-value",
+                "base-dir": "#backup-base-dir-value",
+                "qr-chunk-size": "#backup-qr-chunk-size-value",
+                "signing-key": "#backup-signing-key-shards-value",
+            },
         )
-        set_select(
-            self.query_one("#workspace-backup-passphrase-words", Select),
-            control_value(advanced, "passphrase-words"),
+        self.sync_selects(
+            advanced,
+            {
+                "passphrase-words": "#workspace-backup-passphrase-words",
+                "signing-key": "#workspace-backup-signing-key-mode",
+            },
         )
-        update_static_text(
-            self.query_one("#backup-base-dir-value", Static),
-            value(advanced, "base-dir"),
-        )
-        update_static_text(
-            self.query_one("#backup-qr-chunk-size-value", Static),
-            value(advanced, "qr-chunk-size"),
-        )
-        set_select(
-            self.query_one("#workspace-backup-signing-key-mode", Select),
-            control_value(advanced, "signing-key"),
-        )
-        update_static_text(
-            self.query_one("#backup-signing-key-shards-value", Static),
-            value(advanced, "signing-key"),
-        )
+
         update_issue_note(
             self,
             "backup-signing-notice",
@@ -271,9 +264,3 @@ class BackupWorkspace(BaseWorkspace):
             event.stop()
             self._files_expanded = False
             return
-
-
-def _backup_recovery_help(recovery_method: str) -> str:
-    if recovery_method == "single_phrase":
-        return "Keep the recovery phrase separate from backup pages."
-    return "Store recovery sheets separately from backup pages."

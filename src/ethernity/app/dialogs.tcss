@@ -1,5 +1,65 @@
 /* Shared dialog and document frames, followed by screen-specific layout. */
 
+TaskProgressScreen {
+    align: center middle;
+    background: $background;
+}
+
+#progress-modal {
+    width: 78;
+    max-height: 95%;
+}
+
+#operation-bar {
+    width: 1fr;
+    margin-top: 1;
+}
+
+#progress-steps {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.operation-step {
+    height: 1;
+    color: $text-muted;
+}
+
+.operation-step.complete {
+    color: $text-success;
+}
+
+.operation-step.current {
+    color: $primary;
+    text-style: bold;
+}
+
+Screen.-ethernity-short #progress-steps {
+    display: none;
+}
+
+#operation-bar Bar {
+    width: 1fr;
+}
+
+#progress-destination,
+#progress-details {
+    margin-top: 1;
+}
+
+#progress-stage,
+#progress-count,
+#progress-destination,
+#progress-notice,
+#progress-activity,
+#progress-elapsed {
+    height: auto;
+}
+
+#result-modal.cancelled #result-status {
+    color: $text-muted;
+}
+
 .dialog {
     padding: 0 1;
     border: solid $border;
@@ -19,16 +79,17 @@
 }
 
 .document {
-    width: 100%;
-    height: 1fr;
+    width: 100;
+    height: auto;
     max-width: 100%;
     max-height: 100%;
     padding: 0 2;
-    border: none;
+    border: solid $border-blurred;
     background: $background;
 }
 
 .document-header {
+    dock: top;
     height: auto;
     min-height: 3;
     padding: 1 1;
@@ -36,7 +97,13 @@
     background: $background;
 }
 
+.document-header .screen-title {
+    height: auto;
+}
+
 .document-body {
+    height: auto;
+    max-height: 1fr;
     padding: 1;
     overflow-x: hidden;
     background: $background;
@@ -44,23 +111,16 @@
 }
 
 .document > .modal-action-row {
+    dock: bottom;
     padding: 1 1;
     border-top: solid $border-blurred;
     background: $background;
-}
-
-.detail-grid {
-    height: auto;
-    grid-size-columns: 2;
-    grid-rows: auto;
-    grid-gutter: 0 2;
 }
 
 .dialog > .modal-action-row,
 #edit-field-input,
 #file-picker-name,
 #review-body .detail-heading,
-#result-next-steps,
 .result-remediation-line,
 #file-picker-body,
 #review-write-safety {
@@ -272,14 +332,24 @@ ConfirmActionScreen {
     background: $surface;
 }
 
-ReviewTaskScreen,
-TaskResultScreen {
-    align: center top;
+TaskResultScreen,
+ReviewTaskScreen {
+    align: center middle;
     background: $background;
 }
 
-#review-overview {
-    grid-columns: 15 1fr;
+.document-body FormSection:first-child {
+    border-top: none;
+}
+
+.document-body FormSection {
+    padding: 1 0;
+}
+
+.document-body .detail-value {
+    height: auto;
+    padding: 1 0;
+    text-style: none;
 }
 
 .review-safety-line,
@@ -289,9 +359,17 @@ TaskResultScreen {
 }
 
 .review-detail-edit {
-    width: 6;
-    min-width: 6;
+    width: 10;
     margin-left: 1;
+}
+
+#review-write-safety.warning {
+    border-left: solid $warning;
+    padding-left: 1;
+}
+
+#review-write-safety.warning .review-safety-line {
+    color: $text-warning;
 }
 
 .review-notice,
@@ -325,18 +403,15 @@ TaskResultScreen {
     color: $text-warning;
 }
 
-#review-output-list {
-    margin-bottom: 1;
-}
-
 #result-status {
     width: 1fr;
-    max-height: 2;
+    height: auto;
     content-align: left middle;
     text-style: bold;
 }
 
 #result-status.success,
+#result-modal.success #result-title,
 #result-document-checks.success {
     color: $text-success;
 }
@@ -346,19 +421,21 @@ TaskResultScreen {
     padding: 0 1;
 }
 
-#result-overview {
-    margin-top: 1;
-    grid-columns: 14 1fr;
+#result-modal.failure #result-title {
+    color: $text-error;
+}
+
+#result-modal.partial #result-title {
+    color: $text-warning;
 }
 
 #result-output {
     margin-top: 1;
-    padding: 0 1;
-    border-left: solid $primary;
 }
 
 #result-output.partial-output {
     border-left: solid $warning;
+    padding: 0 1;
     background: $panel;
 }
 
@@ -388,10 +465,9 @@ TaskResultScreen {
     padding: 0 1;
 }
 
-#result-context-actions Button,
-#result-next-actions Button {
-    width: auto;
-    max-width: 24;
+.result-next-step {
+    height: auto;
+    margin-top: 1;
 }
 
 #result-test-guidance {
@@ -524,12 +600,6 @@ Screen.-ethernity-narrow .document-header {
     padding: 0 1;
 }
 
-Screen.-ethernity-narrow #review-overview,
-Screen.-ethernity-narrow #result-overview {
-    grid-columns: 12 1fr;
-    grid-gutter: 0 1;
-}
-
 Screen.-ethernity-narrow #review-actions Button {
     width: 48%;
     max-width: 48%;
@@ -546,6 +616,15 @@ Screen.-ethernity-short .document-body {
 
 Screen.-ethernity-short #review-attention {
     padding: 0 1;
+}
+
+Screen.-ethernity-short .document-body .detail-value {
+    min-height: 1;
+    padding: 0;
+}
+
+Screen.-ethernity-short .document-body FormSection {
+    padding: 0;
 }
 
 Screen.-ethernity-narrow #review-actions > .modal-action-spacer {

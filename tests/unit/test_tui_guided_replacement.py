@@ -9,7 +9,7 @@ from ethernity.app.application import EthernityApp
 from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.app.widgets.workflow.options import QuorumEditor
-from ethernity.app.workflow_presenter import build_guided_workflow
+from ethernity.app.workflow_registry import build_guided_workflow
 from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.tasks.presentation.models import (
     CompositeBodyPresentation,
@@ -177,6 +177,48 @@ def test_replacement_invalid_quorum_blocks_review_and_stays_visible_at_80x24() -
 
             assert app.screen.query_one("#review-modal")
             assert ui_state.active_step == "recovery"
+
+    asyncio.run(run())
+
+
+def test_existing_replacement_destination_blocks_review_and_focuses_output(tmp_path) -> None:
+    async def run() -> None:
+        output = tmp_path / "replacement"
+        output.mkdir()
+        state = ReplaceRecoveryDocsTaskState(
+            source_paths=[Path("scan.pdf")],
+            allow_stale_head=True,
+            passphrase="secret",
+            output_dir=output,
+        )
+        app = EthernityApp(replace_recovery_docs_state=state)
+        async with app.run_test(size=(120, 32)) as pilot:
+            await pilot.press("5")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
+            await pilot.pause()
+
+            assert not app.screen.query("#review-modal")
+            assert app.workflow_ui_states["replace_recovery_docs"].active_step == "output"
+            await app.action_primary()
+            await pilot.pause()
+            assert app.workflow_ui_states["replace_recovery_docs"].active_step == "output"
+            assert any(
+                "choose a new folder" in str(notice.content) for notice in app.query(InlineNotice)
+            )
+            issue = next(
+                issue for issue in state.validate_task().issues if issue.section == "output"
+            )
+            assert issue.code == "REPLACE_RECOVERY_OUTPUT_EXISTS"
+            assert output.is_dir()
+
+            app._apply_replace_recovery_output(str(output / "new-sheets"))
+            await pilot.pause()
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
+            await pilot.pause()
+
+            assert app.screen.query_one("#review-execute", Button).disabled is False
+            assert app.replace_recovery_docs_state.output_dir == output / "new-sheets"
+            assert not (output / "new-sheets").exists()
 
     asyncio.run(run())
 

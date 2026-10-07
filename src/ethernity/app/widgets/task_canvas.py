@@ -92,10 +92,10 @@ class TaskCanvas(Widget):
                         yield InlineNotice(id="canvas-step-issue")
                     with Vertical(id="canvas-task-workspaces"):
                         yield TaskWorkspaces(id="task-workspaces")
+                    with Vertical(id="canvas-settings-workspace"):
+                        yield SettingsForm(id="settings-form-widget")
+                    yield TaskActionBar(id="task-action-bar")
                 yield WorkbenchSummary(id="workbench-summary")
-            with Vertical(id="canvas-settings-workspace"):
-                yield SettingsForm(id="settings-form-widget")
-            yield TaskActionBar(id="task-action-bar")
 
     def update_task(
         self,
@@ -122,7 +122,6 @@ class TaskCanvas(Widget):
         is_settings = task_key == "settings"
         locked = running or preparing
         self.query_one("#task-canvas-shell", Vertical).set_class(is_settings, "settings-mode")
-        self.query_one("#workbench-body").display = not is_settings
         self.query_one("#canvas-hero").display = not is_settings
         action_bar = self.query_one(TaskActionBar)
         action_bar.display = not is_settings or running

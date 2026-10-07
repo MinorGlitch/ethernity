@@ -6,11 +6,12 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.geometry import Region
 from textual.widgets import Button, Checkbox, Input, Static, Switch
 
 from ethernity.app.application import EthernityApp
+from ethernity.app.styling import StyledApp
 from ethernity.app.widgets.form import FormSelect
 from ethernity.app.widgets.settings_form import SETTINGS_SECTIONS, SettingField, SettingsForm
 from ethernity.app.widgets.workflow.controls import InlineNotice
@@ -19,8 +20,7 @@ from ethernity.tasks.models import TaskIssue, TaskValidation
 from ethernity.tasks.settings import SETTING_DESCRIPTORS, SettingsTaskState
 
 
-class ControlsApp(App[None]):
-    CSS_PATH = EthernityApp.CSS_PATH
+class ControlsApp(StyledApp):
     VERTICAL_BREAKPOINTS = EthernityApp.VERTICAL_BREAKPOINTS
 
     def compose(self) -> ComposeResult:

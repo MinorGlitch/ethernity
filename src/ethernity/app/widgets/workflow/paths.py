@@ -2,29 +2,34 @@
 
 from __future__ import annotations
 
-from textual.containers import HorizontalGroup, VerticalGroup
+from textual.containers import VerticalGroup
 from textual.content import Content
 from textual.message import Message
 from textual.widgets import Button, Input, Label, SelectionList, Static
 
 from ethernity.app.widgets.form import FormRow
 from ethernity.app.widgets.workflow.controls import (
+    ActionEditor,
+    EditorValueChanged,
     InlineNotice,
+    WorkspaceActionGroup,
     child_id,
     merge_classes,
     post_workspace_action,
     sync_action,
     sync_static,
+    workspace_action_button,
 )
 from ethernity.tasks.presentation.models import (
     DestinationBodyPresentation,
     PathSelectionBodyPresentation,
+    WorkspaceAction,
 )
 
 __all__ = ["DestinationEditor", "PathSelectionEditor"]
 
 
-class PathSelectionEditor(VerticalGroup):
+class PathSelectionEditor(ActionEditor):
     """Compact selectable path summary with explicit local actions."""
 
     class SelectionChanged(Message):
@@ -52,15 +57,7 @@ class PathSelectionEditor(VerticalGroup):
             compact=True,
         )
         self._empty = Static("", classes="guided-empty", markup=False)
-        self._action_buttons = tuple(
-            Button(
-                Content.from_text(action.label, markup=False),
-                id=action.key,
-                classes="workspace-control",
-            )
-            for action in presentation.actions
-        )
-        self._actions = HorizontalGroup(*self._action_buttons, classes="guided-actions")
+        self._actions = WorkspaceActionGroup(presentation.actions)
         self._notice = InlineNotice(presentation.notice)
         super().__init__(
             self._summary,
@@ -114,13 +111,8 @@ class PathSelectionEditor(VerticalGroup):
         self._sync_selection_actions()
         self.post_message(self.SelectionChanged(self, self.selected_keys))
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        post_workspace_action(
-            self,
-            event,
-            self._action_buttons,
-            self._presentation.actions,
-        )
+    def action_presentations(self) -> tuple[WorkspaceAction, ...]:
+        return self._presentation.actions
 
     def _sync_selection_actions(self) -> None:
         has_selection = bool(self.selected_keys)
@@ -137,15 +129,8 @@ class PathSelectionEditor(VerticalGroup):
 class DestinationEditor(VerticalGroup):
     """Editable destination path with optional browsing and one warning region."""
 
-    class ValueChanged(Message):
-        def __init__(self, editor: DestinationEditor, value: str) -> None:
-            super().__init__()
-            self.editor = editor
-            self.value = value
-
-        @property
-        def control(self) -> DestinationEditor:
-            return self.editor
+    class ValueChanged(EditorValueChanged["DestinationEditor"]):
+        pass
 
     def __init__(
         self,
@@ -165,11 +150,7 @@ class DestinationEditor(VerticalGroup):
             id=child_id(id, "value"),
             classes="workspace-control",
         )
-        self._action = Button(
-            "",
-            id=child_id(id, "action"),
-            classes="workspace-control",
-        )
+        self._action = workspace_action_button(id)
         self._notice = InlineNotice(presentation.notice)
         row = FormRow(self._label, self._value, self._action)
         super().__init__(

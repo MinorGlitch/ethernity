@@ -4,20 +4,18 @@ import asyncio
 import threading
 from pathlib import Path
 
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.widgets import Button, Footer, Input, Static
 
-from ethernity.app import application
 from ethernity.app.recovery_check_controller import RecoveryCheckController
 from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.task_result import TaskResultScreen
+from ethernity.app.styling import StyledApp
 from ethernity.tasks import recovery_check
 from ethernity.tasks.models import TaskExecutionResult
 
 
-class RecoveryCheckApp(App[None]):
-    CSS_PATH = application.EthernityApp.CSS_PATH
-
+class RecoveryCheckApp(StyledApp):
     def compose(self) -> ComposeResult:
         yield Footer()
 
@@ -108,7 +106,6 @@ def test_worker_start_failure_restores_actions(monkeypatch, tmp_path: Path) -> N
             )
             assert not controller.running
             assert not screen.query_one("#result-test-recovery", Button).disabled
-            assert not screen.query_one("#result-test-printed-pages", Button).disabled
             assert "could not start" in str(
                 screen.query_one("#result-document-checks", Static).content
             )
@@ -116,7 +113,7 @@ def test_worker_start_failure_restores_actions(monkeypatch, tmp_path: Path) -> N
     asyncio.run(run())
 
 
-def test_missing_quorum_stays_a_failed_printed_page_check(monkeypatch, tmp_path: Path) -> None:
+def test_missing_quorum_stays_a_failed_recovery_check(monkeypatch, tmp_path: Path) -> None:
     def check(request: recovery_check.GeneratedRecoveryCheckRequest):
         raise ValueError("Need at least 2 recovery sheets bound to the root backup.")
 
@@ -130,9 +127,9 @@ def test_missing_quorum_stays_a_failed_printed_page_check(monkeypatch, tmp_path:
             await app.push_screen(screen)
             await pilot.pause()
             assert controller.start(
-                recovery_check.GeneratedRecoveryCheckRequest((tmp_path / "scan.png",)),
+                recovery_check.GeneratedRecoveryCheckRequest((tmp_path / "backup.pdf",)),
                 screen,
-                "test_printed_pages",
+                "test_recovery",
             )
             for _ in range(40):
                 await pilot.pause(0.01)
@@ -142,7 +139,7 @@ def test_missing_quorum_stays_a_failed_printed_page_check(monkeypatch, tmp_path:
             assert checks.has_class("failure")
             assert "Need at least 2" in str(checks.content)
             assert "passed" not in str(checks.content)
-            assert not screen.query_one("#result-test-printed-pages", Button).disabled
+            assert not screen.query_one("#result-test-recovery", Button).disabled
 
     asyncio.run(run())
 

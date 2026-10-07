@@ -3,17 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ethernity.app.app_types import ActiveTask, UnlockTaskState
+from ethernity.app.app_types import UnlockTaskState
 from ethernity.tasks.rebuild import RebuildTaskState
+from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.source_assessment import SourceAssessment, SourceAssessmentRequest
+from ethernity.tasks.task_types import TaskKey
 
-BACKUP_TASKS: tuple[ActiveTask, ...] = (
+BACKUP_TASKS: tuple[TaskKey, ...] = (
     "restore",
     "add_files",
     "rebuild",
     "replace_recovery_docs",
 )
-MAINTENANCE_TASKS: tuple[ActiveTask, ...] = (
+MAINTENANCE_TASKS: tuple[TaskKey, ...] = (
     "add_files",
     "rebuild",
     "replace_recovery_docs",
@@ -24,7 +26,7 @@ MAINTENANCE_TASKS: tuple[ActiveTask, ...] = (
 class LoadedBackupContext:
     """Decoded backup selection shared by untouched maintenance drafts."""
 
-    source_task: ActiveTask
+    source_task: TaskKey
     request: SourceAssessmentRequest
     assessment: SourceAssessment
     passphrase: str | None
@@ -36,7 +38,7 @@ class LoadedBackupContext:
     @classmethod
     def from_state(
         cls,
-        task: ActiveTask,
+        task: TaskKey,
         state: UnlockTaskState,
     ) -> LoadedBackupContext | None:
         request = state.source_assessment_request()
@@ -92,10 +94,10 @@ class LoadedBackupContext:
         state.recovery_documents = list(self.recovery_documents)
         state.recovery_payload_files = list(self.recovery_payload_files)
         state.expected_head_doc_hash = self.expected_head_doc_hash
-        if "allow_stale_head" in type(state).model_fields:
-            setattr(state, "allow_stale_head", self.allow_stale_head)
-        if "allow_unsigned" in type(state).model_fields:
-            setattr(state, "allow_unsigned", request.allow_unsigned)
+        if not isinstance(state, RestoreTaskState):
+            state.allow_stale_head = self.allow_stale_head
+        if isinstance(state, RestoreTaskState):
+            state.allow_unsigned = request.allow_unsigned
         target_request = state.source_assessment_request()
         if target_request is not None and target_request.key == request.key:
             state.store_source_assessment(target_request, self.assessment)

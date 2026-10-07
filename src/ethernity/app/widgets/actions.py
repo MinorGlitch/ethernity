@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from textual.containers import HorizontalGroup
+from textual import events
+from textual.containers import Grid, HorizontalGroup
 from textual.content import Content
 from textual.widget import Widget
 from textual.widgets import Button, Static
@@ -18,6 +19,15 @@ class ActionButton:
     variant: ButtonVariant = "default"
     disabled: bool = False
     classes: str = ""
+
+    def build(self) -> Button:
+        return Button(
+            Content.from_text(self.label, markup=False),
+            id=self.id,
+            variant=self.variant,
+            disabled=self.disabled,
+            classes=self.classes,
+        )
 
 
 def modal_action_row(
@@ -36,38 +46,55 @@ def modal_action_row(
     for index, action in enumerate(actions):
         if index > 0:
             widgets.append(Static("", classes="action-gap"))
-        widgets.append(
-            Button(
-                Content.from_text(action.label, markup=False),
-                id=action.id,
-                variant=action.variant,
-                disabled=action.disabled,
-                classes=action.classes,
-            )
-        )
+        widgets.append(action.build())
     return HorizontalGroup(*widgets, id=row_id, classes=" ".join(classes))
+
+
+def button_min_width(button: Button) -> int:
+    """Readable button width in terminal cells, including its horizontal inset."""
+    return max(10, Content.from_text(str(button.label), markup=False).cell_length + 4)
+
+
+class ResponsiveActions(Grid):
+    """Fit complete button labels, preserving source-action hierarchy when wrapping."""
+
+    def __init__(self, *buttons: Button, id: str | None = None, classes: str = "") -> None:
+        super().__init__(*buttons, id=id, classes=f"responsive-actions {classes}")
+
+    def on_mount(self) -> None:
+        self.reflow()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self.reflow()
+
+    def reflow(self) -> None:
+        buttons = [child for child in self.children if isinstance(child, Button) and child.display]
+        if not buttons:
+            return
+        minimum = max(button_min_width(button) for button in buttons)
+        width = self.content_size.width
+        capacity = max(1, min(len(buttons), (width + 1) // (minimum + 1)))
+        rows = (len(buttons) + capacity - 1) // capacity
+        columns = (len(buttons) + rows - 1) // rows
+        self.styles.grid_size_columns = columns
+        for button in buttons:
+            button.styles.column_span = 1
+            button.styles.max_width = max(34, minimum) if len(buttons) == 1 else None
+        if len(buttons) == 3 and columns == 2 and buttons[0].variant == "primary":
+            buttons[0].styles.column_span = 2
 
 
 def inline_action_group(
     *actions: ActionButton,
     group_id: str | None = None,
     classes: str = "",
-) -> HorizontalGroup:
-    group_classes = "inline-action-group"
-    if classes:
-        group_classes = f"{group_classes} {classes}"
+) -> ResponsiveActions:
+    return ResponsiveActions(
+        *(action.build() for action in actions),
+        id=group_id,
+        classes=f"inline-action-group {classes}",
+    )
 
-    widgets: list[Widget] = []
-    for index, action in enumerate(actions):
-        if index > 0:
-            widgets.append(Static("", classes="action-gap"))
-        widgets.append(
-            Button(
-                Content.from_text(action.label, markup=False),
-                id=action.id,
-                variant=action.variant,
-                disabled=action.disabled,
-                classes=action.classes,
-            )
-        )
-    return HorizontalGroup(*widgets, id=group_id, classes=group_classes)
+
+def action_grid(*actions: ActionButton, id: str) -> ResponsiveActions:
+    return ResponsiveActions(*(action.build() for action in actions), id=id)

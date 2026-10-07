@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from textual import on
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.widget import Widget
 
-from ethernity.app import application
+from ethernity.app.styling import StyledApp
 from ethernity.app.widgets.workflow.controls import WorkspaceActionRequested
 from ethernity.app.widgets.workflow.options import OptionsEditor, QuorumEditor
 from ethernity.app.widgets.workflow.paths import DestinationEditor, PathSelectionEditor
@@ -23,9 +23,7 @@ from ethernity.tasks.presentation.models import (
 __all__ = ["WorkflowWidgetHarness", "sample_restore_workflow", "sample_source_body"]
 
 
-class WorkflowWidgetHarness(App[None]):
-    CSS_PATH = application.EthernityApp.CSS_PATH
-
+class WorkflowWidgetHarness(StyledApp):
     def __init__(self, widget: Widget) -> None:
         super().__init__()
         self.widget = widget

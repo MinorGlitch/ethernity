@@ -3,14 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-from ethernity.app.app_types import ActiveTask, TaskState
 from ethernity.app.bindings import APP_BINDINGS
-from ethernity.app.execution import build_review_details
 from ethernity.app.help_content import HELP_MODES
 from ethernity.app.navigation import issue_focus_selector
 from ethernity.app.task_catalog import NAV_OPTION_INDEX, TASK_ORDER, TASK_TITLES
 from ethernity.app.workflow_registry import WORKFLOWS
-from ethernity.app.workspaces.backup import _backup_recovery_help
 from ethernity.app.workspaces.workspace_controls import control_value
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
@@ -27,10 +24,12 @@ from ethernity.tasks.presentation.models import (
     WorkspaceGroup,
     WorkspaceValue,
 )
+from ethernity.tasks.presentation.registry import build_review_details
 from ethernity.tasks.presentation.workflow_add_files import add_files_auxiliary_groups
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
+from ethernity.tasks.task_types import TaskKey, TaskState
 
 
 def _section(key: str) -> TaskSection:
@@ -76,6 +75,8 @@ def test_add_files_control_values_are_typed_not_inferred_from_copy() -> None:
     controls = {item.key: item.control_value for item in advanced.values}
 
     assert controls == {
+        "update-mode": "cumulative",
+        "update-mode-locked": "editable",
         "base-dir": "automatic",
         "qr-chunk-size": "default",
         "signature-source": "text",
@@ -159,8 +160,14 @@ def test_workspace_copy_can_change_without_changing_control_behavior() -> None:
 
     assert control_value(advanced, "qr-chunk-size") == "default"
     assert control_value(advanced, "signing-key") == "embedded"
-    assert "Keep the recovery phrase separate" in _backup_recovery_help("single_phrase")
-    assert "Store recovery sheets separately" in _backup_recovery_help("custom_shards")
+    assert (
+        "Keep the recovery phrase separate"
+        in BackupTaskState(recovery_method="single_phrase").facts().storage_note
+    )
+    assert (
+        "Store recovery sheets separately"
+        in BackupTaskState(recovery_method="custom_shards").facts().storage_note
+    )
 
 
 def test_workflow_registry_is_the_single_metadata_source() -> None:
@@ -338,7 +345,7 @@ def test_review_details_describe_each_task() -> None:
         details = {
             detail.label: detail.value
             for detail in build_review_details(
-                cast(ActiveTask, task),
+                cast(TaskKey, task),
                 cast(TaskState, state),
                 plan,
             )

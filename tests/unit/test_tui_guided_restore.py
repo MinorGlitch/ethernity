@@ -12,7 +12,7 @@ from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.widgets.workflow.unlock import UnlockEditor
-from ethernity.app.workflow_presenter import build_guided_workflow
+from ethernity.app.workflow_registry import build_guided_workflow
 from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.tasks.presentation.models import SourceBodyPresentation, SummaryPresentation
 from ethernity.tasks.restore import RestoreTaskState

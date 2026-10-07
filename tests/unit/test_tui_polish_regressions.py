@@ -269,8 +269,8 @@ def test_help_explains_consequences_without_narrating_controls() -> None:
     assert "h l Switch pane" in help_text
     assert "Ctrl+R Review" in help_text
     assert "Ctrl+P Actions" in help_text
-    assert "confirm you loaded the latest version" in help_text
-    assert "fingerprint printed on the version you trust as latest" in help_text
+    assert "acknowledge that newer documents may be missing" in help_text
+    assert "separately saved full fingerprint" in help_text
     assert "Use supplied latest version" not in help_text
     assert "Enter expected fingerprint..." not in help_text
     assert "Use this backup" not in help_text

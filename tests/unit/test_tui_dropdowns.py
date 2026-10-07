@@ -4,16 +4,14 @@ import asyncio
 
 import pytest
 from rich.text import Text
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.widgets import Input, OptionList
 
-from ethernity.app.application import EthernityApp
+from ethernity.app.styling import StyledApp
 from ethernity.app.widgets.form import FormSelect
 
 
-class DropdownApp(App[None]):
-    CSS_PATH = EthernityApp.CSS_PATH
-
+class DropdownApp(StyledApp):
     def __init__(self, *, allow_blank: bool) -> None:
         super().__init__()
         self.allow_blank = allow_blank

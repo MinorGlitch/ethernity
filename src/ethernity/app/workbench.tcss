@@ -1,5 +1,16 @@
 /* Workbench navigation, workflow forms and settings. Responsive rules stay with their owner. */
 
+#app-shell {
+    height: 1fr;
+    align-horizontal: center;
+}
+
+#workbench-frame {
+    width: 1fr;
+    max-width: 140;
+    height: 1fr;
+}
+
 Footer {
     height: 1;
     background: $footer-background;
@@ -70,7 +81,7 @@ Footer {
     width: 1fr;
     border-top: solid $border-blurred;
     background: $background;
-    padding: 1 2;
+    padding: 1 0;
 }
 
 #canvas-action-row Button,
@@ -79,20 +90,12 @@ Footer {
     min-width: 12;
 }
 
-#canvas-loading {
-    width: 10;
-    height: 1;
-    margin-right: 1;
-    color: $text-primary;
-}
-
 #canvas-action-row #canvas-primary {
     width: auto;
     min-width: 18;
 }
 
-#canvas-action-row #canvas-internals,
-.guided-actions Button {
+#canvas-action-row #canvas-internals {
     margin-right: 1;
 }
 
@@ -172,6 +175,16 @@ WorkbenchSteps Button:focus {
 
 #workbench-editor {
     padding: 1 2 0 2;
+    align-horizontal: left;
+}
+
+#task-canvas-shell.settings-mode #workbench-editor {
+    padding: 0;
+}
+
+#canvas-hero,
+#canvas-task-workspaces {
+    width: 1fr;
 }
 
 #canvas-hero {
@@ -229,8 +242,7 @@ InlineNotice.notice-success {
 
 .task-workspace {
     overflow-y: auto;
-    max-width: 82;
-    scrollbar-size: 1 1;
+    width: 1fr;
     scrollbar-background: $background;
     scrollbar-color: $border-blurred;
     scrollbar-color-hover: $text-muted;
@@ -289,12 +301,6 @@ WorkbenchSteps Button.step-warning {
     background: $background;
 }
 
-.workspace-button-row Button {
-    width: auto;
-    max-width: 32;
-    min-width: 8;
-}
-
 .workspace-field-note {
     min-height: 1;
     color: $text-muted;
@@ -303,7 +309,9 @@ WorkbenchSteps Button.step-warning {
 
 .workspace-choice-empty,
 .guided-choice-empty,
-WorkbenchSummary.empty-summary {
+WorkbenchSummary.empty-summary,
+#task-canvas-shell.settings-mode #workbench-steps,
+#task-canvas-shell.settings-mode #workbench-summary {
     display: none;
 }
 
@@ -313,7 +321,6 @@ WorkbenchSteps {
     padding: 1;
     border-right: solid $border-blurred;
     overflow-y: auto;
-    scrollbar-size: 1 1;
 }
 
 WorkbenchSteps Button {
@@ -383,6 +390,11 @@ FormRow:last-child {
     color: $text-muted;
 }
 
+.form-field {
+    width: 1fr;
+    height: auto;
+}
+
 .form-controls {
     width: 1fr;
     height: auto;
@@ -390,13 +402,12 @@ FormRow:last-child {
 
 .form-controls Select {
     width: 1fr;
-    max-width: 48;
 }
 
 .form-controls Button {
     width: auto;
     min-width: 10;
-    max-width: 24;
+    max-width: 100%;
     margin-left: 1;
 }
 
@@ -405,8 +416,7 @@ FormRow:last-child {
 }
 
 .form-value {
-    width: auto;
-    max-width: 1fr;
+    width: 1fr;
     color: $text;
     text-wrap: nowrap;
     text-overflow: ellipsis;
@@ -454,22 +464,16 @@ QuorumEditor Input {
     margin-right: 2;
 }
 
-.guided-quorum-label,
 .setting-switch {
     width: 12;
 }
 
-.guided-source-actions {
-    width: 34;
-    max-width: 100%;
+.form-controls.stacked-controls {
+    layout: vertical;
 }
 
-.guided-source-actions Button {
-    width: 1fr;
-    padding: 0 1;
-    margin-bottom: 1;
-    content-align: left middle;
-    text-align: left;
+.form-controls.stacked-controls Button {
+    margin: 1 0 0 0;
 }
 
 #canvas-action-row.settings-mode Button {
@@ -483,12 +487,12 @@ QuorumEditor Input {
 }
 
 #settings-form {
+    width: 1fr;
     padding: 1 2;
 }
 
 #settings-heading {
     margin-bottom: 1;
-    max-width: 106;
 }
 
 #settings-title {
@@ -499,7 +503,7 @@ QuorumEditor Input {
 #settings-save-row {
     dock: bottom;
     min-height: 3;
-    padding: 0 2;
+    padding: 0;
     border-top: solid $border-blurred;
 }
 
@@ -519,39 +523,30 @@ QuorumEditor Input {
     color: $text-muted;
 }
 
-.settings-page {
-    padding-right: 1;
-    scrollbar-size: 1 1;
+.settings-section {
+    width: 1fr;
+    margin-bottom: 1;
+    border-top: solid $border-blurred;
 }
 
-.settings-section {
-    max-width: 90;
-    margin-bottom: 1;
+.settings-section:first-child {
+    border-top: none;
 }
 
 .settings-section-title, #settings-recovery-summary {
     height: auto;
     margin-bottom: 1;
-    color: $text-muted;
-}
-
-.settings-fields {
-    margin-bottom: 1;
+    color: $text;
+    text-style: bold;
 }
 
 .settings-row {
     width: 1fr;
-    margin-right: 2;
+    margin-bottom: 1;
 }
 
-.setting-label-row {
-    height: auto;
-    min-height: 1;
-}
-
-.setting-label {
-    width: 1fr;
-    color: $text;
+.settings-row .form-label {
+    width: 24;
 }
 
 .setting-marker {
@@ -568,18 +563,6 @@ QuorumEditor Input {
     width: 12;
 }
 
-.setting-select {
-    max-width: 38;
-}
-
-.setting-path-control {
-    width: 1fr;
-}
-
-.setting-path-button {
-    width: 18;
-}
-
 #setting-value-config {
     margin-bottom: 1;
 }
@@ -590,16 +573,6 @@ Screen.-ethernity-narrow #settings-body {
 
 Screen.-ethernity-narrow #settings-form {
     padding: 0 1;
-}
-
-Screen.-ethernity-narrow .settings-fields {
-    layout: vertical;
-    margin-bottom: 0;
-}
-
-Screen.-ethernity-narrow .settings-row {
-    margin-right: 0;
-    margin-bottom: 1;
 }
 
 Screen.-ethernity-short #settings-focus-help {
@@ -627,15 +600,11 @@ FormRow.stacked {
     layout: vertical;
 }
 
-FormRow.stacked .form-label {
+FormRow.stacked .form-label,
+.settings-row FormRow.stacked .form-label {
     width: 1fr;
     height: 1;
     margin: 0;
-}
-
-Screen.-ethernity-narrow #canvas-loading,
-Screen.-ethernity-short #canvas-loading {
-    width: 8;
 }
 
 Screen.-ethernity-narrow .guided-path-list,
@@ -659,7 +628,7 @@ Screen.-ethernity-short #workbench-navigation {
 
 Screen.-ethernity-short #task-action-bar {
     height: 2;
-    padding: 0 1;
+    padding: 0;
 }
 
 Screen.-ethernity-narrow #workbench-navigation Button {

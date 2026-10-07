@@ -8,7 +8,7 @@ from typing import Any, Literal, Protocol, overload
 from textual.app import AwaitMount, ScreenResultCallbackType
 from textual.screen import Screen
 
-from ethernity.app.app_types import ActiveTask, PathSelectionCallback
+from ethernity.app.app_types import PathSelectionCallback
 from ethernity.app.input_parsers import parse_setting_value
 from ethernity.app.path_selection import save_picker_parts
 from ethernity.app.screens.confirm_action import ConfirmActionScreen
@@ -16,6 +16,7 @@ from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.file_picker import FilePickerMode
 from ethernity.tasks.models import TaskExecutionResult
 from ethernity.tasks.settings import SettingsTaskState
+from ethernity.tasks.task_types import TaskKey
 
 
 class SettingsControllerApp(Protocol):
@@ -25,7 +26,7 @@ class SettingsControllerApp(Protocol):
     _last_execution_result: TaskExecutionResult | None
 
     @property
-    def running_task(self) -> ActiveTask | None: ...
+    def running_task(self) -> TaskKey | None: ...
 
     @property
     def screen(self) -> Screen[object]: ...

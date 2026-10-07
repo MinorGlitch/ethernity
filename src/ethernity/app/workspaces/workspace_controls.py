@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from textual.containers import HorizontalGroup, VerticalGroup
+from textual.containers import VerticalGroup
 from textual.widget import Widget
 from textual.widgets import (
     Button,
@@ -16,7 +16,11 @@ from textual.widgets.option_list import Option
 
 from ethernity.app.widgets.form import FormRow, FormSection, FormSelect
 from ethernity.app.widgets.static_text import update_static_text
-from ethernity.app.widgets.workflow.controls import InlineNotice, KeyedRadioSet
+from ethernity.app.widgets.workflow.controls import (
+    InlineNotice,
+    KeyedRadioSet,
+    WorkspaceActionGroup,
+)
 from ethernity.app.widgets.workflow.steps import WorkflowStep
 from ethernity.crypto.passphrases import MNEMONIC_WORD_COUNTS
 from ethernity.page_sizes import (
@@ -77,6 +81,14 @@ class BaseWorkspace(Widget):
 
     def update_presentation(self, presentation: TaskPresentation) -> None:
         return
+
+    def sync_values(self, source: WorkspaceGroup, bindings: dict[str, str]) -> None:
+        for key, selector in bindings.items():
+            update_static_text(self.query_one(selector, Static), value(source, key))
+
+    def sync_selects(self, source: WorkspaceGroup, bindings: dict[str, str]) -> None:
+        for key, selector in bindings.items():
+            set_select(self.query_one(selector, Select), control_value(source, key))
 
     def show_step(self, key: str) -> None:
         """Select form sections without changing task values or validation."""
@@ -141,16 +153,7 @@ def path_selection_list(list_id: str) -> Widget:
 
 
 def button_row(*actions: WorkspaceAction) -> Widget:
-    return HorizontalGroup(*_spaced_buttons(actions), classes="workspace-button-row")
-
-
-def _spaced_buttons(actions: Iterable[WorkspaceAction]) -> list[Widget]:
-    widgets: list[Widget] = []
-    for index, action in enumerate(actions):
-        if index > 0:
-            widgets.append(Static("", classes="action-gap"))
-        widgets.append(Button(action.label, id=action.key, classes="workspace-control"))
-    return widgets
+    return WorkspaceActionGroup(actions)
 
 
 def choice_group(prefix: str, choices: Iterable[tuple[str, str]]) -> KeyedRadioSet:

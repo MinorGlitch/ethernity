@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.widgets import Select, Static
+from textual.widgets import Static
 
-from ethernity.app.widgets.form import FormScroll, FormSection
+from ethernity.app.widgets.form import FormRow, FormScroll, FormSection
 from ethernity.app.widgets.static_text import update_static_text
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.app.widgets.workflow.steps import WorkflowStepStack
@@ -16,7 +16,6 @@ from ethernity.app.workspaces.workspace_controls import (
     field_row,
     group,
     labeled_select_row,
-    set_select,
     update_buttons,
     update_issue_note,
     value,
@@ -29,7 +28,7 @@ class AddFilesWorkspace(BaseWorkspace):
 
     step_sections = {
         "source": ("add-files-verification-section",),
-        "files": ("add-files-paths-section",),
+        "files": ("add-files-series-section", "add-files-paths-section"),
         "output": ("add-files-qr-section", "add-files-recovery-section"),
     }
 
@@ -48,6 +47,31 @@ class AddFilesWorkspace(BaseWorkspace):
                     "Base folder",
                     "add-files-base-dir-value",
                     WorkspaceAction("workspace-add-files-base-dir", "Choose base folder..."),
+                )
+            with FormSection("Update series", id="add-files-series-section"):
+                yield labeled_select_row(
+                    "Mode",
+                    "workspace-add-files-update-mode",
+                    (
+                        ("Cumulative (recommended)", "cumulative"),
+                        ("Incremental (smaller updates)", "incremental"),
+                    ),
+                    row_id="add-files-update-mode-choice",
+                    tooltip=(
+                        "Cumulative needs the original and latest update. Incremental can print "
+                        "less but needs every update. Fixed after the first update; "
+                        "use Rebuild to change."
+                    ),
+                )
+                yield FormRow(
+                    "Mode",
+                    Static(
+                        "",
+                        id="add-files-update-mode-value",
+                        classes="field-text form-value",
+                        markup=False,
+                    ),
+                    id="add-files-update-mode-summary",
                 )
             with FormSection("QR codes", id="add-files-qr-section"):
                 yield field_row(
@@ -74,24 +98,29 @@ class AddFilesWorkspace(BaseWorkspace):
             presentation.workflow
         )
         advanced = group(presentation, "advanced")
+        locked = control_value(advanced, "update-mode-locked") == "locked"
+        self.query_one("#add-files-update-mode-choice").display = not locked
+        mode_label = self.query_one("#add-files-update-mode-value", Static)
+        self.query_one("#add-files-update-mode-summary").display = locked
+        update_static_text(mode_label, value(advanced, "update-mode"))
+        self.sync_selects(
+            advanced,
+            {
+                "update-mode": "#workspace-add-files-update-mode",
+                "signature-source": "#workspace-add-files-signature-source",
+            },
+        )
         update_issue_note(self, "add-files-qr-notice", presentation, "ADD_FILES_CUSTOM_QR_DENSITY")
 
-        update_static_text(
-            self.query_one("#add-files-base-dir-value", Static),
-            value(advanced, "base-dir"),
+        self.sync_values(
+            advanced,
+            {
+                "base-dir": "#add-files-base-dir-value",
+                "qr-chunk-size": "#add-files-qr-chunk-size-value",
+                "recovery-sheets": "#add-files-recovery-sheets-value",
+            },
         )
-        update_static_text(
-            self.query_one("#add-files-qr-chunk-size-value", Static),
-            value(advanced, "qr-chunk-size"),
-        )
-        set_select(
-            self.query_one("#workspace-add-files-signature-source", Select),
-            control_value(advanced, "signature-source"),
-        )
-        update_static_text(
-            self.query_one("#add-files-recovery-sheets-value", Static),
-            value(advanced, "recovery-sheets"),
-        )
+
         update_issue_note(
             self,
             "add-files-verification-notice",

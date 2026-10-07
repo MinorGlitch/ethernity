@@ -7,13 +7,13 @@ import pytest
 from textual.widgets import Button, Input, Static
 
 from ethernity.app import input_parsers
-from ethernity.app.app_types import ActiveTask
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.tasks.page_layout import BACKUP_RENDER_DOC_TYPES
 from ethernity.tasks.restore import RestoreTaskState
+from ethernity.tasks.task_types import TaskKey
 
 
 @pytest.mark.parametrize("value", ["", "2/0", "0/2", "3/2", "2/256", "two/three"])
@@ -75,7 +75,7 @@ def test_validators_preserve_supported_defaults_and_domain_bounds() -> None:
     ],
 )
 def test_specific_field_errors_keep_the_draft_open_and_task_values_unchanged(
-    task: ActiveTask,
+    task: TaskKey,
     editor_method: str,
     invalid: str,
     valid: str,

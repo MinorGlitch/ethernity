@@ -16,12 +16,12 @@ from textual.widgets import Button, Label, ListView
 from textual.worker import Worker
 
 from ethernity.app.app_context import EthernityAppContext
-from ethernity.app.app_types import ActiveTask, TaskState, UnlockTaskState
+from ethernity.app.app_types import UnlockTaskState
 from ethernity.app.backup_context import BACKUP_TASKS, LoadedBackupContext
 from ethernity.app.execution import (
     ExecutionOutcome,
     ReviewedTask,
-    infer_execution_failure_section,
+    execution_failure_section,
 )
 from ethernity.app.navigation import (
     NavMenu,
@@ -33,8 +33,10 @@ from ethernity.app.navigation import (
     sync_nav_active,
     workspace_focus_selector,
 )
+from ethernity.app.operation_progress import OperationProgress
 from ethernity.app.screens.diagnostics import DiagnosticsScreen
 from ethernity.app.screens.review_task import ReviewEditRequest, ReviewTaskScreen
+from ethernity.app.screens.task_progress import TaskProgressScreen
 from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.task_catalog import (
     TASK_ORDER,
@@ -47,17 +49,17 @@ from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.workflow_presenter import (
-    build_guided_workflow,
     is_guided_task,
     step_for_section,
 )
-from ethernity.app.workflow_registry import workflow_definition
+from ethernity.app.workflow_registry import build_guided_workflow, workflow_definition
+from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.app.workspaces.workspace_controls import BaseWorkspace
-from ethernity.tasks.models import TaskDiagnostics, TaskIssue
+from ethernity.tasks.models import TaskDiagnostics, TaskIssue, TaskValidation
 from ethernity.tasks.presentation.builder import build_task_presentation
-from ethernity.tasks.restore import RestoreTaskState
+from ethernity.tasks.task_types import TaskKey, TaskState
 
-_TASK_ACTIVITY_LABELS: dict[ActiveTask, str] = {
+_TASK_ACTIVITY_LABELS: dict[TaskKey, str] = {
     "backup": "backup",
     "restore": "restore",
     "add_files": "backup update",
@@ -66,7 +68,7 @@ _TASK_ACTIVITY_LABELS: dict[ActiveTask, str] = {
     "kit": "offline recovery kit",
     "settings": "settings save",
 }
-_REVIEW_TITLES: dict[ActiveTask, str] = {
+_REVIEW_TITLES: dict[TaskKey, str] = {
     "backup": "Review backup",
     "restore": "Review file restore",
     "add_files": "Review backup update",
@@ -75,7 +77,7 @@ _REVIEW_TITLES: dict[ActiveTask, str] = {
     "kit": "Review offline recovery kit",
     "settings": "Review settings",
 }
-_RUNNING_LABELS: dict[ActiveTask, str] = {
+_RUNNING_LABELS: dict[TaskKey, str] = {
     "backup": "Backup in progress",
     "restore": "Restore in progress",
     "add_files": "Update in progress",
@@ -86,7 +88,7 @@ _RUNNING_LABELS: dict[ActiveTask, str] = {
 }
 
 
-def _return_step_for_section(task: ActiveTask, section: str) -> str | None:
+def _return_step_for_section(task: TaskKey, section: str) -> str | None:
     if task == "replace_recovery_docs" and section == "signature":
         # Signing-key recovery is auxiliary to the nearest guided recovery decision.
         return "recovery"
@@ -151,14 +153,7 @@ class TaskViewActions(EthernityAppContext):
             self.notify("Close the current dialog before reviewing.", severity="warning")
             return
         self._commit_form_inputs()
-        if self.running_task is not None:
-            task_label = _TASK_ACTIVITY_LABELS[self.running_task]
-            self.notify(f"The {task_label} task is still running.")
-            return
-        preparing_task = self._preparing_review_task
-        if preparing_task is not None:
-            task_label = _TASK_ACTIVITY_LABELS[preparing_task]
-            self.notify(f"Ethernity is preparing the {task_label} review.")
+        if self._review_busy():
             return
         if self.active_task == "settings":
             self.notify("Settings save automatically.")
@@ -168,18 +163,24 @@ class TaskViewActions(EthernityAppContext):
         state = self._current_state()
         ui_state = self.workflow_ui_states.get(task)
         if ui_state is not None and ui_state.has_invalid_draft():
-            invalid_step = next(
-                step_key for step_key in ui_state.step_keys if ui_state.has_invalid_draft(step_key)
-            )
-            ui_state.activate(invalid_step)
-            ui_state.touch(invalid_step)
-            ui_state.mark_review_attempted()
-            self.refresh_task_view()
-            self.call_after_refresh(self._focus_guided_step_input, task, invalid_step)
+            self._focus_invalid_review_draft(task, ui_state)
             return
-
         self._preparing_review_task = task
         self.refresh_task_view()
+        capture = await self._prepare_review_capture(task, state, ui_state)
+        if capture is None:
+            return
+        validation, reviewed_task = capture
+        assert validation is not None
+        if not validation.ready:
+            self._focus_review_problems(task, validation)
+            return
+        assert reviewed_task is not None
+        await self._push_execution_review(reviewed_task)
+
+    async def _prepare_review_capture(
+        self, task: TaskKey, state: TaskState, ui_state: WorkflowUiState | None
+    ) -> tuple[TaskValidation, ReviewedTask | None] | None:
         validation = None
         reviewed_task = None
         preparation_error: OSError | RuntimeError | ValueError | None = None
@@ -204,26 +205,48 @@ class TaskViewActions(EthernityAppContext):
                 severity="error",
             )
             return
-        assert validation is not None
-        if not validation.ready:
-            first_issue = next(
-                (issue for issue in validation.issues if issue.severity == "error"),
-                None,
-            )
-            if is_guided_task(task):
-                ui_state = self.workflow_ui_states[task]
-                ui_state.mark_review_attempted()
-                if first_issue is not None:
-                    step_key = step_for_section(task, first_issue.section)
-                    if step_key is not None:
-                        ui_state.activate(step_key)
-                self.refresh_task_view()
-            self.call_after_refresh(self._focus_issue, first_issue)
-            if first_issue is not None and not is_guided_task(task):
-                self.notify(first_issue.message, severity="warning")
-            return
-        assert reviewed_task is not None
-        await self._push_execution_review(reviewed_task)
+        return (validation, reviewed_task) if validation is not None else None
+
+    def _focus_invalid_review_draft(self, task: TaskKey, ui_state: WorkflowUiState) -> None:
+        invalid_step = next(
+            step_key for step_key in ui_state.step_keys if ui_state.has_invalid_draft(step_key)
+        )
+        ui_state.activate(invalid_step)
+        ui_state.touch(invalid_step)
+        ui_state.mark_review_attempted()
+        self.refresh_task_view()
+        self.call_after_refresh(self._focus_guided_step_input, task, invalid_step)
+        return
+
+    def _review_busy(self) -> bool:
+        if self.running_task is not None:
+            task_label = _TASK_ACTIVITY_LABELS[self.running_task]
+            self.notify(f"The {task_label} task is still running.")
+            return True
+        preparing_task = self._preparing_review_task
+        if preparing_task is not None:
+            task_label = _TASK_ACTIVITY_LABELS[preparing_task]
+            self.notify(f"Ethernity is preparing the {task_label} review.")
+            return True
+        return False
+
+    def _focus_review_problems(self, task: TaskKey, validation: TaskValidation) -> None:
+        first_issue = next(
+            (issue for issue in validation.issues if issue.severity == "error"),
+            None,
+        )
+        if is_guided_task(task):
+            ui_state = self.workflow_ui_states[task]
+            ui_state.mark_review_attempted()
+            if first_issue is not None:
+                step_key = step_for_section(task, first_issue.section)
+                if step_key is not None:
+                    ui_state.activate(step_key)
+            self.refresh_task_view()
+        self.call_after_refresh(self._focus_issue, first_issue)
+        if first_issue is not None and not is_guided_task(task):
+            self.notify(first_issue.message, severity="warning")
+        return
 
     async def _push_execution_review(self, reviewed_task: ReviewedTask) -> None:
         await self.push_screen(
@@ -265,7 +288,7 @@ class TaskViewActions(EthernityAppContext):
             return
         await self.push_screen(DiagnosticsScreen(self._current_diagnostics()))
 
-    def action_show_task(self, task: ActiveTask) -> None:
+    def action_show_task(self, task: TaskKey) -> None:
         self._show_task(task)
 
     async def action_move_down(self) -> None:
@@ -442,7 +465,7 @@ class TaskViewActions(EthernityAppContext):
         except Exception:
             self.query_one(workspace_focus_selector(self.active_task)).focus()
 
-    def _focus_guided_step_input(self, task: ActiveTask, step_key: str) -> None:
+    def _focus_guided_step_input(self, task: TaskKey, step_key: str) -> None:
         try:
             self.query_one(f"#workflow-{task}-{step_key}-body Input").focus(scroll_visible=True)
         except Exception:
@@ -483,8 +506,8 @@ class TaskViewActions(EthernityAppContext):
             )
         self.refresh_bindings()
 
-    def _navigation_task_states(self) -> dict[ActiveTask, NavTaskState]:
-        states: dict[ActiveTask, NavTaskState] = {}
+    def _navigation_task_states(self) -> dict[TaskKey, NavTaskState]:
+        states: dict[TaskKey, NavTaskState] = {}
         for task in TASK_ORDER:
             if task == "settings":
                 states[task] = ""
@@ -510,7 +533,7 @@ class TaskViewActions(EthernityAppContext):
             states[task] = "attention" if needs_attention else "in-progress"
         return states
 
-    def _show_task(self, task: ActiveTask) -> None:
+    def _show_task(self, task: TaskKey) -> None:
         if task not in TASK_ORDER:
             return
         if self.screen is not self.screen_stack[0]:
@@ -546,7 +569,7 @@ class TaskViewActions(EthernityAppContext):
         if menu_was_open or move_workspace_focus:
             self.call_after_refresh(self._focus_active_task, task)
 
-    def _focus_active_task(self, task: ActiveTask) -> None:
+    def _focus_active_task(self, task: TaskKey) -> None:
         if self._nav_menu_open or self.screen is not self.screen_stack[0]:
             return
         if task == self.active_task:
@@ -615,7 +638,7 @@ class TaskViewActions(EthernityAppContext):
     def _current_state(self) -> TaskState:
         return self._state_for_task(self.active_task)
 
-    def _state_for_task(self, task: ActiveTask) -> TaskState:
+    def _state_for_task(self, task: TaskKey) -> TaskState:
         return cast(TaskState, getattr(self, workflow_definition(task).state_attribute))
 
     def _current_diagnostics(self) -> TaskDiagnostics:
@@ -647,7 +670,7 @@ class TaskViewActions(EthernityAppContext):
             return
         self.execution_controller.start(reviewed_task)
 
-    async def _edit_review_field(self, task: ActiveTask, section: str) -> None:
+    async def _edit_review_field(self, task: TaskKey, section: str) -> None:
         self._show_task(task)
         step = step_for_section(task, section)
         if step is not None:
@@ -668,10 +691,21 @@ class TaskViewActions(EthernityAppContext):
         # Inline controls return to the task form; modal editors prepare a new review.
         self._review_edit_task = None
 
-    def _present_execution_start(self, task: ActiveTask) -> None:
-        del task
+    def _present_execution_start(self, reviewed_task: ReviewedTask) -> None:
         self._last_execution_result = None
         self.refresh_task_view()
+        self.push_screen(
+            TaskProgressScreen(
+                title=_RUNNING_LABELS[reviewed_task.task],
+                task=reviewed_task.task,
+                destination="\n".join(str(path) for path in reviewed_task.plan.output_paths),
+                cancel=self.execution_controller.request_cancel,
+            )
+        )
+
+    def _present_execution_progress(self, progress: OperationProgress) -> None:
+        if isinstance(self.screen, TaskProgressScreen):
+            self.screen.update_progress(progress)
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         self.execution_controller.handle_worker_state_changed(event)
@@ -687,16 +721,7 @@ class TaskViewActions(EthernityAppContext):
         self.refresh_task_view()
         recoverable_errors = () if result.ok else reviewed_task.state_snapshot.recoverable_errors()
         return_section = (
-            None if result.ok else infer_execution_failure_section(reviewed_task.task, outcome)
-        )
-        resource_retry = (
-            outcome.resource_retry
-            if outcome.allow_retry
-            and not result.ok
-            and reviewed_task.task == "restore"
-            and isinstance(reviewed_task.state_snapshot, RestoreTaskState)
-            and not reviewed_task.state_snapshot.resource_intensive_compatibility_recovery
-            else None
+            None if result.ok else execution_failure_section(reviewed_task.task, outcome)
         )
         screen = TaskResultScreen(
             task=reviewed_task.task,
@@ -704,16 +729,12 @@ class TaskViewActions(EthernityAppContext):
             result=result,
             error=outcome.error_message,
             error_detail=outcome.error_detail,
+            failed_stage=outcome.failed_stage,
+            output_note=outcome.output_note,
             recoverable_errors=recoverable_errors,
             reviewed_plan=reviewed_task.plan,
             return_section=return_section,
             allow_return=outcome.allow_retry,
-            resource_retry=resource_retry,
-            retry_callback=(
-                partial(self._retry_restore_with_higher_limits, reviewed_task)
-                if resource_retry is not None
-                else None
-            ),
             context_actions_enabled=(
                 result.ok and reviewed_task.task in {"backup", "add_files", "rebuild"}
             ),
@@ -728,14 +749,14 @@ class TaskViewActions(EthernityAppContext):
                 else None
             ),
         )
-        self.push_screen(screen)
-
-    def _retry_restore_with_higher_limits(self, reviewed_task: ReviewedTask) -> None:
-        self.execution_controller.start(reviewed_task.retry_with_higher_limits())
+        if isinstance(self.screen, TaskProgressScreen):
+            self.switch_screen(screen)
+        else:
+            self.push_screen(screen)
 
     async def _return_to_workflow(
         self,
-        task: ActiveTask,
+        task: TaskKey,
         recoverable_errors: tuple[TaskIssue, ...],
         return_section: str | None,
     ) -> None:
@@ -757,7 +778,7 @@ class TaskViewActions(EthernityAppContext):
         else:
             self.call_after_refresh(self._focus_active_task, task)
 
-    def _focus_section(self, task: ActiveTask, section: str) -> None:
+    def _focus_section(self, task: TaskKey, section: str) -> None:
         selector = blocker_focus_selector(task, section)
         self._reveal_focus_target(selector)
         try:

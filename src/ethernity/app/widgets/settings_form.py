@@ -29,7 +29,6 @@ from textual.widgets import (
     Button,
     ContentSwitcher,
     Input,
-    Label,
     MaskedInput,
     Select,
     Static,
@@ -38,7 +37,7 @@ from textual.widgets import (
 
 from ethernity.app.app_context import EthernityAppContext
 from ethernity.app.widgets.actions import ActionButton, inline_action_group
-from ethernity.app.widgets.form import FormScroll, FormSelect
+from ethernity.app.widgets.form import FormRow, FormScroll, FormSelect
 from ethernity.app.widgets.static_text import update_static_text
 from ethernity.app.widgets.workbench import WorkbenchStep, WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import InlineNotice
@@ -141,13 +140,13 @@ class SettingsForm(Widget):
         self._select_options_by_key: dict[str, tuple[tuple[str, str], ...]] = {}
 
     def compose(self) -> ComposeResult:
-        with HorizontalGroup(id="settings-save-row"):
-            yield Static("", id="settings-focus-help", markup=False)
-            yield Static("", id="settings-save-status", classes="field-text", markup=False)
-            yield Button("Retry save", id="settings-retry-save", classes="settings-control")
         with Horizontal(id="settings-body"):
             yield WorkbenchSteps(id="settings-categories", title="SETTINGS", numbered=False)
             with Vertical(id="settings-form"):
+                with HorizontalGroup(id="settings-save-row"):
+                    yield Static("", id="settings-focus-help", markup=False)
+                    yield Static("", id="settings-save-status", classes="field-text", markup=False)
+                    yield Button("Retry save", id="settings-retry-save", classes="settings-control")
                 with HorizontalGroup(id="settings-heading"):
                     yield Static("Print", id="settings-title", classes="field-text")
                     yield Button("Reset section", id="settings-reset-section")
@@ -162,9 +161,8 @@ class SettingsForm(Widget):
                                 with VerticalGroup(classes="settings-section"):
                                     yield Static(title, classes="settings-section-title")
                                     for keys in rows:
-                                        with HorizontalGroup(classes="settings-fields"):
-                                            for key in keys:
-                                                yield SettingField(DESCRIPTORS[key])
+                                        for key in keys:
+                                            yield SettingField(DESCRIPTORS[key])
                     with FormScroll(id=SETTINGS_CONFIG_PANE_ID, classes="settings-page"):
                         with VerticalGroup(id="setting-row-config", classes="settings-section"):
                             yield Static("Settings file", classes="settings-section-title")
@@ -278,7 +276,7 @@ class SettingsForm(Widget):
                     value = bool(settings.setting_value(descriptor.key))
                     switch.value = not value if descriptor.key in INVERTED_SWITCHES else value
             elif descriptor.kind in {"path", "save_path"}:
-                self.query_one(control_id, Button).label = descriptor.action_label
+                self.query_one(control_id, Button).tooltip = descriptor.action_label
                 update_static_text(
                     self.query_one(f"#setting-value-{descriptor.key}", Static),
                     settings.display_value(descriptor.key),
@@ -294,6 +292,7 @@ class SettingsForm(Widget):
             else:
                 marker_text = "Custom"
             update_static_text(marker, marker_text)
+            marker.display = bool(marker_text)
         self._config_full_path = str(settings.execution_plan().output_paths[0])
         update_static_text(
             self.query_one("#setting-value-config", Static),
@@ -369,7 +368,7 @@ class SettingsForm(Widget):
         elif sys.platform != "darwin":
             command = ["xdg-open", folder]
         try:
-            subprocess.Popen(command)  # noqa: S603
+            subprocess.Popen(command)
         except OSError as exc:
             self.app.notify(f"Could not open folder: {exc}", severity="error")
             return
@@ -397,15 +396,18 @@ class SettingField(VerticalGroup):
 
     def compose(self) -> ComposeResult:
         descriptor = self.descriptor
-        with HorizontalGroup(classes="setting-label-row"):
-            yield Label(
-                SETTING_LABELS.get(descriptor.key, descriptor.title), classes="setting-label"
-            )
-            yield Static(
-                "", id=f"setting-marker-{descriptor.key}", classes="setting-marker", markup=False
-            )
-        yield _setting_control(descriptor)
-        yield InlineNotice(id=f"setting-help-{descriptor.key}", classes="setting-help")
+        controls = _setting_controls(descriptor)
+        yield FormRow(
+            SETTING_LABELS.get(descriptor.key, descriptor.title),
+            *controls,
+            Static(
+                "",
+                id=f"setting-marker-{descriptor.key}",
+                classes="field-text setting-marker",
+                markup=False,
+            ),
+            notice=InlineNotice(id=f"setting-help-{descriptor.key}", classes="setting-help"),
+        )
 
     def show_issue(self, issue: TaskIssue | None) -> None:
         self.query_one(InlineNotice).sync_presentation(
@@ -420,55 +422,61 @@ def _field_help(descriptor: SettingDescriptor) -> str:
     }.get(descriptor.key, descriptor.prompt)
 
 
-def _setting_control(descriptor: SettingDescriptor) -> Widget:
+def _setting_controls(descriptor: SettingDescriptor) -> tuple[Widget, ...]:
     control_id = f"setting-control-{descriptor.key}"
     if descriptor.kind == "enum":
-        return FormSelect(
-            (("Loading", "__loading__"),),
-            allow_blank=False,
-            value="__loading__",
-            id=control_id,
-            classes="settings-control setting-select",
+        return (
+            FormSelect(
+                (("Loading", "__loading__"),),
+                allow_blank=False,
+                value="__loading__",
+                id=control_id,
+                classes="settings-control setting-select",
+            ),
         )
     if descriptor.kind == "bool":
-        return Switch(
-            False,
-            animate=False,
-            id=control_id,
-            classes="settings-control setting-switch",
+        return (
+            Switch(
+                False,
+                animate=False,
+                id=control_id,
+                classes="settings-control setting-switch",
+            ),
         )
     if descriptor.kind in {"path", "save_path"}:
-        return HorizontalGroup(
+        return (
             Static(
                 "",
                 id=f"setting-value-{descriptor.key}",
-                classes="field-text setting-value",
+                classes="field-text form-value setting-value",
                 markup=False,
             ),
-            inline_action_group(
-                ActionButton(
-                    descriptor.action_label,
-                    control_id,
-                    classes="settings-control setting-path-button",
-                ),
+            Button(
+                "Change...",
+                id=control_id,
+                tooltip=descriptor.action_label,
+                classes="settings-control setting-path-button",
             ),
-            classes="setting-path-control",
         )
     if descriptor.kind in {"int", "optional_int"}:
-        return MaskedInput(
-            "0000000000",
-            value="",
+        return (
+            MaskedInput(
+                "0000000000",
+                value="",
+                placeholder=descriptor.placeholder,
+                valid_empty=descriptor.kind == "optional_int",
+                compact=True,
+                id=control_id,
+                classes="settings-control setting-input",
+            ),
+        )
+    return (
+        Input(
+            "",
             placeholder=descriptor.placeholder,
-            valid_empty=descriptor.kind == "optional_int",
-            compact=True,
             id=control_id,
             classes="settings-control setting-input",
-        )
-    return Input(
-        "",
-        placeholder=descriptor.placeholder,
-        id=control_id,
-        classes="settings-control setting-input",
+        ),
     )
 
 

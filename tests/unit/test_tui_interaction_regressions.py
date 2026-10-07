@@ -429,7 +429,7 @@ def test_workspace_path_lists_are_read_only_and_render_markup_literally() -> Non
             await pilot.click(app.query_one(WorkbenchSteps).button_for("print"))
             await pilot.pause()
             output = app.query_one("#backup-output-value", Static)
-            assert str(output.content) == str(output_path)
+            assert str(output.content) == str(output_path / "backup-<id>")
             rendered_output = "\n".join(
                 output.render_line(line).text for line in range(output.region.height)
             )

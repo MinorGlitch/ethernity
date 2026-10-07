@@ -13,7 +13,6 @@ from ethernity.app.app_state import (
     apply_settings_defaults,
     build_initial_task_states,
 )
-from ethernity.app.app_types import ActiveTask
 from ethernity.app.backup_context import LoadedBackupContext
 from ethernity.app.backup_estimate_controller import BackupEstimateController
 from ethernity.app.bindings import APP_BINDINGS, APP_SUB_TITLE, APP_TITLE
@@ -42,8 +41,9 @@ from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.settings import SettingsTaskState
+from ethernity.tasks.task_types import TaskKey
 
-_TASK_COMMAND_DESCRIPTIONS: dict[ActiveTask, str] = {
+_TASK_COMMAND_DESCRIPTIONS: dict[TaskKey, str] = {
     "backup": "Create paper backup documents for selected files",
     "restore": "Recover files from backup documents",
     "add_files": "Add or replace files in an existing backup",
@@ -131,9 +131,6 @@ class EthernityApp(
 ):
     """Terminal-first Ethernity application shell."""
 
-    CSS_PATH = [
-        Path(__file__).with_name(name) for name in ("theme.tcss", "workbench.tcss", "dialogs.tcss")
-    ]
     BINDINGS = APP_BINDINGS
     TITLE = APP_TITLE
     SUB_TITLE = APP_SUB_TITLE
@@ -167,7 +164,7 @@ class EthernityApp(
             requested_theme = self.theme
             self.theme = "textual-dark"
             self.theme = requested_theme
-        self.active_task: ActiveTask = "backup"
+        self.active_task: TaskKey = "backup"
         self._install_task_states(
             build_initial_task_states(
                 backup_state=backup_state,
@@ -184,8 +181,8 @@ class EthernityApp(
         self.settings_controller = SettingsController(self)
         self._last_execution_result: TaskExecutionResult | None = None
         self._last_reviewed_task: ReviewedTask | None = None
-        self._review_edit_task: ActiveTask | None = None
-        self._preparing_review_task: ActiveTask | None = None
+        self._review_edit_task: TaskKey | None = None
+        self._preparing_review_task: TaskKey | None = None
         self.workflow_ui_states = initial_workflow_ui_states()
         self.source_assessment_controller = SourceAssessmentController(self)
         self.backup_estimate_controller = BackupEstimateController(self)
@@ -194,14 +191,14 @@ class EthernityApp(
         self._loaded_backup_context: LoadedBackupContext | None = None
         self._nav_menu: NavMenu = "manage"
 
-    def _task_payloads(self) -> dict[ActiveTask, str]:
+    def _task_payloads(self) -> dict[TaskKey, str]:
         return {
             workflow.key: getattr(self, workflow.state_attribute).model_dump_json()
             for workflow in WORKFLOWS
         }
 
     @property
-    def running_task(self) -> ActiveTask | None:
+    def running_task(self) -> TaskKey | None:
         """Task whose reviewed snapshot currently owns the execution worker."""
         return self.execution_controller.running_task
 
@@ -213,6 +210,12 @@ class EthernityApp(
         self.recovery_check_controller.close()
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if self.running_task is not None and action in {
+            "command_palette",
+            "help",
+            "diagnostics",
+        }:
+            return False
         if action == "close_navigation":
             return self._nav_menu_open
         if action == "open_navigation":
@@ -279,20 +282,8 @@ class EthernityApp(
                 self.action_diagnostics,
             )
         if self.active_task == "settings":
-            group = self.query_one(SettingsForm).active_group
-            if group != "Config file":
-                yield SystemCommand(
-                    "Reset current section",
-                    "Restore defaults for this settings category",
-                    partial(self.settings_controller.reset_group, group),
-                )
-            yield SystemCommand(
-                "Reset all settings",
-                "Return every setting to its default value",
-                self.settings_controller.request_reset_all,
-            )
+            yield from self._settings_system_commands()
             return
-
         validation = self._current_state().validate_task()
         if validation.ready:
             yield SystemCommand(
@@ -307,6 +298,9 @@ class EthernityApp(
                 self.action_review,
             )
 
+        yield from self._task_edit_system_commands()
+
+    def _task_edit_system_commands(self) -> Iterable[SystemCommand]:
         if self.active_task == "backup":
             yield SystemCommand(
                 "Add backup files",
@@ -362,7 +356,7 @@ class EthernityApp(
             )
             yield SystemCommand(
                 "Paste recovery text",
-                "Use recovery blocks for the original backup and every update",
+                "Use recovery blocks for the original backup and required updates",
                 self._edit_add_files_recovery_text_source,
             )
             yield SystemCommand(
@@ -423,6 +417,21 @@ class EthernityApp(
                 "Choose the filename and folder",
                 self.action_edit_output,
             )
+
+    def _settings_system_commands(self) -> Iterable[SystemCommand]:
+        group = self.query_one(SettingsForm).active_group
+        if group != "Config file":
+            yield SystemCommand(
+                "Reset current section",
+                "Restore defaults for this settings category",
+                partial(self.settings_controller.reset_group, group),
+            )
+        yield SystemCommand(
+            "Reset all settings",
+            "Return every setting to its default value",
+            self.settings_controller.request_reset_all,
+        )
+        return
 
     def action_open_output_folder(self) -> None:
         folder = self._last_output_folder()

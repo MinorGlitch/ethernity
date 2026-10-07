@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
 from textual.widgets import Select, SelectionList
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
 from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.steps import WorkflowStepStack
-from ethernity.app.workflow_presenter import build_guided_workflow
+from ethernity.app.workflow_registry import build_guided_workflow
 from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.presentation.models import (
@@ -20,12 +21,16 @@ from ethernity.tasks.presentation.models import (
 from ethernity.tasks.rebuild import RebuildTaskState
 
 
-def test_add_files_documents_require_an_explicit_output_step() -> None:
+@pytest.mark.parametrize("output_dir", [None, Path("custom-update")])
+def test_add_files_output_step_accepts_automatic_and_custom_destinations(
+    output_dir: Path | None,
+) -> None:
     state = AddFilesTaskState(
         source_paths=[Path("backup")],
         allow_stale_head=True,
         input_paths=[Path("notes.txt")],
         passphrase="secret",
+        output_dir=output_dir,
     )
     workflow = build_guided_workflow(
         task="add_files",
@@ -41,8 +46,16 @@ def test_add_files_documents_require_an_explicit_output_step() -> None:
         "current",
         "complete",
         "complete",
-        "available",
+        "complete",
     ]
+    assert state.validate_task().ready
+    assert state.to_add_files_request().output_dir == (
+        str(output_dir) if output_dir is not None else None
+    )
+    output_section = next(section for section in state.sections() if section.key == "output")
+    assert output_section.summary == (
+        "Automatic folder in the current directory" if output_dir is None else str(output_dir)
+    )
 
 
 def test_rebuild_output_uses_typed_native_layout_selects() -> None:

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from functools import partial
+from typing import cast
 
 from ethernity.app import input_parsers
 from ethernity.app.editing.primary import PrimaryEditingActions
 from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.file_picker import FilePickerMode
 from ethernity.app.screens.paste_text import PasteTextScreen
+from ethernity.app.workflow_registry import workflow_definition
 from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.tasks.page_layout import BACKUP_RENDER_DOC_TYPES, KIT_RENDER_DOC_TYPES
 
@@ -77,15 +79,12 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         )
 
     async def _edit_backup_signing_key_shards(self) -> None:
-        threshold = (
-            self.backup_state.signing_key_shard_threshold or self.backup_state.shard_threshold
-        )
-        count = self.backup_state.signing_key_shard_count or self.backup_state.shard_count
+        quorum = self.backup_state.facts().signing_quorum
         await self._push_editor(
             EditFieldScreen(
                 title="Signing-key sheets",
                 prompt=QUORUM_PROMPT,
-                value=f"{threshold}/{count}",
+                value=f"{quorum.required}/{quorum.total}",
                 placeholder="2/3",
                 validator=input_parsers.validate_quorum,
             ),
@@ -110,17 +109,11 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         )
 
     async def _edit_qr_chunk_size(self) -> None:
-        if self.active_task == "backup":
-            value = self.backup_state.qr_chunk_size
-        elif self.active_task == "add_files":
-            value = self.add_files_state.qr_chunk_size
-        elif self.active_task == "rebuild":
-            value = self.rebuild_state.qr_chunk_size
-        elif self.active_task == "kit":
-            value = self.kit_state.chunk_size
-        else:
+        attribute = workflow_definition(self.active_task).qr_size_attribute
+        if attribute is None:
             self.notify("QR density is fixed for this workflow.")
             return
+        value = cast(int | None, getattr(self._current_state(), attribute))
         await self._push_editor(
             EditFieldScreen(
                 title="QR density",
@@ -136,7 +129,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         await self._push_editor(
             PasteTextScreen(
                 title="Backup recovery text",
-                prompt="Paste MAIN and AUTH blocks for the original backup and every update.",
+                prompt="Paste MAIN and AUTH blocks for the original backup and required updates.",
                 value=self.add_files_state.recovery_text or "",
                 placeholder="Paste the recovery blocks here.",
             ),
@@ -146,7 +139,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
     async def _edit_add_files_payloads_source(self) -> None:
         await self._pick_paths(
             title="Backup payload file",
-            prompt="Use payloads for the original backup and every update.",
+            prompt="Use payloads for the original backup and required updates.",
             selected_paths=(
                 (self.add_files_state.payloads_file,)
                 if self.add_files_state.payloads_file is not None
@@ -328,10 +321,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_recovery_section(self) -> None:
         if self.active_task == "backup":
-            if self.backup_state.recovery_method == "single_phrase":
-                value = "single"
-            else:
-                value = f"{self.backup_state.shard_threshold}/{self.backup_state.shard_count}"
+            quorum = self.backup_state.facts().recovery
+            value = "single" if quorum is None else f"{quorum.required}/{quorum.total}"
             await self._push_editor(
                 EditFieldScreen(
                     title="Recovery method",
@@ -359,8 +350,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_replace_signing_key_recovery(self) -> None:
         state = self.replace_recovery_docs_state
-        threshold = state.signing_key_recovery_threshold or state.recovery_threshold
-        count = state.signing_key_recovery_count or state.recovery_document_count
+        threshold, count = state.signing_key_recovery_quorum()
         await self._push_editor(
             EditFieldScreen(
                 title="Signing-key recovery",
@@ -420,7 +410,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         await self._push_editor(
             EditFieldScreen(
                 title="Version fingerprint",
-                prompt="Use the fingerprint printed on the target version or update.",
+                prompt="Enter the full 64-character fingerprint saved for this version.",
                 value=self.restore_state.extension_doc_hash or "",
                 placeholder="fingerprint",
                 validator=input_parsers.validate_optional_fingerprint,
@@ -429,21 +419,15 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         )
 
     async def _edit_expected_head_fingerprint(self) -> None:
-        if self.active_task == "add_files":
-            value = self.add_files_state.expected_head_doc_hash or ""
-        elif self.active_task == "restore":
-            value = self.restore_state.expected_head_doc_hash or ""
-        elif self.active_task == "rebuild":
-            value = self.rebuild_state.expected_head_doc_hash or ""
-        elif self.active_task == "replace_recovery_docs":
-            value = self.replace_recovery_docs_state.expected_head_doc_hash or ""
-        else:
+        state = self._unlock_state()
+        if state is None:
             self.notify("Load scanned pages first.", severity="warning")
             return
+        value = state.expected_head_doc_hash or ""
         await self._push_editor(
             EditFieldScreen(
                 title="Latest backup fingerprint",
-                prompt="Use the fingerprint printed on the version you trust as latest.",
+                prompt="Enter the full 64-character fingerprint from your separately saved record.",
                 value=value,
                 placeholder="fingerprint",
                 validator=input_parsers.validate_optional_fingerprint,

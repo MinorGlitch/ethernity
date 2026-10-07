@@ -7,14 +7,14 @@ from typing import Protocol, cast
 
 from textual.app import App
 
-from ethernity.app.app_types import ActiveTask
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.backup_estimate import estimate_backup
-from ethernity.workflows.execution import BackupRequest
+from ethernity.tasks.task_types import TaskKey
+from ethernity.workflows.shared.requests import BackupRequest
 
 
 class _BackupEstimateHost(Protocol):
-    active_task: ActiveTask
+    active_task: TaskKey
     backup_state: BackupTaskState
 
     @property

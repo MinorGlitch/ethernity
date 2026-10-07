@@ -3,12 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from ethernity.app.app_types import ActiveTask, UnlockTaskState
+from ethernity.app.app_types import UnlockTaskState
 from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.page_sizes import paper_size_display_name
 from ethernity.render.designs import supported_paper_size_names
 from ethernity.tasks.add_files import AddFilesTaskState
-from ethernity.tasks.file_summary import display_path, format_count
+from ethernity.tasks.file_summary import display_path, format_count, selected_items_summary
 from ethernity.tasks.models import TaskSection, TaskValidation
 from ethernity.tasks.page_layout import BACKUP_RENDER_DOC_TYPES
 from ethernity.tasks.presentation.models import (
@@ -40,8 +40,9 @@ from ethernity.tasks.recovery_inputs import RecoverySourceInputs, detected_unloc
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.source_assessment import SourceAssessableTaskState, recovery_source_request
+from ethernity.tasks.task_types import TaskKey
 
-GUIDED_WORKFLOW_SECTIONS: dict[ActiveTask, tuple[tuple[str, tuple[str, ...]], ...]] = {
+GUIDED_WORKFLOW_SECTIONS: dict[TaskKey, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "restore": (
         ("source", ("source",)),
         ("unlock", ("unlock",)),
@@ -68,18 +69,18 @@ GUIDED_WORKFLOW_SECTIONS: dict[ActiveTask, tuple[tuple[str, tuple[str, ...]], ..
 }
 
 
-def initial_workflow_ui_states() -> dict[ActiveTask, WorkflowUiState]:
+def initial_workflow_ui_states() -> dict[TaskKey, WorkflowUiState]:
     return {
         task: WorkflowUiState.start(*(step for step, _sections in steps))
         for task, steps in GUIDED_WORKFLOW_SECTIONS.items()
     }
 
 
-def is_guided_task(task: ActiveTask) -> bool:
+def is_guided_task(task: TaskKey) -> bool:
     return task in GUIDED_WORKFLOW_SECTIONS
 
 
-def step_for_section(task: ActiveTask, section: str | None) -> str | None:
+def step_for_section(task: TaskKey, section: str | None) -> str | None:
     if section is None:
         return None
     return next(
@@ -92,54 +93,10 @@ def step_for_section(task: ActiveTask, section: str | None) -> str | None:
     )
 
 
-def build_guided_workflow(
-    *,
-    task: ActiveTask,
-    state: object,
-    validation: TaskValidation,
-    ui_state: WorkflowUiState,
-    review_summary: SummaryPresentation,
-    review_label: str,
-) -> WorkflowPresentation | None:
-    if task == "restore" and isinstance(state, RestoreTaskState):
-        return _restore_workflow(
-            state=state,
-            validation=validation,
-            ui_state=ui_state,
-            review_summary=review_summary,
-            review_label=review_label,
-        )
-    if task == "add_files" and isinstance(state, AddFilesTaskState):
-        return _add_files_workflow(
-            state=state,
-            validation=validation,
-            ui_state=ui_state,
-            review_summary=review_summary,
-            review_label=review_label,
-        )
-    if task == "rebuild" and isinstance(state, RebuildTaskState):
-        return _rebuild_workflow(
-            state=state,
-            validation=validation,
-            ui_state=ui_state,
-            review_summary=review_summary,
-            review_label=review_label,
-        )
-    if task == "replace_recovery_docs" and isinstance(state, ReplaceRecoveryDocsTaskState):
-        return _replace_recovery_workflow(
-            state=state,
-            validation=validation,
-            ui_state=ui_state,
-            review_summary=review_summary,
-            review_label=review_label,
-        )
-    return None
-
-
 def restore_workflow_placeholder() -> WorkflowPresentation:
     state = RestoreTaskState()
     validation = state.validate_task()
-    return _restore_workflow(
+    return restore_workflow(
         state=state,
         validation=validation,
         ui_state=WorkflowUiState.start("source", "unlock", "target", "destination"),
@@ -155,7 +112,7 @@ def restore_workflow_placeholder() -> WorkflowPresentation:
 
 def add_files_workflow_placeholder() -> WorkflowPresentation:
     state = AddFilesTaskState()
-    return _add_files_workflow(
+    return add_files_workflow(
         state=state,
         validation=state.validate_task(),
         ui_state=WorkflowUiState.start("source", "files", "unlock", "output"),
@@ -166,7 +123,7 @@ def add_files_workflow_placeholder() -> WorkflowPresentation:
 
 def rebuild_workflow_placeholder() -> WorkflowPresentation:
     state = RebuildTaskState()
-    return _rebuild_workflow(
+    return rebuild_workflow(
         state=state,
         validation=state.validate_task(),
         ui_state=WorkflowUiState.start("source", "unlock", "output"),
@@ -177,7 +134,7 @@ def rebuild_workflow_placeholder() -> WorkflowPresentation:
 
 def replace_recovery_workflow_placeholder() -> WorkflowPresentation:
     state = ReplaceRecoveryDocsTaskState()
-    return _replace_recovery_workflow(
+    return replace_recovery_workflow(
         state=state,
         validation=state.validate_task(),
         ui_state=WorkflowUiState.start("source", "unlock", "recovery", "output"),
@@ -186,8 +143,7 @@ def replace_recovery_workflow_placeholder() -> WorkflowPresentation:
     )
 
 
-def _restore_workflow(
-    *,
+def restore_workflow(
     state: RestoreTaskState,
     validation: TaskValidation,
     ui_state: WorkflowUiState,
@@ -232,8 +188,7 @@ def _restore_workflow(
     )
 
 
-def _add_files_workflow(
-    *,
+def add_files_workflow(
     state: AddFilesTaskState,
     validation: TaskValidation,
     ui_state: WorkflowUiState,
@@ -283,8 +238,7 @@ def _add_files_workflow(
     )
 
 
-def _rebuild_workflow(
-    *,
+def rebuild_workflow(
     state: RebuildTaskState,
     validation: TaskValidation,
     ui_state: WorkflowUiState,
@@ -323,8 +277,7 @@ def _rebuild_workflow(
     )
 
 
-def _replace_recovery_workflow(
-    *,
+def replace_recovery_workflow(
     state: ReplaceRecoveryDocsTaskState,
     validation: TaskValidation,
     ui_state: WorkflowUiState,
@@ -371,7 +324,7 @@ def _replace_recovery_workflow(
 
 def _workflow_presentation(
     *,
-    task_key: ActiveTask,
+    task_key: TaskKey,
     title: str,
     validation: TaskValidation,
     ui_state: WorkflowUiState,
@@ -441,7 +394,7 @@ def _workflow_presentation(
 
 
 def _visible_steps(
-    task: ActiveTask,
+    task: TaskKey,
     step_specs: tuple[tuple[str, str, str, StepBodyPresentation], ...],
 ) -> set[str]:
     """Disclose backup-dependent controls once documents have been selected."""
@@ -736,7 +689,9 @@ def _add_files_paths_body(state: AddFilesTaskState) -> PathSelectionBodyPresenta
     return PathSelectionBodyPresentation(
         items=items,
         empty_label="No files or folders selected",
-        count_summary=_path_count_summary(len(state.input_paths), len(state.input_dirs)),
+        count_summary=selected_items_summary(
+            len(state.input_paths), len(state.input_dirs), separator=", "
+        ),
         actions=(
             WorkspaceAction("workspace-add-files-add-files", "Add files..."),
             WorkspaceAction("workspace-add-files-add-folder", "Add folder..."),
@@ -1032,7 +987,7 @@ def _replacement_output_body(
                     empty_label="No output folder selected",
                     action=WorkspaceAction(
                         "workspace-replace-output",
-                        "Choose output folder...",
+                        "Choose folder...",
                     ),
                 ),
                 title="Destination",
@@ -1178,17 +1133,6 @@ def _paths_source_summary(paths: Sequence[Path]) -> str:
     return f"{format_count(len(paths), 'item')}: {first_path} and {len(paths) - 1} more"
 
 
-def _path_count_summary(file_count: int, folder_count: int) -> str:
-    if file_count == 0 and folder_count == 0:
-        return "Nothing selected"
-    parts = []
-    if file_count:
-        parts.append(format_count(file_count, "file"))
-    if folder_count:
-        parts.append(format_count(folder_count, "folder"))
-    return ", ".join(parts)
-
-
 def _empty_summary() -> SummaryPresentation:
     return SummaryPresentation(title="", items=(), blockers=(), warnings=())
 
@@ -1244,7 +1188,7 @@ def _step_issue(
     return None
 
 
-def _sections_for_step(task: ActiveTask, step_key: str) -> tuple[str, ...]:
+def _sections_for_step(task: TaskKey, step_key: str) -> tuple[str, ...]:
     return dict(GUIDED_WORKFLOW_SECTIONS.get(task, ())).get(step_key, ())
 
 

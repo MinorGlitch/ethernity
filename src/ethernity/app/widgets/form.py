@@ -10,9 +10,11 @@ from textual.binding import Binding
 from textual.containers import HorizontalGroup, VerticalGroup, VerticalScroll
 from textual.visual import Padding, Visual
 from textual.widget import Widget
-from textual.widgets import Button, Label, Select, Static
+from textual.widgets import Button, Label, Select
 from textual.widgets._select import SelectCurrent, SelectOverlay
 from textual.widgets.option_list import Option
+
+from ethernity.app.widgets.actions import button_min_width
 
 SelectValue = TypeVar("SelectValue")
 
@@ -20,34 +22,41 @@ SelectValue = TypeVar("SelectValue")
 class FormSection(VerticalGroup):
     """An open group of related fields with one heading and a section divider."""
 
-    def __init__(self, title: str, *children: Widget, id: str | None = None) -> None:
-        super().__init__(Label(title, classes="form-section-title"), *children, id=id)
+    def __init__(self, title: str | Label, *children: Widget, id: str | None = None) -> None:
+        heading = Label(title) if isinstance(title, str) else title
+        heading.add_class("form-section-title")
+        super().__init__(heading, *children, id=id)
+
+
+class _FormControls(HorizontalGroup):
+    """Keep edit actions beside readable values, moving them below only when necessary."""
+
+    def on_resize(self, event: events.Resize) -> None:
+        actions = [child for child in self.children if isinstance(child, Button) and child.display]
+        required = sum(button_min_width(button) + 1 for button in actions)
+        self.set_class(bool(actions) and event.size.width < required + 16, "stacked-controls")
 
 
 class FormRow(HorizontalGroup):
     """A shared label column and adjacent controls, stacked in narrow terminals."""
 
-    def __init__(self, label: str | Label, *controls: Widget, id: str | None = None) -> None:
+    def __init__(
+        self,
+        label: str | Label,
+        *controls: Widget,
+        id: str | None = None,
+        notice: Widget | None = None,
+    ) -> None:
         label_widget = Label(label) if isinstance(label, str) else label
         label_widget.add_class("field-text", "form-label")
-        self._controls = HorizontalGroup(*controls, classes="form-controls")
-        super().__init__(label_widget, self._controls, id=id)
+        self._controls = _FormControls(*controls, classes="form-controls")
+        body = VerticalGroup(
+            self._controls, *([notice] if notice is not None else []), classes="form-field"
+        )
+        super().__init__(label_widget, body, id=id)
 
     def on_resize(self, event: events.Resize) -> None:
         self.set_class(event.size.width < 60, "stacked")
-        self.call_after_refresh(self._fit_value)
-
-    def _fit_value(self) -> None:
-        # Keep short values content-sized, but reserve the adjacent action for long paths.
-        action_width = sum(
-            child.region.width + child.styles.margin.width
-            for child in self._controls.children
-            if isinstance(child, Button) and child.display
-        )
-        available = max(1, self._controls.content_size.width - action_width)
-        for child in self._controls.children:
-            if isinstance(child, Static) and child.has_class("form-value"):
-                child.styles.max_width = available
 
 
 class FormScroll(VerticalScroll, can_focus=False):

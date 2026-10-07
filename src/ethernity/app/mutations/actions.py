@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
+from ethernity.app.app_types import UnlockTaskState
 from ethernity.app.input_parsers import (
     parse_layout,
     parse_paths,
@@ -15,6 +17,7 @@ from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.page_sizes import resolve_paper_size
 from ethernity.tasks.page_layout import with_print_layout
 from ethernity.tasks.recovery_inputs import has_recovery_source
+from ethernity.tasks.restore import RestoreTaskState
 
 QUORUM_INPUT_HELP = f"Use required/total sheets from 1 to {MAX_SHARES}, such as 2/3."
 
@@ -130,8 +133,6 @@ class TaskMutationActions(TaskPathMutationActions):
         normalized = value.strip().lower()
         if not normalized or normalized in {"recommended", "recommended_shards", "shards"}:
             self.backup_state.recovery_method = "recommended_shards"
-            self.backup_state.shard_threshold = 2
-            self.backup_state.shard_count = 3
         elif normalized in {"single", "single_phrase", "phrase"}:
             self.backup_state.recovery_method = "single_phrase"
         elif counts := parse_threshold_count(normalized):
@@ -208,14 +209,9 @@ class TaskMutationActions(TaskPathMutationActions):
         self.refresh_task_view()
 
     def _set_current_qr_chunk_size(self, value: int | None) -> None:
-        if self.active_task == "backup":
-            self.backup_state.qr_chunk_size = value
-        elif self.active_task == "add_files":
-            self.add_files_state.qr_chunk_size = value
-        elif self.active_task == "rebuild":
-            self.rebuild_state.qr_chunk_size = value
-        elif self.active_task == "kit":
-            self.kit_state.chunk_size = value
+        attribute = workflow_definition(self.active_task).qr_size_attribute
+        if attribute is not None:
+            setattr(self._current_state(), attribute, value)
 
     def _apply_replace_recovery_set(self, value: str | None) -> None:
         if value is None:
@@ -341,17 +337,11 @@ class TaskMutationActions(TaskPathMutationActions):
             self.refresh_task_view()
             return
         fingerprint = value.strip() or None
-        if self.active_task == "add_files":
-            self.add_files_state.expected_head_doc_hash = fingerprint
-            self.add_files_state.allow_stale_head = False
-        elif self.active_task == "restore":
-            self.restore_state.expected_head_doc_hash = fingerprint
-        elif self.active_task == "rebuild":
-            self.rebuild_state.expected_head_doc_hash = fingerprint
-            self.rebuild_state.allow_stale_head = False
-        elif self.active_task == "replace_recovery_docs":
-            self.replace_recovery_docs_state.expected_head_doc_hash = fingerprint
-            self.replace_recovery_docs_state.allow_stale_head = False
+        if workflow_definition(self.active_task).unlock_selector is not None:
+            state = cast(UnlockTaskState, self._current_state())
+            state.expected_head_doc_hash = fingerprint
+            if not isinstance(state, RestoreTaskState):
+                state.allow_stale_head = False
         self.refresh_task_view()
 
     def _confirm_source_freshness(self) -> None:

@@ -19,7 +19,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 from ethernity.app.application import EthernityApp
 from ethernity.tasks.backup import BackupTaskState
@@ -64,7 +64,10 @@ def test_textual_app_backup_and_restore_round_trip(tmp_path: Path) -> None:
             async with backup_app.run_test(size=(140, 40)) as pilot:
                 await _run_final_review(backup_app, pilot)
                 await pilot.pause()
-                await pilot.click("#result-test-recovery")
+                check_button = backup_app.screen.query_one("#result-test-recovery", Button)
+                check_button.scroll_visible(animate=False, immediate=True)
+                await pilot.pause()
+                assert await pilot.click("#result-test-recovery")
                 for _ in range(120):
                     await pilot.pause(0.1)
                     if not backup_app.recovery_check_controller.running:
@@ -78,6 +81,7 @@ def test_textual_app_backup_and_restore_round_trip(tmp_path: Path) -> None:
                 else:
                     raise AssertionError("Generated document recovery test did not finish")
 
+            [backup_dir] = backup_dir.glob("backup-*")
             restore_app = EthernityApp(
                 restore_state=RestoreTaskState(
                     source_paths=[backup_dir],

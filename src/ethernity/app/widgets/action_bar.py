@@ -19,7 +19,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import HorizontalGroup
 from textual.widget import Widget
-from textual.widgets import Button, LoadingIndicator, Static
+from textual.widgets import Button, Static
 
 
 class TaskActionBar(Widget):
@@ -57,11 +57,6 @@ class TaskActionBar(Widget):
         action_row = self.query_one("#canvas-action-row", HorizontalGroup)
         action_row.set_class(compact, "settings-mode")
         internals_button = self.query_one("#canvas-internals", Button)
-        self._sync_loading_indicator(
-            action_row,
-            before=internals_button,
-            visible=running and not compact,
-        )
         internals_button.display = internals_visible and not compact and not running
         button = self.query_one("#canvas-primary", Button)
         button.disabled = running or not primary_enabled
@@ -71,23 +66,3 @@ class TaskActionBar(Widget):
         if str(button.label) != label:
             button.label = label
             button.refresh(layout=True)
-
-    def _sync_loading_indicator(
-        self,
-        action_row: HorizontalGroup,
-        *,
-        before: Button,
-        visible: bool,
-    ) -> None:
-        loading = _existing_loading_indicator(self)
-        if visible and loading is None:
-            action_row.mount(LoadingIndicator(id="canvas-loading"), before=before)
-        elif not visible and loading is not None:
-            loading.remove()
-
-
-def _existing_loading_indicator(widget: Widget) -> LoadingIndicator | None:
-    for candidate in widget.query("#canvas-loading"):
-        if isinstance(candidate, LoadingIndicator):
-            return candidate
-    return None

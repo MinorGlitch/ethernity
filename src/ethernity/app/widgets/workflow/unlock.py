@@ -7,6 +7,7 @@ from textual.message import Message
 from textual.widgets import Button, Input, RadioSet, Static
 
 from ethernity.app.widgets.workflow.controls import (
+    EditorValueChanged,
     InlineNotice,
     KeyedRadioSet,
     WorkspaceActionRequested,
@@ -14,6 +15,7 @@ from ethernity.app.widgets.workflow.controls import (
     merge_classes,
     sync_action,
     sync_static,
+    workspace_action_button,
 )
 from ethernity.tasks.presentation.models import UnlockBodyPresentation
 
@@ -33,15 +35,8 @@ class UnlockEditor(VerticalGroup):
         def control(self) -> UnlockEditor:
             return self.editor
 
-    class ValueChanged(Message):
-        def __init__(self, editor: UnlockEditor, value: str) -> None:
-            super().__init__()
-            self.editor = editor
-            self.value = value
-
-        @property
-        def control(self) -> UnlockEditor:
-            return self.editor
+    class ValueChanged(EditorValueChanged["UnlockEditor"]):
+        pass
 
     def __init__(
         self,
@@ -64,11 +59,7 @@ class UnlockEditor(VerticalGroup):
             id=child_id(id, "passphrase"),
             classes="workspace-control",
         )
-        self._action = Button(
-            "",
-            id=child_id(id, "action"),
-            classes="workspace-control",
-        )
+        self._action = workspace_action_button(id)
         self._notice = InlineNotice(presentation.notice)
         super().__init__(
             self._methods,

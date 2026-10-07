@@ -22,14 +22,12 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Button, Input, Label, MaskedInput, Static
 
-from ethernity.app.screens.modal import EthernityModalScreen
+from ethernity.app.screens.text_entry import TextEntryScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 
 
-class EditFieldScreen(EthernityModalScreen[str | None]):
+class EditFieldScreen(TextEntryScreen):
     """Small modal for editing one task field."""
-
-    BINDINGS = [("escape", "cancel", "Cancel")]
 
     def __init__(
         self,
@@ -42,11 +40,7 @@ class EditFieldScreen(EthernityModalScreen[str | None]):
         mask_template: str | None = None,
         validator: Callable[[str], str | None] | None = None,
     ) -> None:
-        super().__init__()
-        self._field_title = title
-        self._prompt = prompt
-        self._value = value
-        self._placeholder = placeholder
+        super().__init__(title=title, prompt=prompt, value=value, placeholder=placeholder)
         self._password = password
         self._mask_template = mask_template
         self._validator = validator
@@ -108,9 +102,6 @@ class EditFieldScreen(EthernityModalScreen[str | None]):
             self.dismiss(self._normalized_input_value(field))
         else:
             field.focus()
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)
 
     def _refresh_input_state(self, field: Input) -> bool:
         value = self._normalized_input_value(field)

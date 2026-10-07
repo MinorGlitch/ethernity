@@ -109,7 +109,7 @@ class RecoveryCheckController:
 
                 if self._is_current(screen, generation):
                     screen.show_context_action_result(
-                        action, _success_message(action, result), success=True
+                        action, _success_message(result), success=True
                     )
                 return
         finally:
@@ -122,9 +122,7 @@ class RecoveryCheckController:
         return not self._closed and generation == self._generation and self._screen_is_live(screen)
 
 
-def _success_message(
-    action: ResultContextAction, result: recovery_check.GeneratedRecoveryCheckResult
-) -> str:
+def _success_message(result: recovery_check.GeneratedRecoveryCheckResult) -> str:
     files = f"{result.file_count} {'file' if result.file_count == 1 else 'files'}"
     sheets = (
         f" using {result.recovery_sheet_count} recovery "
@@ -132,8 +130,6 @@ def _success_message(
         if result.recovery_sheet_count
         else " using the supplied phrase"
     )
-    if action == "test_printed_pages":
-        return f"Printed-page recovery passed: {files} recovered{sheets} into temporary storage."
     return (
         f"Generated PDF recovery passed: {files} recovered{sheets} into temporary storage. "
         "Printed pages are untested."

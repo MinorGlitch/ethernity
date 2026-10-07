@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Generic, TypeVar
+
 from textual.binding import Binding
+from textual.containers import VerticalGroup
 from textual.content import Content
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Input, RadioButton, RadioSet, Static
 
+from ethernity.app.widgets.actions import ResponsiveActions
 from ethernity.tasks.presentation.models import (
     ChoicePresentation,
     InlineNoticePresentation,
@@ -15,6 +19,10 @@ from ethernity.tasks.presentation.models import (
 )
 
 __all__ = [
+    "ActionEditor",
+    "EditorValueChanged",
+    "WorkspaceActionGroup",
+    "workspace_action_button",
     "InlineNotice",
     "KeyedRadioSet",
     "WorkspaceActionRequested",
@@ -173,9 +181,11 @@ def sync_action(button: Button, action: WorkspaceAction | None) -> None:
     if action is None:
         button.label = Content.from_text("", markup=False)
         button.disabled = True
-        return
-    button.label = Content.from_text(action.label, markup=False)
-    button.disabled = not action.enabled
+    else:
+        button.label = Content.from_text(action.label, markup=False)
+        button.disabled = not action.enabled
+    if isinstance(button.parent, ResponsiveActions):
+        button.parent.reflow()
 
 
 def child_id(owner_id: str | None, suffix: str) -> str | None:
@@ -184,3 +194,50 @@ def child_id(owner_id: str | None, suffix: str) -> str | None:
 
 def merge_classes(required: str, optional: str | None) -> str:
     return required if not optional else f"{required} {optional}"
+
+
+_Editor = TypeVar("_Editor", bound=Widget)
+
+
+class EditorValueChanged(Message, Generic[_Editor]):
+    def __init__(self, editor: _Editor, value: str) -> None:
+        super().__init__()
+        self.editor = editor
+        self.value = value
+
+    @property
+    def control(self) -> _Editor:
+        return self.editor
+
+
+class WorkspaceActionGroup(ResponsiveActions):
+    """Buttons created from one stable sequence of local workspace actions."""
+
+    def __init__(self, actions: tuple[WorkspaceAction, ...]) -> None:
+        self.buttons = tuple(
+            Button(
+                Content.from_text(action.label, markup=False),
+                id=action.key,
+                classes="workspace-control",
+            )
+            for action in actions
+        )
+        super().__init__(*self.buttons, classes="guided-actions")
+
+
+class ActionEditor(VerticalGroup):
+    _actions: WorkspaceActionGroup
+
+    @property
+    def _action_buttons(self) -> tuple[Button, ...]:
+        return self._actions.buttons
+
+    def action_presentations(self) -> tuple[WorkspaceAction, ...]:
+        raise NotImplementedError
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        post_workspace_action(self, event, self._action_buttons, self.action_presentations())
+
+
+def workspace_action_button(owner_id: str | None) -> Button:
+    return Button("", id=child_id(owner_id, "action"), classes="workspace-control")

@@ -48,21 +48,36 @@ def test_shell_breakpoints_drive_navigation_and_header_priority() -> None:
     asyncio.run(run())
 
 
-def test_shell_constrains_reading_width_and_reserves_the_action_row() -> None:
+def test_shell_fills_editor_width_and_reserves_the_action_row() -> None:
     async def run() -> None:
-        for size in ((160, 48), (120, 32), (80, 24), (60, 20)):
+        for size in ((240, 48), (160, 48), (120, 32), (80, 24), (60, 20)):
             app = EthernityApp()
             async with app.run_test(size=size) as pilot:
                 await pilot.pause()
 
                 workspace = app.query_one("#workspace").region
+                frame = app.query_one("#workbench-frame").region
                 canvas = app.query_one("#task-canvas").region
                 scroll_viewport = app.query_one("#canvas-task-workspaces").region
                 action_bar = app.query_one("#task-action-bar").region
                 primary = app.query_one("#canvas-primary", Button).region
 
+                assert frame.width <= 140
+                assert abs(frame.x - (size[0] - frame.width) / 2) <= 1
+                for selector in ("#app-header", "#workbench-navigation", "#shell"):
+                    region = app.query_one(selector).region
+                    assert (region.x, region.width) == (frame.x, frame.width)
                 assert canvas.x == workspace.x
                 assert canvas.width == workspace.width
+                assert (
+                    scroll_viewport.width == app.query_one("#workbench-editor").content_size.width
+                )
+                assert (action_bar.x, action_bar.width) == (
+                    scroll_viewport.x,
+                    scroll_viewport.width,
+                )
+                title = app.query_one("#canvas-title").region
+                assert (title.x, title.width) == (action_bar.x, action_bar.width)
                 assert scroll_viewport.bottom <= action_bar.y
                 assert action_bar.x <= primary.x
                 assert primary.right <= action_bar.right
@@ -92,7 +107,7 @@ def test_navigation_menus_fit_below_their_buttons_and_close_on_resize() -> None:
                     assert dropdown.right <= width
                     assert not dropdown.overlaps(owner)
                     choices = [item for item in app.query("#nav-list > ListItem") if item.display]
-                    for current, following in zip(choices, choices[1:]):
+                    for current, following in zip(choices, choices[1:], strict=False):
                         assert following.region.y == current.region.bottom
                     for choice in choices:
                         number = choice.query_one(".nav-row-number").region
