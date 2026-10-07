@@ -14,8 +14,6 @@ if sys.platform == "win32":
 else:  # pragma: no cover - Windows only
     winreg: ModuleType | None = None
 
-from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
-
 
 @dataclass(frozen=True)
 class ThemePalette:
@@ -121,6 +119,10 @@ def _detect_system_theme_name() -> str:
     if gtk_theme:
         return "dark" if "dark" in gtk_theme else "light"
 
+    return _gnome_theme_name()
+
+
+def _gnome_theme_name() -> str:
     if shutil.which("gsettings"):
         for command in (
             ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
@@ -141,8 +143,6 @@ def _detect_system_theme_name() -> str:
                 continue
             if output == "prefer-dark" or "dark" in output:
                 return "dark"
-        return "light"
-
     return "light"
 
 
@@ -257,67 +257,236 @@ class ThemeController:
         root.option_add("*TCombobox*Listbox.selectBackground", palette.selection)
         root.option_add("*TCombobox*Listbox.selectForeground", palette.text)
 
-        # ── Frame styles ──────────────────────────────────────────
-        style.configure("TFrame", background=palette.bg)
-        style.configure("App.TFrame", background=palette.bg)
-        style.configure("Hero.TFrame", background=palette.hero)
+        self._style_frames()
+        self._style_labels(
+            default_font,
+            label_font,
+            title_font,
+            section_font,
+            hero_title_font,
+            hero_body_font,
+            badge_font,
+            status_font,
+        )
+        self._style_label_frames(section_font)
+        self._style_buttons(default_font)
+        self._style_inputs(default_font)
+        self._style_notebooks(notebook_font)
+        self._style_trees(default_font, heading_font)
+        # ── Misc styles ──────────────────────────────────────────
+        style.configure("TPanedwindow", background=palette.bg)
+        style.configure("Sash", background=palette.border, sashthickness=6)
+        style.configure("TSeparator", background=palette.border)
+
+        for widget in list(self._text_widgets):
+            self._apply_text_widget(widget)
+        for menu in list(self._menus):
+            self._apply_menu(menu)
+
+    def _style_trees(self, default_font, heading_font) -> None:
+        palette = self._palette
+        style = self.style
+        # ── Treeview styles ──────────────────────────────────────
         style.configure(
-            "HeroCard.TFrame",
-            background=palette.hero_panel,
+            "Treeview",
+            background=palette.text_bg,
+            fieldbackground=palette.text_bg,
+            foreground=palette.text,
             bordercolor=palette.border,
             lightcolor=palette.border,
             darkcolor=palette.border,
-            borderwidth=1,
-            relief="solid",
+            rowheight=26,
+            relief="flat",
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", palette.selection)],
+            foreground=[("selected", palette.text)],
         )
         style.configure(
-            "Panel.TFrame",
+            "Treeview.Heading",
+            background=palette.panel_alt,
+            foreground=palette.accent_active,
+            font=heading_font,
+            bordercolor=palette.border,
+            lightcolor=palette.border,
+            darkcolor=palette.border,
+            relief="flat",
+            padding=(8, 6),
+        )
+        style.map("Treeview.Heading", background=[("active", palette.panel_subtle)])
+
+    def _style_notebooks(self, notebook_font) -> None:
+        palette = self._palette
+        style = self.style
+        # ── Notebook styles ──────────────────────────────────────
+        style.configure(
+            "TNotebook",
+            background=palette.panel,
+            borderwidth=0,
+            tabmargins=(0, 0, 0, 0),
+        )
+        style.configure(
+            "TNotebook.Tab",
+            background=palette.panel_alt,
+            foreground=palette.muted,
+            padding=(12, 7),
+            font=notebook_font,
+            borderwidth=0,
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", palette.panel), ("active", palette.panel_subtle)],
+            foreground=[("selected", palette.accent_active), ("active", palette.text)],
+        )
+
+    def _style_inputs(self, default_font) -> None:
+        palette = self._palette
+        style = self.style
+        # ── Input styles ─────────────────────────────────────────
+        style.configure(
+            "TEntry",
+            fieldbackground=palette.input_bg,
+            foreground=palette.text,
+            insertcolor=palette.accent,
+            bordercolor=palette.border,
+            lightcolor=palette.border,
+            darkcolor=palette.border,
+            padding=5,
+            relief="flat",
+        )
+        style.map(
+            "TEntry",
+            bordercolor=[("focus", palette.accent), ("active", palette.border_strong)],
+            lightcolor=[("focus", palette.accent)],
+            darkcolor=[("focus", palette.accent)],
+        )
+
+        style.configure(
+            "TCombobox",
+            fieldbackground=palette.input_bg,
+            background=palette.input_bg,
+            foreground=palette.text,
+            bordercolor=palette.border,
+            lightcolor=palette.border,
+            darkcolor=palette.border,
+            arrowcolor=palette.accent_active,
+            padding=5,
+            relief="flat",
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", palette.input_bg)],
+            background=[("readonly", palette.input_bg)],
+            bordercolor=[("focus", palette.accent), ("active", palette.border_strong)],
+            arrowcolor=[("active", palette.accent)],
+        )
+
+    def _style_buttons(self, default_font) -> None:
+        palette = self._palette
+        style = self.style
+        # ── Button styles ────────────────────────────────────────
+        style.configure(
+            "TButton",
+            background=palette.panel_alt,
+            foreground=palette.text,
+            bordercolor=palette.border,
+            lightcolor=palette.border,
+            darkcolor=palette.border,
+            focusthickness=0,
+            focuscolor=palette.panel_alt,
+            relief="flat",
+            padding=(10, 6),
+        )
+        style.map(
+            "TButton",
+            background=[
+                ("disabled", palette.panel_subtle),
+                ("active", palette.panel_subtle),
+                ("pressed", palette.selection),
+            ],
+            foreground=[("disabled", palette.muted)],
+            bordercolor=[("active", palette.border_strong), ("focus", palette.accent)],
+        )
+
+        style.configure(
+            "Primary.TButton",
+            background=palette.accent,
+            foreground="#ffffff",
+            bordercolor=palette.accent,
+            lightcolor=palette.accent,
+            darkcolor=palette.accent,
+            focuscolor=palette.accent,
+            focusthickness=0,
+            relief="flat",
+            padding=(12, 6),
+            font=(self.title_font_family, 10, "bold"),
+        )
+        style.map(
+            "Primary.TButton",
+            background=[
+                ("disabled", palette.accent_active),
+                ("active", palette.accent_active),
+                ("pressed", palette.accent_active),
+            ],
+            foreground=[("disabled", "#f7fffe"), ("active", "#ffffff"), ("pressed", "#ffffff")],
+            bordercolor=[("active", palette.accent_active), ("pressed", palette.accent_active)],
+            lightcolor=[("active", palette.accent_active), ("pressed", palette.accent_active)],
+            darkcolor=[("active", palette.accent_active), ("pressed", palette.accent_active)],
+        )
+
+        style.configure(
+            "Toolbar.TMenubutton",
+            background=palette.panel_alt,
+            foreground=palette.text,
+            bordercolor=palette.border,
+            lightcolor=palette.border,
+            darkcolor=palette.border,
+            padding=(10, 6),
+            arrowcolor=palette.accent_active,
+            relief="flat",
+        )
+        style.map(
+            "Toolbar.TMenubutton",
+            background=[("active", palette.panel_subtle), ("pressed", palette.selection)],
+            bordercolor=[("active", palette.border_strong)],
+            arrowcolor=[("active", palette.accent)],
+        )
+
+    def _style_label_frames(self, section_font) -> None:
+        palette = self._palette
+        style = self.style
+        # ── LabelFrame styles ────────────────────────────────────
+        style.configure(
+            "ToolbarCard.TLabelframe",
             background=palette.panel,
             bordercolor=palette.border,
             lightcolor=palette.border,
             darkcolor=palette.border,
             borderwidth=1,
             relief="solid",
-        )
-        style.configure("NotebookPage.TFrame", background=palette.panel)
-        style.configure("Card.TFrame", background=palette.panel, relief="flat")
-        style.configure(
-            "StatusCard.TFrame",
-            background=palette.status_bg,
-            bordercolor=palette.border,
-            lightcolor=palette.border,
-            darkcolor=palette.border,
-            borderwidth=1,
-            relief="solid",
+            padding=16,
         )
         style.configure(
-            "Header.TFrame",
-            background=palette.hero,
-            bordercolor=palette.border,
-            lightcolor=palette.border,
-            darkcolor=palette.border,
-            borderwidth=0,
-            relief="flat",
-        )
-        style.configure(
-            "ActionBar.TFrame",
-            background=palette.panel_alt,
-            bordercolor=palette.border,
-            lightcolor=palette.border,
-            darkcolor=palette.border,
-            borderwidth=0,
-            relief="flat",
-        )
-        style.configure(
-            "StatusBar.TFrame",
-            background=palette.status_bg,
-            bordercolor=palette.border,
-            lightcolor=palette.border,
-            darkcolor=palette.border,
-            borderwidth=1,
-            relief="flat",
+            "ToolbarCard.TLabelframe.Label",
+            background=palette.panel,
+            foreground=palette.accent_active,
+            font=section_font,
         )
 
+    def _style_labels(
+        self,
+        default_font,
+        label_font,
+        title_font,
+        section_font,
+        hero_title_font,
+        hero_body_font,
+        badge_font,
+        status_font,
+    ) -> None:
+        palette = self._palette
+        style = self.style
         # ── Label styles ──────────────────────────────────────────
         style.configure("TLabel", background=palette.bg, foreground=palette.text, font=default_font)
         style.configure(
@@ -441,191 +610,69 @@ class ThemeController:
             font=(self.default_font_family, 10),
         )
 
-        # ── LabelFrame styles ────────────────────────────────────
+    def _style_frames(self) -> None:
+        palette = self._palette
+        style = self.style
+        # ── Frame styles ──────────────────────────────────────────
+        style.configure("TFrame", background=palette.bg)
+        style.configure("App.TFrame", background=palette.bg)
+        style.configure("Hero.TFrame", background=palette.hero)
         style.configure(
-            "ToolbarCard.TLabelframe",
+            "HeroCard.TFrame",
+            background=palette.hero_panel,
+            bordercolor=palette.border,
+            lightcolor=palette.border,
+            darkcolor=palette.border,
+            borderwidth=1,
+            relief="solid",
+        )
+        style.configure(
+            "Panel.TFrame",
             background=palette.panel,
             bordercolor=palette.border,
             lightcolor=palette.border,
             darkcolor=palette.border,
             borderwidth=1,
             relief="solid",
-            padding=16,
         )
+        style.configure("NotebookPage.TFrame", background=palette.panel)
+        style.configure("Card.TFrame", background=palette.panel, relief="flat")
         style.configure(
-            "ToolbarCard.TLabelframe.Label",
-            background=palette.panel,
-            foreground=palette.accent_active,
-            font=section_font,
-        )
-
-        # ── Button styles ────────────────────────────────────────
-        style.configure(
-            "TButton",
-            background=palette.panel_alt,
-            foreground=palette.text,
+            "StatusCard.TFrame",
+            background=palette.status_bg,
             bordercolor=palette.border,
             lightcolor=palette.border,
             darkcolor=palette.border,
-            focusthickness=0,
-            focuscolor=palette.panel_alt,
-            relief="flat",
-            padding=(10, 6),
+            borderwidth=1,
+            relief="solid",
         )
-        style.map(
-            "TButton",
-            background=[
-                ("disabled", palette.panel_subtle),
-                ("active", palette.panel_subtle),
-                ("pressed", palette.selection),
-            ],
-            foreground=[("disabled", palette.muted)],
-            bordercolor=[("active", palette.border_strong), ("focus", palette.accent)],
-        )
-
         style.configure(
-            "Primary.TButton",
-            background=palette.accent,
-            foreground="#ffffff",
-            bordercolor=palette.accent,
-            lightcolor=palette.accent,
-            darkcolor=palette.accent,
-            focuscolor=palette.accent,
-            focusthickness=0,
-            relief="flat",
-            padding=(12, 6),
-            font=(self.title_font_family, 10, "bold"),
-        )
-        style.map(
-            "Primary.TButton",
-            background=[
-                ("disabled", palette.accent_active),
-                ("active", palette.accent_active),
-                ("pressed", palette.accent_active),
-            ],
-            foreground=[("disabled", "#f7fffe"), ("active", "#ffffff"), ("pressed", "#ffffff")],
-            bordercolor=[("active", palette.accent_active), ("pressed", palette.accent_active)],
-            lightcolor=[("active", palette.accent_active), ("pressed", palette.accent_active)],
-            darkcolor=[("active", palette.accent_active), ("pressed", palette.accent_active)],
-        )
-
-        style.configure(
-            "Toolbar.TMenubutton",
-            background=palette.panel_alt,
-            foreground=palette.text,
+            "Header.TFrame",
+            background=palette.hero,
             bordercolor=palette.border,
             lightcolor=palette.border,
             darkcolor=palette.border,
-            padding=(10, 6),
-            arrowcolor=palette.accent_active,
-            relief="flat",
-        )
-        style.map(
-            "Toolbar.TMenubutton",
-            background=[("active", palette.panel_subtle), ("pressed", palette.selection)],
-            bordercolor=[("active", palette.border_strong)],
-            arrowcolor=[("active", palette.accent)],
-        )
-
-        # ── Input styles ─────────────────────────────────────────
-        style.configure(
-            "TEntry",
-            fieldbackground=palette.input_bg,
-            foreground=palette.text,
-            insertcolor=palette.accent,
-            bordercolor=palette.border,
-            lightcolor=palette.border,
-            darkcolor=palette.border,
-            padding=5,
-            relief="flat",
-        )
-        style.map(
-            "TEntry",
-            bordercolor=[("focus", palette.accent), ("active", palette.border_strong)],
-            lightcolor=[("focus", palette.accent)],
-            darkcolor=[("focus", palette.accent)],
-        )
-
-        style.configure(
-            "TCombobox",
-            fieldbackground=palette.input_bg,
-            background=palette.input_bg,
-            foreground=palette.text,
-            bordercolor=palette.border,
-            lightcolor=palette.border,
-            darkcolor=palette.border,
-            arrowcolor=palette.accent_active,
-            padding=5,
-            relief="flat",
-        )
-        style.map(
-            "TCombobox",
-            fieldbackground=[("readonly", palette.input_bg)],
-            background=[("readonly", palette.input_bg)],
-            bordercolor=[("focus", palette.accent), ("active", palette.border_strong)],
-            arrowcolor=[("active", palette.accent)],
-        )
-
-        # ── Notebook styles ──────────────────────────────────────
-        style.configure(
-            "TNotebook",
-            background=palette.panel,
             borderwidth=0,
-            tabmargins=(0, 0, 0, 0),
+            relief="flat",
         )
         style.configure(
-            "TNotebook.Tab",
+            "ActionBar.TFrame",
             background=palette.panel_alt,
-            foreground=palette.muted,
-            padding=(12, 7),
-            font=notebook_font,
+            bordercolor=palette.border,
+            lightcolor=palette.border,
+            darkcolor=palette.border,
             borderwidth=0,
+            relief="flat",
         )
-        style.map(
-            "TNotebook.Tab",
-            background=[("selected", palette.panel), ("active", palette.panel_subtle)],
-            foreground=[("selected", palette.accent_active), ("active", palette.text)],
-        )
-
-        # ── Treeview styles ──────────────────────────────────────
         style.configure(
-            "Treeview",
-            background=palette.text_bg,
-            fieldbackground=palette.text_bg,
-            foreground=palette.text,
+            "StatusBar.TFrame",
+            background=palette.status_bg,
             bordercolor=palette.border,
             lightcolor=palette.border,
             darkcolor=palette.border,
-            rowheight=26,
+            borderwidth=1,
             relief="flat",
         )
-        style.map(
-            "Treeview",
-            background=[("selected", palette.selection)],
-            foreground=[("selected", palette.text)],
-        )
-        style.configure(
-            "Treeview.Heading",
-            background=palette.panel_alt,
-            foreground=palette.accent_active,
-            font=heading_font,
-            bordercolor=palette.border,
-            lightcolor=palette.border,
-            darkcolor=palette.border,
-            relief="flat",
-            padding=(8, 6),
-        )
-        style.map("Treeview.Heading", background=[("active", palette.panel_subtle)])
-
-        # ── Misc styles ──────────────────────────────────────────
-        style.configure("TPanedwindow", background=palette.bg)
-        style.configure("Sash", background=palette.border, sashthickness=6)
-        style.configure("TSeparator", background=palette.border)
-
-        for widget in list(self._text_widgets):
-            self._apply_text_widget(widget)
-        for menu in list(self._menus):
-            self._apply_menu(menu)
 
     def _apply_text_widget(self, widget: Any) -> None:
         try:

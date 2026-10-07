@@ -11,7 +11,6 @@ from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_BASE64, encode_qr_pa
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.render.fallback_text import format_zbase32_lines
 
-from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
 from .constants import (
     DEFAULT_FALLBACK_GROUP_SIZE,
     DEFAULT_FALLBACK_LINE_LENGTH,

@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 from ethernity.encoding.framing import Frame
 
-from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
-
 
 @dataclass(frozen=True)
 class FrameRecord:

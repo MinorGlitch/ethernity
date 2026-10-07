@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from . import bootstrap
 from .analysis import batch_entry_from_result, build_batch_report, inspect_pasted_text
-from .bootstrap import DND_FILES, REPO_ROOT, SRC_ROOT, TkinterDnD
 from .constants import MODE_AUTO, MODE_FALLBACK, MODE_PAYLOADS
 from .gui import InspectorApp, main
 from .models import (
@@ -16,6 +16,11 @@ from .scan_sources import (
     _payload_text_from_clipboard_image,
     _payload_text_from_scan_paths,
 )
+
+DND_FILES = bootstrap.DND_FILES
+REPO_ROOT = bootstrap.REPO_ROOT
+SRC_ROOT = bootstrap.SRC_ROOT
+TkinterDnD = bootstrap.TkinterDnD
 
 __all__ = [
     "BatchReportEntry",

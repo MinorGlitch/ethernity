@@ -126,7 +126,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn("AUTH FRAME", result.combined_fallback_text)
         self.assertIsNotNone(result.document_json_text)
         self.assertEqual(len(result.files), 1)
-        self.assertIn("format_version", result.document_json_text or "")
+        self.assertIn("payload_codec", result.document_json_text or "")
         decoded_report = self._decoded_trust_report(result)
         self.assertIn("document", decoded_report)
         self.assertEqual(result.trust_diagnostic.code, None)
@@ -222,8 +222,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
                     mtime=1712666400,
                 ),
             ),
-            input_origin="directory",
-            input_roots=("demo",),
             existing_file_sizes={},
         )
         extension_signing_seed = b"\x41" * 32
@@ -300,7 +298,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn(
             (
                 "Document decode failed: embedded signing seed does not match "
-                "the verified root signature key"
+                "the verified root AUTH signing key"
             ),
             result.diagnostics_text,
         )
@@ -337,8 +335,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
                     mtime=1712666401,
                 ),
             ),
-            input_origin="directory",
-            input_roots=("demo",),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -358,7 +354,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn(
             (
                 "Document decode failed: latest supplied recovery head could not be trusted: "
-                "root AUTH validation failed (skipped)"
+                "extension import recovery requires verified root AUTH"
             ),
             result.diagnostics_text,
         )
@@ -413,8 +409,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
                     mtime=1712666401,
                 ),
             ),
-            input_origin="directory",
-            input_roots=("demo",),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -434,7 +428,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn(
             (
                 "Document decode failed: embedded signing seed does not match "
-                "the verified root signature key"
+                "the verified root AUTH signing key"
             ),
             result.diagnostics_text,
         )
@@ -461,8 +455,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
                     mtime=1712666400,
                 ),
             ),
-            input_origin="directory",
-            input_roots=("demo",),
             existing_file_sizes={},
             existing_chunks={hashlib.sha256(root_chunk).digest(): root_chunk},
         )
@@ -539,8 +531,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
                     mtime=1712666402,
                 ),
             ),
-            input_origin="directory",
-            input_roots=("demo",),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -626,8 +616,6 @@ class TestDocumentInspectorTool(unittest.TestCase):
                     mtime=1712666402,
                 ),
             ),
-            input_origin="directory",
-            input_roots=("demo",),
             existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
@@ -647,7 +635,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIn(
             (
                 "Document decode failed: latest supplied recovery head could not be trusted: "
-                "extension 1 signature does not match the root signing key"
+                "extension AUTH signing key does not match root signing key"
             ),
             result.diagnostics_text,
         )
