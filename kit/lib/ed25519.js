@@ -31,3 +31,20 @@ export function signSigningMessage(message, signingSeed) {
 export function verifySigningSignature(signature, message, signPub) {
   return ed25519.verify(signature, message, signPub, { zip215: false });
 }
+
+export async function verifySignature(signature, message, signPub) {
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle?.importKey) {
+    try {
+      const key = await subtle.importKey("raw", signPub, { name: "Ed25519" }, false, ["verify"]);
+      return await subtle.verify("Ed25519", key, signature, message);
+    } catch {
+      // Browsers without native Ed25519 use the same strict portable verifier.
+    }
+  }
+  try {
+    return verifySigningSignature(signature, message, signPub);
+  } catch {
+    return false;
+  }
+}

@@ -127,7 +127,7 @@ export function filterZBase32Lines(text) {
   const lines = text.split(/\r\n|\r|\n/);
   const filtered = [];
   for (const raw of lines) {
-    const line = raw.trim().replace(/^\d{1,4}\.\s*/, "");
+    const line = raw.trim().replace(/^\d{1,5}\.\s*/, "");
     if (!line) continue;
     for (const ch of line) {
       if (ch === "-" || /\s/.test(ch)) continue;

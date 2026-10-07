@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getSigningPublicKey, signSigningMessage, verifySigningSignature } from "../lib/ed25519.js";
+import {
+  getSigningPublicKey,
+  signSigningMessage,
+  verifySigningSignature,
+  verifySignature,
+} from "../lib/ed25519.js";
 import { bytesToHex, hexToBytes } from "../lib/bytes.js";
 
 test("Ed25519 adapter matches the RFC8032 empty-message test vector", () => {
@@ -21,4 +26,33 @@ test("Ed25519 adapter matches the RFC8032 empty-message test vector", () => {
   const alteredSignature = signature.slice();
   alteredSignature[0] ^= 0x01;
   assert.equal(verifySigningSignature(alteredSignature, message, publicKey), false);
+});
+
+test("signature verification uses the portable implementation when native Ed25519 is absent or throws", async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  delete globalThis.crypto;
+  const seed = new Uint8Array(32).fill(7);
+  const publicKey = getSigningPublicKey(seed);
+  const message = Uint8Array.of(1, 2, 3);
+  const signature = signSigningMessage(message, seed);
+  try {
+    for (const crypto of [
+      undefined,
+      {
+        subtle: {
+          importKey() {
+            throw new Error("unsupported");
+          },
+        },
+      },
+    ]) {
+      globalThis.crypto = crypto;
+      assert.equal(await verifySignature(signature, message, publicKey), true);
+      assert.equal(await verifySignature(signature, Uint8Array.of(4), publicKey), false);
+      assert.equal(await verifySignature(new Uint8Array(), message, publicKey), false);
+    }
+  } finally {
+    if (original) Object.defineProperty(globalThis, "crypto", original);
+    else delete globalThis.crypto;
+  }
 });
