@@ -1,202 +1,245 @@
 # Advanced operations
 
-Use this guide after creating and restoring a disposable test backup. The guided app includes each
-operation below; the command examples are suitable for scripts and repeatable recovery drills.
+Use this guide to update a backup, restore a chosen version, rebuild it, replace recovery sheets,
+or print the browser recovery kit. These operations are available in the terminal app and through
+`ethernity run`.
 
-These rules govern backup updates:
+## Choose the documents to load
 
-- An update can add or replace files. It cannot delete or rename them.
-- Every update needs the original backup and each earlier update during restore.
-- The resulting file set must fit a standalone backup so Rebuild remains available.
-- Ethernity can assess only the pages and files you load. It cannot find a newer copy elsewhere.
+Start with the original backup and the updates needed for the version you want:
 
-After you create a backup or update, use **Copy fingerprint** on the result screen and store the
-full fingerprint with your inventory. Printed pages show a shorter document ID; freshness checks
-need the full fingerprint.
+| Update mode | Required backup documents |
+| --- | --- |
+| Cumulative, the default | Original backup and selected update |
+| Incremental | Original backup and every update through the selected version |
+
+Restoring the original alone needs no updates. To unlock a backup, supply its passphrase or enough
+recovery sheets. Signing-key sheets recover the signing key; they are not another approval step
+for an update.
+
+Use `--scan` for PDFs, images of printed pages, or folders. Repeat it for separate locations.
+Filenames and folder layout do not determine the backup's identity. Add Files can use scans
+directly; you do not need to restore or rebuild first.
+
+Add Files and Restore also accept transcribed backup text with `--recovery-text`, or saved QR data
+with `--payloads-file`. Supply separate authentication data with `--auth-text` or
+`--auth-payloads-file` when needed.
+
+### Check the version
+
+After creating a backup, update, or rebuilt backup, save its full fingerprint. In the app, use
+**Copy fingerprint** on the result screen. Printed pages show a shorter document ID, which cannot
+be used in place of the full 64-character fingerprint.
+
+`--expected-head` checks against that recorded fingerprint. Ethernity cannot discover a newer
+version kept elsewhere. For Add Files, Rebuild, or replacement sheets, you can instead use
+`--allow-stale-head` to accept that the loaded documents may be out of date.
+
+The examples below use `./backup` for the original and `./update-02` for a cumulative update.
+Replace the paths, passphrase, and fingerprint placeholders with your own values. To use recovery
+sheets, replace `--passphrase` with one `--recovery-document` option per sheet, or one
+`--recovery-payloads-file` per saved sheet payload file.
+
+Each example starts with `--preview`, which writes no files. Check the preview, then rerun the
+command with `--yes` in place of `--preview` to execute it.
 
 ## Add or replace files
 
-An update can add new paths or replace matching paths. Paths you do not select remain unchanged.
-It cannot create a file path conflict such as files `a` and `a/b`. Create a new backup to make that
-change because the old path cannot be removed by an update.
-
-Before writing the update, Add Files uses the same standalone encoder as Rebuild to prepare the
-complete resulting file set. Compression, file metadata, encryption overhead, and every standalone
-limit count toward the check. The final ciphertext must fit 1 MiB; raw input can be larger when it
-compresses enough. If the file set cannot fit, the update is refused and your existing backup stays
-unchanged. Use separate backups for content that cannot fit together.
-
-In the examples below, replace `example passphrase` with the passphrase that protects your backup.
-
-Load the backup documents from PDFs, images, folders, QR payloads, or fallback text. Their contents
-identify the chain. Names and folder organization are for your convenience; you can rearrange the
-documents freely.
-
-### From PDFs or folders
-
-Preview the update first. Supply the full fingerprint of the head you trust with
-`--expected-head`:
+In the app, choose **Manage > Add files**. This example creates the first update:
 
 ```sh
 ethernity run add-files \
   --scan ./backup \
   --input ./docs/new-note.txt \
   --output-dir ./update-01 \
-  --expected-head "<full head fingerprint>" \
-  --passphrase "example passphrase" \
+  --expected-head "<full original backup fingerprint>" \
+  --passphrase "your backup passphrase" \
   --preview
 ```
 
-Review the planned files and destination. When it is correct, run the same command with `--yes` in
-place of `--preview`:
+A selected file replaces the file at the same backup path. New paths are added; omitted paths stay
+unchanged. Use `--input-dir` for a folder and `--base-dir` to choose how relative paths are formed.
+The preview shows which paths will change.
+
+The result is two PDFs in the new output folder. Omit `--output-dir` to use
+`backup-<original-id>-update-<number>` in the current directory. The preview shows the exact name;
+an existing folder is never overwritten. Each printed update page identifies the original backup,
+update number, and update document ID.
+
+The original documents stay unchanged. For the next update, load both `./backup` and `./update-01`
+with separate `--scan` options, use update 1's
+full fingerprint, and choose a new output folder. Save each new fingerprint before the next update.
+
+### Choose cumulative or incremental updates
+
+If cumulative update 1 adds recovery codes and update 2 changes a password file, update 2 includes
+both changes. Keep update 1 only if you want its older version.
+
+Add `--update-mode incremental` to the first update command to reuse data from earlier updates
+and potentially print less. You must then retain every update through the version you want.
+Later updates detect the mode automatically. Changing it requires Rebuild or a new backup.
+
+The Advanced settings also offer FastCDC chunk sizes. These apply to the first update and remain
+fixed for the series. Use a new or rebuilt backup before choosing different sizes.
+
+### Capacity and file changes
+
+The resulting files, metadata, and encryption overhead must fit a 1 MiB standalone backup after
+compression and encryption. If they cannot fit, the update is refused and the existing backup is
+unchanged. Split larger file sets into separate backups.
+
+Updates cannot delete or truly rename files. They also cannot create conflicting paths such as
+files named `a` and `a/b`. Create a new backup to make those changes. Updates require an unsealed
+original; see [sealed and unsealed backups](format_rationale.md#sealed-and-unsealed-backups).
+
+### Create new recovery sheets with an update
+
+Add `--new-recovery-sheets` to create a new passphrase sheet set after the update succeeds. The
+default is three sheets, any two needed. Use `--recovery-threshold` and `--recovery-count` to change
+those numbers.
+
+The sheets are saved outside the update folder, under
+`<output-dir>-recovery-sheets/replacement-recovery-<document-id>`. They unlock the original and any
+recoverable version based on it. If sheet creation fails, the update is already saved: run
+**Replace recovery sheets** for its new fingerprint instead of repeating Add Files.
+
+## Restore a version
+
+In **Restore files**, load the required documents and choose the version. To restore cumulative
+update 2 from the command line:
 
 ```sh
-ethernity run add-files \
+ethernity run restore \
   --scan ./backup \
-  --input ./docs/new-note.txt \
-  --output-dir ./update-01 \
-  --expected-head "<full head fingerprint>" \
-  --passphrase "example passphrase" \
-  --yes
+  --scan ./update-02 \
+  --expected-head "<full update 2 fingerprint>" \
+  --passphrase "your backup passphrase" \
+  --output ./restored \
+  --preview
 ```
 
-Ethernity writes two update PDFs into the new output folder and leaves the source documents
-unchanged. Recovery now requires the original backup and every update through the new head.
-For the next update, supply both the original backup and this update, for example with
-`--scan ./backup --scan ./update-01`. Save the new full fingerprint before starting another update.
-Use Rebuild when carrying the whole update chain becomes inconvenient; it creates a new standalone
-backup without changing the source chain.
+By default, Restore selects the latest valid version among the supplied documents. Use
+`--extension-index 0` for the original, `--extension-index 1` for update 1, or
+`--extension-doc-hash "<full update fingerprint>"` to select an update by fingerprint. Use only one
+selection option. If you also pass `--expected-head`, it must match the selected version.
 
-To create fresh passphrase recovery sheets for the chain in the same run, add
-`--new-recovery-sheets`. The default is three sheets with any two needed to restore. Use
-`--recovery-threshold` and `--recovery-count` to choose another quorum. Add Files still publishes
-only its two update documents; after publication it delegates the sheets to Replace Recovery
-Docs. The sheets are saved under
-`<output-dir>-recovery-sheets/replacement-recovery-<document-id>`, outside the update output
-folder.
-
-These new sheets bind to the original root. They can unlock any intact version
-of the same chain, including an older version when this update is lost. Use the recorded
-fingerprint to identify the version you expect.
-
-If the update succeeds but sheet creation fails, do not repeat Add Files. The update is already
-published. Run Replace Recovery Docs for the new full fingerprint instead.
-
-The Settings screen exposes FastCDC chunk sizes under Advanced. The defaults suit normal use.
-Custom values apply only when creating the first update in a chain; that update fixes the three
-sizes for every later update. To choose other sizes, rebuild or create a standalone backup first.
-
-The authenticated backup documents plus the passphrase or enough recovery sheets authorize an update.
-Signing-key recovery sheets recover the key used to sign updates. They do not add another approval.
-
-### From printed pages or scans
-
-Use `--scan` for images of printed pages just as you would for source PDFs. Supply the original
-backup and all updates through the intended head. Add Files authenticates and replays them before
-creating an update; no Restore or Rebuild step is needed.
-
-Use `--recovery-text` for explicitly transcribed fallback text or `--payloads-file` for saved QR
-payloads. If needed, supply authentication separately with `--auth-text` or `--auth-payloads-file`.
-
-If you cannot confirm that the supplied documents contain the latest version, find the latest
-pages or explicitly accept that uncertainty with `--allow-stale-head`. This acknowledgement permits
-an update from the latest supplied head. It does not establish that a newer offline copy does not
-exist. The same freshness requirement applies to original PDFs, scans, and text.
-
-## Interrupted publication
-
-A `.staging-*` directory is unpublished and ignored during recovery. Ethernity does not journal,
-resume, repair, or quarantine interrupted extension writes. After establishing that no Add Files
-process is running, remove the abandoned staging directory or leave it ignored, then run Add Files
-again with a new destination. A successful publication appears as one complete output folder.
-Ethernity refuses to overwrite an existing destination.
-
-## Restore the latest version
-
-Give Restore all the pages needed to reconstruct the version you want. Ethernity can only select the
-newest valid version among the documents supplied to that operation; it cannot check another drawer,
-computer, or offline copy for a newer version.
-
-If you have mixed versions, use the full fingerprint you recorded for the version you trust as
-latest. A file name or scan time cannot prove which backup version is newest.
-
-If two updates start from the same version, Ethernity cannot merge them. There is no online head
-registry; the newest version means the newest valid version among the documents you supplied.
+Supply the documents required by that version's update mode and choose a new output destination.
+Conflicting updates cannot be merged.
 
 ## Rebuild a standalone backup
 
-Rebuild turns the supplied backup history into a new standalone backup and leaves the source
-documents untouched. The source can be a folder of PDFs or scans supplied with `--scan`:
+Choose **Manage > Rebuild backup** to put the current files into a new backup that needs no earlier
+update documents:
 
 ```sh
 ethernity run rebuild \
   --scan ./backup \
+  --scan ./update-02 \
   --output-dir ./backup-rebuilt \
-  --expected-head "<full head fingerprint>" \
-  --passphrase "example passphrase" \
-  --yes
+  --expected-head "<full update 2 fingerprint>" \
+  --passphrase "your backup passphrase" \
+  --preview
 ```
 
-Rebuild does not add or remove backed-up files. It keeps the source passphrase and sealed state
-while creating fresh recovery sheets for the new ciphertext identity. An
-unsealed source also keeps its signing key. A sealed source has no signing seed in its manifest;
-Rebuild generates a new signing key instead, and its new AUTH identifies that key.
-Rebuild uses automatic compression to match the capacity check used before publishing updates.
-It does not revoke old credentials or the ability to sign updates. It does not replace the source
-backup automatically.
+Rebuild creates `./backup-rebuilt/backup-<id>/` with a separate backup and fresh recovery sheets.
+As with Create backup, the selected destination is always a parent folder, whether it already
+exists or needs to be created. Each backup gets its own folder. It keeps the passphrase and sealed
+state. Unsealed backups keep their signing key; sealed sources receive a new key because they
+have no stored signing seed.
 
-The old root-bound sheets belong to the source root. Before retiring the source documents, restore
-the new standalone backup with its new sheets. If you use expected-version checks, record its full
-fingerprint separately; the old fingerprint will not match the rebuilt backup.
+Restore the rebuilt backup with its new sheets before retiring the previous documents. Record its
+new full fingerprint; the old sheets and fingerprint belong to the old backup.
 
-Earlier oversized chains can still restore within the recovery limits even if their combined
-file set cannot fit Rebuild. Restore their files into separate new backups, or replace large contents
-with smaller contents until a new update passes the standalone check.
+Rebuild uses automatic compression. An older backup history may exceed the standalone size limit
+while still being recoverable. Restore its files into separate new backups, or replace large files
+with smaller ones before rebuilding.
 
-Create a new backup instead when you need intentional credential rotation, need to remove or
-rename paths, or are responding to a compromise. Restore the files you want, create the new backup,
-verify restoration, and retire the superseded pages and digital copies.
+To change credentials, remove or rename files, or recover from compromise, restore the files you
+want and use **Create backup**. Choose new credentials if the old ones were compromised. Verify
+recovery before retiring the superseded pages and digital copies. Rebuild does not revoke old
+credentials.
 
 ## Replace recovery sheets
 
-Use **Create replacement recovery sheets** when the backed-up files should stay the same but a
-recovery sheet set needs to be replaced. Print and verify the new sheets before retiring the old
-ones. Replacement checks the selected version but binds every sheet to its original root. A lost
-later update does not prevent the sheets from unlocking an intact root or older version. Rebuild
-creates a new root, so use its fresh sheets rather than sheets from the old chain.
+Choose **Manage > Replace sheets** to create sheets without changing the backed-up files:
 
-Old sheets remain sensitive until they are destroyed or secured. A new set identifier prevents
-mixing sets; it does not revoke old quorums when the credentials remain unchanged.
-Compatible replacement sheets remain in the original root-bound set. If you have an earlier
-head-bound sheet set, create a complete new root-bound set rather than compatible replacements;
-the old sheets still require the exact document they were bound to.
+```sh
+ethernity run replace-recovery-docs \
+  --scan ./backup \
+  --scan ./update-02 \
+  --output-dir ./replacement-sheets \
+  --expected-head "<full update 2 fingerprint>" \
+  --passphrase "your backup passphrase" \
+  --preview
+```
 
-The operation can replace passphrase recovery sheets, signing-key recovery sheets, or both.
-Signing-key sheets recover the key used to sign updates. They do not add another approval step.
+Choose an output folder that does not already exist, even if an existing folder is empty.
+Ethernity creates the folder for the replacement sheets.
+
+By default, this creates a new passphrase set with three sheets, any two needed. Change the numbers
+with `--recovery-threshold` and `--recovery-count`. Add `--signing-key-recovery` for signing-key
+sheets too, or combine it with `--no-passphrase-recovery` for signing-key sheets only.
+
+New sheets belong to the original backup, even when you loaded an update. They can unlock an intact
+earlier version if a later update is lost. Rebuilt backups need their own new sheets.
+
+Print and test the new set before retiring the old one. Do not mix sheets from different sets.
+Old sets still work when the credentials have not changed, so keep them secure or destroy them.
+
+For compatible replacements within an existing set, supply enough existing sheets and use
+`--passphrase-replacement-count`, or use `--signing-key-replacement-count` with existing signing-key
+payloads. See `ethernity run replace-recovery-docs --help` for those inputs. Earlier sets bound to a
+particular update still require that document; create a complete new set to obtain coverage of
+the original alone.
 
 ## Create a reusable offline browser recovery kit
 
-This operation creates one reusable offline restore tool without a trusted backup identity. You
-can use it with any backup. It does not replace backup pages or recovery sheets.
+The kit contains recovery software and works across compatible backups. You still need your
+backup pages and the passphrase or recovery sheets.
 
 ```sh
-ethernity run print-kit --output ./recovery-kit.pdf --yes
+ethernity run print-kit --output ./recovery-kit.pdf --preview
 ```
 
-The default kit is smaller and supports manual QR entry. The guided app can create the scanner
-variant when camera input is useful. Enter a separately recorded full fingerprint to check an
-expected version, or acknowledge that recovery can only select among the supplied documents.
+The default kit is smaller and accepts manually entered QR data. Add `--variant scanner` for camera
+input, or choose the scanner variant in the app. Follow the generated PDF's instructions to recover
+the HTML file and open it in a browser offline.
 
-An independently trusted full extension-head fingerprint verifies the root identity, signing key,
-and selected version after complete authenticated replay. A trusted standalone-root fingerprint
-establishes root identity and, for an unsealed root, signing-key identity. For a sealed root, separately
-trust the signing-key fingerprint as well. Without an independently trusted record, the kit checks
-only internal consistency. A matching record confirms your recorded version. It cannot
-establish whether a later offline update exists.
+The first two codes, marked START 01 and START 02, create the assembly page. Copy their complete
+text into a plain-text file in that order. Line breaks between them are allowed. Save as `start.html`
+and open it in a browser. Paste scans from QR 3 onwards into that page in any order, or import a
+text file exported by your scanner. The page ignores identical duplicates and reports missing,
+damaged, conflicting, or wrong-kit fragments. It keeps accepted parts when a later scan fails.
+
+Once every part is present, choose **Save recovery kit**. Open the downloaded
+`recovery_kit.bundle.html` offline. Unpacking runs in a worker while a loading message remains visible;
+on slower computers this may take several seconds. Keep the downloaded file to skip reconstruction
+next time. The assembly page uses an external QR reader; the scanner variant's camera becomes
+available after the complete kit opens.
+
+`--qr-chunk-size` sets the maximum data characters per QR, including the fragment header. The
+automatic default is 1839 when the QR settings allow it. The startup codes have separate capacity
+checks. Previously printed kits still use the instructions printed with them.
+
+Enter a separately recorded full fingerprint to check the expected version, or acknowledge that
+the kit can only assess the documents you supplied. A sealed backup also needs a separately trusted
+signing-key fingerprint to verify its AUTH key. See the
+[verification rules](extension_publication_rules.md#restore-and-version-checks) for the distinction
+between matching documents and an independently verified backup.
+
+## Recover from an interrupted operation
+
+Add Files and Rebuild prepare output in a private `.staging-*` directory before making the final
+folder available. Recovery ignores those staging directories. The operations leave source
+documents unchanged and refuse to overwrite an existing destination.
+
+After an interruption, first check whether the operation reported a completed output folder. If
+only an abandoned staging directory remains, confirm that no writer is still running, then remove
+it or leave it ignored. Rerun with a new destination; interrupted writes cannot be resumed.
 
 ## References
 
+- [Design decisions](format_rationale.md)
+- [Update and recovery rules](extension_publication_rules.md)
 - [Format specification](format.md)
-- [Extension publication rules](extension_publication_rules.md)
-- [Format rationale and recovery guidance](format_rationale.md)
-- [Security policy](../SECURITY.md)
+- [Security](../SECURITY.md)

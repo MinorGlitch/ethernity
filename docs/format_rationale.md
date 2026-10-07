@@ -1,365 +1,281 @@
-# Ethernity format rationale and recovery guidance
-
-This non-normative page explains design choices and gives storage and recovery guidance. The
-[core format specification](format.md) defines serialized data. The
-[v1.2 extension publication rules](extension_publication_rules.md) define extension documents and
-operations.
-
-## Sealed and unsealed backups
-
-Sealing controls whether the signing seed is recoverable from the encrypted manifest.
-
-Choose based on how the signing seed should be recovered:
-
-- Choose an unsealed backup to recover the signing seed from its encrypted manifest and regenerate
-  signed recovery sheets after decryption.
-- Choose a sealed backup when the signing seed should not be recoverable from the backup.
-  Ethernity leaves it out of the encrypted manifest and does not create signing-key recovery sheets
-  for sealed backups. Decryption cannot regenerate their signed recovery sheets.
-
-Changing between sealed and unsealed requires a new backup document, which produces different
-ciphertext and therefore different `doc_hash` / `doc_id`.
-
-## What each protection provides
-
-Ethernity recovery combines:
-
-- Encryption (age) for confidentiality and integrity of the backup document.
-- Signatures (Ed25519) to authenticate AUTH and shard payloads.
-- `doc_hash`/`doc_id` to bind frames and signatures to a specific ciphertext identity.
-- Optional Shamir secret sharing to divide passphrases and signing seeds among custodians.
-
-Common custody arrangements:
-
-1. One custodian holds the passphrase directly and can decrypt.
-
-2. N custodians each hold one passphrase shard; any T of N can reconstruct and decrypt. In a sealed
-   backup, they cannot recover the signing seed from the manifest.
-
-3. Group A holds passphrase shards. Group B holds signing-key shards and can create new signed AUTH
-   or shard payloads for a `doc_hash` without decrypting it. Group B is not an additional approver
-   for Add Files.
-
-Security guidance:
-
-- Use a single decryption failure message for wrong passphrases and corrupted data, so callers
-  cannot distinguish the failures to probe encrypted data.
-- `doc_id`/`doc_hash` enable correlation across documents; privacy/anonymity is not a goal.
-
-## How recovery identifies the latest update
-
-Extension replay authenticates the chain prefix present in the supplied documents. It checks
-that the supplied extensions link back to the selected root backup and are signed by its signing
-key. It cannot establish that no later extension was ever created.
-
-Consequences:
-
-- A stale recovery set that contains root plus extensions `1..N` can be indistinguishable from a
-  complete chain whose latest head is `N`.
-- Missing, corrupt, forked, or unauthenticated supplied extensions still fail closed; the limitation
-  is only absence detection for documents that were not supplied.
-- The offline browser recovery kit is reusable across backups. After complete authenticated replay,
-  an independently trusted full extension-head hash fixes the root identity and signing key through
-  the extension's root-hash commitment and the unsealed root's signing seed. A trusted standalone-root
-  hash fixes root identity and unsealed signing key, but a sealed root has no embedded seed to verify its
-  AUTH signing key against; that requires an independently trusted signing-key fingerprint.
-  That fingerprint is not part of content import itself, and a record found beside the backup is not
-  independently trusted by default.
-- Two publishers can append independently from the same head and create valid forks. Supplying both
-  conflicting branches is an ambiguity and fails closed, but either branch can validate in
-  isolation.
-  `Latest` therefore always means latest among the documents supplied to that operation. Add Files
-  and browser recovery require a manually entered expected head or an explicit
-  freshness-unknown acknowledgement before using that target. The current release deliberately has
-  no global head registry or online coordination requirement.
-
-## Who can add files and when to create a new backup
-
-An appendable root is unsealed. Its encrypted manifest contains the chain signing seed. Anyone who
-has the root backup documents and can unlock that manifest can both recover data and sign a valid
-extension. Signing-key recovery sheets provide another way to recover the same seed. They do not
-add a second factor or an independent approval step.
-
-Rebuilding preserves the passphrase and sealed state. For unsealed sources, it also preserves the
-signing seed and key. A sealed manifest has no seed, and Rebuild does not accept separate
-signing-key recovery inputs, so a rebuilt sealed backup receives a new signing key. Its
-new AUTH identifies that key. Rebuild does not revoke old passphrases or signing keys.
-After credential compromise, or when intentional rotation is needed, recover the desired files,
-use **Create backup** with new credentials, and retire the old backup documents.
-
-Every newly published update must leave a file set that fits a standalone backup. Add Files encodes
-the combined files using the same preparation as Rebuild, including file metadata, automatic
-compression, encryption overhead, and all standalone limits. The 1 MiB limit applies to the final
-ciphertext, not the raw file bytes. This keeps Rebuild available when history grows inconvenient.
-The check leaves room for the widest supported creation timestamp, so rebuilding on another date
-cannot push the backup over the size limit.
-Recovery still accepts already-created oversized chains within its existing limits. Those files
-can be restored even when Rebuild refuses their size; replacements that reduce the state enough
-can make such a chain rebuildable again.
-
-Add Files is add-or-replace rather than filesystem synchronization. A matching path is replaced and
-an omitted path remains in the current file set. A rename adds the new path without removing the old
-one. To remove or truly rename content, recover the desired files, use **Create backup** without the
-old path, and retire every paper and digital copy whose historical content must no longer be usable.
-The combined state must also form a restorable file tree. Files named `a` and `a/b` cannot coexist;
-an update that creates either ancestor conflict is refused. A new backup is needed to make that
-change because an extension cannot remove the conflicting path.
-
-Add Files can optionally follow a successful append by invoking Replace Recovery Docs for the new
-authenticated head. Add Files does not create the sheets itself. The output stays outside the
-extension output package so later update and recovery scans do not absorb old replacement sheets
-unintentionally.
-
-Replacement sheets always bind to the original root, even when the operation checks a later
-selected head. They unlock any intact prefix with that root, so losing a later update does not
-make the new sheets unusable for the surviving older version. Sheets recover credentials; they
-do not establish which version is current. A full new set gets a separate signed set identifier;
-compatible replacement sheets stay in an existing root-bound set. Earlier head-bound sets need
-complete replacement to gain root-only recovery coverage. Old sets remain sensitive because
-unchanged credentials do not revoke them.
-
-Rebuild changes ciphertext identity and creates fresh sheets bound to its new root. Publication
-checks the new backup and recovery sheets. Users should test restoration before retiring the source
-and record the new full fingerprint separately if they use expected-version checks.
-
-## Documents identify the chain
-
-The same authenticated root and extensions can arrive as original PDFs, scanned paper, saved QR
-payloads, or explicit fallback text. Add Files uses those documents directly and writes a separate
-extension package. It does not need a writable source folder or a preliminary Rebuild.
-
-Generated filenames and folders help people organize their documents. Renaming or moving a document
-does not change its identity, ancestry, or eligibility for an update. Authentication derives those
-facts from ciphertext, AUTH, and decrypted headers. A source folder also cannot prove that a newer
-offline update does not exist, so Add Files requires an expected head or an explicit
-freshness-unknown acknowledgement for every source medium.
-
-## Fallback text checks
-
-Machine-readable ciphertext, AUTH frames, and signed shard payloads remain authoritative. The v1.2
-publication rules also require exact validation of extractable fallback sections in newly generated
-output before publication so fallback bytes match the authenticated ciphertext and shard payloads.
-Imported documents do not need a companion fallback PDF; any complete authenticated set of QR
-payloads or fallback text can supply their content.
-
-Text extraction cannot establish physical visibility or legibility, and it supplies no signed record
-of which recovery sheets were published. In particular, backup document v1 cannot establish that an
-entirely absent shard role was ever published. The publication rules define which omissions must fail
-validation and which cannot be
-detected from the available documents.
-
-## Publication interruption
-
-A private `.staging-*` directory beside the chosen destination is unpublished and ignored by folder
-discovery and recovery. There is no journal, repair command, resume path, or quarantine step. After
-confirming that no Add Files process is running, a user may remove an abandoned staging directory.
-A fresh append uses a new staging directory and publishes from its reviewed authenticated input
-snapshot.
-
-Directory durability is not uniformly exposed by every operating system and filesystem. Extension
-publication therefore requires flushed regular files, validated output, and a same-filesystem
-atomic rename into an absent destination. POSIX publishers also flush the directory with `fsync`.
-Windows continues with its strongest portable guarantee when Python cannot open a
-directory for flushing. Rebuilding uses the same staged publication steps and creates a separate
-standalone backup. Neither operation locks or changes the source documents. Independent publishers
-can create valid forks from the same head; a source-folder lock could not prevent that across
-offline copies.
-
-## Why shard sets have `set_id`
-
-Shard payload version 2 adds a signed `set_id` to each shard in a shard set.
-
-The identifier prevents accidental mixing of shard sets:
-
-- Distinct shard sets for the same `doc_hash` and signing key can otherwise look mutually valid.
-- With plain Shamir shares, any exact-threshold subset defines some polynomial, so mixed sets are
-  not reliably detectable from share math alone.
-- A signed `set_id` lets decoders reject mixed exact-threshold inputs before reconstruction or
-  replacement creation.
-
-When replacing shards:
-
-- When rotating or replacing shards for the same backup, treat `set_id` as the shard-set identity.
-- Do not mix recovery sheets across shard sets just because `doc_hash`, threshold, or share
-  count match.
+# Design decisions
+
+This page explains the reasons behind Ethernity's format and recovery behavior. The
+[format specification](format.md) and [update and recovery rules](extension_publication_rules.md)
+define the requirements. [Advanced operations](advanced_operations.md) gives command examples;
+[Security](../SECURITY.md) describes protections and limits.
+
+## Why split the passphrase
 
-A threshold of one means that each shard can reconstruct its secret by itself. Physical
-separation from sibling shards does not prevent recovery in this configuration. Treat each
-threshold-one passphrase shard as a complete recovery secret and each threshold-one signing-key
-shard as a complete signing seed.
-
-## Recovery input detection order
+Ethernity encrypts the files with age and can split the passphrase with Shamir secret sharing.
+This lets several people or locations hold recovery sheets without any one sheet being enough to
+unlock the backup. Splitting a small secret also keeps each sheet small, regardless of the file
+contents. The same sharing scheme can protect a signing seed.
+
+Fewer than the required number of shares reveal nothing about the shared secret. Share indexes
+are not secret. With a threshold of one, each sheet can recover the secret by itself; storing
+sibling sheets apart does not change that. Distribute sheets separately among the people or
+locations responsible for them.
+
+Encryption protects the file contents. Checksums and hashes detect corruption. Ed25519 signatures
+check backup authentication records and recovery sheets against a signing key. These checks have
+different jobs; a set of matching signatures alone does not establish that the key is one you trust.
+
+### Sealed and unsealed backups
 
-When recovery input mode is auto-detected, readers should apply this strict order:
-
-1. If fallback section markers are present (`MAIN FRAME`, `AUTH FRAME`, `SHARD FRAME`, `KEY FRAME`),
-   parse as fallback sections.
-2. Otherwise, if all non-empty lines decode as QR payload frames, parse as payload mode.
-3. Otherwise, if all non-empty lines are valid z-base-32 fallback lines, parse as fallback mode.
-4. Otherwise, fail with an explicit invalid/ambiguous-input error.
-
-Mixing payload and fallback lines in one input block is not supported.
-
-## Why recovery inputs are bounded
-
-Format v1 uses strict fail-closed limits centered on a `1 MiB` ciphertext ceiling.
-
-The limits:
-
-- Keep worst-case memory/CPU bounded for CLI recovery and frame parsing paths.
-- Keep fallback-MAIN behavior aligned with single-frame recovery text output.
-- Keep limits round and predictable for readers, writers, and tests.
-
-Consequences:
-
-- Oversized documents are rejected instead of partially parsed.
-- QR payload limits are conservative to avoid generating unreadable, high-density codes.
-- Fallback parsing applies independent caps to source bytes, filtered line count, and normalized
-  z-base-32 character count so malformed or adversarial text fails early.
-- The size check applies to ciphertext: writers may accept inputs larger than 1 MiB
-  when pre-encryption compression allows the final ciphertext to stay within `MAX_CIPHERTEXT_BYTES`.
-
-The extension rules add chain-wide limits because otherwise individually valid documents can
-accumulate unbounded recovery work. A chain stops at 128 total documents, 64 MiB aggregate
-ciphertext, and 256 MiB cumulative decoded inline chunks. Rebuilding creates a fresh
-standalone root when a chain is near any limit. The standalone check during Add Files prevents updates
-from growing the current state beyond Rebuild's capacity. Rebuild uses automatic compression even
-if the source root used a raw payload; history size does not change the standalone size check.
-KDF work limits are recovery safety checks, not a stable-v1 format restriction. Desktop and browser
-recovery parse every public scrypt stanza before starting a KDF, enforce both per-stanza and
-cumulative work ceilings, and run work within those limits in disposable workers. Normal desktop
-recovery accepts through `log_n = 20`; `log_n = 21` requires an explicit retry with higher limits.
-The guided app offers that retry only after a normal work-limit failure and displays the estimated
-peak scrypt memory. Approval applies only to the failed restore attempt, not subsequent restores.
-The scriptable command retains its explicit override flag. Values above `21` and
-cumulative work above the compatibility ceiling are always rejected. Browser recovery retains its
-more conservative automatic threshold. Cancellation, CPU/memory ceilings, or wall-time expiry
-terminate the active worker rather than leaving an in-process KDF running.
-
-FastCDC chunk sizes are advanced tuning values, not format constants. Ethernity defaults to a
-16 KiB target, 4 KiB minimum, and 64 KiB maximum. The first extension authenticates those three
-sizes, so later appends use them even if local settings change. Different sizes require a new or
-rebuilt standalone backup.
-
-Append deduplication does not require retaining every historical decoded chunk. Writers can retain
-the current file set's chunk bytes plus the set of all earlier chunk identifiers. If new input
-returns to old content (for example A to B to A), its bytes establish the matching identifier and
-the new extension references the historical chunk instead of emitting it again.
-
-## Payload compression metadata (manifest v1)
-
-Stable v1 records file-data compression in the manifest without a version bump:
-
-- `payload_codec`: required `"raw"` or `"gzip"`
-- `payload_raw_len`: required only when `payload_codec == "gzip"`
-
-Compression behavior:
-
-- Writers that use gzip compress file bytes before encrypting the backup document.
-- Recovery reads raw file bytes or decompresses gzip bytes as specified by the manifest, then
-  slices individual files and checks their hashes.
-- To limit memory use from compressed inputs, readers check the declared uncompressed length
-  against `MAX_DECOMPRESSED_PAYLOAD_BYTES` before decompression and stop if decoded bytes exceed
-  that length.
-
-Compatibility:
-
-- Stable v1 readers reject manifests without `payload_codec`.
-- Readers that do not support `gzip` metadata may fail to recover gzip-coded backup documents.
-
-## QR transport
-
-Version 1 supports two QR transport codecs as defined in the core format specification:
-
-- `raw` frame bytes (preferred for QR scan transport)
-- unpadded `base64` text (for text input)
-
-Neither the manifest nor the backup document header identifies the QR payload codec in v1. Recovery
-parsers handle this by source type:
-
-- byte-oriented scan sources can decode raw directly and fallback to base64 text decoding
-- text sources remain strict unpadded base64 parsing
-
-Readers and writers should not negotiate or introduce additional codecs in v1.
-
-## PDF and image parsing
-
-The CLI treats each PDF or image as hostile input. Input-file validation and symlink checks happen
-before parsing. Each valid input file is then parsed and QR-decoded in a fresh spawned
-worker with memory, CPU, wall-time, PDF-page, embedded-image, pixel, decoded-payload, and IPC-output
-ceilings. The complete scan also has file-count, aggregate payload, and wall-time ceilings.
-
-Workers are disposable: timeout, resource exhaustion, parser failure, user cancellation, or source
-replacement terminates the subprocess. Parser objects and decoded image buffers never return to the
-main application; only bounded QR payload bytes cross the process boundary. Platforms that cannot
-install or observe the required worker limits fail closed instead of silently parsing in-process.
-
-## Passphrases and BIP-39 spacing
-
-Ethernity generates 24-word BIP-39 passphrases by default. This is not a format requirement.
-
-Producers normalize whitespace only when the text is a checksum-valid BIP-39 mnemonic. Recovery
-tries the supplied string exactly first, then may retry its distinct normalized single-space BIP-39
-form. Word-list-shaped custom strings with an invalid checksum remain exact non-BIP-39 passphrases.
-
-Example (12 words):
-
-```
+An unsealed backup stores its signing seed inside the encrypted manifest. Someone who unlocks the
+backup can recover that seed and create signed replacement sheets or updates. Separate signing-key
+sheets provide another way to recover the same key.
+
+A sealed backup omits the seed and has no signing-key recovery sheets. Unlocking it therefore does
+not recover the key needed to regenerate its signed sheets. Only unsealed originals can be
+updated. Changing sealed state requires a new backup document with a different ciphertext hash
+and document ID.
+
+The people holding passphrase sheets can decrypt once they have enough sheets. A separate group
+holding signing-key sheets can sign authentication records or recovery sheets for a document hash
+without decrypting its contents. That second group is not an extra approver for Add Files: anyone
+who can unlock an unsealed original already has access to its signing seed.
+
+### Why sheet sets have an identifier
+
+Two independently generated sets of recovery sheets can have the same backup hash, signing key,
+threshold, and sheet count. Those fields do not make the shares interchangeable. With Shamir
+sharing, any exact-threshold subset defines a polynomial, so the share calculations alone cannot
+reliably detect a mixture of sets.
+
+Shard payload v2 adds a signed `set_id`. Readers can reject mixed sets before trying to recover the
+secret or create replacement sheets. Released shard v1 remains readable, but lacks this check.
+Do not mix sheets across sets even when their other labels match. See the
+[v1.1 compatibility entry](format_history.md#v110-2026-03-29).
+
+## Why there are two update modes
+
+Cumulative updates are the default because restoring a version needs only the original backup and
+that update. If update 1 adds recovery codes and update 2 changes a password file, update 2 includes
+both changes relative to the original. Keep update 1 only if you want to restore its earlier version.
+
+Incremental updates can print less by referring to data in earlier updates. The cost is that every
+update through the selected version must survive. Losing update 1 prevents restoring update 2,
+even if most files changed again.
+
+| Mode | Can reuse chunks from | Recovery needs |
+| --- | --- | --- |
+| Cumulative | The original backup and within the current update | Original plus selected update |
+| Incremental | The original and earlier updates, and within the current update | Original plus all updates through the selected version |
+
+Both modes use the same encryption, validation, and FastCDC content-defined chunking. Chunking
+splits file data into pieces whose boundaries depend on their contents, allowing updates to reuse
+unchanged pieces. Cumulative updates repeat still-needed data introduced after the original;
+incremental updates can reference it in earlier documents.
+
+The first update fixes the mode and chunk sizes. Local settings cannot change an existing series.
+The defaults are a 4 KiB minimum, 16 KiB target, and 64 KiB maximum. Rebuild or a new backup lets a
+new series choose different settings. Keeping one mode and one set of sizes per series avoids
+having to interpret changes to the dependency rules halfway through recovery.
+
+Incremental writers do not need every historical chunk's bytes in memory. They can keep the current
+file set's chunks and earlier chunk identifiers. If a file changes from A to B and then back to A,
+the new input supplies A's bytes and hash; the update can reference the old chunk again.
+
+Add Files changes only selected paths. Omitting a file leaves it in the backup, and selecting a
+new name does not remove the old name. A file named `a` also cannot coexist with a file named
+`a/b`. Deletion, true rename, or removal of such a conflict requires a new backup.
+
+## Why updates must fit Rebuild
+
+Rebuild lets someone replace an update history with a standalone backup. Each new update therefore
+checks that the resulting files still fit that format. Add Files and Rebuild share the same
+preparation, including automatic compression, file metadata, encryption overhead, and standalone
+limits. The 1 MiB ceiling applies to encrypted output, so compressible raw input can be larger.
+The check reserves space for the widest supported creation timestamp so a later date does not
+break the size guarantee.
+
+An older update history may still restore within the recovery limits even when its combined files
+are too large for Rebuild. Recovery remains available. Replacing large files with smaller ones
+can bring the file set within the limit again; see [Advanced operations](advanced_operations.md).
+
+### Why Rebuild creates new sheets
+
+Rebuild creates new ciphertext with a new identity. Recovery sheets are bound to a document hash,
+so the rebuilt backup needs fresh sheets even when its passphrase stays the same.
+
+| Source | Passphrase after Rebuild | Signing key after Rebuild |
+| --- | --- | --- |
+| Unsealed | Preserved | Preserved from the encrypted manifest |
+| Sealed | Preserved | Newly generated because the manifest has no signing seed |
+
+Rebuild preserves the sealed state. Its new AUTH record identifies the resulting signing key.
+It does not take separate signing-key recovery inputs for a sealed source. Rebuild does not revoke
+old passphrases or signing keys; changing credentials after compromise requires a new backup.
+
+Replacement sheets for an existing update series are bound to its original backup. They can
+unlock any intact version of that series, even if a later update is lost. A complete new set has a
+new signed set identifier; compatible replacements keep an existing set bound to the original.
+Earlier sets bound to a particular update still need that update. A complete replacement set is
+needed to gain coverage of the original alone.
+
+Add Files delegates optional sheet creation to Replace Recovery Docs after the update is saved.
+The sheets go outside the update folder so later scans do not accidentally collect older sets.
+An error while making sheets does not undo the update. Neither replacement nor Rebuild revokes
+previous sheets when the credentials they recover remain unchanged.
+
+## How documents identify a version
+
+A document's contents establish its identity. Filenames, folder order, and scan dates do not.
+The same backup can arrive as a PDF, scanned pages, saved QR data, or explicitly supplied fallback
+text. This lets people reorganize stored copies without changing what they can recover. Add Files
+can use these inputs directly and writes to a separate destination.
+
+Signatures, hashes, and encrypted headers connect an update to its original backup. Cumulative
+updates point to the original; incremental updates also depend on earlier updates. Neither model
+can prove that no later update exists elsewhere. Cumulative recovery also cannot establish the
+history of earlier updates it did not receive.
+
+For example, an original backup and cumulative update 2 can restore version 2. They cannot tell
+you whether update 3 is in another drawer. Two people can also make different updates from the
+same version. Either branch may validate alone; supplying conflicting branches is ambiguous and
+recovery rejects it.
+
+A trusted full fingerprint recorded separately can identify the version you expect. A fingerprint
+found beside an untrusted backup is not automatically an independent reference. After full
+verification, a trusted update hash establishes the selected update, original backup, and signing
+key. A trusted unsealed standalone hash also establishes its seed-derived key. A sealed backup
+contains no seed, so checking its AUTH key needs a separately trusted signing-key fingerprint.
+
+The [version-check rules](extension_publication_rules.md#restore-and-version-checks) define which
+operations require an expected version or explicit acknowledgement that a newer copy might exist.
+Desktop Restore can recover supplied documents without that acknowledgement and reports the
+limited scope of its result. The browser recovery kit is reusable across backups; it has no
+built-in trusted backup identity. Document IDs can link pages from one backup together, so they
+do not provide anonymity.
+
+## Why there are QR codes and printed text
+
+Both carry the same encrypted data and authentication records. QR codes support scanning; text
+provides a way to transcribe the data if scanning fails. Newly generated output is checked to make
+sure its QR data and designated text sections agree. Imported data only needs a complete valid
+representation, so recovery does not require both original PDFs.
+
+Extracting matching text from a PDF cannot prove the print is visible or legible. It also cannot
+prove that every recovery sheet was published. Released document v1 has no inventory that could
+show an entirely missing sheet role. Output checks and input checks therefore have different jobs;
+the [document validation rules](extension_publication_rules.md#check-the-generated-documents)
+keep those requirements separate.
+
+The format supports raw QR bytes and unpadded Base64 text. Byte-oriented scanners can try raw
+frames first and fall back to Base64. Text payload input requires Base64. The original document
+and manifest do not carry a QR codec flag. The
+[transport rules](format.md#10-qr-payload-transport) define these two supported encodings.
+
+## Why recovery has limits
+
+A small compressed file, PDF, or encryption header can ask a reader to do far more work than its
+size suggests. Limits cover encrypted and decompressed bytes, document and file counts, QR data,
+and processing time. Recovery rejects excessive input rather than parsing only part of it.
+QR density limits also reduce the risk of printing codes that cannot be scanned.
+
+The [format limits](format.md#17-resource-limits) and
+[update limits](format.md#194-extension-chain-rules) define the byte and count bounds.
+Decompression checks the expected uncompressed size before starting and stops if output exceeds
+it. Text parsing also caps source bytes, line count, and normalized z-base-32 characters.
+
+### Encryption work
+
+An age scrypt header records the work factor used for its passphrase. Desktop and browser readers
+check that public header before starting decryption. One stanza with factor `log_n` costs
+`2^log_n` work units, charged to a shared budget for the operation.
+
+| Reader | Maximum `log_n` | Maximum total work per operation |
+| --- | --- | --- |
+| Desktop | 21 | `8 * 2^21` |
+| Browser | 20 | `8 * 2^20` |
+
+These are recovery safety limits, not changes to the released v1 grammar. Supported factors are
+handled automatically; excessive work is rejected without an override. Decryption runs in
+workers that can be terminated on cancellation or timeout. Desktop workers also enforce CPU and
+memory limits. Work must not continue in the application process after a worker is stopped.
+
+### PDFs and images
+
+The desktop reader validates input files and symlinks before parsing. Each PDF or image is parsed
+and QR-decoded in a fresh process. Limits cover memory, CPU, elapsed time, PDF pages, embedded
+images, pixels, decoded payloads, and data returned by the worker. The whole scan also has file,
+payload, and elapsed-time limits.
+
+Only bounded QR payload bytes return to the application; parser objects and image buffers stay
+in the worker. Timeout, resource exhaustion, parser failure, cancellation, or source replacement
+terminates the process. Platforms that cannot enforce or observe the required limits refuse the
+operation instead of parsing inside the application process.
+
+## Why output is staged
+
+Add Files and Rebuild write to a private sibling directory, validate the output, flush its files,
+and rename the complete directory into place. An interrupted operation leaves an unpublished
+staging directory that recovery ignores. The source documents remain unchanged.
+
+Directory flushing is not available everywhere. POSIX publishers flush the parent directory with
+`fsync`; Windows uses the strongest portable guarantee when Python cannot open the directory for
+flushing. Neither operation locks the source backup. A lock on one folder could not prevent someone
+updating a separate offline copy. The
+[publication rules](extension_publication_rules.md#publish-output-and-handle-interruptions) specify
+validation, destination checks, and cleanup after an interruption.
+
+## How older backups stay recoverable
+
+Document v3 keeps one outer format version. Its signing seed determines sealed state, and file
+sizes determine decompressed payload length. Storing those values again would add checks without
+adding information. Both standalone versions still record whether file bytes are raw or gzip
+compressed, and both verify decompressed length and file hashes.
+
+Released document v1 is decoded with its original required fields and checks before being converted
+to the shared recovery model. Its stored manifest version, sealed flag, and gzip length remain
+validated. Keeping this decoder preserves old backups without duplicating the recovery engine or
+requiring an old-format writer. Older readers may still reject a newly written format.
+
+Update headers also have one outer document version. They authenticate paths, chunk references,
+original and parent hashes, chunk sizes, and mode. Standalone source labels remain because the
+distinction between an input file and folder affects export behavior. See
+[compatibility history](format_history.md) for reader and writer changes by release.
+
+## Reader details that affect recovery
+
+### Passphrase spacing
+
+Ethernity generates 24-word BIP-39 passphrases by default. That length is a creation default, not a
+format requirement. Recovery tries the supplied passphrase exactly before trying normalized
+single-space text, and only normalizes a checksum-valid BIP-39 phrase. A custom string with an
+invalid BIP-39 checksum keeps its exact spacing.
+
+This is a valid 12-word example, not a secret to use for a backup:
+
+```text
 abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about
 ```
 
-## Storing Shamir shares
+Producers likewise normalize whitespace only for checksum-valid BIP-39 phrases. See the
+[passphrase rules](format.md#14-passphrase-representation) for the format requirements.
 
-Any Shamir library may be used if it matches the field parameters and encoding rules in the core
-format specification.
+### Text input detection
 
-Python reference library:
+Automatic detection checks for fallback section markers first: `MAIN FRAME`, `AUTH FRAME`,
+`SHARD FRAME`, or `KEY FRAME`. Without markers, it tries QR payload frames on every nonempty line,
+then z-base-32 fallback lines. If neither interpretation succeeds for the whole input, it rejects
+the input as invalid or ambiguous. Mixing payload and fallback lines in one block is unsupported.
 
-- Secret sharing: `pycryptodome` (`Crypto.Protocol.SecretSharing.Shamir`).
+### Paths and encoding
 
-Storage guidance:
+Unicode NFC makes equivalent path spellings compare consistently across systems. For example,
+`caf` followed by U+00E9 and `cafe` followed by U+0301 display the same name. NFC does not resolve
+case differences on case-insensitive filesystems; avoid pairs such as `Secrets.txt` and
+`secrets.txt` for cross-platform recovery. Released v1 also rejects drive-letter-prefixed paths
+such as `C:notes.txt`. See [path normalization](format.md#16-path-normalization).
 
-- Shares are information-theoretically secure: T-1 shares reveal nothing.
-- Share indices are not secret.
-- Shares should be distributed to independent custodians.
-- Never store multiple shares together.
-
-## Why paths use Unicode NFC
-
-Unicode paths can have multiple byte representations that render the same.
-
-Example (visual string: "cafe"):
-
-- NFC (composed): "caf" + U+00E9
-- NFD (decomposed): "caf" + U+0065 + U+0301
-
-Different operating systems use different forms (for example, macOS commonly uses NFD). NFC
-normalization makes path matching consistent across platforms.
-
-NFC normalization does not solve case-folding differences on case-insensitive filesystems.
-Avoid case-only path distinctions (for example, `Secrets.txt` vs `secrets.txt`) when you expect
-cross-platform recovery or extraction.
-
-Stable v1 also rejects drive-letter-prefixed paths (for example, `C:notes.txt`) to avoid
-ambiguous drive-prefix handling across platforms and extractors.
-
-## Age encryption
-
-Readers and writers should use a compliant age library rather than implement age directly.
-
-Python reference library:
-
-- Encryption/decryption: `pyrage` (age passphrase recipient).
-
-Scrypt parameters (work factor, salt, etc.) are defined by the age scrypt recipient stanza.
-
-## Varint and CBOR integer encoding
-
-The format uses unsigned varints (uvarint) only in the backup document and frame binary headers.
-
-CBOR payloads (manifest, auth, shard) are CBOR maps:
-
-- Integer fields inside these payloads use CBOR integer encoding, not uvarint. Use deterministic
-  CBOR where the specification requires it.
-- When a signature covers a CBOR payload, sign its deterministic CBOR bytes with the signature field
-  omitted. Do not re-encode its integer fields as uvarints.
+Binary headers use unsigned varints. Integers inside CBOR maps use CBOR encoding. Ethernity retains
+length-first deterministic map ordering for compatibility with released backups. AUTH and shard
+signatures cover the exact field maps defined in the format specification, excluding the signature
+and unknown fields. The [CBOR rules](format.md#22-common-deterministic-cbor-rules) specify the encoding.
+Use compliant age and Shamir implementations rather than replacing their algorithms. The Python
+implementation uses `pyrage` and `Crypto.Protocol.SecretSharing.Shamir`; an alternative must match
+the specified [encryption](format.md#13-encryption) and [sharing](format.md#15-shamir-secret-sharing)
+rules.

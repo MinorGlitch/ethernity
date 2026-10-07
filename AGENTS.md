@@ -32,10 +32,10 @@ format compatibility, recovery behavior, rendering output, and packaging as high
 - Format compatibility history: `docs/format_history.md`.
 - Render design definitions, style settings, and capabilities:
   `src/ethernity/resources/designs/*/style.json`,
-  `src/ethernity/resources/designs/*/design.json`, and
-  `src/ethernity/render/design_style.py`.
+  `src/ethernity/resources/designs/*/design.json`,
+  `src/ethernity/render/template.py`, and `src/ethernity/render/design_style.py`.
 - Browser kit commands and dependencies: `kit/package.json` and `kit/package-lock.json`.
-- Packaging contents: `pyproject.toml`, `ethernity.spec`, `scripts/check_wheel_contents.py`,
+- Packaging contents: `pyproject.toml`, `ethernity.spec`, `tooling/release_resources.py`,
   and the release workflows.
 
 ## Working tree safety
@@ -114,6 +114,9 @@ reuse an existing service. Do not reach across layers with string parsing, dupli
 
 ### Rendering and layout
 
+- Templates are JSON data. Keep document composition in the shared engine and add reusable
+  layout features through its components and validated template settings. Do not add per-design
+  Python builders or registration tables. See `docs/render_templates.md`.
 - `RenderInputs` must carry explicit `doc_type`. Do not infer document type from design names and
   do not smuggle behavior through `context["doc_type"]`.
 - Recovery documents must use typed `RenderInputs.recovery_meta`; do not infer recovery
@@ -158,6 +161,7 @@ iteration, then broader gates before handoff when risk is high.
 
 - Python lint: `uv run ruff check src tests tooling`
 - Python format check: `uv run ruff format --check src tests tooling`
+- Python duplication and nesting: `uv run pylint src/ethernity tooling`
 - Type check: `uv run pyrefly check`
 - Typos: `uv run typos .`
 - Unit tests: `uv run pytest tests/unit -v`
@@ -169,8 +173,8 @@ iteration, then broader gates before handoff when risk is high.
 - Kit lint: run `npm run lint` from `kit/`
 - Kit format check: run `npm run format:check` from `kit/`
 - Kit tests: run `npm test` from `kit/`
-- Kit bundle rebuild: ensure `libdeflate-gzip` is on `PATH`, run `npm ci` if dependencies are
-  missing, then `node build_kit.mjs` from `kit/`
+- Kit bundle rebuild: run `npm ci` if dependencies are missing, then `node build_kit.mjs`
+  from `kit/`
 
 ## When to update this file
 

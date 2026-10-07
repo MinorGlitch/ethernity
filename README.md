@@ -2,177 +2,130 @@
 
 [![CI status](https://github.com/MinorGlitch/ethernity/actions/workflows/ci.yml/badge.svg)](https://github.com/MinorGlitch/ethernity/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/ethernity-paper)](https://pypi.org/project/ethernity-paper/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab)](https://www.python.org/downloads/)
-[![GPLv3 or later](https://img.shields.io/badge/license-GPLv3%2B-2c8ebb)](LICENSE)
 
-Ethernity turns a small file or folder into an encrypted paper backup that you can recover offline.
-It writes the encrypted data to QR and text recovery documents and can split the passphrase into
-recovery sheets for storage in different places. By default, Ethernity creates three sheets and
-requires any two for recovery.
+Ethernity encrypts small files and turns them into PDFs you can print. Recover your files offline
+from QR codes or printed text, using the terminal app, command line, or browser recovery kit.
+No account or online service is required.
 
-Restore with the terminal app, the command line, or the offline browser recovery kit. Ethernity
-does not require an account or online service.
-
-Use Ethernity for seed phrases, private keys, certificates, and small sets of configuration files.
-A standalone backup is limited to **1 MiB of ciphertext** and **2,048 recovered files**.
-Updated backups also have chain-wide limits. Keep large archives, media libraries, and
-routine snapshots in a conventional backup system.
+Use it for seed phrases, private keys, certificates, and configuration files.
 
 <p align="center">
   <a href="images/readme/terminal_app_preview.svg">
-    <img src="images/readme/terminal_app_preview.svg" alt="Create backup in the Ethernity terminal app" width="900">
+    <img src="images/readme/terminal_app_preview.svg" alt="Creating a backup in Ethernity" width="900">
   </a>
 </p>
 
-## Installation
+## What you keep
 
-### Homebrew (macOS and Linux)
+Ethernity creates two kinds of pages:
+
+- **Backup pages** contain your encrypted files as QR codes and text.
+- **Recovery sheets** hold pieces of the passphrase that unlocks those files. By default, Ethernity
+  creates three sheets; any two can reconstruct the passphrase.
+
+To restore, you need the backup pages and enough recovery sheets, or the passphrase itself.
+Keep the recovery sheets in separate places, apart from the backup pages.
+
+A standalone backup supports up to 2,048 files and 1 MiB of encrypted data. The size limit applies
+after compression and encryption.
+
+## Install
+
+### macOS and Linux
 
 ```sh
 brew install minorglitch/tap/ethernity
 ```
 
-### pipx
-
-Ethernity requires Python 3.11 or newer.
-
-```sh
-pipx install ethernity-paper
-```
-
-The package is named `ethernity-paper`; the installed command is `ethernity`.
-
 ### Windows
 
-Run the installer from PowerShell:
+Run in PowerShell, then open a new terminal:
 
 ```powershell
 Invoke-WebRequest "https://raw.githubusercontent.com/MinorGlitch/ethernity/master/install.ps1" -OutFile install.ps1
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-Open a new terminal after installation.
+### With Python
 
-### Release archives
-
-Download archives for macOS, Linux, and Windows from
-[GitHub Releases](https://github.com/MinorGlitch/ethernity/releases). Verify an archive with its
-Sigstore bundle before you run it. The [release guide](docs/release_files.md) shows the command.
-
-Check the installation:
+If you use pipx, install with Python 3.11 or newer:
 
 ```sh
-ethernity --help
+pipx install ethernity-paper
 ```
 
-## Quick start
+The package name is `ethernity-paper`; the command is `ethernity`.
 
-Start with a disposable file. Complete a restore before you use Ethernity for important data.
+You can also download an archive from [GitHub Releases](https://github.com/MinorGlitch/ethernity/releases).
+See [release verification](docs/release_files.md#verification-example) for signature checks.
+
+## Make a backup and try restoring it
+
+Start the terminal app:
 
 ```sh
 ethernity
 ```
 
-1. Choose **Create backup** and add the test file.
-2. Keep the recommended recovery setting: three sheets, any two required.
-3. Create the backup and print the PDFs at actual size.
-4. Choose **Restore files** and load the backup folder or scanned pages.
-5. Restore into an empty destination and compare the result with the source file.
+1. Choose **Create backup** and add a test file.
+2. Keep the default recovery setting: three sheets, any two needed.
+3. Choose a paper size and destination, review the backup, and create it. Ethernity saves the PDFs
+   in a new `backup-<id>` folder inside that destination.
+4. Print the PDFs at actual size.
+5. Choose **Restore files**. Load scans of the backup pages and any two recovery sheets.
+6. Restore to a new destination and compare the result with your test file.
 
-The terminal app has a step rail, an editor for the current step, and a live summary. Use
-**Continue** to move forward, **Back** to revisit a step, or select a step directly. **Review**
-shows the destination and write behavior before you run the task. **Manage** contains backup
-updates, rebuilds, and replacement recovery sheets; **Tools** contains the rescue kit and settings.
-At smaller terminal sizes, the steps move across the top and the summary hides to leave room
-for the editor. Press `Ctrl+R` to review or `Ctrl+P` to find an action.
+While a task runs, the app shows its current stage, elapsed time, and file or PDF page counts.
+Cancel waits for the current operation to stop and removes temporary output. Once the final save
+begins, cancellation is disabled. A failed or cancelled task lets you return to your form choices.
 
-Use `ethernity run` from a shell or script. This POSIX shell example creates and restores a small
-test backup:
+Test the printed copies you plan to store. Keep another backup of important files.
 
-```sh
-printf "ethernity README test\n" > test-file.txt
+For recovery in a browser, keep a copy of the
+[offline recovery kit](docs/advanced_operations.md#create-a-reusable-offline-browser-recovery-kit).
+The kit contains the recovery software, works across backups, and can also be printed.
 
-ethernity run backup \
-  --input ./test-file.txt \
-  --output-dir ./backup-demo \
-  --passphrase "ethernity test passphrase" \
-  --yes
+## Update a backup
 
-ethernity run restore \
-  --scan ./backup-demo \
-  --passphrase "ethernity test passphrase" \
-  --output ./restored.txt \
-  --yes
+Choose **Manage > Add files** to add new files or replace existing ones without reprinting the
+whole backup.
 
-cmp ./test-file.txt ./restored.txt
-```
+Updates are cumulative by default. To restore a version, keep the original backup, that update,
+and your recovery sheets. Earlier updates are only needed if you want their earlier versions.
 
-`cmp` produces no output when the restored file matches the source.
+Incremental updates can reduce printing further, but recovery needs every update through the
+version you want. Choose the mode when you start an update series.
 
-## Storage and recovery
+Use **Rebuild backup** to make a new standalone backup from the current files. See
+[updates and rebuilds](docs/advanced_operations.md) for examples and recovery requirements.
 
-The QR and text documents contain the encrypted backup. Recovery sheets contain shares of the
-passphrase. Store the sheets in separate places and keep them apart from the backup documents.
+## Use from a script
 
-- Keep another backup outside Ethernity.
-- Create and restore backups on a computer you trust.
-- Treat each generated page as sensitive, including encrypted pages.
-- Scan a printed QR code before you put the documents into storage.
-- Test a restore with the documents and recovery sheets you plan to keep.
-
-The offline browser recovery kit contains recovery software, not your files. It is reusable across
-backups. To check an expected version, keep its full fingerprint separately and enter it during
-recovery. This checks the version you recorded; it cannot discover newer offline updates.
-Every accepted update leaves a file set that fits Rebuild's standalone format.
-`ethernity run print-kit` prints the kit without tying it to a backup.
-
-Read the [security policy](SECURITY.md) for the threat model and private vulnerability reporting
-process.
-
-## Command reference
-
-Run `ethernity` for the guided terminal app. The same operations are available for scripts:
-
-| Command | Purpose |
-| --- | --- |
-| `ethernity run backup` | Create a backup |
-| `ethernity run restore` | Restore files from backup documents or scans |
-| `ethernity run add-files` | Add or replace files in an existing backup |
-| `ethernity run rebuild` | Turn a backup history into one standalone backup |
-| `ethernity run replace-recovery-docs` | Create replacement recovery sheets |
-| `ethernity run print-kit` | Print the reusable offline browser recovery kit |
-
-Add `--preview` to inspect a task without writing files. Add `--json` when a script needs
-machine-readable output. Run `ethernity run <command> --help` for all options.
-
-## Documentation
-
-- [Advanced operations](docs/advanced_operations.md) covers updates, rebuilds, trusted fingerprints,
-  and replacement recovery sheets.
-- [Format specification](docs/format.md) defines the backup and recovery format.
-- [Extension publication rules](docs/extension_publication_rules.md) define the required v1.2
-  update documents, validation, recovery, and publication behavior.
-- [Format rationale and recovery guidance](docs/format_rationale.md) explains serialization choices,
-  signature checks, and recovery practices.
-- [Compatibility history](docs/format_history.md) records released formats and compatibility changes.
-- [Release guide](docs/release_files.md) explains archive and Sigstore verification.
-
-## Contributing
+`ethernity run` provides the same operations as commands. For example, back up a folder:
 
 ```sh
-git clone https://github.com/MinorGlitch/ethernity.git
-cd ethernity
-uv sync --extra dev --extra build
-uv run ethernity --help
+ethernity run backup --input ./documents --output-dir ./paper-backup --yes
 ```
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for the test and formatting commands. Report security
-problems through the private process in [SECURITY.md](SECURITY.md).
+This creates `./paper-backup/backup-<id>/` with the backup documents and default recovery sheets.
+The destination is always a parent folder; Ethernity creates it if needed. Without `--output-dir`,
+the parent is the current folder. Replace `--yes` with `--preview` to check the operation without
+creating files.
 
-## License
+Run `ethernity run --help` to list commands, or `ethernity run restore --help` for restore options.
+
+## Documentation and development
+
+- [Security](SECURITY.md): what Ethernity protects against and how to report a vulnerability.
+- [Format specification](docs/format.md) and [design rationale](docs/format_rationale.md).
+- [Update format and recovery rules](docs/extension_publication_rules.md).
+- [Format compatibility](docs/format_history.md), including support for older backups.
+- [Contributing](CONTRIBUTING.md): development setup and tests.
+
+## License and credits
 
 Ethernity is licensed under the [GNU General Public License v3.0 or later](LICENSE).
 
 [Paperback](https://github.com/cyphar/paperback) inspired the project.
-[Rememory](https://github.com/eljojo/rememory) explores a related approach; Ethernity uses no
-Rememory code or assets.
+[Rememory](https://github.com/eljojo/rememory) takes a related approach; Ethernity uses no Rememory
+code or assets.

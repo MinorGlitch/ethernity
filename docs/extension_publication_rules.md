@@ -1,143 +1,143 @@
-# Ethernity v1.2 extension publication rules
+# Backup updates and recovery
 
-**Status:** Normative for Ethernity v1.2.0.
+These requirements are normative for Ethernity v1.2.0. They cover Add Files, Restore, replacement
+recovery sheets, Rebuild, and the offline browser recovery kit. The
+[format specification](format.md) defines encoded bytes, cryptographic bindings, update
+relationships, and file reconstruction. See [Advanced operations](advanced_operations.md) for
+usage examples.
 
-This document defines the one supported way to append, publish, validate, recover, and rebuild an
-Ethernity extension chain. The [core format specification](format.md) remains authoritative for
-serialized bytes, cryptographic bindings, ancestry, and replay.
+The words MUST, MUST NOT, REQUIRED, SHOULD, SHOULD NOT, RECOMMENDED, MAY, and OPTIONAL have their
+BCP 14 meanings when capitalized.
 
-The key words "MUST", "MUST NOT", "REQUIRED", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY",
-and "OPTIONAL" are interpreted as described by BCP 14 when they appear in capitals.
+Here, "original backup" means the root document and "update" means an extension document. Updates
+use document format v2. Their authenticated header records the update mode and has no inner
+version. The original may use released document v1 or current v3. New standalone backups and
+Rebuild output use v3. Product release numbers are not stored in the format.
 
-Extension documents identify themselves through document format version 2 and extension header
-schema version 1. The product release number is not serialized.
+## Shared input checks
 
-## 1) Supported operations
+Add Files, Restore, and Rebuild MUST identify a backup and its updates from authenticated document
+contents. PDFs, scans, QR payloads, and explicitly supplied fallback text are equivalent sources.
+Filenames, folder names, scan times, and directory order MUST NOT determine identity, update
+order, parent relationships, or whether a backup can be updated.
 
-The product exposes four distinct operations:
+Add Files MUST accept complete authenticated documents with the required original signing key,
+regardless of their filenames, directory layout, or source medium. It MUST NOT require a prior
+Restore or Rebuild. It MUST treat source documents as read-only and write to a separate destination;
+source folders need not be writable.
 
-- **Add Files** authenticates supplied backup documents and writes one add-or-replace extension
-  package to a separate destination.
-- **Restore** imports root and extension documents and recovers a selected authenticated version.
-- **Replace Recovery Docs** creates new passphrase or signing-key recovery sheets for a selected
-  authenticated chain, with every new sheet bound to that chain's root.
-- **Rebuild** converts a supplied authenticated chain into a new standalone published backup.
+Before assessing an update, Add Files MUST validate:
 
-Add Files, Restore, and Rebuild MUST derive chain identity from the supplied authenticated
-documents. PDFs, scanned pages, QR payloads, and explicitly supplied fallback text are equivalent
-sources of document content. Add Files MUST accept a complete authenticated collection with the
-required root signing key regardless of filenames, directory layout, or whether the documents are
-scanned or read from disk. It MUST NOT require a prior Restore or Rebuild operation.
+- the original MAIN ciphertext and its AUTH binding;
+- the original signing public key derived from the authenticated manifest;
+- every supplied update's AUTH binding and signature against that key;
+- update indexes, original and parent hashes, fixed mode and chunk sizes, and the dependencies
+  required by that mode;
+- file entries, chunk identities and references, and size and count limits;
+- reconstruction of one authenticated file set.
 
-Add Files changes only selected paths. A selected path already in the current file set is replaced;
-a new path is added; an omitted path remains. Deletion and true rename require a new backup.
+The [chain rules](format.md#194-extension-chain-rules) define these checks. Validation and
+reconstruction MUST use the same documents, parent relationships, chunk definitions, and limits.
+They MUST NOT follow different rules that can disagree. Reconstruction MUST reject conflicting
+chunk bytes, mismatched chunk boundaries, missing references, invalid size or hash claims,
+exceeded limits, duplicate authenticated indexes, and conflicting update histories. Chunk IDs are
+SHA-256 hashes of decoded chunk bytes.
+
+Imported MAIN, AUTH, and recovery sheets used for unlocking MUST be authenticated. Import MUST NOT
+require named PDFs or a companion text PDF just because both were generated originally. Manual
+fallback text MAY be accepted through explicit text input. Readers MUST NOT use arbitrary text
+scraped from a PDF or image as backup or update input.
+
+Input checks, including symlink, size, and file-count checks, MUST NOT require a particular folder
+layout. Folder discovery and import MUST ignore private sibling `.staging-*` directories.
+
+## Create an update
+
+Add Files adds new paths and replaces selected existing paths. Omitted paths remain unchanged.
+Deleting or truly renaming a path requires a new backup.
+
+### Choose the update mode once
+
+New series MUST default to cumulative updates. Incremental mode MAY be offered as an advanced
+choice for the first update.
+
+| Mode | What an update carries | Documents needed to restore that version |
+| --- | --- | --- |
+| Cumulative | All current changes relative to the original | Original backup and selected update |
+| Incremental | Changes that can reuse data from earlier updates | Original backup and every update through the selected version |
+
+Both modes also need the passphrase or enough recovery sheets. Earlier cumulative updates are
+needed only to restore their earlier versions.
+
+Later updates MUST retain the authenticated mode. A conflicting requested mode MUST fail before
+publication. Changing modes requires Rebuild or a new standalone backup. Recovery MUST detect the
+mode from authenticated headers without asking the user to choose it.
+
+Both modes MUST share chunking, encryption, authentication, limits, rendering, and publication
+checks. The mode changes which earlier chunks may be reused and which file entries the update
+carries.
+
+New v1.2 series MUST use FastCDC algorithm 1 as defined in the
+[format specification](format.md#19-extension-chain-format-extension-document). Applications MAY
+expose minimum, target, and maximum chunk sizes before the first update. That update authenticates
+and fixes the sizes; every later update MUST use them. Local settings changes MUST NOT alter an
+existing series. Other sizes require a new or rebuilt standalone backup.
+
+### Unlock and check capacity
+
+Updates use the original backup's passphrase and signing key. Add Files MAY unlock the original
+with its passphrase or enough authenticated recovery sheets. It MUST NOT offer a separate update
+unlock policy or generate recovery sheets itself.
 
 Every accepted update MUST leave a file set that Rebuild can encode as a valid standalone backup.
-Assessment and execution MUST use the shared standalone preparation from Section 19.4 of
-the core specification, including automatic payload compression, manifest metadata, encryption
-overhead, and all standalone bounds. The 1 MiB ciphertext ceiling is unchanged. A failed check MUST
-block publication and leave the existing backup unchanged. Readers MUST still recover earlier
-oversized chains within the recovery bounds; a replacing update MAY reduce such a state until it
-fits. File path ancestor conflicts, such as files `a` and `a/b`, MUST also block publication.
+Assessment and execution MUST use the shared standalone preparation defined in
+[Section 19.4](format.md#194-extension-chain-rules), including automatic compression, file metadata,
+encryption overhead, and all standalone limits. The ciphertext ceiling remains 1 MiB.
 
-## 2) Source documents and chain validation
+A failed capacity check MUST block publication and leave the existing backup unchanged. File path
+conflicts, such as files named `a` and `a/b`, MUST also block publication. Readers MUST still recover
+earlier oversized file sets within the recovery limits. A replacement update MAY reduce such a
+file set until it fits.
 
-Add Files MUST treat its sources as read-only documents and require a separate output destination.
-Before assessment, it MUST validate:
+### Write two update documents
 
-- the root MAIN ciphertext and AUTH binding;
-- the root signing public key derived from the authenticated root manifest;
-- every supplied extension AUTH binding and signature made with the root signing key;
-- sequential extension indexes, root hash, parent hash, and complete ancestry;
-- required file entries, chunk identities, references, and size and count limits; and
-- successful replay of one authenticated file set.
+Each published update MUST contain exactly two regular PDF files:
 
-The ciphertext hash, verified AUTH, and decrypted extension header establish identity and order.
-Filenames, folder names, scan times, and directory order MUST NOT establish chain identity,
-extension indexes, ancestry, or update eligibility. Source folders need not be writable.
+| Recommended filename | Contents |
+| --- | --- |
+| `qr_document-<index>-<doc_id>.pdf` | MAIN and AUTH as QR payloads |
+| `recovery_document-<index>-<doc_id>.pdf` | Exact text fallback for the same MAIN and AUTH |
 
-Publication MUST use the same authenticated input snapshot that was assessed. It MUST NOT infer a
-newer head from a source folder or require a persistent source-chain lock. Independent updates from
-the same authenticated head can create valid forks; Section 9 defines the freshness requirement.
+`<index>` is the authenticated update index, with a leading zero for 1 through 9. `<doc_id>` is the
+lowercase 16-hex document ID of the update ciphertext. Users MAY rename, move, copy, or scan the
+files. No numbered directory layout is required.
 
-## 3) Extension output package
+When no output folder is chosen, the app and command runner use
+`backup-<original-id>-update-<index>` in the current directory. `<original-id>` is the first 16
+hex characters of the authenticated root document hash. The preview MUST show the resolved
+destination before publication. Users MAY choose another folder or name. An existing destination
+MUST NOT be overwritten or merged with the new update.
 
-Each extension publication MUST contain exactly two regular PDF documents. The recommended
-filenames identify their roles, authenticated extension index, and ciphertext document ID:
+Every page of both update documents MUST identify the original backup ID, update number, and
+the update's own document ID. These printed labels help organize pages; recovery continues to
+verify identity and dependencies from the authenticated contents.
 
-```text
-qr_document-<index>-<doc_id>.pdf
-recovery_document-<index>-<doc_id>.pdf
-```
+Both documents and the preview MUST state which documents to keep for the selected mode. They
+MUST NOT describe earlier cumulative updates as recovery dependencies. Recovery also requires the
+sheets or passphrase and the offline kit or another compatible recovery tool.
 
-`<index>` is the authenticated extension index, displayed with a leading zero for indexes 1 through
-9. `<doc_id>` is the lowercase 16-hex document ID of the extension ciphertext. These filenames are
-output conventions. Users MAY rename, move, copy, or scan the documents without changing their
-identity or eligibility as later inputs. No numbered directory hierarchy is required.
+The output has no separate AUTH file, kit, kit index, passphrase sheet, or signing-key sheet.
+Render styles MUST NOT add, remove, rename, or condition these document roles. Style capabilities
+may change presentation only. The text recovery document MUST NOT contain a plaintext passphrase
+or private signing key.
 
-The roles are:
+### Check the generated documents
 
-- `qr_document-*`: machine-readable MAIN and AUTH transport; and
-- `recovery_document-*`: exact text fallback for the same MAIN and AUTH.
+Before publication, the publisher MUST scan both PDFs. The QR document MUST reconstruct the
+expected update ciphertext and required AUTH. The recovery document's QR and designated text
+sections MUST contain the same ciphertext and AUTH.
 
-There is no extension AUTH file, extension recovery-kit file, extension kit-index file, extension
-passphrase shard, or extension signing-key shard. A render style MUST NOT add, remove, rename, or
-condition the document roles. Style capabilities may affect presentation only.
-
-Private sibling staging directories use the reserved `.staging-*` namespace and are unpublished.
-Folder import and discovery MUST ignore them. Filesystem input checks, including symlink checks
-and size and count limits, protect input parsing; they MUST NOT require a backup publication layout.
-
-## 4) Extension unlock and recovery sheets
-
-Every extension uses the root backup passphrase and signing key. Add Files MAY unlock the
-root with the passphrase or with enough authenticated root recovery sheets. It MUST NOT expose an
-extension unlock policy or implement recovery-sheet generation.
-
-The extension recovery document contains MAIN/AUTH fallback text and guidance. It MUST NOT contain
-the plaintext passphrase or private signing key.
-
-Replace Recovery Docs creates replacement sheets. Whether its selected target is the root or an
-authenticated extension head, every emitted sheet MUST bind to the root's `doc_hash` and root
-signing public key. The operation MUST authenticate and replay the complete selected prefix before
-creating the new sheets. Selection establishes the checked version; it does not change their
-binding target.
-
-Root-bound replacement passphrase sheets MUST unlock the root and every recoverable prefix of
-that chain. Losing a later extension MUST NOT prevent those sheets from unlocking an intact root
-or older prefix. Signing-key sheets reconstruct the same root signing key. Sheets do not
-pin freshness; independently recorded head hashes do that separately. Replacing a
-sheet set with unchanged credentials does not revoke previous sets, which MUST NOT be mixed with
-the new set during reconstruction. Users SHOULD test the new root-bound quorum before retiring
-the old sheets.
-
-Compatible replacement sheets MAY preserve an existing root-bound shard set and its `set_id`.
-They MUST NOT reuse a head-bound set under the root identity. A user replacing an earlier
-head-bound set MUST create a complete new root-bound set instead. Readers MAY continue to use
-existing head-bound sheets only when their matching MAIN ciphertext is available and all original
-binding rules pass; they do not gain root-only recovery coverage retroactively.
-
-Add Files MAY offer recovery-sheet creation immediately after publication. It MUST invoke
-Replace Recovery Docs for the newly authenticated head rather than generate sheets in the extension
-operation. These sheets MUST be written outside the extension output package. A sheet-generation
-failure MUST report that the extension is already published and MUST NOT invite the user to repeat
-Add Files.
-
-## 5) Document and fallback validation
-
-Before publication, the publisher MUST scan both staged documents and validate their exact
-content:
-
-- the QR document MUST reconstruct the expected extension ciphertext and required AUTH;
-- the recovery document QR and designated fallback sections MUST represent the same ciphertext and
-  AUTH.
-
-Source validation MUST authenticate the imported MAIN, AUTH, and any recovery-sheet payloads used
-for unlocking. It MUST NOT require named source PDFs or companion fallback documents
-merely because they were generated at creation time. Duplicate representations of a source
-document are optional.
-
-A recovery document has exactly two ordered designated sections:
+The recovery document has exactly two designated sections, in this order:
 
 ```text
 Auth Frame
@@ -146,129 +146,188 @@ Main Frame
 <fallback text for exactly one MAIN frame with INDEX = 0 and TOTAL = 1>
 ```
 
-Validation MUST fail for missing, malformed, extra, reordered, or mismatched designated sections.
-Extractable PDF text confirms byte agreement with the authenticated payloads; it does not establish
-visual legibility or constitute a signed publication inventory.
+Validation MUST reject missing, malformed, extra, reordered, or mismatched sections. Extracted PDF
+text proves agreement with the payload bytes; it does not prove that the print is legible or
+provide a signed inventory of published sheets.
 
-Manual fallback text MAY be accepted through an explicit text input. A recovery reader
-MUST NOT scrape arbitrary PDF or image text and use it as chain input.
+## Restore and version checks
 
-## 6) Chunking and replay
+Restore may select the original backup, an authenticated update index, an authenticated update
+`doc_hash`, or the latest valid version among the supplied documents. It uses the dependencies
+required by the authenticated mode.
 
-New v1.2 extension chains MUST use FastCDC algorithm 1. The exact algorithm, parameter bounds, and
-validation rules are defined in [format.md](format.md). Applications MAY expose the minimum,
-target, and maximum chunk sizes as advanced settings before the first extension is created. The
-first extension authenticates and locks those sizes; every later extension in that chain MUST use
-them. Changing local settings MUST NOT change an existing chain. Different sizes require rebuilding
-or creating a new standalone backup and then starting a new chain.
+Before Add Files, Rebuild, replacement-sheet creation from imported updates, or latest-version
+browser recovery, the user MUST either supply an expected full version hash or explicitly
+acknowledge that a newer version may exist elsewhere. These checks govern the operation and do not
+add fields to the encoded format. Acknowledgement permits use of the supplied version; it does not
+establish that no later offline copy exists.
 
-A chain accepted as valid MUST be reconstructed from the same authenticated documents, ancestry,
-chunk definitions, and size and count limits used during validation. Validation and reconstruction
-MUST NOT follow separate rules that can disagree.
+Desktop Restore MAY recover the latest valid supplied version without an expected hash or a
+freshness acknowledgement. It MUST report that the result covers only the supplied documents.
+Whenever an expected hash is supplied, it MUST match the recovered version. A requested version
+MUST fail if it cannot be authenticated and reconstructed exactly.
 
-Chunk IDs are SHA-256 identities over decoded chunk bytes. Replay MUST fail closed on conflicting
-bytes, mismatched chunk boundaries, unresolved references, invalid size/hash claims, size or count
-limit violations, duplicate authenticated indexes, or divergent ancestry.
+Independent updates from the same version can create conflicting branches. Supplying conflicting
+branches is ambiguous and fails the input checks; either branch may validate on its own.
 
-## 7) Reusable offline browser recovery kit
+Recovery status MUST distinguish documents that are internally consistent from a version verified
+against an independently trusted full fingerprint. It MUST report only the guarantees established:
 
-The offline browser recovery kit is reusable across backups. It is generated independently of any
-backup and uses this embedded metadata:
+| Trusted reference | What complete authentication and reconstruction establish |
+| --- | --- |
+| Full update hash | Selected update, original backup identity, and signing public key |
+| Full unsealed standalone hash | Original backup identity and its seed-derived signing public key |
+| Full sealed standalone hash | Original backup identity; verifying its AUTH signing key also needs an independently trusted signing-key fingerprint |
+
+An update commits to the original hash, and the unsealed original contains the signing seed. A
+sealed original has no seed to check against its AUTH key. Without an independently trusted matching
+reference, recovery establishes internal consistency only. Even a trusted matching fingerprint
+cannot prove that no later version exists.
+
+### Offline browser recovery kit
+
+The kit is reusable across backups and generated independently of them. Its embedded metadata is:
 
 ```json
 {
   "capability": "ethernity-unanchored-rescue",
   "version": 1,
-  "supported_extension_envelope_versions": [2],
-  "supported_extension_schema_versions": [1]
+  "supported_document_versions": [1, 2, 3]
 }
 ```
 
-A separately trusted full extension-head hash can establish root identity, signing
-public key, and selected-head guarantees after complete authenticated replay: the extension commits
-to its root hash, and that unsealed root commits to its signing seed. A trusted full standalone-root
-hash pins root identity and, when unsealed, its seed-derived signing public key. For sealed standalone
-roots, it does not also pin the AUTH signing public key without a separately trusted signing-key
-fingerprint.
+The same version checks and distinctions above apply to browser recovery.
 
-Without an independently trusted matching fingerprint, recovery establishes only internal
-consistency. Even a matching trusted record establishes the recorded version without guaranteeing
-that no later offline update exists.
+New printed kits begin with two startup QRs. Concatenating their text in order creates `start.html`:
+the first contains the assembly interface and loader, ending with an open hidden textarea; the
+second contains Base64-encoded gzip-compressed assembly JavaScript. Whitespace in that Base64 is
+ignored. Startup decompression errors MUST stop the page from accepting input.
 
-## 8) Atomic publication
+The remaining QRs contain numbered Base44 fragments and may be entered in any order. Their exact
+ASCII layout is `EK1:IIIIIIIIIIII:NNNN:TTTT:LLLL:CCCCCCCC:DATA`. Fields use uppercase hexadecimal:
 
-Extension publication MUST leave source documents unchanged and MUST NOT overwrite an existing
-destination. It follows this sequence:
+- `I` is the first 12 hex characters of SHA-256 over the ASCII bytes `base44-15`, followed by
+  the compressed kit bytes and the configured chunk size as a four-byte big-endian integer.
+  This identifies the software, encoding, and partitioning, not a backup or update chain.
+- `N` is the printed QR number, starting at 3. `T` includes the two startup codes.
+- `L` is the number of Base44 characters in `DATA`.
+- `C` is CRC-32/ISO-HDLC over the ASCII prefix `EK1:I:N:T:L:` followed by `DATA`, excluding
+  the checksum field and its following colon. The Python definition is `zlib.crc32`.
 
-1. create a private same-filesystem `.staging-*` sibling of the chosen destination;
-2. render both required documents into it;
-3. validate the exact file inventory and contents and snapshot names, sizes, and hashes;
-4. verify that the output matches the reviewed authenticated input snapshot and expected next
-   index, and revalidate the staging identity, snapshot, and absent destination;
-5. `fsync` every staged regular file and the staging directory;
-6. atomically rename the staging directory to the destination; and
-7. `fsync` the destination's parent directory where the platform exposes directory flushing.
+The startup configuration fixes the kit identifier, total QR count, concatenated encoded length,
+and compression format. After removing scan whitespace, the assembler MUST check every header,
+identifier, count, index, length, alphabet character, and checksum before retaining a fragment.
+Identical duplicates are ignored; conflicting duplicates are rejected without replacing the accepted
+part. An error MUST NOT discard previously accepted parts. These checks detect assembly errors;
+they do not authenticate the publisher of the printed software.
 
-There is no transaction journal, repair command, quarantine, or resume protocol. A failed process
-MUST NOT leave a partially published destination. Abandoned `.staging-*` directories remain
-outside the chain and may be removed only after the user has established that no publisher is
-using them.
+Base44 uses the alphabet `0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$%*+-./:`. Split the compressed
+bytes into consecutive 15-byte blocks. Each block is a big-endian integer encoded as exactly 22
+base-44 digits, least significant digit first. Zero digits MUST be retained to preserve the block
+length. A final block shorter than 15 bytes uses the corresponding digit count below:
 
-Layout diagnostic files are optional and remain outside the extension output package. Diagnostic
-failure after publication MUST NOT roll back a successfully published extension.
+| Bytes | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Digits | 2 | 3 | 5 | 6 | 8 | 9 | 11 | 12 | 14 | 15 | 17 | 18 | 20 | 21 | 22 |
 
-## 9) Selected versions and freshness
+Saving requires every data fragment, ordered by index, and the exact encoded length. Concatenate
+the fragments before decoding; QR boundaries need not coincide with block boundaries. Decoding
+MUST reject a final digit count absent from the table and any block value at least `256**n`, where
+`n` is its decoded byte count. Every decoded block MUST retain its full byte count, including
+leading zero bytes. The decompressed kit HTML MUST NOT exceed 1,000,000 bytes. Decompression errors
+MUST prevent download of a partial kit.
 
-Recovery may select root, an authenticated extension index, an authenticated extension `doc_hash`,
-or the latest validated head among supplied documents.
+The assembled HTML unpacks the Roadroller-compressed application in a disposable worker. The build
+checks that unpacking reproduces the application exactly. The decoder uses a 64 MiB model budget;
+the worker is terminated before the recovery interface opens. Both lean and scanner kits retain
+the same backup compatibility and use this printed transport. The kit's embedded capability metadata
+is part of the application, so it is retained in the downloaded file.
 
-Latest recovery and Add Files MUST have one explicit freshness basis:
+The default data QR contains at most 1839 ASCII characters, including the 41-character header.
+At error correction M this fills QR version 29. Custom QR settings can reduce this limit; both
+startup codes have independent capacity checks.
+This transport is separate from backup frames and recovery sheets. Existing printed kits retain
+their own loader and reconstruction rules.
 
-- a manually entered expected head hash; or
-- an explicit acknowledgement that freshness is unknown.
+## Replace recovery sheets
 
-The acknowledgement means only "latest among supplied documents." It does not prove that a newer
-offline copy does not exist. It permits an update from that supplied head without claiming global
-freshness. A pinned target MUST fail if it cannot be reconstructed,
-authenticated, and replayed exactly.
+Replace Recovery Docs MUST authenticate and reconstruct the selected version and all dependencies
+required by its mode before making sheets. Whether the selected version is the original or an
+update, every new sheet MUST bind to the original's `doc_hash` and signing public key.
 
-Recovery status MUST distinguish internal consistency from verification against an independently
-trusted full fingerprint. It MUST report the guarantees actually established, including
-the sealed-root signing-key distinction in Section 7.
+Replacement passphrase sheets MUST unlock the original and any recoverable version based on it.
+Losing a later update MUST NOT prevent them from unlocking an intact earlier version. Signing-key
+sheets reconstruct the same original signing key. Sheets do not identify the latest version.
+Replacing sheets without changing credentials does not revoke earlier sets. Old and new sets
+MUST NOT be mixed during reconstruction. Users SHOULD test enough new sheets to unlock the backup
+before retiring the old set.
 
-## 10) Rebuild
+Compatible replacements MAY preserve an existing set bound to the original, including its
+`set_id`. They MUST NOT reuse a set bound to an update as though it were bound to the original.
+Replacing an earlier set bound to an update MUST create a complete new set to obtain coverage of
+the original. Readers MAY still use the earlier sheets when their matching MAIN ciphertext is
+available and all original binding rules pass.
 
-Rebuild MUST authenticate and replay the selected chain, then write the resulting file set as
-a new standalone backup using document format version 1 in a separate directory. It MUST preserve
-the source passphrase, sealed state, and, when unsealed, the root signing seed. It leaves source
-documents unchanged.
+Add Files MAY offer sheet creation after the update is published. It MUST call Replace Recovery
+Docs for that authenticated version and write the sheets outside the update output folder.
+If sheet creation fails, it MUST report that the update is already published and MUST NOT ask the
+user to repeat Add Files.
 
-For a sealed source, the manifest contains no signing seed and Rebuild does not accept signing-key
-recovery inputs to preserve that key. It MUST generate a new signing key for the new sealed root.
-The new AUTH payload MUST identify that new signing public key. This does not change
-the source passphrase or revoke the old signing key.
+## Rebuild
 
-Rebuild MUST use the same automatic payload compression and standalone preparation used by
-Add Files rebuildability checks. It MUST NOT inherit a raw-only payload preference that could
-invalidate the capacity guarantee. An earlier oversized chain MAY fail standalone preparation,
-but that failure MUST NOT prevent recovery of its files.
+Rebuild MUST authenticate and reconstruct the selected version, then write its files as a new
+standalone document v3 backup in a separate directory. It MUST preserve the passphrase and sealed
+state. For an unsealed backup, it MUST also preserve the original signing seed and key.
 
-The rebuilt ciphertext has a new identity. Rebuild MUST create fresh recovery sheets bound to
-that new root. Before publication, it MUST validate the new MAIN/AUTH, every newly generated
-recovery-sheet payload, and a threshold quorum from each new sheet set. A passphrase quorum MUST
-unlock the new ciphertext; a signing-key quorum MUST reconstruct its signing key. Creation of an
-ordinary standalone backup MUST perform the same document and recovery-sheet validation.
+A sealed backup has no signing seed in its manifest, and Rebuild does not accept separate
+signing-key recovery inputs. It MUST generate a new signing key and identify it in the new AUTH.
+This does not revoke the old signing key or change the passphrase.
 
-Before retiring source documents, users SHOULD restore the rebuilt backup with its new sheets and
-record its full fingerprint separately if they use expected-version checks. The old fingerprint
-will not match the rebuilt root. This does not require a filesystem registry or a signed ancestry
-record.
+Rebuild MUST use the same automatic compression and standalone preparation as the Add Files
+capacity check. It MUST NOT inherit a raw-only payload preference that could break that guarantee.
+An earlier oversized file set MAY fail this check, but that failure MUST NOT prevent restoring
+its files.
 
-Rebuild output uses private sibling staging, file and directory flushing, and same-filesystem atomic
-rename. Like Add Files, it uses an authenticated input snapshot and MUST NOT require a specific
-source folder layout or a source-chain lock.
+The new ciphertext has a different identity. Rebuild MUST create fresh sheets bound to it. Before
+publication, it MUST validate MAIN, AUTH, every generated recovery-sheet payload, and enough sheets
+from each new set to recover its secret. The passphrase sheets MUST unlock the new ciphertext;
+the signing-key sheets MUST reconstruct its signing key. Ordinary standalone backup creation MUST
+perform these same document and sheet checks.
 
-Rebuild preserves the passphrase and does not revoke old credentials. It also preserves the signing
-key for unsealed sources; sealed sources receive the new signing key described above.
-Intentional passphrase or unsealed signing-key rotation, deletion, true rename, or compromise
-recovery requires a new backup and retirement of the superseded documents.
+Create backup and Rebuild MUST publish into `backup-<id>` inside the selected destination, where
+`<id>` is the new document ID in hexadecimal. The destination is always a parent folder, even if
+it does not exist yet. Create backup defaults to the current directory when no parent is selected.
+The preview MUST show the child-folder pattern until the ID is known. An existing parent is valid;
+an existing child at the final backup path MUST NOT be overwritten.
+
+Users SHOULD restore the rebuilt backup with its new sheets before retiring the source. If they
+use expected-version checks, they SHOULD record the new full fingerprint. The previous fingerprint
+will not match. This requires no filesystem registry or signed ancestry record.
+
+Rebuild does not revoke old credentials. Changing the passphrase or unsealed signing key, deleting
+or renaming files, and recovering from compromise require a new backup and retirement of the
+superseded documents.
+
+## Publish output and handle interruptions
+
+Add Files and Rebuild MUST leave source documents unchanged and MUST NOT overwrite an existing
+destination. Both MUST use the same authenticated input snapshot that was assessed. They MUST NOT
+infer a newer version from a folder or require a persistent lock on the source backup.
+
+Publication follows these steps:
+
+1. Create a private `.staging-*` sibling on the destination filesystem.
+2. Render the required documents there.
+3. Validate the exact file inventory and contents, then record file names, sizes, and hashes.
+4. Check the output against the reviewed input snapshot and expected next index where applicable.
+   Recheck the staging directory's identity, recorded files, and absent destination.
+5. Flush every staged regular file with `fsync`.
+6. Rename the staging directory atomically to the destination on the same filesystem.
+7. Flush the parent directory with `fsync` where the platform supports directory flushing.
+
+A failed process MUST NOT leave a partly published destination. There is no transaction journal,
+repair command, quarantine, or resume protocol. Abandoned staging directories remain outside the
+backup and may be removed only after establishing that no publisher is using them.
+
+Optional layout diagnostics stay outside the update output folder. A diagnostic failure after
+publication MUST NOT roll back a successfully published update.

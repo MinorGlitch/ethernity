@@ -88,10 +88,24 @@ For releases that include v1.2 extensions, CI must pass these frozen checks:
 - `cd kit && node --test tests/loader_html.test.mjs`
 - `cd kit && npm run test:browser`
 
-The default `recovery_kit.bundle.html` and `recovery_kit.scanner.bundle.html` files use gzip.
+The default `recovery_kit.bundle.html` and `recovery_kit.scanner.bundle.html` files use gzip around
+a Roadroller-packed application. Roadroller is a build dependency; opening a kit needs no network.
+`kit/lib/pack_kit.mjs` keeps separate, fixed packing parameters for the lean and scanner variants.
+Both use eleven contexts and a 64 MiB model budget. The decoder runs in a disposable worker;
+each build verifies that it reproduces the complete application before publishing a bundle.
+To retune after substantial application changes, run Roadroller's CLI with
+`-O2 -M64 -Sx11 -D -t text -a write` on the exact HTML passed to `packKitHtml`. Compare the final
+gzip size, printed QR count, memory use, and browser startup time before saving the selected
+parameters. Ordinary builds use those saved parameters without an optimizer search.
+
+The generated `recovery_kit.assembler.html` template is also packaged for printing the two startup
+codes. All three resources are rebuilt from `kit/`; the assembler template is not a standalone
+recovery app.
 Optional Brotli builds use suffixed `*.brotli.bundle.html` names and never replace the default
-gzip files. Deterministic gzip builds require the `libdeflate-gzip` executable. The
-`libdeflate-tools` package provides it on Ubuntu.
+gzip files. Gzip builds use the pinned `@gfx/zopfli` npm development dependency with 100
+iterations and verify the decompressed output before publishing it. No separate compressor
+executable is needed. The compressor runs only during the build and is not included in the kit.
+Variable names use a fixed minifier sequence to reduce the compressed size.
 
 Python wheels and PyInstaller distributions embed only the two default gzip bundles. Optional
 Brotli files remain standalone build outputs under `kit/dist/`.
@@ -100,13 +114,27 @@ Rendered documents are validated with the bundled PDFium library through `pypdfi
 PyInstaller distributions must include that native library and both PDFium version files.
 Homebrew installs the locked platform wheel so page validation works without a system PDF viewer.
 
+Wheels and PyInstaller distributions must also include `resources/designs/_shared/*.json`.
+The built-in A5 layouts use these files together with each design's `design.json` and `style.json`.
+
 The generated default bundles must support extensions and pass the Chrome tests for page loading
-and scrypt Worker startup before release. Offline browser recovery kit bundles are generated during
+and recovery worker execution before release. Offline browser recovery kit bundles are generated during
 the release build.
 
 The local `scripts/build_pyinstaller.sh` and `scripts/build_pyinstaller.ps1` wrappers run `npm ci`,
 generate both default gzip bundles, reject missing or extra packaged HTML bundles, and then run
-PyInstaller. They require Node.js, npm, and `libdeflate-gzip` on `PATH`.
+PyInstaller. They require a Node.js version supported by [kit/package.json](../kit/package.json)
+and npm.
+
+`pyproject.toml` owns the packaged bundle inventory. The build backend, local wrappers, CI,
+and release jobs share `tooling/release_resources.py` to check that inventory and the minimum
+bundle size. The source archive includes this verifier so building from a release uses the same
+checks. Run it from the project root:
+
+```sh
+python -m tooling.release_resources --kit-directory src/ethernity/resources/kit
+python -m tooling.release_resources dist/*.whl dist/*.tar.gz
+```
 
 ## Verification example
 
