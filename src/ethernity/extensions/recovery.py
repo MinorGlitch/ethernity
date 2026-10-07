@@ -67,10 +67,10 @@ from ethernity.extensions.validation import (
 )
 from ethernity.formats.document_codec import (
     decode_document,
-    detect_document_version,
     extract_payloads,
 )
-from ethernity.formats.document_constants import BACKUP_DOCUMENT_VERSIONS
+from ethernity.formats.document_constants import DocumentKind
+from ethernity.formats.document_header import read_document_header
 from ethernity.formats.extension_document import (
     ExtensionDecodedChunkBudgetError,
     ExtensionDocument,
@@ -390,22 +390,18 @@ def _select_root_import_session_candidate(
         assert entry.plaintext is not None
         plaintext = entry.plaintext
         try:
-            version = detect_document_version(plaintext)
-            decoded = decode_document(plaintext)[1] if version in BACKUP_DOCUMENT_VERSIONS else None
+            header = read_document_header(plaintext)
+            decoded = decode_document(plaintext)[1] if header.kind == DocumentKind.BACKUP else None
         except ExtensionDecodedChunkBudgetError:
             raise
         except Exception as exc:
             non_passphrase_failures += 1
             decode_errors.append(f"{document.doc_id.hex()}: {exc}")
             continue
-        if version in BACKUP_DOCUMENT_VERSIONS and isinstance(decoded, tuple) and len(decoded) == 2:
+        if isinstance(decoded, tuple) and len(decoded) == 2:
             roots.append(document)
-        elif version == 2:
+        elif header.kind == DocumentKind.UPDATE:
             extension_count += 1
-        else:
-            decode_errors.append(
-                f"{document.doc_id.hex()}: unsupported document version: {version}"
-            )
 
     if len(roots) == 1:
         return DecodedImportSession(
@@ -921,7 +917,7 @@ def _decode_imported_extension_candidates(
                 debug=debug,
                 decoded_import_session=decoded_import_session,
             )
-            version, decoded_document = decode_document(
+            _version, decoded_document = decode_document(
                 plaintext,
                 max_extension_inline_chunk_bytes=remaining_inline_chunk_bytes,
             )
@@ -942,7 +938,7 @@ def _decode_imported_extension_candidates(
                 message=message,
             )
             continue
-        if version != 2 or not isinstance(decoded_document, ExtensionDocument):
+        if not isinstance(decoded_document, ExtensionDocument):
             message = (
                 "imported document signed by the root key did not decode as an extension document"
             )
@@ -1236,11 +1232,11 @@ def decode_imported_extension_link(
         debug=debug,
         decoded_import_session=decoded_import_session,
     )
-    version, decoded = decode_document(
+    _version, decoded = decode_document(
         plaintext,
         max_extension_inline_chunk_bytes=max_inline_chunk_bytes,
     )
-    if version != 2 or not isinstance(decoded, ExtensionDocument):
+    if not isinstance(decoded, ExtensionDocument):
         raise ValueError("imported document did not decode as an extension document")
 
     return DecodedExtensionLink(
@@ -1361,12 +1357,8 @@ def decode_imported_root_manifest(
 
 
 def _decode_root_plaintext(plaintext: bytes) -> tuple[BackupManifest, bytes]:
-    version, decoded = decode_document(plaintext)
-    if (
-        version not in BACKUP_DOCUMENT_VERSIONS
-        or not isinstance(decoded, tuple)
-        or len(decoded) != 2
-    ):
+    _version, decoded = decode_document(plaintext)
+    if not isinstance(decoded, tuple) or len(decoded) != 2:
         raise ValueError("root backup must decode as a standalone backup document")
     manifest, payload = decoded
     if not isinstance(manifest, BackupManifest) or not isinstance(payload, bytes):

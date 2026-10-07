@@ -42,7 +42,6 @@ from ethernity.encoding.qr_payloads import (
     encode_qr_payload,
 )
 from ethernity.formats.document_codec import decode_document, extract_payloads
-from ethernity.formats.document_constants import BACKUP_DOCUMENT_VERSIONS
 from ethernity.formats.extension_constants import CHUNK_CODEC_GZIP, CHUNK_CODEC_RAW
 from ethernity.formats.extension_document import ExtensionDocument
 from ethernity.qr.scan import scan_qr_payloads
@@ -560,7 +559,7 @@ def _document_details(payloads_file: Path, passphrase: str) -> list[dict[str, An
         plaintext = decrypt_bytes(ciphertext, passphrase=passphrase)
         version, decoded = decode_document(plaintext)
         doc_hash = hashlib.blake2b(ciphertext, digest_size=32).hexdigest()
-        if version in BACKUP_DOCUMENT_VERSIONS:
+        if isinstance(decoded, tuple):
             manifest, payload = decoded
             details.append(
                 {

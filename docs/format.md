@@ -10,7 +10,7 @@ described in BCP 14 ([RFC 2119](https://www.rfc-editor.org/rfc/rfc2119),
 capitals.
 
 Scope:
-- Standalone root backup documents (released Version 1 and current Version 3)
+- Standalone root backup documents (released Version 1 and current Version 2)
 - Extension document (Version 2)
 - Manifest structure and file paths
 - Frame encoding (QR and fallback)
@@ -34,10 +34,10 @@ Non-goals:
 | Component | Serialized version | Release status |
 | --- | --- | --- |
 | Released standalone backup | document 1, manifest 1 | Read support retained |
-| Current standalone backup | document 3, no inner version | Written by Ethernity v1.2.0 |
+| Current standalone backup | document 2, kind 1, no inner version | Written by Ethernity v1.2.0 |
 | Frame and AUTH payload | frame 1, AUTH 1 | Released and supported |
 | Shard payload | shard 1 and 2 | Version 2 released in Ethernity v1.1; version 1 remains readable |
-| Extension document | document 2, no inner version | Normative for Ethernity v1.2.0 |
+| Extension document | document 2, kind 2, no inner version | Normative for Ethernity v1.2.0 |
 
 The Ethernity product version is not serialized into a document. The table describes release
 support; the numeric fields below determine format compatibility. The v1.2
@@ -60,23 +60,31 @@ Decoder requirements:
 - Decoders MUST reject uvarints outside unsigned 64-bit range.
 
 Used for:
-- Document version, manifest length, payload length
+- Document version and kind, manifest length, payload length
 - Frame version, index, total, data length
 
 ## 2) Standalone backup document format
 
-Standalone backups use `VERSION = 3`. Readers MUST also accept released `VERSION = 1`
-documents. Both use the same container layout below; their manifest differences are defined in
-Section 3.1. Extension documents use `VERSION = 2` and are specified in Section 19.
+New standalone backups and updates share `VERSION = 2`. The following `KIND` field identifies
+standalone backups (`1`) or updates (`2`). Readers MUST also accept released `VERSION = 1`
+standalone documents, which have no `KIND` field. Their manifest differences are defined in
+Section 3.1. Update bodies are specified in Section 19.
+
+The shared prefix is `MAGIC + VERSION` for Version 1 and `MAGIC + VERSION + KIND` for Version 2.
+Both `VERSION` and `KIND` use shortest-form uvarints. Decoders MUST reject unsupported versions,
+unknown kinds, a missing Version 2 kind, and truncated or overlong prefix fields before selecting
+a body decoder. They MUST NOT infer the kind from the body or try another kind after a failure.
 
 Constants:
 - MAGIC: `0x41 0x59` ("AY")
-- VERSION: `3` for new standalone backups; `1` for released backups
+- VERSION: `2` for new standalone backups; `1` for released backups
+- KIND: `1` for Version 2 standalone backups; absent in Version 1
 
 Binary layout:
 ```
 MAGIC (2 bytes)
 VERSION (uvarint)
+KIND (uvarint; Version 2 only, MUST equal 1)
 MANIFEST_LEN (uvarint)
 MANIFEST_BYTES (CBOR)
 PAYLOAD_LEN (uvarint)
@@ -85,9 +93,10 @@ PAYLOAD_BYTES (stored payload bytes; encoded per manifest payload_codec)
 
 Rules:
 - MAGIC MUST equal `0x41 0x59`.
-- Standalone encoders MUST emit VERSION `3`; decoders MUST support VERSION `1` and `3`.
+- Standalone encoders MUST emit VERSION `2` and KIND `1`.
+- Standalone decoders MUST accept Version `1` and Version `2` with KIND `1`, and reject KIND `2`.
 - MANIFEST_LEN and PAYLOAD_LEN MUST match the remaining byte boundaries.
-- Decoders MUST reject backup documents where VERSION, MANIFEST_LEN, or PAYLOAD_LEN use overlong
+- Decoders MUST reject backup documents where VERSION, KIND, MANIFEST_LEN, or PAYLOAD_LEN use overlong
   uvarint encoding.
 - MANIFEST_BYTES MUST be a CBOR-encoded manifest (Section 3).
 
@@ -126,14 +135,14 @@ selects the current manifest schema. For each supported format:
   payload can be used for reconstruction, or authenticated/rescue trust labeling;
 - encoders SHOULD NOT emit keys that are not defined for that version.
 
-Removed manifest keys explicitly forbidden by Section 3.1 MUST be rejected in Version 3.
+Removed manifest keys explicitly forbidden by Section 3.1 MUST be rejected in Version 2.
 Schemas that explicitly require exact keys, including extension header and body maps, are closed
 and MUST reject unknown keys.
 
 ## 3) Manifest format
 
 The manifest MUST be encoded as a CBOR map. The following defines the released Version 1
-representation and shared field rules. Section 3.1 specifies the smaller Version 3 representation.
+representation and shared field rules. Section 3.1 specifies the smaller Version 2 representation.
 
 Constants:
 - MANIFEST_VERSION = `1`
@@ -230,9 +239,9 @@ Ordering:
   manifest creation.
 - Payload concatenation MUST follow this same ordering key order.
 
-## 3.1) Current standalone manifest (document Version 3)
+## 3.1) Current standalone manifest (document Version 2)
 
-Version 3 uses the same fields and validation as Version 1 with exactly these changes:
+Version 2 uses the same fields and validation as Version 1 with exactly these changes:
 
 - `version` MUST be absent. The outer document version selects this schema.
 - `sealed` MUST be absent. A null `seed` means sealed; a 32-byte `seed` means unsealed.
@@ -242,13 +251,13 @@ Version 3 uses the same fields and validation as Version 1 with exactly these ch
   Decompression MUST enforce that bound while producing output, not after unbounded allocation.
 
 All other fields, path encodings, file hashes, payload codecs, and cryptographic bindings retain
-their meaning. Readers MUST reject the three removed keys in Version 3. Version 1 readers MUST
+their meaning. Readers MUST reject the three removed keys in Version 2. Version 1 readers MUST
 continue requiring and validating their released representations, including `sealed`/`seed`
 consistency and exact gzip `payload_raw_len`. Both representations normalize to the same recovery
-model. New writes, including Rebuild, MUST use Version 3; no migration of existing backups is needed.
+model. New writes, including Rebuild, MUST use Version 2; no migration of existing backups is needed.
 
 Backward compatibility means current readers recover released backups. Released readers reject
-Version 3; new backups MUST ship a recovery kit that supports it.
+Version 2; new backups MUST ship a recovery kit that supports it.
 
 ## 3.2) Timestamp representation and ranges
 
@@ -256,7 +265,7 @@ Manifest `created`, extension-header `created_at`, and file `mtime` values measu
 since `1970-01-01T00:00:00Z`. Negative values denote times before that epoch. A null `mtime` means
 the modification time is unknown; zero denotes the epoch.
 
-Standalone Versions 1 and 3 accept integer or finite floating-point `created` values. Fractional
+Standalone Versions 1 and 2 accept integer or finite floating-point `created` values. Fractional
 values represent fractional seconds. NaN and infinities are invalid. File `mtime` values remain
 integers or null. These standalone schemas impose no additional field-specific numeric range on
 timestamps; the `MAX_JS_SAFE_INTEGER` restriction for extensions MUST NOT be applied to them.
@@ -290,10 +299,10 @@ Manifest metadata determines how the backup document stores `PAYLOAD_BYTES`:
   - `payload_codec == "gzip"`
   - stored payload bytes are gzip-compressed bytes of `raw_payload_bytes`
   - in Version 1, `payload_raw_len` MUST be present and equal `sum(files[i].size)`
-  - in Version 3, the decompressed bound is derived from that sum (Section 3.1)
+  - in Version 2, the decompressed bound is derived from that sum (Section 3.1)
 
 Decoder extraction requirements (`payload_raw_len` below is the validated stored value in
-Version 1 or the derived file-size sum in Version 3):
+Version 1 or the derived file-size sum in Version 2):
 - Decoders MUST decode stored payload bytes according to `payload_codec` before file slicing.
 - For raw mode, decoders MUST require
   `len(PAYLOAD_BYTES) == sum(files[i].size)` before file slicing.
@@ -664,16 +673,16 @@ https://philzimmermann.com/docs/human-oriented-base-32-encoding.txt
 ## 12) Version markers
 
 Version markers:
-- Standalone root backup document: MAGIC + VERSION
-- Extension document: MAGIC + VERSION
+- Standalone root backup document: MAGIC + VERSION + KIND (KIND absent in released Version 1)
+- Extension document: MAGIC + VERSION + KIND
 - Released manifest: MANIFEST_VERSION; current manifest: enclosing document version
 - Frames: MAGIC + VERSION
 - Auth: AUTH_VERSION
 - Shards: SHARD_VERSION
 
 Current version values:
-- Standalone root backup document VERSION = `3`; readers also support `1`
-- Extension document VERSION = `2`
+- Standalone root backup document VERSION = `2`, KIND = `1`; readers also support Version `1`
+- Extension document VERSION = `2`, KIND = `2`
 - Frame VERSION = `1`
 - Released MANIFEST_VERSION = `1`; current manifests have no inner version
 - AUTH_VERSION = `1`
@@ -705,7 +714,7 @@ Ciphertext MUST use the age encryption format (https://age-encryption.org/v1).
 
 ### 13.1) Encryption process
 
-Input: Backup document binary (MAGIC + VERSION + MANIFEST + PAYLOAD)
+Input: Backup document binary (MAGIC + VERSION + optional KIND + MANIFEST + PAYLOAD)
 Output: age ciphertext
 
 Encoders MUST encrypt the complete backup document as a single age message.
@@ -1027,6 +1036,8 @@ A conforming decoder MUST accept at least these scenarios:
 7. The GF(2^128) arithmetic vector in Section 15.6.
 8. A raw payload whose byte length equals the sum of manifest file sizes, including an all-empty
    file set represented in raw mode.
+9. A Version 2 standalone document with KIND `1` and the manifest in Section 3.1.
+10. Version 2 updates with KIND `2`, extending either a released Version 1 or a Version 2 original.
 
 ### 18.3) Required invalid-input scenarios
 
@@ -1053,14 +1064,16 @@ A conforming decoder MUST reject at least these scenarios:
     from a reconstructed signing seed.
 14. A fallback payload line with two dotted rendered line-label prefixes; only the first prefix is
     removable under Section 11.
+15. A Version 2 document with a missing, unknown, overflowing, or noncanonical KIND field.
+16. A standalone body labeled as an update, or an update body labeled as a standalone backup.
 
 ## 19) Extension chain format (extension document)
 
 The extension document is an authenticated append-only document derived from a standalone root
-backup. The root may be a released Version 1 or current Version 3 standalone document. Each
+backup. The root may be a released Version 1 or current Version 2 standalone document. Each
 extension is a separately
 encrypted MAIN document whose ciphertext has its own `doc_hash` and `doc_id` under Section 7.
-The extension document uses outer document `VERSION = 2`.
+The extension document uses outer document `VERSION = 2` and `KIND = 2`.
 
 Extension authentication is carried beside the ciphertext, not inside the encrypted extension
 header/body. After identical-copy deduplication under Section 8, extension recovery MUST verify
@@ -1073,11 +1086,13 @@ carrier role to that AUTH payload.
 Constants:
 - MAGIC: `0x41 0x59` ("AY")
 - VERSION: `2`
+- KIND: `2`
 
 Binary layout:
 ```text
 MAGIC (2 bytes)
 VERSION (uvarint)
+KIND (uvarint, MUST equal 2)
 HEADER_LEN (uvarint)
 HEADER_BYTES (deterministic CBOR map; Section 19.2)
 BODY_LEN (uvarint)
@@ -1086,7 +1101,8 @@ BODY_BYTES (deterministic CBOR map; Section 19.3)
 
 Rules:
 - MAGIC MUST equal `0x41 0x59`.
-- VERSION MUST equal `2`.
+- VERSION MUST equal `2` and KIND MUST equal `2`.
+- Extension decoders MUST reject standalone documents, including released Version 1.
 - `HEADER_LEN` and `BODY_LEN` MUST use shortest-form uvarints and MUST match byte boundaries
   exactly.
 - `HEADER_BYTES` and `BODY_BYTES` MUST satisfy the deterministic CBOR rules in Section 2.2.
@@ -1365,7 +1381,7 @@ Requirements:
 
 ### 19.4) Extension chain rules
 
-A valid extension chain is a standalone root Version 1 or Version 3 backup plus zero or more
+A valid extension chain is a standalone root Version 1 or Version 2 backup plus zero or more
 authenticated
 extension documents selected from imported carriers and ordered by decrypted chain metadata
 (Section 20).
@@ -1503,8 +1519,8 @@ Selection rules:
 - the document's `doc_id` and `doc_hash` MUST be derived from recovered ciphertext;
 - AUTH frames MUST be matched by frame `doc_id` and verified against the derived ciphertext
   `doc_hash`;
-- decrypted document version 1 or 3 identifies a root-backup candidate;
-- decrypted document version 2 identifies an extension candidate;
+- decrypted document Version 1, or Version 2 with KIND `1`, identifies a root-backup candidate;
+- decrypted document Version 2 with KIND `2` identifies an extension candidate;
 - a session that imports a chain MUST select exactly one root backup or reject the input as
   ambiguous;
 - extension candidates MUST authenticate under `root_sign_pub` established in Section 7.2 before

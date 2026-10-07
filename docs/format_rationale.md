@@ -223,7 +223,8 @@ validation, destination checks, and cleanup after an interruption.
 
 ## How older backups stay recoverable
 
-Document v3 keeps one outer format version. Its signing seed determines sealed state, and file
+Document v2 uses one format version for standalone backups and updates. A separate kind field
+selects the body layout. In standalone manifests, the signing seed determines sealed state, and file
 sizes determine decompressed payload length. Storing those values again would add checks without
 adding information. Both standalone versions still record whether file bytes are raw or gzip
 compressed, and both verify decompressed length and file hashes.
@@ -233,9 +234,9 @@ to the shared recovery model. Its stored manifest version, sealed flag, and gzip
 validated. Keeping this decoder preserves old backups without duplicating the recovery engine or
 requiring an old-format writer. Older readers may still reject a newly written format.
 
-Update headers also have one outer document version. They authenticate paths, chunk references,
-original and parent hashes, chunk sizes, and mode. Standalone source labels remain because the
-distinction between an input file and folder affects export behavior. See
+Update headers use the same outer document version with the update kind. They authenticate paths,
+chunk references, original and parent hashes, chunk sizes, and mode. Standalone source labels remain
+because the distinction between an input file and folder affects export behavior. See
 [compatibility history](format_history.md) for reader and writer changes by release.
 
 ## Reader details that affect recovery

@@ -2,14 +2,14 @@ import { RecoveryError } from "../lib/errors.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  EXTENSION_DOCUMENT_VERSION,
+  DOCUMENT_KIND_UPDATE,
   MAX_CIPHERTEXT_BYTES,
   MAX_RECOVERY_DOCUMENTS,
   textEncoder,
 } from "../app/constants.js";
 import { decodeExtensionDocumentHeader } from "../app/extensions/document.js";
 import { recoverLatestFromEncryptedDocuments as recoverEncryptedCore } from "../app/extensions/recovery.js";
-import { readDocumentVersion } from "../app/backup_document.js";
+import { readDocumentHeader } from "../app/document_header.js";
 import { blake2b256 } from "../lib/blake2b.js";
 import { bytesToHex } from "../lib/bytes.js";
 import {
@@ -45,7 +45,7 @@ function recoverLatestFromEncryptedDocuments(documents, passphrase, decrypt, opt
     if (target?.kind === "index") {
       const selected = documents.find((document) => {
         if (!document.plaintext) return false;
-        if (readDocumentVersion(document.plaintext) !== EXTENSION_DOCUMENT_VERSION) return false;
+        if (readDocumentHeader(document.plaintext).kind !== DOCUMENT_KIND_UPDATE) return false;
         return decodeExtensionDocumentHeader(document.plaintext).index === target.index;
       });
       if (selected) {

@@ -26,6 +26,7 @@ from ethernity.encoding.cbor import dumps_deterministic
 from ethernity.encoding.varint import encode_uvarint
 from ethernity.formats.document_codec import (
     MAGIC,
+    decode_backup_document,
     decode_document,
     decode_extension_document,
     encode_extension_document,
@@ -101,6 +102,7 @@ def _encode_sections(header: dict[int, object], body: dict[int, object]) -> byte
     return b"".join(
         (
             MAGIC,
+            encode_uvarint(2),
             encode_uvarint(2),
             encode_uvarint(len(header_bytes)),
             header_bytes,
@@ -420,6 +422,7 @@ class TestExtensionDocument(unittest.TestCase):
             (
                 MAGIC,
                 encode_uvarint(2),
+                encode_uvarint(2),
                 encode_uvarint(len(dumps_deterministic(malformed_header))),
                 dumps_deterministic(malformed_header),
                 encode_uvarint(len(dumps_deterministic(body))),
@@ -470,6 +473,7 @@ class TestExtensionDocument(unittest.TestCase):
         malformed = b"".join(
             (
                 MAGIC,
+                encode_uvarint(2),
                 encode_uvarint(2),
                 encode_uvarint(len(dumps_deterministic(header))),
                 dumps_deterministic(header),
@@ -567,6 +571,7 @@ class TestExtensionDocument(unittest.TestCase):
         malformed = b"".join(
             (
                 MAGIC,
+                encode_uvarint(2),
                 encode_uvarint(2),
                 encode_uvarint(len(dumps_deterministic(header))),
                 dumps_deterministic(header),
@@ -880,6 +885,7 @@ class TestExtensionDocument(unittest.TestCase):
             (
                 MAGIC,
                 encode_uvarint(2),
+                encode_uvarint(2),
                 _overlong_uvarint(len(header_bytes)),
                 header_bytes,
                 encode_uvarint(len(body_bytes)),
@@ -899,6 +905,7 @@ class TestExtensionDocument(unittest.TestCase):
             (
                 MAGIC,
                 encode_uvarint(2),
+                encode_uvarint(2),
                 encode_uvarint(len(header_bytes)),
                 header_bytes,
                 _overlong_uvarint(len(body_bytes)),
@@ -917,6 +924,7 @@ class TestExtensionDocument(unittest.TestCase):
             (
                 MAGIC,
                 encode_uvarint(2),
+                encode_uvarint(2),
                 encode_uvarint(len(header_bytes)),
                 header_bytes[:-1],
             )
@@ -933,6 +941,7 @@ class TestExtensionDocument(unittest.TestCase):
         malformed = b"".join(
             (
                 MAGIC,
+                encode_uvarint(2),
                 encode_uvarint(2),
                 encode_uvarint(len(header_bytes)),
                 header_bytes,
@@ -988,6 +997,7 @@ class TestExtensionDocument(unittest.TestCase):
             (
                 MAGIC,
                 encode_uvarint(2),
+                encode_uvarint(2),
                 encode_uvarint(MAX_MANIFEST_CBOR_BYTES + 1),
             )
         )
@@ -1002,6 +1012,7 @@ class TestExtensionDocument(unittest.TestCase):
         malformed = b"".join(
             (
                 MAGIC,
+                encode_uvarint(2),
                 encode_uvarint(2),
                 encode_uvarint(len(header_bytes)),
                 header_bytes,
@@ -1019,6 +1030,7 @@ class TestExtensionDocument(unittest.TestCase):
                 MAGIC,
                 encode_uvarint(2),
                 encode_uvarint(2),
+                encode_uvarint(2),
                 b"\xbf\xff",
                 encode_uvarint(len(body_bytes)),
                 body_bytes,
@@ -1033,6 +1045,7 @@ class TestExtensionDocument(unittest.TestCase):
         malformed = b"".join(
             (
                 MAGIC,
+                encode_uvarint(2),
                 encode_uvarint(2),
                 encode_uvarint(len(header_bytes)),
                 header_bytes,
@@ -1087,3 +1100,8 @@ class TestExtensionDocument(unittest.TestCase):
         self.assertEqual(decoded.header.index, 1)
         self.assertEqual(version, 2)
         self.assertIsInstance(dispatched, ExtensionDocument)
+        self.assertEqual(encoded[:4], b"AY\x02\x02")
+        with self.assertRaisesRegex(ValueError, "expected standalone backup document kind"):
+            decode_backup_document(encoded)
+        with self.assertRaises(ValueError):
+            decode_document(b"AY\x02\x01" + encoded[4:])

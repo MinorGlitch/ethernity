@@ -15,6 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { readDocumentHeader } from "../document_header.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { decodeDeterministicCbor } from "../../lib/cbor.js";
@@ -25,8 +26,7 @@ import {
   CHUNK_ALGORITHM_FASTCDC,
   CHUNK_CODEC_GZIP,
   CHUNK_CODEC_RAW,
-  DOCUMENT_MAGIC,
-  EXTENSION_DOCUMENT_VERSION,
+  DOCUMENT_KIND_UPDATE,
   MAX_DECOMPRESSED_PAYLOAD_BYTES,
   MAX_EXTENSION_INDEX,
   MAX_MANIFEST_CBOR_BYTES,
@@ -58,20 +58,9 @@ export async function decodeExtensionDocument(bytes, { decodeChunks = true } = {
 }
 
 function readExtensionDocumentHeader(bytes) {
-  let idx = 0;
-  if (bytes.length < DOCUMENT_MAGIC.length + 1) {
-    throw new Error("extension document too short");
-  }
-  if (bytes[0] !== DOCUMENT_MAGIC[0] || bytes[1] !== DOCUMENT_MAGIC[1]) {
-    throw new Error("invalid document magic");
-  }
-  idx += DOCUMENT_MAGIC.length;
-
-  const versionRes = readUvarint(bytes, idx);
-  idx = versionRes.offset;
-  if (versionRes.value !== EXTENSION_DOCUMENT_VERSION) {
-    throw new Error(`unsupported document version: ${versionRes.value}`);
-  }
+  const { kind, bodyOffset } = readDocumentHeader(bytes);
+  if (kind !== DOCUMENT_KIND_UPDATE) throw new Error("expected update document kind");
+  let idx = bodyOffset;
 
   const headerLenRes = readUvarint(bytes, idx);
   idx = headerLenRes.offset;

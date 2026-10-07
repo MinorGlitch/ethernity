@@ -31,7 +31,6 @@ from ethernity.extensions.chain import ExtensionReplayError
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.formats import decode_document
 from ethernity.formats.document_codec import extract_payloads
-from ethernity.formats.document_constants import BACKUP_DOCUMENT_VERSIONS
 from ethernity.formats.extension_document import ExtensionDocument
 from ethernity.formats.manifest import BackupManifest, ManifestFile
 from ethernity.workflows.recovery.frame_inputs import (
@@ -321,9 +320,7 @@ def _document_list_details(
             "auth_status": document.auth_status,
             "root_signing_key_verified": _resolved_root_signing_key_verified(document),
         }
-        if document.document_format_version in BACKUP_DOCUMENT_VERSIONS and isinstance(
-            document.decoded, tuple
-        ):
+        if isinstance(document.decoded, tuple):
             manifest, _payload = document.decoded
             item["manifest"] = {
                 "sealed": manifest.sealed,
@@ -332,9 +329,7 @@ def _document_list_details(
                 "payload_codec": manifest.payload_codec,
                 "file_count": len(manifest.files),
             }
-        elif document.document_format_version == 2 and isinstance(
-            document.decoded, ExtensionDocument
-        ):
+        elif isinstance(document.decoded, ExtensionDocument):
             item["extension"] = {
                 "index": document.decoded.header.index,
                 "file_count": len(document.decoded.files),
@@ -907,12 +902,12 @@ def _decode_main_documents(
         try:
             plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=False)
             document_format_version, decoded = decode_document(plaintext)
-            if document_format_version in BACKUP_DOCUMENT_VERSIONS and isinstance(decoded, tuple):
+            if isinstance(decoded, tuple):
                 decoded_payload: tuple[BackupManifest, bytes] | ExtensionDocument = cast(
                     tuple[BackupManifest, bytes],
                     decoded,
                 )
-            elif document_format_version == 2 and isinstance(decoded, ExtensionDocument):
+            elif isinstance(decoded, ExtensionDocument):
                 decoded_payload = decoded
             else:
                 raise ValueError(
@@ -927,7 +922,7 @@ def _decode_main_documents(
                     reassembly_error=document.reassembly_error,
                     document_format_version=document_format_version,
                     document_kind="standalone_backup"
-                    if document_format_version in BACKUP_DOCUMENT_VERSIONS
+                    if isinstance(decoded, tuple)
                     else "extension",
                     decoded=decoded_payload,
                     decrypt_error=None,
@@ -965,19 +960,11 @@ def _inspect_decoded_documents(
         return None, [], None
     if len(successful) != len(documents):
         root_document = next(
-            (
-                document
-                for document in successful
-                if document.document_format_version in BACKUP_DOCUMENT_VERSIONS
-                and isinstance(document.decoded, tuple)
-            ),
+            (document for document in successful if isinstance(document.decoded, tuple)),
             None,
         )
         extension_documents = [
-            document
-            for document in successful
-            if document.document_format_version == 2
-            and isinstance(document.decoded, ExtensionDocument)
+            document for document in successful if isinstance(document.decoded, ExtensionDocument)
         ]
         trust_diagnostic = _recovery_failure_diagnostic(
             root_document=root_document,
@@ -990,16 +977,9 @@ def _inspect_decoded_documents(
         )
         return None, [], trust_diagnostic
 
-    root_documents = [
-        document
-        for document in successful
-        if document.document_format_version in BACKUP_DOCUMENT_VERSIONS
-        and isinstance(document.decoded, tuple)
-    ]
+    root_documents = [document for document in successful if isinstance(document.decoded, tuple)]
     extension_documents = [
-        document
-        for document in successful
-        if document.document_format_version == 2 and isinstance(document.decoded, ExtensionDocument)
+        document for document in successful if isinstance(document.decoded, ExtensionDocument)
     ]
 
     if len(root_documents) == 1 and not extension_documents:

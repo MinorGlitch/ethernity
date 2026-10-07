@@ -3,8 +3,9 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import {
   DOC_ID_LEN,
   DOCUMENT_MAGIC,
-  BACKUP_DOCUMENT_VERSION,
-  EXTENSION_DOCUMENT_VERSION,
+  DOCUMENT_VERSION,
+  DOCUMENT_KIND_BACKUP,
+  DOCUMENT_KIND_UPDATE,
   FRAME_TYPE_AUTH,
   FRAME_TYPE_MAIN,
 } from "../app/constants.js";
@@ -12,7 +13,7 @@ import { deriveSigningPublicKey } from "../app/auth.js";
 import { decodeExtensionDocumentHeader } from "../app/extensions/document.js";
 import { defaultExtensionChunker } from "../app/extensions/chunking.js";
 import { recoverLatestFromPlaintextDocuments as recoverPlaintextCore } from "../app/extensions/recovery.js";
-import { readDocumentVersion } from "../app/backup_document.js";
+import { readDocumentHeader } from "../app/document_header.js";
 import { addFrame } from "../app/frames_apply.js";
 import { decodeFrame } from "../app/frames_protocol.js";
 import { encodeCbor } from "../lib/cbor.js";
@@ -62,7 +63,7 @@ function buildRootPlaintext(files, { sealed = false, signingSeed = ROOT_SIGNING_
       file.mtime ?? null,
     ]),
   };
-  return buildDocument(BACKUP_DOCUMENT_VERSION, encodeCbor(manifest), payload);
+  return buildDocument(DOCUMENT_KIND_BACKUP, encodeCbor(manifest), payload);
 }
 
 function buildExtensionPlaintext({
@@ -90,11 +91,11 @@ function buildExtensionPlaintext({
     [1, fileEntries],
     [2, chunks],
   ]);
-  return buildDocument(EXTENSION_DOCUMENT_VERSION, encodeCbor(header), encodeCbor(body));
+  return buildDocument(DOCUMENT_KIND_UPDATE, encodeCbor(header), encodeCbor(body));
 }
 
 function buildExtensionDocumentBytes({ headerBytes = validExtensionHeaderBytes(), bodyBytes }) {
-  return buildDocument(EXTENSION_DOCUMENT_VERSION, headerBytes, bodyBytes);
+  return buildDocument(DOCUMENT_KIND_UPDATE, headerBytes, bodyBytes);
 }
 
 function validExtensionHeaderMap() {
@@ -125,10 +126,11 @@ function buildExtensionFileEntry(file, chunksById, chunking = CHUNKING) {
   return [file.path, file.data.length, sha256(file.data), file.mtime ?? null, refs];
 }
 
-function buildDocument(version, firstSection, secondSection) {
+function buildDocument(kind, firstSection, secondSection) {
   return concatBytes([
     Uint8Array.from(DOCUMENT_MAGIC),
-    encodeUvarint(version),
+    encodeUvarint(DOCUMENT_VERSION),
+    encodeUvarint(kind),
     encodeUvarint(firstSection.length),
     firstSection,
     encodeUvarint(secondSection.length),
@@ -167,7 +169,7 @@ function explicitPlaintextFreshness(documents, options = {}) {
   }
   if (target === "root" || target?.kind === "root" || target?.index === 0) {
     const root = documents.find(
-      (document) => readDocumentVersion(document.plaintext) === BACKUP_DOCUMENT_VERSION,
+      (document) => readDocumentHeader(document.plaintext).kind === DOCUMENT_KIND_BACKUP,
     );
     return {
       ...options,
@@ -176,7 +178,7 @@ function explicitPlaintextFreshness(documents, options = {}) {
   }
   if (target?.kind === "index") {
     const selected = documents.find((document) => {
-      if (readDocumentVersion(document.plaintext) !== EXTENSION_DOCUMENT_VERSION) return false;
+      if (readDocumentHeader(document.plaintext).kind !== DOCUMENT_KIND_UPDATE) return false;
       return decodeExtensionDocumentHeader(document.plaintext).index === target.index;
     });
     return {

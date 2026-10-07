@@ -47,14 +47,14 @@ from ethernity.core.validation import (
 )
 from ethernity.encoding.cbor import dumps_deterministic, loads_deterministic
 from ethernity.encoding.varint import decode_uvarint, encode_uvarint
-from ethernity.formats.document_constants import MAGIC
+from ethernity.formats.document_constants import DocumentKind
+from ethernity.formats.document_header import encode_document_header, read_document_header
 from ethernity.formats.extension_chunking import require_valid_chunk_boundary
 from ethernity.formats.extension_constants import (
     CHAIN_ID_PERSONALIZATION,
     CHUNK_ALGORITHM_FASTCDC,
     CHUNK_CODEC_GZIP,
     CHUNK_CODEC_RAW,
-    EXTENSION_DOCUMENT_VERSION,
     MIN_EXTENSION_CHUNK_SIZE,
 )
 from ethernity.formats.extension_mode import UpdateMode
@@ -480,8 +480,7 @@ class ExtensionDocument:
             )
         return b"".join(
             (
-                MAGIC,
-                encode_uvarint(EXTENSION_DOCUMENT_VERSION),
+                encode_document_header(DocumentKind.UPDATE),
                 encode_uvarint(len(header_bytes)),
                 header_bytes,
                 encode_uvarint(len(body_bytes)),
@@ -532,16 +531,10 @@ class ExtensionDocument:
             or max_inline_chunk_bytes < 0
         ):
             raise ValueError("max_inline_chunk_bytes must be a non-negative integer")
-        idx = 0
-        if len(data) < len(MAGIC) + 1:
-            raise ValueError("extension document too short")
-        if data[: len(MAGIC)] != MAGIC:
-            raise ValueError("invalid document magic")
-        idx += len(MAGIC)
-
-        version, idx = decode_uvarint(data, idx)
-        if version != EXTENSION_DOCUMENT_VERSION:
-            raise ValueError(f"unsupported document version: {version}")
+        document_header = read_document_header(data)
+        if document_header.kind != DocumentKind.UPDATE:
+            raise ValueError("expected update document kind")
+        idx = document_header.body_offset
 
         header_len, idx = decode_uvarint(data, idx)
         if header_len > MAX_MANIFEST_CBOR_BYTES:

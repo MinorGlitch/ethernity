@@ -4,17 +4,17 @@ New Ethernity versions must continue to recover backups produced by released ver
 readers and recovery kits may reject newer formats. The released v1.0 and v1.1 golden fixtures
 remain unchanged and must continue to recover.
 
-Product versions and document versions are separate. For example, Ethernity v1.2 writes standalone
-document v3 and update document v2. This table describes format support; resource limits and
-validation still apply to every input.
+Product versions and document versions are separate. Ethernity v1.2 writes document v2 for both
+standalone backups and updates, distinguished by an explicit document kind. This table describes
+format support; resource limits and validation still apply to every input.
 
 | Ethernity release | Writes new standalone backups | Reads standalone backups | Reads recovery-sheet payloads | Reads updates |
 | --- | --- | --- | --- | --- |
 | v1.0.0 and v1.0.1 | Document v1 | Document v1 | Shard v1 | No |
 | v1.1.0 | Document v1 | Document v1 | Shard v1 and v2 | No |
-| v1.2.0, unreleased | Document v3 | Document v1 and v3 | Shard v1 and v2 | Document v2 |
+| v1.2.0, unreleased | Document v2, backup kind | Document v1 and v2 | Shard v1 and v2 | Document v2, update kind |
 
-Use a v1.2 reader or recovery kit for document v3 backups and updates. A v1.0 reader cannot use the
+Use a v1.2 reader or recovery kit for document v2 backups and updates. A v1.0 reader cannot use the
 v2 recovery sheets introduced in v1.1, even though the standalone backup format stayed at v1.
 
 The [format specification](format.md) defines encoded data and decoder requirements. The
@@ -23,19 +23,22 @@ The [format specification](format.md) defines encoded data and decoder requireme
 
 ## v1.2.0, unreleased
 
-### Standalone document v3
+### Document v2
 
-New backups and Rebuild output use document v3. It removes the manifest's inner `version`, derives
+Document v2 adds a kind field immediately after the version: `1` for standalone backups and `2`
+for updates. Released document v1 has no kind field and always identifies a standalone backup.
+
+New backups and Rebuild output use document v2. It removes the manifest's inner `version`, derives
 sealed state from `seed`, and derives decompressed size from file sizes. The encryption,
 authentication, payload codecs, and recovery model remain shared with document v1.
 
 Readers still accept released document v1 with its original required-field checks. v1.0 and v1.1
-readers and kits reject document v3. Browser recovery of new backups requires a v1.2 kit.
+readers and kits reject document v2. Browser recovery of new backups requires a v1.2 kit.
 
 ### Updates
 
 This release introduces update document v2. An update can extend an original standalone document
-v1 or v3. Earlier readers cannot recover updates.
+v1 or v2. Earlier readers cannot recover updates.
 
 Updates add or replace files using authenticated hashes, signatures, and content-defined chunks.
 The header records cumulative or incremental mode. Cumulative is the default and needs the original

@@ -14,8 +14,8 @@
           "stored_len": 29
         }
       ],
-      "doc_hash": "fc8b608464e49e1b0a0e44c0a87033d2617c8780faa0f9a37783715670df1a9e",
-      "doc_id": "fc8b608464e49e1b",
+      "doc_hash": "6ba58601a11efcd94ed105714f4d465ba9e048d240b2b55eb7060acf3525f9b3",
+      "doc_id": "6ba58601a11efcd9",
       "files": [
         {
           "path": "extension_note.txt",
@@ -52,18 +52,18 @@
     }
   ],
   "extension_doc_hashes": {
-    "extension_01": "fc8b608464e49e1b0a0e44c0a87033d2617c8780faa0f9a37783715670df1a9e"
+    "extension_01": "6ba58601a11efcd94ed105714f4d465ba9e048d240b2b55eb7060acf3525f9b3"
   },
   "file_hashes": {
-    "chain/extensions/01/qr_document-01-fc8b608464e49e1b.pdf": "bd110fd2e5a0ca647d07dd5ed73e732e6ffb6d1b056d09c6041439ae4217ebde",
-    "chain/extensions/01/recovery_document-01-fc8b608464e49e1b.pdf": "cea45d4e3c272720fe3c0aec3c56af3e648ddb768facbe6e738b84db4db7fa54",
+    "chain/extensions/01/qr_document-01-6ba58601a11efcd9.pdf": "f67e77ba705f605b59d792a106b222893cc35b96e674c26e6fab0803521792ba",
+    "chain/extensions/01/recovery_document-01-6ba58601a11efcd9.pdf": "289c00aa6d020ab66957eaf5645e88389c417fbf83155a220b5ee01330335a55",
     "chain/qr_document.pdf": "64ba18c1c48df380d5d0ec13a10f0d3145ca14332cbd19f48c57887778ca1e37",
     "chain/recovery_document.pdf": "86636c3bb07a80c92c0c5d305a27fa6a5fdd0ec5db3cfb3af6c24a810522a9bc",
     "chain/recovery_kit_index.pdf": "12f488d02e9539b9135d7a4e9710b67c001d510bce29dea1efb9f560e1d0281e",
-    "chain_payloads.bin": "6babe2a9dd6c37dc1ea3cbaedb80ffcc847b4f26bc417b0a74617bb8edb19696",
-    "chain_payloads.txt": "a90069b1259320fe99dd37ab21bf68cbc4022a208fe454bc65e8bff6714c31d2",
-    "extension_01_payloads.bin": "39d8468fed56b609c4f7a32f907f1484b5413940075cecf5b1756463676c7732",
-    "extension_01_payloads.txt": "476c3856954267f60a261edc166a534b2a3f1059bf0eb504c04881d1b8d06ee9",
+    "chain_payloads.bin": "498d23f8979f03e67777c00d8d6183c2f7eec284ebc376a267423070d4b6a7d0",
+    "chain_payloads.txt": "63beb37bac8dc5bdaf46cd8aaa4ad9726ee2ee59598987f5c848839c019862e1",
+    "extension_01_payloads.bin": "b50d5ec2b530a9991d3634151312089fa9428d6e996f1492e46d08e5fb99823d",
+    "extension_01_payloads.txt": "6924334f74a49ee4d30d8f84f280af8f4c86f656112f2c1f6ee09fbf944a0b25",
     "root_payloads.bin": "cea6d6b1d70b76dd6357c1e1f9062b8202a877d2d03bd5acc970933653830f5e",
     "root_payloads.txt": "976e1678955682d1e975be663d5f1eeca7226acb1e076105577d565e45afde40"
   },

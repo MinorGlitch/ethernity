@@ -39,7 +39,7 @@ def _signed_document(
         ciphertext=plaintext,
         doc_hash=doc_hash,
         reassembly_error=None,
-        document_format_version=2 if isinstance(decoded, ExtensionDocument) else 3,
+        document_format_version=2,
         decoded=decoded,
         auth_payload=AuthPayload(
             version=1,

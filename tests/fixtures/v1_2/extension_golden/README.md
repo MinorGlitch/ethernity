@@ -20,8 +20,8 @@ a `snapshot.json` containing decoded document records and expected file hashes. 
 committed file hashes and decoded records; freshly generated encrypted PDFs are not compared
 byte-for-byte.
 
-These fixtures track standalone document v3 and extension document v2, including its required
-update mode. Neither current document contains an inner schema version.
+These fixtures track document v2 for both standalone backups and updates, with explicit backup
+and update kinds. Updates include their required mode. Neither current document contains an inner schema version.
 Regenerate them for intentional v1.2 format or document-layout changes, then review the file
 inventory and prove older root recovery remains covered. The released v1.0 root fixtures must
 remain unchanged.

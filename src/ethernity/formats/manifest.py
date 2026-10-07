@@ -38,7 +38,11 @@ from ethernity.core.validation import (
     validate_manifest_file_tree,
 )
 from ethernity.encoding.cbor import dumps_deterministic
-from ethernity.formats.document_constants import BACKUP_DOCUMENT_VERSIONS, LEGACY_VERSION, VERSION
+from ethernity.formats.document_constants import (
+    LEGACY_VERSION,
+    SUPPORTED_DOCUMENT_VERSIONS,
+    VERSION,
+)
 
 MANIFEST_VERSION = 1
 SIGNING_SEED_LEN = 32
@@ -301,7 +305,7 @@ def _manifest_files(
 
 
 def _manifest_envelope(data: object, document_version: int) -> tuple[dict[str, object], bool]:
-    if document_version not in BACKUP_DOCUMENT_VERSIONS:
+    if document_version not in SUPPORTED_DOCUMENT_VERSIONS:
         raise ValueError(f"unsupported document version: {document_version}")
     legacy = document_version == LEGACY_VERSION
     validated = require_dict(data, label="manifest")

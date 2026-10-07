@@ -458,7 +458,7 @@ test("minified kits accept printed-loader metadata and enforce its external fiel
   const metadata = {
     capability: "ethernity-unanchored-rescue",
     version: 1,
-    supported_document_versions: [1, 2, 3],
+    supported_document_versions: [1, 2],
   };
   for (const name of ["recovery_kit.bundle.html", "recovery_kit.scanner.bundle.html"]) {
     const html = await readFile(
@@ -472,8 +472,8 @@ test("minified kits accept printed-loader metadata and enforce its external fiel
       /unsupported recovery kit capability/,
     );
     await assert.rejects(
-      renderRawKitHtml(raw, { ...metadata, supported_document_versions: [1, 2] }),
-      /recovery kit does not support document version 3/,
+      renderRawKitHtml(raw, { ...metadata, supported_document_versions: [1] }),
+      /recovery kit does not support document version 2/,
     );
   }
 });

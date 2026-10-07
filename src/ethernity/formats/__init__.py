@@ -16,7 +16,7 @@
 from ethernity.formats import extension_constants
 from ethernity.formats.document_codec import (
     MAGIC as DOCUMENT_MAGIC,
-    VERSION as BACKUP_DOCUMENT_VERSION,
+    VERSION as DOCUMENT_VERSION,
     build_manifest_and_payload,
     build_single_file_manifest,
     decode_backup_document,
@@ -33,7 +33,6 @@ from ethernity.formats.extension_constants import (
     CHUNK_ALGORITHM_FASTCDC as CHUNK_ALGORITHM_FASTCDC,
     CHUNK_CODEC_GZIP as CHUNK_CODEC_GZIP,
     CHUNK_CODEC_RAW as CHUNK_CODEC_RAW,
-    EXTENSION_DOCUMENT_VERSION as EXTENSION_DOCUMENT_VERSION,
 )
 from ethernity.formats.extension_document import (
     ExtensionChunkingProfile,
@@ -54,7 +53,7 @@ from ethernity.formats.payload_codec import (
 __all__ = [
     *(name for name in extension_constants.__all__ if name != "MIN_EXTENSION_CHUNK_SIZE"),
     "DOCUMENT_MAGIC",
-    "BACKUP_DOCUMENT_VERSION",
+    "DOCUMENT_VERSION",
     "BackupManifest",
     "ExtensionDocument",
     "ExtensionHeader",

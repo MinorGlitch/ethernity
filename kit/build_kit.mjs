@@ -34,7 +34,7 @@ import { scannerHookPathForMode, selectedVariants } from "./lib/build_variants.m
 import { buildCompressedLoaderHtml } from "./lib/loader_html.js";
 import { buildAssemblerTemplate } from "./lib/assembler_html.mjs";
 import { packKitHtml } from "./lib/pack_kit.mjs";
-import { BACKUP_DOCUMENT_VERSIONS, EXTENSION_DOCUMENT_VERSION } from "./app/constants.js";
+import { SUPPORTED_DOCUMENT_VERSIONS } from "./app/constants.js";
 // 91 printable ASCII chars excluding double quote, backslash, and less-than.
 // This keeps Base91 density while avoiding JS string and </script> escaping overhead.
 const BASE91_ALPHABET =
@@ -388,7 +388,7 @@ async function buildBundleVariant(variant, workDir) {
   const metadata = JSON.stringify({
     capability: "ethernity-unanchored-rescue",
     version: 1,
-    supported_document_versions: [...BACKUP_DOCUMENT_VERSIONS, EXTENSION_DOCUMENT_VERSION].sort(),
+    supported_document_versions: [...SUPPORTED_DOCUMENT_VERSIONS].sort(),
   });
   const inlined = variantHtml
     .replace(scriptTagRe, "")

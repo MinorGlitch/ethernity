@@ -17,8 +17,8 @@
           "stored_len": 154
         }
       ],
-      "doc_hash": "0509407954c941f94398ea00b156056347203efeec6a8f5c9f3aac380cdf6b22",
-      "doc_id": "0509407954c941f9",
+      "doc_hash": "c897107649e1b9042b9ad8e450b6f1853fbd6799e8b5790ac23dff30ae4973a8",
+      "doc_id": "c897107649e1b904",
       "files": [
         {
           "path": "alpha.txt",
@@ -33,14 +33,14 @@
       ],
       "index": 1,
       "kind": "extension",
-      "parent_doc_hash": "e0aee4dfd7ed3d2efe89ed2e1d2b0bcf7d005ddae2fb846a2b69c8922215e5ae",
-      "root_doc_hash": "e0aee4dfd7ed3d2efe89ed2e1d2b0bcf7d005ddae2fb846a2b69c8922215e5ae",
+      "parent_doc_hash": "e804e82b6b990789b902e3d490d8568fe3109a09e9b660f2bb37baffe11a99c2",
+      "root_doc_hash": "e804e82b6b990789b902e3d490d8568fe3109a09e9b660f2bb37baffe11a99c2",
       "update_mode": "cumulative"
     },
     {
-      "doc_hash": "e0aee4dfd7ed3d2efe89ed2e1d2b0bcf7d005ddae2fb846a2b69c8922215e5ae",
-      "doc_id": "e0aee4dfd7ed3d2e",
-      "document_version": 3,
+      "doc_hash": "e804e82b6b990789b902e3d490d8568fe3109a09e9b660f2bb37baffe11a99c2",
+      "doc_id": "e804e82b6b990789",
+      "document_version": 2,
       "files": [
         {
           "path": "alpha.txt",
@@ -65,20 +65,20 @@
     }
   ],
   "extension_doc_hashes": {
-    "extension_01": "0509407954c941f94398ea00b156056347203efeec6a8f5c9f3aac380cdf6b22"
+    "extension_01": "c897107649e1b9042b9ad8e450b6f1853fbd6799e8b5790ac23dff30ae4973a8"
   },
   "file_hashes": {
-    "chain/extensions/01/qr_document-01-0509407954c941f9.pdf": "9b2012ffd84b099115ce41670285e94e8640ffcfe90a4514b46efd5f3a1ecb43",
-    "chain/extensions/01/recovery_document-01-0509407954c941f9.pdf": "7aa48255181b631e9196204714a062f6da7ef7a3c4135a974d41fc19a2b889f0",
-    "chain/qr_document.pdf": "cf271208d56a4fa602954b0a73ec3a19f620dbb7bd8383712b95a5a617948a1d",
-    "chain/recovery_document.pdf": "b58eb7929570df7b90236f80304fd70f6ca3415e21c5c65cfc62597cf982e9bc",
-    "chain/recovery_kit_index.pdf": "9d4dde9e4242e0132091a67b8c720b23501416a71502f376c99ee6a8423a2176",
-    "chain_payloads.bin": "bbe200f7b9689a3f13310a402778489abd43d3e604fc3330a8ed36ae5f12fb75",
-    "chain_payloads.txt": "d22608bf3c8c8db499342de21e327554e74b7d8ef182369276c3df1fbb27ae8d",
-    "extension_01_payloads.bin": "358e8d69df58e2375394027d327cc90a6dc6c4cca2464a220d7bab3c87e336e5",
-    "extension_01_payloads.txt": "e77c5ea777c24987949cbddf8a733461ebdc9aa4b31282b05d09998a55d67a8c",
-    "root_payloads.bin": "170e6b26fd43f97b2e4d948d53614dca57d3a96aee7246b7aefce96f229f7d0e",
-    "root_payloads.txt": "72d5a356c738d4096e8ff94e94eddb14c070f7ea297af6b46caef6fdf06ce4bf"
+    "chain/extensions/01/qr_document-01-c897107649e1b904.pdf": "e7d247ff7c10fdb414f00f72b9f69680410d11954557fa2834267e27a5265846",
+    "chain/extensions/01/recovery_document-01-c897107649e1b904.pdf": "6ef79e00e6f2c1a976ef1d63d3cb7cfff7be0a0d20a8a85a238bc432b5f47834",
+    "chain/qr_document.pdf": "0c29f70e906d9b7ee22ba598cd069dceecb3c2d5f46ca3d6c0cb9aacca3c8b76",
+    "chain/recovery_document.pdf": "46cf7a8ba9555fd7c691fdf5233f8718fb87893c482aa60b869ce3216d1fc1e6",
+    "chain/recovery_kit_index.pdf": "068ec5b5eacaa17aaa706f9336a9e09373bd7f471450e2ab92a9013a6088f6ad",
+    "chain_payloads.bin": "9d8122a7ca21d7e0a1d9a0e54b58960d7d8d095e04d58df74436ecae6e8b245f",
+    "chain_payloads.txt": "bfa84ed4f677a0b8f2df3bbe0408cddc2573b41ac4f009dea9f70b2f88dc2f14",
+    "extension_01_payloads.bin": "461724dfff8480287d16e49fd6e72afe69dcded8b0845ca0e86b5769660e6709",
+    "extension_01_payloads.txt": "76c85b19610f6b773e25704c704b94c9e971817cb232f264cd23d3b7333aef43",
+    "root_payloads.bin": "16d23b6e8f2c866cca49edc9eb4f0ea83324861b2f7d962870447a0f29888777",
+    "root_payloads.txt": "dac33de67fe34dd8f1492a55e543d2bb38c666a6a6cd764410e9a5dc3319c8d8"
   },
   "passphrase": "stable-v1_2-extension-passphrase",
   "payload_fixtures": {
@@ -100,7 +100,7 @@
   },
   "profile": "base64",
   "qr_payload_codec": "base64",
-  "root_doc_hash": "e0aee4dfd7ed3d2efe89ed2e1d2b0bcf7d005ddae2fb846a2b69c8922215e5ae",
+  "root_doc_hash": "e804e82b6b990789b902e3d490d8568fe3109a09e9b660f2bb37baffe11a99c2",
   "scan_paths": [
     "chain"
   ],

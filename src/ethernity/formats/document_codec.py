@@ -34,7 +34,8 @@ from ethernity.encoding.varint import (
     decode_uvarint as _decode_uvarint,
     encode_uvarint as _encode_uvarint,
 )
-from ethernity.formats.document_constants import BACKUP_DOCUMENT_VERSIONS, MAGIC, VERSION
+from ethernity.formats.document_constants import MAGIC as MAGIC, VERSION, DocumentKind
+from ethernity.formats.document_header import encode_document_header, read_document_header
 from ethernity.formats.extension_document import ExtensionDocument
 from ethernity.formats.manifest import (
     SIGNING_SEED_LEN,
@@ -165,8 +166,7 @@ def encode_backup_document(payload: bytes, manifest: BackupManifest) -> bytes:
 
     manifest_bytes = encode_manifest(manifest)
     parts = [
-        MAGIC,
-        _encode_uvarint(VERSION),
+        encode_document_header(DocumentKind.BACKUP),
         _encode_uvarint(len(manifest_bytes)),
         manifest_bytes,
         _encode_uvarint(len(payload)),
@@ -178,16 +178,10 @@ def encode_backup_document(payload: bytes, manifest: BackupManifest) -> bytes:
 def decode_backup_document(data: bytes) -> tuple[BackupManifest, bytes]:
     """Decode a standalone backup and return `(manifest, stored_payload)`."""
 
-    idx = 0
-    if len(data) < len(MAGIC) + 1:
-        raise ValueError("document too short")
-    if data[: len(MAGIC)] != MAGIC:
-        raise ValueError("invalid document magic")
-    idx += len(MAGIC)
-
-    version, idx = _decode_uvarint(data, idx)
-    if version not in BACKUP_DOCUMENT_VERSIONS:
-        raise ValueError(f"unsupported document version: {version}")
+    header = read_document_header(data)
+    if header.kind != DocumentKind.BACKUP:
+        raise ValueError("expected standalone backup document kind")
+    idx = header.body_offset
 
     manifest_len, idx = _decode_uvarint(data, idx)
     if manifest_len > MAX_MANIFEST_CBOR_BYTES:
@@ -200,7 +194,7 @@ def decode_backup_document(data: bytes) -> tuple[BackupManifest, bytes]:
         raise ValueError("truncated manifest")
     manifest_bytes = data[idx:end_manifest]
     idx = end_manifest
-    manifest = decode_manifest(manifest_bytes, document_version=version)
+    manifest = decode_manifest(manifest_bytes, document_version=header.version)
 
     payload_len, idx = _decode_uvarint(data, idx)
     end_payload = idx + payload_len
@@ -230,18 +224,6 @@ def decode_extension_document(
     return ExtensionDocument.decode(data, max_inline_chunk_bytes=max_inline_chunk_bytes)
 
 
-def detect_document_version(data: bytes) -> int:
-    """Read the document version after its magic bytes, without decoding its body."""
-
-    idx = len(MAGIC)
-    if len(data) < idx + 1:
-        raise ValueError("document too short")
-    if data[:idx] != MAGIC:
-        raise ValueError("invalid document magic")
-    version, _next_idx = _decode_uvarint(data, idx)
-    return version
-
-
 def decode_document(
     data: bytes,
     *,
@@ -249,15 +231,13 @@ def decode_document(
 ) -> tuple[int, object]:
     """Decode a root backup or extension and return `(version, decoded_document)`."""
 
-    version = detect_document_version(data)
-    if version in BACKUP_DOCUMENT_VERSIONS:
-        return version, decode_backup_document(data)
-    if version == 2:
-        return version, decode_extension_document(
-            data,
-            max_inline_chunk_bytes=max_extension_inline_chunk_bytes,
-        )
-    raise ValueError(f"unsupported document version: {version}")
+    header = read_document_header(data)
+    if header.kind == DocumentKind.BACKUP:
+        return header.version, decode_backup_document(data)
+    return header.version, decode_extension_document(
+        data,
+        max_inline_chunk_bytes=max_extension_inline_chunk_bytes,
+    )
 
 
 def extract_payloads(

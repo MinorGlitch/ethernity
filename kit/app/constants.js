@@ -19,12 +19,13 @@ export const FRAME_MAGIC = [0x41, 0x50]; // "AP"
 export const DOCUMENT_MAGIC = [0x41, 0x59]; // "AY"
 export const FRAME_VERSION = 1;
 export const LEGACY_BACKUP_DOCUMENT_VERSION = 1;
-export const BACKUP_DOCUMENT_VERSION = 3;
-export const BACKUP_DOCUMENT_VERSIONS = new Set([
+export const DOCUMENT_VERSION = 2;
+export const SUPPORTED_DOCUMENT_VERSIONS = new Set([
   LEGACY_BACKUP_DOCUMENT_VERSION,
-  BACKUP_DOCUMENT_VERSION,
+  DOCUMENT_VERSION,
 ]);
-export const EXTENSION_DOCUMENT_VERSION = 2;
+export const DOCUMENT_KIND_BACKUP = 1;
+export const DOCUMENT_KIND_UPDATE = 2;
 export const FRAME_TYPE_MAIN = 0x44; // "D"
 export const FRAME_TYPE_KEY = 0x4b; // "K"
 export const FRAME_TYPE_AUTH = 0x41; // "A"

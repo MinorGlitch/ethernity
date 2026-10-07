@@ -424,7 +424,7 @@ class TestStableV1Baseline(unittest.TestCase):
                 frames.append(frame)
         ciphertext = reassemble_payload(frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
         plaintext = decrypt_bytes(ciphertext, passphrase=_TEST_PASSPHRASE)
-        self.assertEqual(plaintext[:3], b"AY\x03")
+        self.assertEqual(plaintext[:4], b"AY\x02\x01")
         manifest, _payload = decode_backup_document(plaintext)
         files = sorted(
             (

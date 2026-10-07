@@ -8,7 +8,8 @@ import { extractFiles } from "../app/backup_document.js";
 import {
   DOCUMENT_MAGIC,
   LEGACY_BACKUP_DOCUMENT_VERSION,
-  BACKUP_DOCUMENT_VERSION,
+  DOCUMENT_VERSION,
+  DOCUMENT_KIND_BACKUP,
   FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
   FRAME_TYPE_MAIN,
@@ -33,6 +34,7 @@ function buildBackupDocument(manifest, payload, version = LEGACY_BACKUP_DOCUMENT
   return concatBytes([
     Uint8Array.from(DOCUMENT_MAGIC),
     encodeUvarint(version),
+    ...(version === DOCUMENT_VERSION ? [encodeUvarint(DOCUMENT_KIND_BACKUP)] : []),
     encodeUvarint(manifestBytes.length),
     manifestBytes,
     encodeUvarint(payload.length),
@@ -431,7 +433,7 @@ test("current and released documents normalize to the same manifest", async () =
         delete current.payload_raw_len;
         const stored = codec === "gzip" ? gzipPayload(payload) : payload;
         assert.deepEqual(
-          await extractFiles(buildBackupDocument(current, stored, BACKUP_DOCUMENT_VERSION)),
+          await extractFiles(buildBackupDocument(current, stored, DOCUMENT_VERSION)),
           await extractFiles(buildBackupDocument(legacy, stored)),
         );
       }
@@ -447,17 +449,14 @@ test("current documents reject removed fields and bound gzip by file sizes", asy
   for (const key of ["version", "sealed", "payload_raw_len"]) {
     await assert.rejects(
       () =>
-        extractFiles(
-          buildBackupDocument({ ...manifest, [key]: null }, payload, BACKUP_DOCUMENT_VERSION),
-        ),
+        extractFiles(buildBackupDocument({ ...manifest, [key]: null }, payload, DOCUMENT_VERSION)),
       /not allowed/,
     );
   }
   manifest.payload_codec = "gzip";
   manifest.files[0][1] = 2;
   await assert.rejects(
-    () =>
-      extractFiles(buildBackupDocument(manifest, gzipPayload(payload), BACKUP_DOCUMENT_VERSION)),
+    () => extractFiles(buildBackupDocument(manifest, gzipPayload(payload), DOCUMENT_VERSION)),
     /exceeds/,
   );
 });

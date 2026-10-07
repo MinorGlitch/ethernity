@@ -22,9 +22,10 @@ import {
 } from "../../lib/errors.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesEqual, bytesToHex } from "../../lib/bytes.js";
-import { EXTENSION_DOCUMENT_VERSION, BACKUP_DOCUMENT_VERSIONS } from "../constants.js";
+import { DOCUMENT_KIND_BACKUP } from "../constants.js";
 import { documentIdentityFromCiphertext } from "../documents/identity.js";
-import { extractFiles, readDocumentVersion } from "../backup_document.js";
+import { readDocumentHeader } from "../document_header.js";
+import { extractFiles } from "../backup_document.js";
 import { decodeExtensionDocumentHeader, reconstructLatestFilesFromDocuments } from "./document.js";
 import {
   deriveSigningPublicKey,
@@ -53,22 +54,17 @@ export async function recoverLatestFromPlaintextDocuments(
   const decodeErrors = [];
   for (const document of documents) {
     try {
-      const version = readDocumentVersion(document.plaintext);
-      if (BACKUP_DOCUMENT_VERSIONS.has(version)) {
+      const { kind } = readDocumentHeader(document.plaintext);
+      if (kind === DOCUMENT_KIND_BACKUP) {
         decoded.push({
           kind: "root",
           document,
           extracted: await extractFiles(document.plaintext),
         });
-      } else if (version === EXTENSION_DOCUMENT_VERSION) {
+      } else {
         decoded.push({
           kind: "extension",
           document,
-        });
-      } else {
-        decodeErrors.push({
-          document,
-          error: new RecoveryError("DOCUMENT_INVALID", `unsupported document version: ${version}`),
         });
       }
     } catch (err) {

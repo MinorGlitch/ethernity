@@ -17,6 +17,7 @@
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
+import { readDocumentHeader } from "./document_header.js";
 import { decodeDeterministicCbor } from "../lib/cbor.js";
 import { bytesEqual } from "../lib/bytes.js";
 import { readUvarint } from "../lib/encoding.js";
@@ -27,9 +28,8 @@ import {
   validateManifestRootLabel,
 } from "../lib/path_validation.js";
 import {
-  DOCUMENT_MAGIC,
-  BACKUP_DOCUMENT_VERSION,
-  BACKUP_DOCUMENT_VERSIONS,
+  DOCUMENT_KIND_BACKUP,
+  DOCUMENT_VERSION,
   LEGACY_BACKUP_DOCUMENT_VERSION,
   MANIFEST_VERSION,
   MAX_DECOMPRESSED_PAYLOAD_BYTES,
@@ -48,21 +48,10 @@ const GZIP_PAYLOAD_MESSAGES = [
   "invalid gzip payload",
 ];
 
-export function readDocumentVersion(bytes) {
-  if (bytes.length < 2) throw new Error("document too short");
-  if (bytes[0] !== DOCUMENT_MAGIC[0] || bytes[1] !== DOCUMENT_MAGIC[1]) {
-    throw new Error("invalid document magic");
-  }
-  return readUvarint(bytes, 2).value;
-}
-
 function decodeBackupDocument(bytes) {
-  const version = readDocumentVersion(bytes);
-  let idx = 2;
-  const versionRes = readUvarint(bytes, idx);
-  idx = versionRes.offset;
-  if (!BACKUP_DOCUMENT_VERSIONS.has(version))
-    throw new Error(`unsupported document version: ${version}`);
+  const { version, kind, bodyOffset } = readDocumentHeader(bytes);
+  if (kind !== DOCUMENT_KIND_BACKUP) throw new Error("expected standalone backup document kind");
+  let idx = bodyOffset;
 
   const manifestLenRes = readUvarint(bytes, idx);
   const manifestLen = manifestLenRes.value;
@@ -110,9 +99,7 @@ function parseManifest(manifest, documentVersion) {
   } else {
     for (const key of ["version", "sealed", "payload_raw_len"]) {
       if (key in manifest)
-        throw new Error(
-          `manifest ${key} is not allowed in document version ${BACKUP_DOCUMENT_VERSION}`,
-        );
+        throw new Error(`manifest ${key} is not allowed in document version ${DOCUMENT_VERSION}`);
     }
   }
 

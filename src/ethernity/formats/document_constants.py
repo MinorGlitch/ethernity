@@ -18,7 +18,14 @@
 
 from __future__ import annotations
 
+from enum import IntEnum
+
 MAGIC = b"AY"
 LEGACY_VERSION = 1
-VERSION = 3
-BACKUP_DOCUMENT_VERSIONS = frozenset({LEGACY_VERSION, VERSION})
+VERSION = 2
+SUPPORTED_DOCUMENT_VERSIONS = frozenset({LEGACY_VERSION, VERSION})
+
+
+class DocumentKind(IntEnum):
+    BACKUP = 1
+    UPDATE = 2

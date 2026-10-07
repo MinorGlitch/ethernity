@@ -11,8 +11,9 @@ BCP 14 meanings when capitalized.
 
 Here, "original backup" means the root document and "update" means an extension document. Updates
 use document format v2. Their authenticated header records the update mode and has no inner
-version. The original may use released document v1 or current v3. New standalone backups and
-Rebuild output use v3. Product release numbers are not stored in the format.
+version. The original may use released document v1 or current v2. New standalone backups and
+Rebuild output use v2. Document v2 has an explicit kind field: `1` for standalone backups and `2`
+for updates. Product release numbers are not stored in the format.
 
 ## Shared input checks
 
@@ -192,7 +193,7 @@ The kit is reusable across backups and generated independently of them. Its embe
 {
   "capability": "ethernity-unanchored-rescue",
   "version": 1,
-  "supported_document_versions": [1, 2, 3]
+  "supported_document_versions": [1, 2]
 }
 ```
 
@@ -276,7 +277,7 @@ user to repeat Add Files.
 ## Rebuild
 
 Rebuild MUST authenticate and reconstruct the selected version, then write its files as a new
-standalone document v3 backup in a separate directory. It MUST preserve the passphrase and sealed
+standalone document v2 backup in a separate directory. It MUST preserve the passphrase and sealed
 state. For an unsealed backup, it MUST also preserve the original signing seed and key.
 
 A sealed backup has no signing seed in its manifest, and Rebuild does not accept separate
