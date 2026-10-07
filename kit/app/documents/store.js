@@ -75,7 +75,6 @@ export function addMainDocumentFrame(state, frame) {
     record.total = frame.total;
   } else if (record.total !== frame.total) {
     record.conflicts += 1;
-    syncPrimaryDocumentFields(state);
     return false;
   }
   if (record.mainFrames.has(frame.index)) {
@@ -85,13 +84,11 @@ export function addMainDocumentFrame(state, frame) {
     } else {
       record.duplicates += 1;
     }
-    syncPrimaryDocumentFields(state);
     return false;
   }
   record.mainFrames.set(frame.index, frame);
   record.ciphertext = null;
   record.cipherDocHashHex = null;
-  syncPrimaryDocumentFields(state);
   return true;
 }
 
@@ -99,7 +96,6 @@ export function addAuthDocumentFrame(state, frame) {
   const record = getOrCreateDocumentRecord(state, frame.docId);
   if (frame.total !== 1 || frame.index !== 0) {
     record.authErrors += 1;
-    syncPrimaryDocumentFields(state);
     return false;
   }
   let payload;
@@ -108,18 +104,16 @@ export function addAuthDocumentFrame(state, frame) {
   } catch {
     record.authErrors += 1;
     record.authStatus = "invalid payload";
-    syncPrimaryDocumentFields(state);
     return false;
   }
   if (record.authPayload) {
     if (!authPayloadsEqual(record.authPayload, payload)) {
       record.authConflicts += 1;
       record.authStatus = "conflicting auth payloads";
-      syncPrimaryDocumentFields(state);
+
       return false;
     }
     record.authDuplicates += 1;
-    syncPrimaryDocumentFields(state);
     return true;
   }
   record.authPayload = payload;
@@ -127,42 +121,27 @@ export function addAuthDocumentFrame(state, frame) {
   record.authSignPubHex = bytesToHex(payload.signPub);
   record.authSignatureHex = bytesToHex(payload.signature);
   record.authStatus = "pending";
-  syncPrimaryDocumentFields(state);
   return true;
 }
 
-export function syncPrimaryDocumentFields(state) {
-  const primary = primaryDocumentRecord(state);
-  state.duplicates = sumDocumentField(state.documents, "duplicates");
-  state.conflicts = sumDocumentField(state.documents, "conflicts");
-  state.authDuplicates = sumDocumentField(state.documents, "authDuplicates");
-  state.authConflicts = sumDocumentField(state.documents, "authConflicts");
-  state.authErrors = sumDocumentField(state.documents, "authErrors");
-  if (!primary) {
-    state.docIdHex = null;
-    state.total = null;
-    state.mainFrames = new Map();
-    state.authPayload = null;
-    state.authDocIdHex = null;
-    state.authDocHashHex = null;
-    state.authSignPubHex = null;
-    state.authSignatureHex = null;
-    state.authStatus = "missing";
-    state.ciphertext = null;
-    state.cipherDocHashHex = null;
-    return;
+export function documentCounts(state) {
+  const counts = {
+    errors: state.errors,
+    ignored: state.ignored,
+    duplicates: 0,
+    conflicts: 0,
+    authDuplicates: 0,
+    authConflicts: 0,
+    authErrors: state.authParseErrors,
+  };
+  for (const record of state.documents.values()) {
+    counts.duplicates += record.duplicates;
+    counts.conflicts += record.conflicts;
+    counts.authDuplicates += record.authDuplicates;
+    counts.authConflicts += record.authConflicts;
+    counts.authErrors += record.authErrors;
   }
-  state.docIdHex = primary.docIdHex;
-  state.total = primary.total;
-  state.mainFrames = primary.mainFrames;
-  state.authPayload = primary.authPayload;
-  state.authDocIdHex = primary.authPayload ? primary.docIdHex : null;
-  state.authDocHashHex = primary.authDocHashHex;
-  state.authSignPubHex = primary.authSignPubHex;
-  state.authSignatureHex = primary.authSignatureHex;
-  state.authStatus = primary.authStatus;
-  state.ciphertext = primary.ciphertext;
-  state.cipherDocHashHex = primary.cipherDocHashHex;
+  return counts;
 }
 
 export function primaryDocumentRecord(state) {
@@ -198,14 +177,6 @@ export function authOnlyDocumentRecords(state) {
     }
   }
   return records;
-}
-
-function sumDocumentField(documents, key) {
-  let total = 0;
-  for (const record of documents.values()) {
-    total += record[key] ?? 0;
-  }
-  return total;
 }
 
 function authPayloadsEqual(left, right) {

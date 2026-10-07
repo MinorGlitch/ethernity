@@ -18,8 +18,6 @@
 import {
   cancelDecryptRequest,
   clearRecoveryResult,
-  copyAuthAndCipherFields,
-  copyShardAsyncFields,
   dispatchPatch,
   dispatchReset,
   dispatchState,
@@ -37,6 +35,8 @@ import {
 import { verifyCollectedShardSignatures } from "./shard_auth.js";
 import { autoRecoverShardSecret } from "./shards.js";
 import { cloneState, setStatus } from "./state/initial.js";
+import { documentCounts, primaryDocumentRecord } from "./documents/store.js";
+import { activeShardSetRecord, shardCounts } from "./shard_store.js";
 
 const RECOVERY_INPUT_FIELDS = new Set([
   "payloadText",
@@ -47,194 +47,143 @@ const RECOVERY_INPUT_FIELDS = new Set([
   "freshnessUnknownAcknowledged",
 ]);
 
-function parsedMainAccepted(base, before, added) {
-  return (
-    added > 0 &&
-    base.errors === before.errors &&
-    base.conflicts === before.conflicts &&
-    base.ignored === before.ignored &&
-    base.authErrors === before.authErrors &&
-    base.authConflicts === before.authConflicts
-  );
-}
+const BACKUP_COLLECTION = {
+  text: "payloadText",
+  busy: "isAddingFrames",
+  request: "frameRequestId",
+  status: "frameStatus",
+  error: "errors",
+  counts: documentCounts,
+  parse: parseAutoPayload,
+  scan: parseScannedPayload,
+  issues: ["errors", "conflicts", "ignored", "authErrors", "authConflicts"],
+};
+const SHARD_COLLECTION = {
+  text: "shardPayloadText",
+  busy: "isAddingShards",
+  request: "shardRequestId",
+  status: "shardStatus",
+  error: "shardErrors",
+  counts: shardCounts,
+  parse: parseAutoShard,
+  scan: parseScannedShard,
+  issues: ["errors", "conflicts"],
+};
 
-async function runMainAsyncFollowups(dispatch, base) {
-  const work = cloneState(base);
-  const targetRevision = base.revision + 1;
-  await updateAuthStatus(work);
-  syncCollectedCiphertext(work);
-  await verifyAndRecoverShardSecret(work);
-  dispatch({
-    type: "MUTATE_STATE",
-    baseRevision: targetRevision,
-    mutate(next) {
-      copyAuthAndCipherFields(next, work);
-      copyShardAsyncFields(next, work);
-    },
-  });
-}
-
-function parsedShardAccepted(parsed, before, added) {
-  return (
-    added > 0 &&
-    parsed.shardErrors === before.shardErrors &&
-    parsed.shardConflicts === before.shardConflicts
-  );
-}
-
-function mainScanStatus(base, before, added) {
-  if (added > 0) {
-    return {
-      lines: [
-        `Added ${added} frame(s).`,
-        base.total ? "Collect all frames to download." : "Waiting for more frames.",
-      ],
-      type: "",
-    };
-  }
-  if (base.errors > before.errors || base.authErrors > before.authErrors) {
-    return {
-      lines: [
-        "Scanned QR could not be decoded.",
-        "Try another scan or paste the payload text instead.",
-      ],
-      type: "error",
-    };
-  }
-  if (
-    base.conflicts > before.conflicts ||
-    base.ignored > before.ignored ||
-    base.authConflicts > before.authConflicts
-  ) {
-    return {
-      lines: [
-        "Scanned QR was ignored.",
-        "Check for duplicates or conflicting frames, then continue scanning.",
-      ],
-      type: "warn",
-    };
-  }
-  return {
-    lines: [
-      `Added ${added} frame(s).`,
-      base.total ? "Collect all frames to download." : "Waiting for more frames.",
-    ],
-    type: "",
-  };
-}
-
-function mainTextStatus(base, added, failed) {
+function collectionStatus(state, collection, added, failed, ignored, scanned) {
+  const shard = collection === SHARD_COLLECTION;
+  const noun = shard ? "shard " : "";
   if (failed) {
     return {
       lines: [
-        "Pasted text could not be decoded.",
-        "Check the payload text or recovery text, then try again.",
+        scanned
+          ? `Scanned ${noun}QR could not be decoded.`
+          : `Pasted ${noun}text could not be decoded.`,
       ],
       type: "error",
     };
   }
-  return {
-    lines: [
-      `Added ${added} frame(s).`,
-      base.total ? "Collect all frames to download." : "Waiting for more frames.",
-    ],
-    type: "",
-  };
-}
-
-function shardScanStatus(parsed, before, added) {
-  if (added > 0) {
+  if (!added && ignored && scanned) {
     return {
-      lines: [
-        `Added ${added} shard frame(s).`,
-        parsed.shardThreshold
-          ? "Ready to recover when enough shards are collected."
-          : "Waiting for shard metadata.",
-      ],
-      type: "",
-    };
-  }
-  if (parsed.shardErrors > before.shardErrors) {
-    return {
-      lines: [
-        "Scanned shard QR could not be decoded.",
-        "Try another scan or paste the shard payload text instead.",
-      ],
-      type: "error",
-    };
-  }
-  if (parsed.shardConflicts > before.shardConflicts) {
-    return {
-      lines: [
-        "Scanned shard QR was ignored.",
-        "Check for duplicates or conflicting shard frames, then continue scanning.",
-      ],
+      lines: [`Scanned ${noun}QR was ignored. Check for duplicates or conflicting frames.`],
       type: "warn",
     };
   }
-  return {
-    lines: [
-      `Added ${added} shard frame(s).`,
-      parsed.shardThreshold
-        ? "Ready to recover when enough shards are collected."
-        : "Waiting for shard metadata.",
-    ],
-    type: "",
-  };
+  const ready = shard
+    ? activeShardSetRecord(state)?.threshold
+    : primaryDocumentRecord(state)?.total;
+  const hint = shard
+    ? ready
+      ? "Ready to recover when enough shards are collected."
+      : "Waiting for shard metadata."
+    : ready
+      ? "Collect all frames to download."
+      : "Waiting for more frames.";
+  return { lines: [`Added ${added} ${noun}frame(s).`, hint], type: "" };
 }
 
-function shardTextStatus(parsed, added, failed) {
-  if (failed) {
-    return {
-      lines: [
-        "Pasted shard text could not be decoded.",
-        "Check the shard payload text or shard recovery text, then try again.",
-      ],
-      type: "error",
-    };
+async function collect(dispatch, getState, collection, scanned) {
+  if (getState()[collection.busy]) return;
+  const parsed = cloneState(getState());
+  const before = collection.counts(parsed);
+  const fromScan = scanned !== undefined;
+  const { added, failed } = fromScan
+    ? { added: collection.scan(parsed, scanned), failed: false }
+    : parseTextWithErrors(parsed, parsed[collection.text], collection.parse, collection.error);
+  const counts = collection.counts(parsed);
+  const hasIssues = collection.issues.some((key) => counts[key] !== before[key]);
+  if (added > 0 || failed || hasIssues) {
+    cancelRecoveryDecrypt(parsed);
+    clearRecoveryResult(parsed);
   }
-  return {
-    lines: [
-      `Added ${added} shard frame(s).`,
-      parsed.shardThreshold
-        ? "Ready to recover when enough shards are collected."
-        : "Waiting for shard metadata.",
-    ],
-    type: "",
-  };
+  if (added > 0 && !hasIssues) parsed[collection.text] = "";
+  parsed[collection.busy] = true;
+  const requestId = parsed.revision + 1;
+  parsed[collection.request] = requestId;
+  const status = collectionStatus(
+    parsed,
+    collection,
+    added,
+    failed || counts.errors > before.errors,
+    hasIssues,
+    fromScan,
+  );
+  setStatus(parsed, collection.status, status.lines, status.type);
+  dispatchState(dispatch, parsed);
+  try {
+    await finishCollection(dispatch, getState, parsed, collection, status);
+  } finally {
+    if (getState()[collection.request] === requestId) {
+      dispatchPatch(dispatch, getState, { [collection.busy]: false });
+    }
+  }
 }
 
-async function runShardAsyncFollowups(
-  dispatch,
-  getState,
-  parsed,
-  baseStatusLines,
-  baseStatusType = "",
-) {
+async function finishCollection(dispatch, getState, parsed, collection, status) {
   const work = cloneState(parsed);
   await updateAuthStatus(work);
   syncCollectedCiphertext(work);
-  await verifyAndRecoverShardSecret(work, baseStatusLines, baseStatusType);
-  const latest = cloneState(getState());
-  if (!shardAsyncTargetStillCurrent(latest, parsed)) {
+  const shard = collection === SHARD_COLLECTION;
+  await verifyAndRecoverShardSecret(work, shard ? status.lines : [], shard ? status.type : "");
+  const latest = getState();
+  if (latest[collection.request] !== parsed[collection.request]) return;
+  if (!shard) {
+    dispatchState(dispatch, { ...work, revision: parsed.revision + 1 });
     return;
   }
-  dispatch({
-    type: "MUTATE_STATE",
-    baseRevision: latest.revision,
-    mutate(next) {
-      copyAuthAndCipherFields(next, work);
-      copyShardAsyncFields(next, work);
-    },
+  // Shard verification may finish after the main collector. Preserve unrelated edits.
+  if (
+    latest.frameRequestId !== parsed.frameRequestId ||
+    !latest.isAddingShards ||
+    latest.shardPayloadText !== parsed.shardPayloadText ||
+    latest.agePassphrase !== parsed.agePassphrase
+  )
+    return;
+  dispatchState(dispatch, {
+    ...latest,
+    documents: work.documents,
+    shardSets: work.shardSets,
+    activeShardSetKey: work.activeShardSetKey,
+    recoveredShardSecret: work.recoveredShardSecret,
+    agePassphrase: work.agePassphrase,
+    shardStatus: work.shardStatus,
   });
 }
 
-function shardAsyncTargetStillCurrent(latest, parsed) {
-  return (
-    latest.isAddingShards &&
-    latest.shardPayloadText === parsed.shardPayloadText &&
-    latest.agePassphrase === parsed.agePassphrase
-  );
+export function addPayloads(dispatch, getState) {
+  return collect(dispatch, getState, BACKUP_COLLECTION);
+}
+
+export function addScannedPayload(dispatch, getState, scanned) {
+  return collect(dispatch, getState, BACKUP_COLLECTION, scanned);
+}
+
+export function addShardPayloads(dispatch, getState) {
+  return collect(dispatch, getState, SHARD_COLLECTION);
+}
+
+export function addScannedShardPayload(dispatch, getState, scanned) {
+  return collect(dispatch, getState, SHARD_COLLECTION, scanned);
 }
 
 async function verifyAndRecoverShardSecret(work, baseStatusLines = [], baseStatusType = "") {
@@ -242,17 +191,12 @@ async function verifyAndRecoverShardSecret(work, baseStatusLines = [], baseStatu
   let signatureType = "";
   try {
     const result = await verifyCollectedShardSignatures(work);
-    if (result.unavailable) {
-      signatureLines.push("Shard signatures not verified in this browser.");
+    if (result.verified) {
+      signatureLines.push(`Verified ${result.verified} shard signature(s).`);
+    }
+    if (result.invalid) {
+      signatureLines.push(`Rejected ${result.invalid} shard(s) due to invalid signature.`);
       signatureType = "warn";
-    } else {
-      if (result.verified) {
-        signatureLines.push(`Verified ${result.verified} shard signature(s).`);
-      }
-      if (result.invalid) {
-        signatureLines.push(`Rejected ${result.invalid} shard(s) due to invalid signature.`);
-        signatureType = "warn";
-      }
     }
   } catch {
     signatureLines.push("Shard signature verification failed.");
@@ -279,9 +223,6 @@ export function updateField(dispatch, getState, key, value) {
   if (RECOVERY_INPUT_FIELDS.has(key) && current[key] !== value) {
     patch.extractedFiles = [];
     patch.decryptedBackup = null;
-    patch.decryptedBackupSource = "";
-    patch.recoveryComplete = false;
-    patch.intensiveRecoveryTarget = null;
     patch.extractStatus = { lines: [], type: "" };
     patch.decryptStatus = { lines: [], type: "" };
   }
@@ -303,146 +244,6 @@ function cancelRecoveryDecrypt(state) {
     cancelActiveDecryptWork();
   }
   cancelDecryptRequest(state);
-}
-
-export async function addPayloads(dispatch, getState) {
-  const base = cloneState(getState());
-  if (base.isAddingFrames) return;
-  const before = {
-    errors: base.errors,
-    conflicts: base.conflicts,
-    ignored: base.ignored,
-    authErrors: base.authErrors,
-    authConflicts: base.authConflicts,
-  };
-  const { added, failed } = parseTextWithErrors(base, base.payloadText, parseAutoPayload, "errors");
-  if (added > 0 || failed) {
-    cancelRecoveryDecrypt(base);
-    clearRecoveryResult(base);
-  }
-  const fullyAccepted = parsedMainAccepted(base, before, added);
-  if (fullyAccepted) {
-    base.payloadText = "";
-  }
-  base.isAddingFrames = true;
-  const frameStatus = mainTextStatus(base, added, failed);
-  setStatus(base, "frameStatus", frameStatus.lines, frameStatus.type);
-  dispatchState(dispatch, base);
-  try {
-    await runMainAsyncFollowups(dispatch, base);
-  } finally {
-    const latest = cloneState(getState());
-    latest.isAddingFrames = false;
-    dispatchState(dispatch, latest);
-  }
-}
-
-export async function addScannedPayload(dispatch, getState, scanned) {
-  const base = cloneState(getState());
-  if (base.isAddingFrames) return;
-  const before = {
-    errors: base.errors,
-    conflicts: base.conflicts,
-    ignored: base.ignored,
-    authErrors: base.authErrors,
-    authConflicts: base.authConflicts,
-  };
-  const added = parseScannedPayload(base, scanned);
-  if (
-    added > 0 ||
-    base.errors > before.errors ||
-    base.conflicts > before.conflicts ||
-    base.ignored > before.ignored ||
-    base.authErrors > before.authErrors ||
-    base.authConflicts > before.authConflicts
-  ) {
-    cancelRecoveryDecrypt(base);
-    clearRecoveryResult(base);
-  }
-  const fullyAccepted = parsedMainAccepted(base, before, added);
-  if (fullyAccepted) {
-    base.payloadText = "";
-  }
-  base.isAddingFrames = true;
-  const frameStatus = mainScanStatus(base, before, added);
-  setStatus(base, "frameStatus", frameStatus.lines, frameStatus.type);
-  dispatchState(dispatch, base);
-  try {
-    await runMainAsyncFollowups(dispatch, base);
-  } finally {
-    const latest = cloneState(getState());
-    latest.isAddingFrames = false;
-    dispatchState(dispatch, latest);
-  }
-}
-
-export async function addShardPayloads(dispatch, getState) {
-  const parsed = cloneState(getState());
-  if (parsed.isAddingShards) return;
-  const before = {
-    shardErrors: parsed.shardErrors,
-    shardConflicts: parsed.shardConflicts,
-  };
-  const { added, failed } = parseTextWithErrors(
-    parsed,
-    parsed.shardPayloadText,
-    parseAutoShard,
-    "shardErrors",
-  );
-  if (added > 0 || failed) {
-    cancelRecoveryDecrypt(parsed);
-    clearRecoveryResult(parsed);
-  }
-  const fullyAccepted = parsedShardAccepted(parsed, before, added);
-  if (fullyAccepted) {
-    parsed.shardPayloadText = "";
-  }
-  parsed.isAddingShards = true;
-  const shardStatus = shardTextStatus(parsed, added, failed);
-  const baseStatusLines = shardStatus.lines;
-  setStatus(parsed, "shardStatus", baseStatusLines, shardStatus.type);
-  dispatchState(dispatch, parsed);
-  try {
-    await runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines, shardStatus.type);
-  } finally {
-    const latest = cloneState(getState());
-    latest.isAddingShards = false;
-    dispatchState(dispatch, latest);
-  }
-}
-
-export async function addScannedShardPayload(dispatch, getState, scanned) {
-  const parsed = cloneState(getState());
-  if (parsed.isAddingShards) return;
-  const before = {
-    shardErrors: parsed.shardErrors,
-    shardConflicts: parsed.shardConflicts,
-  };
-  const added = parseScannedShard(parsed, scanned);
-  if (
-    added > 0 ||
-    parsed.shardErrors > before.shardErrors ||
-    parsed.shardConflicts > before.shardConflicts
-  ) {
-    cancelRecoveryDecrypt(parsed);
-    clearRecoveryResult(parsed);
-  }
-  const fullyAccepted = parsedShardAccepted(parsed, before, added);
-  if (fullyAccepted) {
-    parsed.shardPayloadText = "";
-  }
-  parsed.isAddingShards = true;
-  const shardStatus = shardScanStatus(parsed, before, added);
-  const baseStatusLines = shardStatus.lines;
-  setStatus(parsed, "shardStatus", baseStatusLines, shardStatus.type);
-  dispatchState(dispatch, parsed);
-  try {
-    await runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines, shardStatus.type);
-  } finally {
-    const latest = cloneState(getState());
-    latest.isAddingShards = false;
-    dispatchState(dispatch, latest);
-  }
 }
 
 export async function copyRecoveredSecret(dispatch, getState) {

@@ -16,30 +16,9 @@
  */
 
 import { encodeCbor } from "../lib/cbor.js";
-import { verifySigningSignature } from "../lib/ed25519.js";
+import { verifySignature } from "../lib/ed25519.js";
 import { concatBytes } from "../lib/bytes.js";
 import { SHARD_DOMAIN, SHARD_VERSION, textEncoder } from "./constants.js";
-import { shardSetRecords, syncActiveShardFields } from "./shard_store.js";
-
-async function verifyShardSignature(payload) {
-  const message = shardSignatureMessage(payload);
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi?.subtle?.importKey) {
-    try {
-      const key = await cryptoApi.subtle.importKey(
-        "raw",
-        payload.signPub,
-        { name: "Ed25519" },
-        false,
-        ["verify"],
-      );
-      return await cryptoApi.subtle.verify("Ed25519", key, payload.signature, message);
-    } catch {
-      return verifyShardSignaturePortable(payload.signature, message, payload.signPub);
-    }
-  }
-  return verifyShardSignaturePortable(payload.signature, message, payload.signPub);
-}
 
 function shardSignatureMessage(payload) {
   const signedPayload = {
@@ -60,27 +39,18 @@ function shardSignatureMessage(payload) {
   return concatBytes(textEncoder.encode(SHARD_DOMAIN), signedBytes);
 }
 
-function verifyShardSignaturePortable(signature, message, signPub) {
-  try {
-    return verifySigningSignature(signature, message, signPub);
-  } catch {
-    return false;
-  }
-}
-
 export async function verifyCollectedShardSignatures(state) {
-  const records = shardSetRecords(state);
-  if (!records.length) {
-    return { unavailable: false, verified: 0, invalid: 0 };
-  }
-
   let verified = 0;
   let invalid = 0;
 
-  for (const { record } of records) {
+  for (const record of state.shardSets.values()) {
     for (const [shareIndex, payload] of record.shardFrames.entries()) {
       payload.signatureVerified = false;
-      const ok = await verifyShardSignature(payload);
+      const ok = await verifySignature(
+        payload.signature,
+        shardSignatureMessage(payload),
+        payload.signPub,
+      );
       if (ok === true) {
         payload.signatureVerified = true;
         verified += 1;
@@ -90,7 +60,6 @@ export async function verifyCollectedShardSignatures(state) {
       invalid += 1;
     }
   }
-  syncActiveShardFields(state);
 
-  return { unavailable: false, verified, invalid };
+  return { verified, invalid };
 }

@@ -19,8 +19,7 @@ import { bytesToHex } from "../lib/bytes.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED, textDecoder } from "./constants.js";
 import { completeDocumentRecords } from "./documents/store.js";
-import { ensureCiphertextAndHash, ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
-import { activateShardSet, shardSetRecords } from "./shard_store.js";
+import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 import { setStatus } from "./state/initial.js";
 
 function setShardStatus(state, statusPrefix, line, type) {
@@ -36,7 +35,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
   }
   const missingHash = candidates.find(({ record }) => !record.docHashHex);
   if (missingHash) {
-    activateShardSet(state, missingHash.key);
+    state.activeShardSetKey = missingHash.key;
     setShardStatus(
       state,
       statusPrefix,
@@ -85,7 +84,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
       !documentBinding.authSignPubHex || record.signPubHex === documentBinding.authSignPubHex,
   );
   if (!signingKeyMatches.length) {
-    activateShardSet(state, matchingCandidates[0].key);
+    state.activeShardSetKey = matchingCandidates[0].key;
     setShardStatus(
       state,
       statusPrefix,
@@ -99,7 +98,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     ({ record }) => (record.conflicts ?? 0) === 0,
   );
   if (!unambiguousCandidates.length) {
-    activateShardSet(state, signingKeyMatches[0].key);
+    state.activeShardSetKey = signingKeyMatches[0].key;
     setShardStatus(
       state,
       statusPrefix,
@@ -113,7 +112,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     ({ record }) => !record.docIdHex || record.docIdHex === record.docHashHex.slice(0, 16),
   );
   if (!docIdCompatibleCandidates.length) {
-    activateShardSet(state, unambiguousCandidates[0].key);
+    state.activeShardSetKey = unambiguousCandidates[0].key;
     setShardStatus(
       state,
       statusPrefix,
@@ -124,7 +123,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
   }
 
   const selected = selectRecoveryCandidate(docIdCompatibleCandidates);
-  activateShardSet(state, selected.key);
+  state.activeShardSetKey = selected.key;
   const { record } = selected;
   const unverified = Array.from(record.shardFrames.values()).filter(
     (payload) => payload.signatureVerified !== true,
@@ -163,18 +162,12 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
 }
 
 function recoveryCandidates(state) {
-  return shardSetRecords(state).filter(
+  return Array.from(state.shardSets, ([key, record]) => ({ key, record })).filter(
     ({ record }) => record.threshold && record.shardFrames.size >= record.threshold,
   );
 }
 
 function collectedDocumentBindings(state) {
-  if (!state.documents?.size) {
-    const cipherHash = ensureCiphertextAndHash(state);
-    return cipherHash
-      ? new Map([[bytesToHex(cipherHash), { authSignPubHex: verifiedAuthSignPubHex(state) }]])
-      : new Map();
-  }
   const hashes = new Map();
   for (const record of completeDocumentRecords(state)) {
     const hash = ensureDocumentCiphertextAndHash(record);

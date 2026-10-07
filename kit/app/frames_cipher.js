@@ -15,6 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { RecoveryError } from "../lib/errors.js";
 import { hexToBytes } from "../lib/bytes.js";
 import {
   MAX_CIPHERTEXT_BYTES,
@@ -25,8 +26,6 @@ import {
   authOnlyDocumentRecords,
   completeDocumentRecords,
   incompleteDocumentRecords,
-  primaryDocumentRecord,
-  syncPrimaryDocumentFields,
 } from "./documents/store.js";
 import {
   documentIdentityFromCiphertext,
@@ -58,16 +57,6 @@ export function reassembleCiphertext(source) {
   return out;
 }
 
-export function ensureCiphertextAndHash(state) {
-  const primary = primaryDocumentRecord(state);
-  if (!primary) {
-    return ensureDocumentCiphertextAndHash(state);
-  }
-  const docHash = ensureDocumentCiphertextAndHash(primary);
-  syncPrimaryDocumentFields(state);
-  return docHash;
-}
-
 export function ensureDocumentCiphertextAndHash(record) {
   if (!record.total || record.mainFrames.size !== record.total) {
     return null;
@@ -87,14 +76,6 @@ export function ensureDocumentCiphertextAndHash(record) {
 }
 
 export function syncCollectedCiphertext(state) {
-  if (!state.documents.size) {
-    try {
-      ensureDocumentCiphertextAndHash(state);
-    } catch {
-      // leave ciphertext unset if reassembly fails
-    }
-    return;
-  }
   for (const record of state.documents.values()) {
     try {
       ensureDocumentCiphertextAndHash(record);
@@ -102,7 +83,6 @@ export function syncCollectedCiphertext(state) {
       // leave ciphertext unset if reassembly fails
     }
   }
-  syncPrimaryDocumentFields(state);
 }
 
 export function collectedRecoveryDocuments(
@@ -130,7 +110,6 @@ export function collectedRecoveryDocuments(
     });
   }
   enforceRecoveryDocumentBudget(documents);
-  syncPrimaryDocumentFields(state);
   return documents;
 }
 
@@ -139,7 +118,8 @@ export function enforceRecoveryDocumentBudget(
   { byteField = "ciphertext", byteLabel = "ciphertext" } = {},
 ) {
   if (documents.length > MAX_RECOVERY_DOCUMENTS) {
-    throw new Error(
+    throw new RecoveryError(
+      "RECOVERY_RESOURCE_LIMIT",
       `collected backup documents exceed MAX_RECOVERY_DOCUMENTS (${MAX_RECOVERY_DOCUMENTS}): ${documents.length}`,
     );
   }
@@ -150,14 +130,16 @@ export function enforceRecoveryDocumentBudget(
       continue;
     }
     if (bytes.length > MAX_CIPHERTEXT_BYTES) {
-      throw new Error(
+      throw new RecoveryError(
+        "RECOVERY_RESOURCE_LIMIT",
         `collected ${byteLabel} exceeds MAX_CIPHERTEXT_BYTES (${MAX_CIPHERTEXT_BYTES}): ${bytes.length} bytes`,
       );
     }
     totalBytes += bytes.length;
   }
   if (totalBytes > MAX_RECOVERY_CIPHERTEXT_BYTES) {
-    throw new Error(
+    throw new RecoveryError(
+      "RECOVERY_RESOURCE_LIMIT",
       `collected ${byteLabel} exceeds MAX_RECOVERY_CIPHERTEXT_BYTES (${MAX_RECOVERY_CIPHERTEXT_BYTES}): ${totalBytes} bytes`,
     );
   }

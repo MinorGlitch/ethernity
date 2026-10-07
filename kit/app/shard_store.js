@@ -98,26 +98,18 @@ function cloneOptionalBytes(value) {
   return value instanceof Uint8Array ? value.slice() : value;
 }
 
-export function syncActiveShardFields(state, preferredKey = state.activeShardSetKey) {
-  if (!state.shardSets?.size) {
-    return;
+export function activeShardSetRecord(state) {
+  return state.shardSets.get(state.activeShardSetKey) ?? null;
+}
+
+export function shardCounts(state) {
+  let duplicates = 0;
+  let conflicts = 0;
+  for (const record of state.shardSets.values()) {
+    duplicates += record.duplicates;
+    conflicts += record.conflicts;
   }
-  let key = preferredKey;
-  let record = key ? state.shardSets.get(key) : null;
-  if (!record) {
-    [key, record] = state.shardSets.entries().next().value;
-  }
-  state.activeShardSetKey = key;
-  state.shardFrames = record.shardFrames;
-  state.shardDocIdHex = record.docIdHex;
-  state.shardVersion = record.version;
-  state.shardDocHashHex = record.docHashHex;
-  state.shardSignPubHex = record.signPubHex;
-  state.shardSetIdHex = record.shardSetIdHex || null;
-  state.shardThreshold = record.threshold;
-  state.shardShares = record.shareCount;
-  state.shardKeyType = record.keyType;
-  state.shardSecretLen = record.secretLen;
+  return { duplicates, conflicts, errors: state.shardErrors };
 }
 
 export function addShardPayloadFrame(state, frame, payload) {
@@ -128,64 +120,27 @@ export function addShardPayloadFrame(state, frame, payload) {
     record = createShardSetRecord(frame.docId, docIdHex, payload);
     state.shardSets.set(key, record);
   } else if (!shardPayloadMatchesRecord(record, payload)) {
-    state.shardConflicts += 1;
     record.conflicts += 1;
-    syncActiveShardFields(state, key);
+    state.activeShardSetKey = key;
     return false;
   }
 
   const existing = record.shardFrames.get(payload.shareIndex);
   if (existing) {
     if (!bytesEqual(existing.share, payload.share)) {
-      state.shardConflicts += 1;
       record.conflicts += 1;
     } else if (!bytesEqual(existing.signature, payload.signature)) {
-      state.shardConflicts += 1;
       record.conflicts += 1;
     } else {
-      state.shardDuplicates += 1;
       record.duplicates += 1;
     }
-    syncActiveShardFields(state, key);
+    state.activeShardSetKey = key;
     return false;
   }
 
   record.shardFrames.set(payload.shareIndex, payload);
-  syncActiveShardFields(state, key);
+  state.activeShardSetKey = key;
   return true;
-}
-
-export function shardSetRecords(state) {
-  if (state.shardSets?.size) {
-    return Array.from(state.shardSets.entries()).map(([key, record]) => ({ key, record }));
-  }
-  if (!state.shardFrames?.size) {
-    return [];
-  }
-  return [
-    {
-      key: null,
-      record: {
-        docIdHex: state.shardDocIdHex,
-        version: state.shardVersion,
-        threshold: state.shardThreshold,
-        shareCount: state.shardShares,
-        keyType: state.shardKeyType,
-        secretLen: state.shardSecretLen,
-        docHashHex: state.shardDocHashHex,
-        signPubHex: state.shardSignPubHex,
-        shardSetIdHex: state.shardSetIdHex,
-        shardFrames: state.shardFrames,
-      },
-    },
-  ];
-}
-
-export function activateShardSet(state, key) {
-  if (key === null) {
-    return;
-  }
-  syncActiveShardFields(state, key);
 }
 
 function shardPayloadMatchesRecord(record, payload) {

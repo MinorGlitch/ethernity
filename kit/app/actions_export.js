@@ -15,6 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { documentCounts, primaryDocumentRecord } from "./documents/store.js";
 import { makeZip } from "../lib/zip.js";
 import { reassembleCiphertext } from "./frames_cipher.js";
 import { downloadBlob, downloadBytes } from "./io.js";
@@ -45,14 +46,16 @@ export function resolveExtractDownload(file) {
 export function downloadCipher(dispatch, getState) {
   const next = cloneState(getState());
   try {
-    if (next.conflicts > 0) {
+    if (documentCounts(next).conflicts > 0) {
       throw new Error("conflicting duplicate frames detected");
     }
     if ((next.documents?.size ?? 0) > 1) {
       throw new Error("Encrypted file download is only available for one backup document.");
     }
-    const ciphertext = reassembleCiphertext(next);
-    next.ciphertext = ciphertext;
+    const record = primaryDocumentRecord(next);
+    if (!record) throw new Error("missing frames");
+    const ciphertext = reassembleCiphertext(record);
+    record.ciphertext = ciphertext;
     downloadBytes(ciphertext, "ciphertext.age");
     setLineStatus(next, "frameStatus", "Downloaded ciphertext.age", "ok");
   } catch (err) {

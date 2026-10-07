@@ -78,16 +78,6 @@ export function useQrScannerRuntime(onScanPayload) {
     [],
   );
 
-  useEffect(() => {
-    if (!active) return;
-    const video = videoRef.current;
-    const stream = streamRef.current;
-    if (!video || !stream || video.srcObject === stream) return;
-    video.srcObject = stream;
-    video.setAttribute("playsinline", "true");
-    video.play?.().catch(() => {});
-  });
-
   const startScanner = async () => {
     const support = cameraSupportState();
     setSupported(support);

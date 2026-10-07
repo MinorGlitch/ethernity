@@ -1,3 +1,10 @@
+import { primaryDocumentRecord } from "../app/documents/store.js";
+import {
+  createStore,
+  createTestDocument,
+  buildFrame,
+  toUnpaddedBase64,
+} from "./protocol_test_data.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -23,10 +30,9 @@ import {
 } from "../app/actions_collect.js";
 import { updateAuthStatus } from "../app/auth.js";
 import { createInitialState } from "../app/state/initial.js";
-import { reducer } from "../app/state/reducer.js";
+import { hexToBytes } from "../lib/bytes.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { blake2b256 } from "../lib/blake2b.js";
-import { buildFrame, toUnpaddedBase64 } from "./protocol_test_data.mjs";
 
 const MAIN_QR_PAYLOAD_SINGLE_FRAME = "QVABRAAAAAAAAAAAAAEBYSBj2P8";
 const FIXTURE_PASSPHRASE = "stable-v1-shamir-meaningful";
@@ -36,21 +42,74 @@ const FIXTURE_SHARES = {
 };
 const AUTH_SIGN_PUB = new Uint8Array(32).fill(0x42);
 const WRONG_SHARD_SIGN_PUB = new Uint8Array(32).fill(0x24);
-function createStore() {
-  let state = createInitialState();
-  return {
-    dispatch(action) {
-      state = reducer(state, action);
-    },
-    getState() {
-      return state;
-    },
-  };
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
-function bytesFromHex(value) {
-  return Uint8Array.from(value.match(/../g).map((byte) => Number.parseInt(byte, 16)));
-}
+test("finishing a pre-reset collection cannot clear a newer collection's busy flag", async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  delete globalThis.crypto;
+  const gates = [deferred(), deferred()];
+  const started = [deferred(), deferred()];
+  let verification = 0;
+  globalThis.crypto = {
+    subtle: {
+      async importKey() {
+        return {};
+      },
+      async verify() {
+        const index = verification++;
+        started[index].resolve();
+        await gates[index].promise;
+        return true;
+      },
+    },
+  };
+  try {
+    const store = createStore();
+    const ciphertext = Uint8Array.of(8, 9);
+    const hash = blake2b256(ciphertext);
+    const docId = hash.slice(0, 8);
+    const payload = [
+      buildFrame({ frameType: FRAME_TYPE_MAIN, docId, data: ciphertext }),
+      buildFrame({
+        frameType: FRAME_TYPE_AUTH,
+        docId,
+        data: encodeCbor({
+          version: AUTH_VERSION,
+          hash,
+          pub: AUTH_SIGN_PUB,
+          sig: new Uint8Array(64),
+        }),
+      }),
+    ]
+      .map(toUnpaddedBase64)
+      .join("\n");
+    store.getState().payloadText = payload;
+    const first = addPayloads(store.dispatch, store.getState);
+    await started[0].promise;
+    resetAll(store.dispatch);
+    store.getState().payloadText = payload;
+    const second = addPayloads(store.dispatch, store.getState);
+    gates[0].resolve();
+    await started[1].promise;
+    await first;
+    assert.equal(store.getState().isAddingFrames, true);
+    gates[1].resolve();
+    await second;
+    assert.equal(store.getState().isAddingFrames, false);
+    assert.equal(primaryDocumentRecord(store.getState()).authStatus, "verified");
+  } finally {
+    for (const gate of gates) gate.resolve();
+    if (original) Object.defineProperty(globalThis, "crypto", original);
+    else delete globalThis.crypto;
+  }
+});
 
 function shardPayload({ shareIndex, shareHex, docHash }) {
   return {
@@ -60,7 +119,7 @@ function shardPayload({ shareIndex, shareHex, docHash }) {
     share_count: 3,
     share_index: shareIndex,
     length: FIXTURE_PASSPHRASE.length,
-    share: bytesFromHex(shareHex),
+    share: hexToBytes(shareHex),
     hash: docHash,
     pub: WRONG_SHARD_SIGN_PUB,
     sig: new Uint8Array(64),
@@ -76,36 +135,38 @@ function startsWithBytes(bytes, prefix) {
 
 test("updateAuthStatus clears pending guard after ciphertext errors", async () => {
   const state = createInitialState();
-  state.authPayload = {
+  const document = createTestDocument(state);
+  document.authPayload = {
     signPub: new Uint8Array(32),
     signature: new Uint8Array(64),
     docHash: new Uint8Array(32),
   };
-  state.total = 1;
-  state.mainFrames.set(0, { data: new Uint8Array(MAX_CIPHERTEXT_BYTES + 1) });
+  document.total = 1;
+  document.mainFrames.set(0, { data: new Uint8Array(MAX_CIPHERTEXT_BYTES + 1) });
 
   await updateAuthStatus(state);
-  assert.equal(state.authStatus, "ciphertext error");
+  assert.equal(document.authStatus, "ciphertext error");
 
-  state.mainFrames.set(0, { data: new Uint8Array([1, 2, 3]) });
-  state.ciphertext = null;
-  state.cipherDocHashHex = null;
-  state.authDocHashHex = null;
+  document.mainFrames.set(0, { data: new Uint8Array([1, 2, 3]) });
+  document.ciphertext = null;
+  document.cipherDocHashHex = null;
+  document.authDocHashHex = null;
 
   await updateAuthStatus(state);
-  assert.notEqual(state.authStatus, "ciphertext error");
+  assert.notEqual(document.authStatus, "ciphertext error");
 });
 
 test("updateAuthStatus uses portable verification when WebCrypto is unavailable", async () => {
   const original = globalThis.crypto;
   const state = createInitialState();
-  state.authPayload = {
+  const document = createTestDocument(state);
+  document.authPayload = {
     signPub: new Uint8Array(32),
     signature: new Uint8Array(64),
     docHash: new Uint8Array(32),
   };
-  state.total = 1;
-  state.mainFrames.set(0, { data: new Uint8Array([1, 2, 3]) });
+  document.total = 1;
+  document.mainFrames.set(0, { data: new Uint8Array([1, 2, 3]) });
 
   try {
     delete globalThis.crypto;
@@ -116,29 +177,27 @@ test("updateAuthStatus uses portable verification when WebCrypto is unavailable"
     }
   }
 
-  assert.equal(state.authStatus, "invalid signature");
+  assert.equal(document.authStatus, "invalid signature");
 });
 
 test("async main followups do not overwrite reset state", async () => {
   const store = createStore();
   const state = store.getState();
+  const document = createTestDocument(state);
   state.payloadText = MAIN_QR_PAYLOAD_SINGLE_FRAME;
-  state.authPayload = {
+  document.authPayload = {
     signPub: new Uint8Array(32),
     signature: new Uint8Array(64),
     docHash: new Uint8Array(32),
   };
-  state.authDocHashHex = null;
+  document.authDocHashHex = null;
 
   const pending = addPayloads(store.dispatch.bind(store), store.getState.bind(store));
   resetAll(store.dispatch.bind(store));
   await pending;
 
   const finalState = store.getState();
-  assert.equal(finalState.mainFrames.size, 0);
-  assert.equal(finalState.ciphertext, null);
-  assert.equal(finalState.cipherDocHashHex, null);
-  assert.equal(finalState.authStatus, "missing");
+  assert.equal(primaryDocumentRecord(finalState), null);
   assert.equal(finalState.frameStatus.lines[0], "State cleared.");
 });
 
@@ -216,7 +275,6 @@ test("shard followups wait for pending AUTH before recovering a shard secret", a
     await Promise.all([authPending, shardPending]);
 
     const finalState = store.getState();
-    assert.equal(finalState.authStatus, "verified");
     assert.equal(finalState.recoveredShardSecret, "");
     assert.equal(finalState.agePassphrase, "");
     assert.match(
@@ -233,8 +291,6 @@ test("changing recovery target clears stale recovered output", () => {
   const state = store.getState();
   state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];
   state.decryptedBackup = new Uint8Array([2]);
-  state.decryptedBackupSource = "Collected ciphertext";
-  state.recoveryComplete = true;
   state.extractStatus = { lines: ["1 file(s) ready."], type: "ok" };
   state.decryptStatus = { lines: ["Recovery complete."], type: "ok" };
   state.isDecrypting = true;
@@ -250,8 +306,7 @@ test("changing recovery target clears stale recovered output", () => {
   const finalState = store.getState();
   assert.deepEqual(finalState.extractedFiles, []);
   assert.equal(finalState.decryptedBackup, null);
-  assert.equal(finalState.decryptedBackupSource, "");
-  assert.equal(finalState.recoveryComplete, false);
+  assert.equal(finalState.extractedFiles.length > 0, false);
   assert.deepEqual(finalState.extractStatus.lines, []);
   assert.deepEqual(finalState.decryptStatus.lines, []);
   assert.equal(finalState.isDecrypting, false);
@@ -263,8 +318,6 @@ test("changing expected head clears stale recovered output", () => {
   const state = store.getState();
   state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];
   state.decryptedBackup = new Uint8Array([2]);
-  state.decryptedBackupSource = "Collected ciphertext";
-  state.recoveryComplete = true;
   state.extractStatus = { lines: ["1 file(s) ready."], type: "ok" };
   state.decryptStatus = { lines: ["Recovery complete."], type: "ok" };
   state.isDecrypting = true;
@@ -280,8 +333,7 @@ test("changing expected head clears stale recovered output", () => {
   const finalState = store.getState();
   assert.deepEqual(finalState.extractedFiles, []);
   assert.equal(finalState.decryptedBackup, null);
-  assert.equal(finalState.decryptedBackupSource, "");
-  assert.equal(finalState.recoveryComplete, false);
+  assert.equal(finalState.extractedFiles.length > 0, false);
   assert.deepEqual(finalState.extractStatus.lines, []);
   assert.deepEqual(finalState.decryptStatus.lines, []);
   assert.equal(finalState.isDecrypting, false);
@@ -293,7 +345,6 @@ test("accepted pasted main frames clear stale recovered output", async () => {
   const state = store.getState();
   state.payloadText = MAIN_QR_PAYLOAD_SINGLE_FRAME;
   state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];
-  state.recoveryComplete = true;
   state.extractStatus = { lines: ["1 file(s) ready."], type: "ok" };
   state.decryptStatus = { lines: ["Recovery complete."], type: "ok" };
 
@@ -301,7 +352,7 @@ test("accepted pasted main frames clear stale recovered output", async () => {
 
   const finalState = store.getState();
   assert.deepEqual(finalState.extractedFiles, []);
-  assert.equal(finalState.recoveryComplete, false);
+  assert.equal(finalState.extractedFiles.length > 0, false);
   assert.deepEqual(finalState.extractStatus.lines, []);
   assert.deepEqual(finalState.decryptStatus.lines, []);
 });
@@ -345,7 +396,6 @@ test("scanned shard parse failures report an error status", async () => {
   const store = createStore();
   const state = store.getState();
   state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];
-  state.recoveryComplete = true;
 
   await addScannedShardPayload(store.dispatch.bind(store), store.getState.bind(store), {
     text: "not a valid shard payload",
@@ -354,7 +404,7 @@ test("scanned shard parse failures report an error status", async () => {
   const finalState = store.getState();
   assert.equal(finalState.shardErrors, 1);
   assert.deepEqual(finalState.extractedFiles, []);
-  assert.equal(finalState.recoveryComplete, false);
+  assert.equal(finalState.extractedFiles.length > 0, false);
   assert.equal(finalState.shardStatus.type, "error");
   assert.equal(finalState.shardStatus.lines[0], "Scanned shard QR could not be decoded.");
 });

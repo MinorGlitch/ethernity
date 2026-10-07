@@ -15,11 +15,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { RecoveryError, asRecoveryError } from "../lib/errors.js";
 import { bytesEqual, bytesToHex, concatBytes } from "../lib/bytes.js";
 import { encodeCbor } from "../lib/cbor.js";
-import { getSigningPublicKey, verifySigningSignature } from "../lib/ed25519.js";
+import { getSigningPublicKey, verifySignature } from "../lib/ed25519.js";
 import { AUTH_DOMAIN, AUTH_VERSION, textEncoder } from "./constants.js";
-import { syncPrimaryDocumentFields } from "./documents/store.js";
 import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 
 let authStatusQueue = Promise.resolve();
@@ -29,34 +29,13 @@ export function deriveSigningPublicKey(signingSeed) {
 }
 
 export async function verifyAuthSignature(docHash, signPub, signature) {
-  const message = authSignatureMessage(docHash, signPub);
-  const cryptoApi = globalThis.crypto;
-  if (!cryptoApi?.subtle?.importKey) {
-    return verifyAuthSignaturePortable(signature, message, signPub);
-  }
-  try {
-    const key = await cryptoApi.subtle.importKey("raw", signPub, { name: "Ed25519" }, false, [
-      "verify",
-    ]);
-    const ok = await cryptoApi.subtle.verify("Ed25519", key, signature, message);
-    return ok;
-  } catch (_err) {
-    return verifyAuthSignaturePortable(signature, message, signPub);
-  }
+  return verifySignature(signature, authSignatureMessage(docHash, signPub), signPub);
 }
 
 function authSignatureMessage(docHash, signPub) {
   const signedPayload = { version: AUTH_VERSION, hash: docHash, pub: signPub };
   const signedBytes = encodeCbor(signedPayload);
   return concatBytes(textEncoder.encode(AUTH_DOMAIN), signedBytes);
-}
-
-function verifyAuthSignaturePortable(signature, message, signPub) {
-  try {
-    return verifySigningSignature(signature, message, signPub);
-  } catch (_err) {
-    return null;
-  }
 }
 
 export async function updateAuthStatus(state) {
@@ -69,14 +48,9 @@ export async function updateAuthStatus(state) {
 }
 
 async function updateAuthStatusNow(state) {
-  if (state.documents?.size) {
-    for (const record of state.documents.values()) {
-      await updateDocumentAuthStatus(record);
-    }
-    syncPrimaryDocumentFields(state);
-    return;
+  for (const record of state.documents.values()) {
+    await updateDocumentAuthStatus(record);
   }
-  await updateDocumentAuthStatus(state);
 }
 
 export async function updateDocumentAuthStatus(record) {
@@ -133,20 +107,31 @@ export async function requireVerifiedAuthPayload(
 ) {
   const payload = document.authPayload;
   if (!payload) {
-    throw new Error("missing AUTH payload");
+    throw new RecoveryError("AUTH_REQUIRED", "missing AUTH payload");
   }
   if (!bytesEqual(payload.docHash, document.docHash)) {
-    throw new Error("AUTH doc_hash does not match ciphertext");
+    throw new RecoveryError("AUTH_DOC_HASH_MISMATCH", "AUTH doc_hash does not match ciphertext");
   }
   if (expectedSignPub && !bytesEqual(payload.signPub, expectedSignPub)) {
-    throw new Error("AUTH signing key does not match root signing key");
+    throw new RecoveryError(
+      "ROOT_SIGNING_KEY_MISMATCH",
+      "AUTH signing key does not match root signing key",
+    );
   }
-  const verified = await verifySignature(document.docHash, payload.signPub, payload.signature);
+  let verified;
+  try {
+    verified = await verifySignature(document.docHash, payload.signPub, payload.signature);
+  } catch (error) {
+    throw asRecoveryError(error, "AUTH_VERIFICATION_FAILED");
+  }
   if (verified === null) {
-    throw new Error("this browser cannot verify extension signatures");
+    throw new RecoveryError(
+      "AUTH_VERIFICATION_FAILED",
+      "this browser cannot verify extension signatures",
+    );
   }
   if (!verified) {
-    throw new Error("AUTH signature is invalid");
+    throw new RecoveryError("AUTH_SIGNATURE_INVALID", "AUTH signature is invalid");
   }
   return payload;
 }
