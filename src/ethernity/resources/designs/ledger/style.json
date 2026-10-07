@@ -463,8 +463,8 @@
         {"key": "card-3", "kind": "group", "box": [76, 69, 0, 0], "ref": "compact-card", "qr_slot": 3}
       ],
       "compact-sheet-heading": [
-        {"key": "instructions", "kind": "text", "box": [10, 48, 70, 33], "text": "{instructions_text}", "style": "instruction-body", "fit": "wrap", "scale_height": true, "font_size": 8.5},
-        {"key": "sheet-qr-image", "kind": "image", "box": [88, 30, 50, 50], "qr_slot": 0}
+        {"key": "instructions", "kind": "text", "box": [10, 38, 70, 30], "text": "{instructions_text}", "style": "instruction-body", "fit": "wrap", "scale_height": true, "font_size": 8.5},
+        {"key": "sheet-qr-image", "kind": "image", "box": [100, 30, 38, 38], "qr_slot": 0}
       ],
       "compact-footer": [
         {"key": "content", "kind": "group", "box": [10, 198, 128, 0], "ref": "footer-content"}
@@ -571,7 +571,7 @@
           "qr_capacity": 1
         },
         "sheet": {
-          "box": [10, 84, 128, 111],
+          "box": [10, 70, 128, 125],
           "body_style": "compact-fallback",
           "top": 1,
           "bottom": 1,
@@ -581,7 +581,7 @@
           "profiles": [
             {"row_height": 3.8, "font_size": 8, "title_size": 8.5},
             {"row_height": 3.15, "font_size": 7, "title_size": 7.5},
-            {"row_height": 2.3, "font_size": 6, "title_size": 6, "title_height": 2.5}
+            {"row_height": 2.45, "font_size": 6.5, "title_size": 6, "title_height": 2.5}
           ],
           "decoration": [
             {"key": "fallback", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-card"}

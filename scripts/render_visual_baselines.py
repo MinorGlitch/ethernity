@@ -34,6 +34,7 @@ from ethernity.render import render_frames_to_pdf
 from ethernity.render.checks import validate_fallback_summary
 from ethernity.render.design_style import load_page_template
 from ethernity.render.designs import list_design_definitions
+from ethernity.render.direct_pdf.artwork import expanded_elements
 from ethernity.render.direct_pdf.page_geometry import registered_paper_sizes
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
@@ -726,21 +727,53 @@ def is_manual_fallback_line_number_component(
 ) -> bool:
     """Identify text components that visibly carry manual fallback row numbers."""
 
-    if not requires_manual_fallback_line_numbers(case):
-        return False
-    if any(
-        marker in component_id or component_id.endswith(marker.rstrip("-"))
-        for marker in ("-fallback-line-number-", "-fallback-number-")
-    ):
-        return True
+    return is_fallback_component(case, component_id, "number")
+
+
+def is_fallback_component(
+    case: VisualBaselineCase,
+    component_id: str,
+    role: Literal["number", "payload", "panel"],
+) -> bool:
+    """Match measured fallback components to their expanded template definitions."""
+
+    return any(component_id.endswith(f"-{key}") for key in _fallback_component_keys(case, role))
+
+
+@cache
+def _fallback_component_keys(
+    case: VisualBaselineCase, role: Literal["number", "payload", "panel"]
+) -> tuple[str, ...]:
     page = case.page_spec or resolve_paper_size(case.paper_size)
-    document = load_page_template(case.design, page).document(case.doc_type)
-    inline = (
-        document.sheet.numbering == "inline"
-        if document.sheet
-        else bool(document.recovery and document.recovery.first.inline_number)
+    template = load_page_template(case.design, page)
+    document = template.document(case.doc_type)
+    if document.sheet:
+        elements = document.sheet.decoration if role == "panel" else document.sheet.row
+        if role == "panel" and not elements and not document.sheet.bottom_anchor:
+            elements = tuple(
+                element
+                for element in expanded_elements(template, document.first.elements)
+                if element.box == document.sheet.box
+            )
+    elif document.recovery:
+        profiles = (document.recovery.first, document.recovery.continuation)
+        elements = tuple(
+            element
+            for profile in profiles
+            for element in (profile.section if role == "panel" else profile.row)
+        )
+    else:
+        return ()
+    return tuple(
+        element.key
+        for element in expanded_elements(template, elements)
+        if (
+            element.kind == "panel" and element.fill is not None
+            if role == "panel"
+            else element.kind == "text"
+            and (f"{{{role}}}" in element.text or f"{{{role}:" in element.text)
+        )
     )
-    return inline and "-fallback-line-" in component_id
 
 
 def pdf_poppler_warnings(pdf_path: Path) -> tuple[tuple[str, ...] | None, str | None]:

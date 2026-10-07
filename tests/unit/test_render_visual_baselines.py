@@ -262,7 +262,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     assert result.layout_report is not None
                     assert result.fallback_summary is not None
                     self.assertFalse(result.layout_report.overflow)
-                    maximum_line_length = self._assert_fallback_page_occupancy(result)
+                    maximum_line_length = self._assert_fallback_page_occupancy(case, result)
                     validate_fallback_text_in_pdf(
                         document_label=case.case_id,
                         reader=PdfReader(output_path),
@@ -293,16 +293,12 @@ class TestRenderVisualBaselines(unittest.TestCase):
             self.assertLessEqual(tall_pages, future_pages)
             self.assertGreaterEqual(tall_line_length, future_line_length)
 
-    def _assert_fallback_page_occupancy(self, result) -> int:
+    def _assert_fallback_page_occupancy(self, case, result) -> int:
         payload_pages = tuple(
             tuple(
                 component
                 for component in page.components
-                if "fallback-line" in component.component_id
-                and all(
-                    excluded not in component.component_id
-                    for excluded in ("line-number", "line-box", "line-rule")
-                )
+                if _MODULE.is_fallback_component(case, component.component_id, "payload")
                 and component.used_rect is not None
             )
             for page in result.layout_report.pages
@@ -435,15 +431,14 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     )
                     self.assertTrue(qr_sizes)
                     self.assertGreaterEqual(min(qr_sizes), _MODULE.MINIMUM_QR_IMAGE_SIZE_MM)
-                    if case.paper_size in {"A4", "LETTER"}:
-                        self.assertEqual(scan_qr_payloads((output_path,)), [encode_frame(frame)])
-                        composited_count, skipped_reason = _MODULE.scan_composited_pdf_qr_payloads(
-                            output_path
-                        )
-                        if skipped_reason is None:
-                            self.assertEqual(composited_count, (encode_frame(frame),))
-                        else:
-                            self.assertEqual(skipped_reason, "pdftoppm not found")
+                    self.assertEqual(scan_qr_payloads((output_path,)), [encode_frame(frame)])
+                    composited_count, skipped_reason = _MODULE.scan_composited_pdf_qr_payloads(
+                        output_path
+                    )
+                    if skipped_reason is None:
+                        self.assertEqual(composited_count, (encode_frame(frame),))
+                    else:
+                        self.assertEqual(skipped_reason, "pdftoppm not found")
                     validate_fallback_summary(
                         document_label=case.case_id,
                         frames=(frame,),
@@ -473,7 +468,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
             )
         )
 
-        def fallback_container(result: RenderResult) -> tuple[RenderRect, RenderRect]:
+        def fallback_container(case, result: RenderResult) -> tuple[RenderRect, RenderRect]:
             self.assertIsNotNone(result.layout_report)
             assert result.layout_report is not None
             self.assertEqual(len(result.layout_report.pages), 1)
@@ -490,9 +485,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                 component.rect
                 for component in page.components
                 if component.component_type == "panel"
-                and component.component_id.endswith(
-                    ("fallback-panel", "payload-panel", "fallback-block-0")
-                )
+                and _MODULE.is_fallback_component(case, component.component_id, "panel")
             )
             self.assertEqual(len(containers), 1)
             self.assertGreaterEqual(containers[0].width_mm, full_safe_width_mm - 1.0)
@@ -506,7 +499,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                     case_root.mkdir(parents=True, exist_ok=True)
                     normal_inputs = _MODULE.build_sample_inputs(case, case_root / "normal.pdf")
                     normal_result = render_frames_to_pdf(normal_inputs)
-                    normal_page, normal_panel = fallback_container(normal_result)
+                    normal_page, normal_panel = fallback_container(case, normal_result)
 
                     frame = replace(normal_inputs.frames[0], data=b"s" * MAX_SHARD_CBOR_BYTES)
                     maximum_inputs = replace(
@@ -516,7 +509,7 @@ class TestRenderVisualBaselines(unittest.TestCase):
                         fallback_sections=(FallbackSection(label="SHARD PAYLOAD", frame=frame),),
                     )
                     maximum_result = render_frames_to_pdf(maximum_inputs)
-                    maximum_page, maximum_panel = fallback_container(maximum_result)
+                    maximum_page, maximum_panel = fallback_container(case, maximum_result)
 
                     for page, panel in (
                         (normal_page, normal_panel),
@@ -591,15 +584,13 @@ class TestRenderVisualBaselines(unittest.TestCase):
             )
         )
 
-        def fallback_container(page: object) -> RenderRect:
+        def fallback_container(case, page: object) -> RenderRect:
             components = page.components
             containers = tuple(
                 component.rect
                 for component in components
                 if component.component_type == "panel"
-                and component.component_id.endswith(
-                    ("fallback-panel", "payload-panel", "fallback-block-0")
-                )
+                and _MODULE.is_fallback_component(case, component.component_id, "panel")
             )
             self.assertEqual(len(containers), 1)
             return containers[0]
@@ -634,15 +625,13 @@ class TestRenderVisualBaselines(unittest.TestCase):
                         assert result.layout_report is not None
                         self.assertEqual(len(result.layout_report.pages), 1)
                         page = result.layout_report.pages[0]
-                        panel = fallback_container(page)
+                        panel = fallback_container(case, page)
                         lines = tuple(
                             component
                             for component in page.components
-                            if (
-                                "fallback-line" in component.component_id
-                                or "payload-line" in component.component_id
+                            if _MODULE.is_fallback_component(
+                                case, component.component_id, "payload"
                             )
-                            and "line-number" not in component.component_id
                             and component.used_rect is not None
                         )
                         self.assertTrue(lines)
@@ -825,19 +814,32 @@ class TestRenderVisualBaselines(unittest.TestCase):
         self.assertTrue(
             _MODULE.is_manual_fallback_line_number_component(
                 archive_shard,
-                "p1-column-0-fallback-line-number-0-1",
+                "p1-fallback-1-row-0-line",
             )
         )
         self.assertTrue(
             _MODULE.is_manual_fallback_line_number_component(
                 forge_recovery,
-                "forge-recovery-p2-fallback-line-number-3",
+                "p2-fallback-0-3-0-fallback-line-number-1",
             )
         )
         self.assertFalse(
             _MODULE.is_manual_fallback_line_number_component(
                 forge_shard,
-                "forge-shard-p2-fallback-line-3",
+                "p1-fallback-3-fallback-line-1",
+            )
+        )
+        self.assertTrue(
+            _MODULE.is_fallback_component(archive_shard, "p1-fallback-1-row-0-line", "payload")
+        )
+        self.assertFalse(
+            _MODULE.is_fallback_component(
+                forge_recovery, "p2-fallback-0-3-0-fallback-line-number-1", "payload"
+            )
+        )
+        self.assertFalse(
+            _MODULE.is_manual_fallback_line_number_component(
+                archive_shard, "p1-fallback-0-title-0-title"
             )
         )
 
