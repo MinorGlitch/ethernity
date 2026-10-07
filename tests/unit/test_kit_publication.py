@@ -10,6 +10,12 @@ from ethernity.config import AppConfig
 from ethernity.qr.codec import QrConfig
 from ethernity.render.checks import RenderValidationError
 from ethernity.workflows.kit.service import render_kit_qr_document
+from ethernity.workflows.shared import events
+from ethernity.workflows.shared.execution_control import (
+    ExecutionControl,
+    OperationCancelled,
+    execution_session,
+)
 
 _CONFIG = AppConfig(
     design_name="sentinel", paper_size="A4", qr_config=QrConfig(), qr_chunk_size=1024
@@ -61,4 +67,21 @@ def test_validated_kit_replaces_existing_output(tmp_path: Path) -> None:
     assert result.output_path == destination
     assert result.chunk_count == 3
     assert len(PdfReader(destination).pages) > 0
+    assert set(tmp_path.iterdir()) == {destination}
+
+
+def test_cancelled_kit_preserves_existing_output_and_removes_staging(tmp_path: Path) -> None:
+    destination = tmp_path / "kit.pdf"
+    destination.write_bytes(b"original")
+    control = ExecutionControl()
+
+    class CancelAtRender:
+        def emit(self, event_type, **payload):
+            if event_type == "phase" and payload.get("id") == "render":
+                control.request_cancel()
+
+    with execution_session(control), events.event_session(CancelAtRender()):
+        with pytest.raises(OperationCancelled):
+            _create_kit(destination)
+    assert destination.read_bytes() == b"original"
     assert set(tmp_path.iterdir()) == {destination}

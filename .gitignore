@@ -38,6 +38,7 @@ node_modules/
 # Kit build outputs
 kit/dist/
 src/ethernity/resources/kit/recovery_kit*.bundle.html
+src/ethernity/resources/kit/recovery_kit.assembler.html
 test-debug/
 backup-*/
 generated_backups/

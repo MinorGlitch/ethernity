@@ -2,6 +2,9 @@
   "name": "kit",
   "version": "1.2.0",
   "type": "module",
+  "engines": {
+    "node": "^24.19.0 || >=26.5.0"
+  },
   "imports": {
     "#kit-scanner-panel": "./app/components/QrScannerPanel.jsx",
     "#kit-scanner-runtime": "./app/hooks/useQrScannerRuntime_jsqr.js"
@@ -23,8 +26,10 @@
   "description": "",
   "devDependencies": {
     "@biomejs/biome": "2.4.11",
+    "@gfx/zopfli": "1.0.15",
     "esbuild": "0.28.0",
     "html-minifier-terser": "7.2.0",
+    "roadroller": "2.1.0",
     "terser": "^5.48.0"
   },
   "dependencies": {

@@ -5,6 +5,8 @@ import test from "node:test";
 import vm from "node:vm";
 import { brotliCompressSync, brotliDecompressSync, gunzipSync, gzipSync } from "node:zlib";
 
+import { unpackKitHtml } from "./unpack_kit_test_helpers.mjs";
+
 import { buildCompressedLoaderHtml, buildUnsupportedLoaderHtml } from "../lib/loader_html.js";
 
 const BASE91_ALPHABET =
@@ -74,8 +76,9 @@ function extractLoaderScript(html) {
 class NodeStub {
   constructor(type, text = "") {
     this.type = type;
-    this.text = text;
-    this.children = [];
+    this.data = text;
+    this.childNodes = [];
+    this.parentNode = null;
     this.attributes = new Map();
     this.style = {};
     this.className = "";
@@ -87,13 +90,32 @@ class NodeStub {
   }
 
   appendChild(child) {
-    this.children.push(child);
+    return this.insertBefore(child, null);
+  }
+
+  insertBefore(child, reference) {
+    child.remove();
+    const index = reference === null ? this.childNodes.length : this.childNodes.indexOf(reference);
+    assert.notEqual(index, -1);
+    this.childNodes.splice(index, 0, child);
     child.parentNode = this;
     return child;
   }
 
+  remove() {
+    if (this.parentNode) {
+      const siblings = this.parentNode.childNodes;
+      siblings.splice(siblings.indexOf(this), 1);
+      this.parentNode = null;
+    }
+  }
+
+  get lastChild() {
+    return this.childNodes.at(-1) ?? null;
+  }
+
   replaceChildren(...nodes) {
-    this.children = [];
+    for (const child of [...this.childNodes]) child.remove();
     for (const node of nodes) {
       this.appendChild(node);
     }
@@ -106,6 +128,10 @@ class NodeStub {
     }
   }
 
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
   addEventListener(name, handler) {
     this.listeners[name] ??= [];
     this.listeners[name].push(handler);
@@ -114,7 +140,7 @@ class NodeStub {
   removeEventListener() {}
 
   contains(node) {
-    return node === this || this.children.some((child) => child.contains?.(node));
+    return node === this || this.childNodes.some((child) => child.contains?.(node));
   }
 
   querySelector(selector) {
@@ -125,7 +151,7 @@ class NodeStub {
     if (this.id === id) {
       return this;
     }
-    for (const child of this.children) {
+    for (const child of this.childNodes) {
       const found = child.findById?.(id);
       if (found) {
         return found;
@@ -138,13 +164,14 @@ class NodeStub {
 
   get textContent() {
     if (this.type === "#text") {
-      return this.text;
+      return this.data;
     }
-    return this.children.map((child) => child.textContent ?? "").join("");
+    return this.childNodes.map((child) => child.textContent ?? "").join("");
   }
 }
 
-async function renderRawKitHtml(rawHtml) {
+async function renderRawKitHtml(rawHtml, metadata = null) {
+  const renderErrors = [];
   const root = new NodeStub("div");
   root.id = "app";
   const document = {
@@ -164,6 +191,7 @@ async function renderRawKitHtml(rawHtml) {
   };
 
   vm.runInNewContext(extractLoaderScript(rawHtml), {
+    __ETHERNITY_KIT_METADATA__: metadata,
     ArrayBuffer,
     Blob,
     CSS: { escape: (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&") },
@@ -195,7 +223,15 @@ async function renderRawKitHtml(rawHtml) {
       },
       onLine: false,
     },
-    queueMicrotask,
+    queueMicrotask(callback) {
+      queueMicrotask(() => {
+        try {
+          callback();
+        } catch (error) {
+          renderErrors.push(error);
+        }
+      });
+    },
     setTimeout,
     window: {
       addEventListener() {},
@@ -207,6 +243,7 @@ async function renderRawKitHtml(rawHtml) {
   });
 
   await new Promise((resolve) => setTimeout(resolve, 10));
+  if (renderErrors.length) throw renderErrors[0];
   return root.textContent;
 }
 
@@ -231,7 +268,7 @@ async function decodeGeneratedBundleHtml(html) {
     window: { DecompressionStream: TestDecompressionStream },
   });
 
-  return written.join("");
+  return unpackKitHtml(written.join(""));
 }
 
 test("buildUnsupportedLoaderHtml renders an explicit recovery fallback page", () => {
@@ -392,7 +429,7 @@ test("generated recovery kit bundles decode to extension-capable UI", async () =
       window: { DecompressionStream: TestDecompressionStream },
     });
 
-    const decoded = written.join("");
+    const decoded = await unpackKitHtml(written.join(""));
     assert.match(decoded, /Recovery target/);
     assert.match(decoded, /Expected head/);
     assert.match(decoded, /Recover latest among supplied pages; freshness unknown/);
@@ -414,5 +451,29 @@ test("generated raw recovery kit bundles boot the app shell", async () => {
     assert.match(rendered, /Recovery Kit/);
     assert.match(rendered, /Collect backup/);
     assert.match(rendered, /Status/);
+  }
+});
+
+test("minified kits accept printed-loader metadata and enforce its external fields", async () => {
+  const metadata = {
+    capability: "ethernity-unanchored-rescue",
+    version: 1,
+    supported_document_versions: [1, 2, 3],
+  };
+  for (const name of ["recovery_kit.bundle.html", "recovery_kit.scanner.bundle.html"]) {
+    const html = await readFile(
+      new URL(`../../src/ethernity/resources/kit/${name}`, import.meta.url),
+      "utf8",
+    );
+    const raw = await decodeGeneratedBundleHtml(html);
+    assert.match(await renderRawKitHtml(raw, metadata), /Collect backup/);
+    await assert.rejects(
+      renderRawKitHtml(raw, { ...metadata, capability: "unknown" }),
+      /unsupported recovery kit capability/,
+    );
+    await assert.rejects(
+      renderRawKitHtml(raw, { ...metadata, supported_document_versions: [1, 2] }),
+      /recovery kit does not support document version 3/,
+    );
   }
 });

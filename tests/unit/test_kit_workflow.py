@@ -13,81 +13,57 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import gzip
+import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.qr.codec import QrConfig
-from ethernity.workflows.kit import service as kit_module
+from ethernity.qr.codec import QrConfig, make_qr
+from ethernity.workflows.kit import printed, service as kit_module
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class TestKitFlowHelpers(unittest.TestCase):
-    def test_build_kit_qr_payloads_shell_first_and_chunk_size_affects_following_qrs(
-        self,
-    ) -> None:
-        bundle = (
-            b'<!doctype html><script>(async()=>{const p="'
-            + (b"A" * 200)
-            + b'";if(!("DecompressionStream"in window))return;})();</script>'
+    def test_build_kit_qr_payloads_startup_first_and_numbered_data_within_budget(self) -> None:
+        bundle = b'<script>const p="' + b"A" * 200 + b'";</script>'
+        first = kit_module.build_kit_qr_payloads(bundle, 180, QrConfig())
+        second = kit_module.build_kit_qr_payloads(bundle, 120, QrConfig())
+        for payloads, limit in ((first, 180), (second, 120)):
+            self.assertTrue(payloads[0].startswith(b"<!doctype html"))
+            self.assertIn(b"<textarea hidden id=code>", payloads[0])
+            self.assertTrue(all(len(part) <= limit for part in payloads[2:]))
+            self.assertTrue(all(part.startswith(b"EK1:") for part in payloads[2:]))
+            self.assertTrue(set(b"".join(payloads[2:]).decode()) <= set(printed.BASE44_ALPHABET))
+        self.assertEqual(
+            b"".join(p[printed.HEADER_SIZE :] for p in first[2:]),
+            b"".join(p[printed.HEADER_SIZE :] for p in second[2:]),
         )
-        cfg = QrConfig()
+        self.assertNotEqual(len(first), len(second))
+        self.assertNotEqual(first[2][4:16], second[2][4:16])
 
-        shell_first = kit_module.build_kit_qr_payloads(bundle, 180, cfg)
-        shell_second = kit_module.build_kit_qr_payloads(bundle, 120, cfg)
-
-        self.assertGreaterEqual(len(shell_first), 2)
-        self.assertGreaterEqual(len(shell_second), 2)
-        self.assertTrue(shell_first[0].startswith(b"<!doctype html"))
-        token = f"globalThis.{kit_module._KIT_CHUNK_ARRAY}".encode("ascii")
-        self.assertIn(token, shell_first[0])
-        self.assertIn(token, shell_second[0])
-        self.assertNotEqual(
-            len(shell_first),
-            len(shell_second),
-            msg="payload chunk count should change with chunk_size",
-        )
-
-    def test_build_kit_qr_payloads_validates_each_payload_qr(self) -> None:
-        with (
-            mock.patch(
-                "ethernity.workflows.kit.service._extract_kit_bundle_loader_metadata",
-                return_value=kit_module.KitBundleLoaderMetadata(payload="p", compression="gzip"),
-            ),
-            mock.patch(
-                "ethernity.workflows.kit.service._split_kit_payload_chunks",
-                return_value=[b"chunk-1", b"chunk-2"],
-            ),
-            mock.patch("ethernity.workflows.kit.service._kit_shell_payload", return_value=b"shell"),
-            mock.patch(
-                "ethernity.workflows.kit.service.fits_qr_payload", return_value=True
-            ) as fits,
-        ):
-            payloads = kit_module.build_kit_qr_payloads(b"bundle", 120, QrConfig())
-
-        self.assertEqual(payloads, [b"shell", b"chunk-1", b"chunk-2"])
-        self.assertEqual(fits.call_count, 3)
-
-    def test_build_kit_qr_payloads_rejects_chunk_that_does_not_fit(self) -> None:
-        with (
-            mock.patch(
-                "ethernity.workflows.kit.service._extract_kit_bundle_loader_metadata",
-                return_value=kit_module.KitBundleLoaderMetadata(payload="p", compression="gzip"),
-            ),
-            mock.patch(
-                "ethernity.workflows.kit.service._split_kit_payload_chunks",
-                return_value=[b"chunk-1", b"chunk-2"],
-            ),
-            mock.patch("ethernity.workflows.kit.service._kit_shell_payload", return_value=b"shell"),
-            mock.patch(
-                "ethernity.workflows.kit.service.fits_qr_payload",
-                side_effect=[True, True, False],
-            ),
-        ):
+    def test_build_kit_qr_payloads_validates_startup_and_data_capacity(self) -> None:
+        with mock.patch.object(printed, "fits_qr_payload", side_effect=[True, True, False]):
             with self.assertRaisesRegex(ValueError, "chunk_size is too large"):
-                kit_module.build_kit_qr_payloads(b"bundle", 120, QrConfig())
+                printed.build_payloads(b"abc", "gzip", 120, QrConfig())
+        with mock.patch.object(printed, "fits_qr_payload", return_value=False):
+            with self.assertRaisesRegex(ValueError, "startup codes"):
+                printed.build_payloads(b"abc", "gzip", 120, QrConfig())
+
+    def test_printed_kit_identity_separates_encoding_and_partitioning(self) -> None:
+        data = b"abc"
+        size = 120
+        payload = printed.build_payloads(data, "gzip", size, QrConfig())[2]
+        identifier = payload.split(b":")[1].decode()
+        digest_input = data + size.to_bytes(4, "big")
+
+        self.assertEqual(
+            identifier, hashlib.sha256(b"base44-15" + digest_input).hexdigest()[:12].upper()
+        )
+        self.assertNotEqual(identifier, hashlib.sha256(digest_input).hexdigest()[:12].upper())
 
     def test_max_qr_payload_bytes_binary_search(self) -> None:
         cfg = QrConfig()
@@ -161,32 +137,35 @@ class TestKitFlowHelpers(unittest.TestCase):
         let_bundle = b"<script>let p = 'abc\\u003cdef';</script>"
         var_bundle = b'<script>var p="abc\\u003cdef";</script>'
 
-        self.assertEqual(kit_module._extract_kit_bundle_loader_payload(let_bundle), "abc<def")
-        self.assertEqual(kit_module._extract_kit_bundle_loader_payload(var_bundle), "abc<def")
+        self.assertEqual(
+            kit_module._extract_kit_bundle_loader_metadata(let_bundle).payload, "abc<def"
+        )
+        self.assertEqual(
+            kit_module._extract_kit_bundle_loader_metadata(var_bundle).payload, "abc<def"
+        )
 
     def test_extract_kit_bundle_loader_metadata_preserves_brotli_compression(self) -> None:
         bundle = b'<script>const p="abc";const f="brotli";</script>'
 
         metadata = kit_module._extract_kit_bundle_loader_metadata(bundle)
-        shell = kit_module._kit_shell_payload(chunk_count=1, compression=metadata.compression)
+        shell = printed.build_payloads(b"abc", metadata.compression, 1800, QrConfig())[0]
 
         self.assertEqual(metadata.payload, "abc")
         self.assertEqual(metadata.compression, "brotli")
-        self.assertIn(b'const f="brotli"', shell)
-        self.assertIn(b"new DecompressionStream(f)", shell)
+        self.assertIn(b',"brotli"]', shell)
 
     def test_reusable_kit_shell_has_no_chain_specific_identity(self) -> None:
-        shell = kit_module._kit_shell_payload(chunk_count=1)
+        shell = printed.build_payloads(b"abc", "gzip", 1800, QrConfig())[0]
 
-        self.assertIn(b"ethernity-unanchored-rescue", shell)
         self.assertNotIn(b"expected_latest_head_hash", shell)
 
     def test_extract_kit_bundle_loader_metadata_accepts_minified_comma_declarations(
         self,
     ) -> None:
+        alphabet = json.dumps(kit_module._BASE91_ALPHABET)
         bundle = (
-            b'<script>(async()=>{const p="abc",a="alphabet",f="brotli",h="fallback"})()</script>'
-        )
+            f'<script>(async()=>{{const p="abc",a={alphabet},f="brotli",h="fallback"}})()</script>'
+        ).encode()
 
         metadata = kit_module._extract_kit_bundle_loader_metadata(bundle)
 
@@ -204,3 +183,73 @@ class TestKitFlowHelpers(unittest.TestCase):
 
             self.assertGreater(len(metadata.payload), 1000)
             self.assertEqual(metadata.compression, "gzip")
+            compressed = kit_module._decode_base91(metadata.payload, metadata.alphabet)
+            raw = gzip.decompress(compressed)
+            raw_path = (
+                _PROJECT_ROOT / "kit/dist" / bundle_path.name.replace(".html", ".packed.html")
+            )
+            self.assertEqual(raw.strip(), raw_path.read_bytes().strip())
+
+    def test_base44_vectors_preserve_block_width_and_byte_order(self) -> None:
+        for data, encoded in (
+            (b"", ""),
+            (b"\x00", "00"),
+            (b"\xff", "Z5"),
+            (b"\x00\x00", "000"),
+            (b"\xff\xff", "J%X"),
+            (b"ABC", "34961"),
+            (bytes(15), "0000000000000000000000"),
+            (b"\xff" * 15, "BNCN-7AMTDEDHLTWA/Q:$-"),
+            (bytes(range(16)), "/7VBLW5EV/X/+D344M9100F0"),
+        ):
+            with self.subTest(data=data):
+                self.assertEqual(printed.encode_base44(data), encoded)
+
+    def test_base44_blocks_reduce_text_without_enlarging_symbols(self) -> None:
+        old_qr = make_qr(b"x" * 1200)
+        data = bytes(range(256)) * 4 + bytes(range(176))
+        payload = printed.encode_base44(data).encode("ascii")
+        self.assertEqual(len(payload), 1760)
+        new_qr = make_qr(payload)
+        self.assertEqual(new_qr.mode, "alphanumeric")
+        self.assertEqual((new_qr.version, new_qr.error), (old_qr.version, old_qr.error))
+
+    def test_default_data_codes_fill_the_same_symbol_without_reducing_correction(self) -> None:
+        size = kit_module.DEFAULT_KIT_CHUNK_SIZE
+        payloads = printed.build_payloads(bytes(range(256)) * 8, "gzip", size, QrConfig())
+        payload = payloads[2]
+        previous = make_qr(b"A" * 1800)
+        current = make_qr(payload)
+
+        self.assertEqual(len(payload), size)
+        self.assertEqual((current.version, current.error, current.mode), (29, "M", "alphanumeric"))
+        self.assertEqual(current.symbol_size(), previous.symbol_size())
+        with self.assertRaisesRegex(ValueError, "does not fit"):
+            make_qr(payload + b"A", version=29, error="M")
+
+    def test_capacity_probe_respects_custom_qr_version_and_correction(self) -> None:
+        for config in (QrConfig(version=20), QrConfig(version=29, error="H")):
+            with self.subTest(config=config):
+                probe = b"A" * kit_module.DEFAULT_KIT_CHUNK_SIZE
+                capacity = kit_module._max_qr_payload_bytes(probe, config)
+                self.assertLess(capacity, len(probe))
+                qr = make_qr(probe[:capacity], version=config.version, error=config.error)
+                self.assertEqual((qr.version, qr.error), (config.version, config.error))
+                with self.assertRaisesRegex(ValueError, "does not fit"):
+                    make_qr(probe[: capacity + 1], version=config.version, error=config.error)
+
+    def test_kit_rejects_empty_payload_invalid_alphabet_and_invalid_encoded_input(self) -> None:
+        for bundle, message in (
+            (b'<script>const p="";</script>', "payload is empty"),
+            (b'<script>const p="abc",a="bad";</script>', "invalid Base91 alphabet"),
+            (b'<script>const p=" ";</script>', "invalid Base91 character"),
+        ):
+            with self.subTest(bundle=bundle), self.assertRaisesRegex(ValueError, message):
+                kit_module.build_kit_qr_payloads(bundle, 1800, QrConfig())
+
+    def test_kit_rejects_invalid_chunk_sizes(self) -> None:
+        for size in (0, -1):
+            with self.assertRaisesRegex(ValueError, "chunk_size must exceed"):
+                kit_module.build_kit_qr_payloads(
+                    b'<script>const p="abc";</script>', size, QrConfig()
+                )

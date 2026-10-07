@@ -20,34 +20,32 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import json
 import re
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from ethernity.config import AppConfig, apply_render_style, load_app_config
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
-from ethernity.formats.extension_constants import (
-    EXTENSION_DOCUMENT_VERSION,
-    EXTENSION_SCHEMA_VERSION,
-)
 from ethernity.qr.capacity import fits_qr_payload
 from ethernity.qr.codec import QrConfig
 from ethernity.render import render_frames_to_pdf
 from ethernity.render.service import RenderService
 from ethernity.render.types import DocumentOrigin, RenderInputs, RenderResult
 from ethernity.render.validation import validate_rendered_pdf_document
+from ethernity.workflows.kit import printed
+from ethernity.workflows.shared.events import emit_finalizing, emit_phase, report_render_page
 
 DEFAULT_KIT_BUNDLE_NAME = "recovery_kit.bundle.html"
 SCANNER_KIT_BUNDLE_NAME = "recovery_kit.scanner.bundle.html"
 DEFAULT_KIT_OUTPUT = "recovery_kit_qr.pdf"
-DEFAULT_KIT_CHUNK_SIZE = 1200
+# Fill a version-29 alphanumeric symbol at M; custom QR settings are probed below.
+DEFAULT_KIT_CHUNK_SIZE = 1839
 _MAX_QR_PROBE_BYTES = 4000
 _JS_IDENTIFIER_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
-_KIT_CHUNK_ARRAY = "_k"
 _BASE91_ALPHABET = (
     "!#$%&'()*+,-./0123456789:;=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 )
@@ -78,6 +76,7 @@ class KitResult:
 class KitBundleLoaderMetadata:
     payload: str
     compression: str
+    alphabet: str = _BASE91_ALPHABET
 
 
 def create_kit(request: KitRequest) -> KitResult:
@@ -107,6 +106,7 @@ def render_kit_qr_document(
 ) -> KitResult:
     """Render a recovery kit from already-resolved workflow inputs."""
 
+    emit_phase(phase="prepare", label="Preparing recovery kit")
     normalized_variant = _normalize_kit_variant(variant)
     load_bundle = bundle_loader or _load_kit_bundle
     build_payloads = payload_builder or build_kit_qr_payloads
@@ -116,7 +116,7 @@ def render_kit_qr_document(
 
     resolved_chunk_size = chunk_size
     if resolved_chunk_size is None:
-        max_size = resolve_capacity(b"x" * _MAX_QR_PROBE_BYTES, qr_config)
+        max_size = resolve_capacity(b"A" * _MAX_QR_PROBE_BYTES, qr_config)
         resolved_chunk_size = min(DEFAULT_KIT_CHUNK_SIZE, max_size)
 
     if resolved_chunk_size <= 0:
@@ -142,6 +142,7 @@ def render_kit_qr_document(
 
     create_render_service = render_service_factory or RenderService
     render_service = create_render_service(config)
+    emit_phase(phase="output", label="Preparing recovery kit destination")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".ethernity-kit-", dir=output_path.parent) as staging:
         staged_path = Path(staging) / output_path.name
@@ -152,10 +153,14 @@ def render_kit_qr_document(
             context=render_service.base_context(),
             origin=DocumentOrigin(kind="recovery_kit"),
         )
+        inputs = replace(inputs, on_page=report_render_page)
+        emit_phase(phase="render", label="Creating recovery kit PDF")
         result = (render_pdf or render_frames_to_pdf)(inputs)
+        emit_phase(phase="verify", label="Checking recovery kit PDF")
         validate_rendered_pdf_document(
             inputs=inputs, result=result, document_label="rendered recovery kit"
         )
+        emit_finalizing()
         staged_path.replace(output_path)
 
     return KitResult(
@@ -289,138 +294,52 @@ def _extract_kit_bundle_loader_metadata(bundle_bytes: bytes) -> KitBundleLoaderM
         raise ValueError(
             "unsupported recovery kit bundle format: loader compression must be gzip or brotli"
         )
-    return KitBundleLoaderMetadata(payload=payload, compression=compression)
-
-
-def _extract_kit_bundle_loader_payload(bundle_bytes: bytes) -> str:
-    return _extract_kit_bundle_loader_metadata(bundle_bytes).payload
-
-
-def _kit_chunk_script(chunk: str) -> bytes:
-    literal = json.dumps(chunk).replace("<", "\\u003c")
-    return (
-        f"<script>(globalThis.{_KIT_CHUNK_ARRAY}||(globalThis.{_KIT_CHUNK_ARRAY}=[])).push("
-        f"{literal})</script>"
-    ).encode("ascii")
-
-
-def _split_kit_payload_chunks(payload: str, chunk_payload_size: int) -> list[bytes]:
-    if chunk_payload_size <= 0:
-        raise ValueError("chunk_size must be positive")
-    if not payload:
-        return []
-    chunks: list[bytes] = []
-    offset = 0
-    while offset < len(payload):
-        remaining = payload[offset:]
-        low = 1
-        high = len(remaining)
-        best = 0
-        while low <= high:
-            mid = (low + high) // 2
-            candidate = _kit_chunk_script(remaining[:mid])
-            if len(candidate) <= chunk_payload_size:
-                best = mid
-                low = mid + 1
-            else:
-                high = mid - 1
-        if best <= 0:
-            raise ValueError(
-                "chunk_size is too small for the recovery kit payload wrapper; "
-                "increase --qr-chunk-size."
-            )
-        part = remaining[:best]
-        chunks.append(_kit_chunk_script(part))
-        offset += best
-    return chunks
-
-
-def _kit_metadata() -> dict[str, object]:
-    return {
-        "capability": "ethernity-unanchored-rescue",
-        "version": 1,
-        "supported_extension_envelope_versions": [EXTENSION_DOCUMENT_VERSION],
-        "supported_extension_schema_versions": [EXTENSION_SCHEMA_VERSION],
-    }
-
-
-def _kit_shell_payload(
-    *,
-    chunk_count: int,
-    compression: str = "gzip",
-) -> bytes:
-    if compression not in _SUPPORTED_KIT_BUNDLE_COMPRESSIONS:
-        raise ValueError("compression must be gzip or brotli")
-    alphabet_json = json.dumps(_BASE91_ALPHABET)
-    compression_json = json.dumps(compression)
-    metadata_json = json.dumps(_kit_metadata(), sort_keys=True, separators=(",", ":"))
-    script = (
-        "(function(){"
-        f"globalThis.{_KIT_CHUNK_ARRAY}=globalThis.{_KIT_CHUNK_ARRAY}||[];"
-        f"const f={compression_json};"
-        "const m=t=>{if(document.body)document.body.textContent=t;else document.write(t)};"
-        "addEventListener('load',async()=>{"
-        f"const n={chunk_count};const k=globalThis.{_KIT_CHUNK_ARRAY};"
-        "if(!Array.isArray(k)||k.length!==n){"
-        "m(`Missing chunks ${Array.isArray(k)?k.length:0}/${n}`);return}"
-        "for(let i=0;i<n;i++){"
-        "if(typeof k[i]!=='string'){m(`Missing chunk ${i+1}/${n}`);return}}"
-        "const p=k.join('');"
-        "if(!('DecompressionStream'in window)){"
-        "m('Browser lacks '+f+' support');return}"
-        f"const a={alphabet_json};"
-        "const d=t=>{let b=0,n=0,v=-1,o=[];"
-        "for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;"
-        "if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}"
-        "if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};"
-        "const b=d(p);const ds=new DecompressionStream(f);"
-        "const s=new Blob([b]).stream().pipeThrough(ds);let t=await new Response(s).text();"
-        f"const q={json.dumps(metadata_json)};"
-        "const x='<script>globalThis.__ETHERNITY_KIT_METADATA__='+q+'<\\/script>';"
-        "t=t.replace(/<head([^>]*)>/i,'<head$1>'+x);"
-        "document.open();document.write(t);document.close()"
-        "});})();"
+    alphabet_literal = _extract_loader_string_literal(bundle_text, "a")
+    alphabet = (
+        _parse_loader_string_literal(alphabet_literal, "loader alphabet")
+        if alphabet_literal is not None
+        else _BASE91_ALPHABET
     )
-    return (
-        '<!doctype html><meta charset="utf-8"><meta name="viewport" '
-        'content="width=device-width,initial-scale=1"><title>Ethernity Recovery Kit</title>'
-        f"<script>{script}</script>"
-    ).encode("ascii")
+    if len(alphabet) != 91 or len(set(alphabet)) != 91:
+        raise ValueError("unsupported recovery kit bundle format: invalid Base91 alphabet")
+    return KitBundleLoaderMetadata(payload=payload, compression=compression, alphabet=alphabet)
+
+
+def _decode_base91(payload: str, alphabet: str) -> bytes:
+    digits = {char: index for index, char in enumerate(alphabet)}
+    output = bytearray()
+    buffer = bits = 0
+    value = -1
+    for char in payload:
+        if char not in digits:
+            raise ValueError("invalid Base91 character in recovery kit bundle")
+        digit = digits[char]
+        if value < 0:
+            value = digit
+            continue
+        value += digit * 91
+        buffer |= value << bits
+        bits += 13 if value & 8191 > 88 else 14
+        while bits > 7:
+            output.append(buffer & 255)
+            buffer >>= 8
+            bits -= 8
+        value = -1
+    if value >= 0:
+        output.append((buffer | value << bits) & 255)
+    return bytes(output)
 
 
 def build_kit_qr_payloads(
     bundle_bytes: bytes,
     chunk_size: int,
     config: QrConfig,
-    *,
-    loader_metadata_extractor: Callable[[bytes], KitBundleLoaderMetadata] | None = None,
-    payload_splitter: Callable[[str, int], list[bytes]] | None = None,
-    shell_builder: Callable[..., bytes] | None = None,
-    payload_fits: Callable[[bytes, QrConfig], bool] | None = None,
 ) -> list[bytes]:
-    extract_metadata = loader_metadata_extractor or _extract_kit_bundle_loader_metadata
-    split_payload = payload_splitter or _split_kit_payload_chunks
-    build_shell = shell_builder or _kit_shell_payload
-    fits_payload = payload_fits or fits_qr_payload
-    loader_metadata = extract_metadata(bundle_bytes)
-    payload_chunks = split_payload(loader_metadata.payload, chunk_size)
-    shell = build_shell(
-        chunk_count=len(payload_chunks),
-        compression=loader_metadata.compression,
-    )
-    if not fits_payload(shell, config):
-        raise ValueError(
-            "QR settings cannot encode the recovery kit shell QR. "
-            "Increase QR version / lower error level. "
-            "--qr-chunk-size only affects payload QRs after the first shell QR."
-        )
-    for payload_chunk in payload_chunks:
-        if not fits_payload(payload_chunk, config):
-            raise ValueError(
-                "chunk_size is too large for the current QR settings; "
-                "lower --qr-chunk-size or increase the QR version / error level."
-            )
-    return [shell, *payload_chunks]
+    loader_metadata = _extract_kit_bundle_loader_metadata(bundle_bytes)
+    compressed = _decode_base91(loader_metadata.payload, loader_metadata.alphabet)
+    if not compressed:
+        raise ValueError("recovery kit bundle payload is empty")
+    return printed.build_payloads(compressed, loader_metadata.compression, chunk_size, config)
 
 
 def _max_qr_payload_bytes(
