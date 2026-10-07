@@ -25,6 +25,7 @@ import pyrage
 from pyrage import passphrase as pyrage_passphrase
 
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES, MAX_DECOMPRESSED_PAYLOAD_BYTES
+from ethernity.core.failures import FailureStage
 from ethernity.crypto.age_policy import AgeScryptProfile, preflight_age_scrypt
 from ethernity.crypto.passphrases import (
     DEFAULT_PASSPHRASE_WORDS,
@@ -60,6 +61,9 @@ class AgeError(RuntimeError):
 
 class PassphraseAuthenticationError(ValueError):
     """The supplied passphrase candidate did not authenticate the ciphertext."""
+
+    code = "PASSPHRASE_AUTH_FAILED"
+    stage = FailureStage.UNLOCK
 
     def __init__(self, backend_error: AgeError) -> None:
         super().__init__("decryption failed")

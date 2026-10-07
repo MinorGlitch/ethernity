@@ -5,20 +5,20 @@ from pathlib import Path
 
 import pytest
 
+from ethernity.crypto import age_runtime
 from ethernity.crypto.age_policy import (
-    MAX_AUTOMATIC_KDF_WORK,
-    MAX_AUTOMATIC_SCRYPT_LOG_N,
-    MAX_COMPATIBILITY_KDF_WORK,
-    RESOURCE_INTENSIVE_COMPATIBILITY_REQUIRED,
+    MAX_RECOVERY_KDF_WORK,
+    MAX_RECOVERY_SCRYPT_LOG_N,
     KdfBudget,
-    RecoveryWorkLimitExceeded,
+    RecoveryResourceLimitError,
     inspect_age_scrypt_stanza,
     preflight_age_scrypt,
     recovery_kdf_budget,
 )
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.encoding.framing import VERSION, Frame, FrameType
-from ethernity.workflows.execution import RecoveryRequest, execute_recovery
+from ethernity.workflows.execution import execute_recovery
+from ethernity.workflows.shared.requests import RecoveryRequest
 
 
 def _synthetic_age_document(log_n: int) -> bytes:
@@ -49,16 +49,13 @@ def test_excessive_scrypt_parameters_are_hard_rejected() -> None:
         inspect_age_scrypt_stanza(_synthetic_age_document(22))
 
 
-def test_compatibility_profile_requires_explicit_resource_intensive_scope() -> None:
-    document = _synthetic_age_document(MAX_AUTOMATIC_SCRYPT_LOG_N + 1)
-
-    with pytest.raises(ValueError, match=RESOURCE_INTENSIVE_COMPATIBILITY_REQUIRED):
-        preflight_age_scrypt(document)
-
-    with recovery_kdf_budget(allow_resource_intensive_compatibility=True) as budget:
+@pytest.mark.parametrize("log_n", (18, 19, 20, MAX_RECOVERY_SCRYPT_LOG_N))
+def test_supported_profiles_use_one_automatic_policy(log_n: int) -> None:
+    document = _synthetic_age_document(log_n)
+    with recovery_kdf_budget() as budget:
         profile = preflight_age_scrypt(document)
-
     assert budget.consumed_work == profile.work
+    assert budget.maximum_work == MAX_RECOVERY_KDF_WORK
 
 
 def test_cumulative_kdf_budget_is_charged_before_work_starts() -> None:
@@ -67,10 +64,10 @@ def test_cumulative_kdf_budget_is_charged_before_work_starts() -> None:
 
     preflight_age_scrypt(document, budget=budget)
     preflight_age_scrypt(document, budget=budget)
-    with pytest.raises(ValueError, match="cumulative scrypt work"):
+    with pytest.raises(RecoveryResourceLimitError, match="cumulative scrypt work"):
         preflight_age_scrypt(document, budget=budget)
 
-    assert budget.consumed_work <= MAX_AUTOMATIC_KDF_WORK
+    assert budget.consumed_work <= MAX_RECOVERY_KDF_WORK
 
 
 def test_nested_recovery_phases_share_one_cumulative_budget() -> None:
@@ -85,50 +82,50 @@ def test_nested_recovery_phases_share_one_cumulative_budget() -> None:
     assert operation_budget.consumed_work == 2 * (2**18)
 
 
-def test_nested_phase_cannot_enable_intensive_mode() -> None:
+def test_cumulative_limit_rejects_work_without_charging_it() -> None:
+    document = _synthetic_age_document(MAX_RECOVERY_SCRYPT_LOG_N)
+    with recovery_kdf_budget() as budget:
+        for _ in range(8):
+            preflight_age_scrypt(document)
+        with recovery_kdf_budget() as nested:
+            with pytest.raises(RecoveryResourceLimitError, match="cumulative scrypt work"):
+                preflight_age_scrypt(document)
+        assert nested is budget
+        assert budget.consumed_work == MAX_RECOVERY_KDF_WORK
+
+    # A separate operation gets a fresh budget; nested phases cannot reset it.
+    with recovery_kdf_budget() as fresh:
+        preflight_age_scrypt(document)
+        assert fresh.consumed_work == 2**MAX_RECOVERY_SCRYPT_LOG_N
+
+
+def test_rejected_profile_does_not_consume_budget() -> None:
+    with recovery_kdf_budget() as budget:
+        with pytest.raises(RecoveryResourceLimitError, match="hard limit"):
+            preflight_age_scrypt(_synthetic_age_document(MAX_RECOVERY_SCRYPT_LOG_N + 1))
+        assert budget.consumed_work == 0
+
+
+def test_decryption_enforces_limits_before_starting_a_worker(monkeypatch) -> None:
+    calls = []
+
+    def decrypt_worker(data, passphrase, profile):
+        calls.append(profile.log_n)
+        return b"plaintext"
+
+    monkeypatch.setattr(age_runtime, "_decrypt_with_pyrage_worker", decrypt_worker)
+    document = _synthetic_age_document(MAX_RECOVERY_SCRYPT_LOG_N)
     with recovery_kdf_budget():
-        with pytest.raises(ValueError, match="when recovery starts"):
-            with recovery_kdf_budget(allow_resource_intensive_compatibility=True):
-                pass
+        for _ in range(8):
+            assert age_runtime.decrypt_bytes(document, passphrase="secret") == b"plaintext"
+        with pytest.raises(RecoveryResourceLimitError, match="cumulative scrypt work"):
+            age_runtime.decrypt_bytes(document, passphrase="secret")
 
-
-def test_normal_work_limit_reports_memory_without_charging_the_rejected_work() -> None:
-    document = _synthetic_age_document(21)
-    with recovery_kdf_budget() as budget:
-        with pytest.raises(RecoveryWorkLimitExceeded) as raised:
-            preflight_age_scrypt(document)
-    assert raised.value.memory_bytes == 128 * 8 * (2**21 + 2)
-    assert budget.consumed_work == 0
-
-
-def test_cumulative_limit_offers_one_higher_budget_then_fails_closed() -> None:
-    document = _synthetic_age_document(20)
-    with recovery_kdf_budget() as budget:
-        for _ in range(4):
-            preflight_age_scrypt(document)
-        with pytest.raises(RecoveryWorkLimitExceeded) as raised:
-            preflight_age_scrypt(document)
-        assert raised.value.memory_bytes == 128 * 8 * (2**20 + 2)
-        assert budget.consumed_work == MAX_AUTOMATIC_KDF_WORK
-
-    with recovery_kdf_budget(allow_resource_intensive_compatibility=True) as budget:
-        for _ in range(16):
-            preflight_age_scrypt(document)
-        with pytest.raises(ValueError) as raised:
-            preflight_age_scrypt(document)
-        assert not isinstance(raised.value, RecoveryWorkLimitExceeded)
-        assert budget.consumed_work == MAX_COMPATIBILITY_KDF_WORK
-
-    with pytest.raises(RecoveryWorkLimitExceeded):
-        preflight_age_scrypt(_synthetic_age_document(21))
-
-
-@pytest.mark.parametrize("higher_limits", (False, True))
-def test_hard_work_limit_never_offers_a_retry(higher_limits: bool) -> None:
-    with recovery_kdf_budget(allow_resource_intensive_compatibility=higher_limits):
-        with pytest.raises(ValueError) as raised:
-            preflight_age_scrypt(_synthetic_age_document(22))
-    assert not isinstance(raised.value, RecoveryWorkLimitExceeded)
+    with pytest.raises(RecoveryResourceLimitError, match="hard limit"):
+        age_runtime.decrypt_bytes(
+            _synthetic_age_document(MAX_RECOVERY_SCRYPT_LOG_N + 1), passphrase="secret"
+        )
+    assert calls == [MAX_RECOVERY_SCRYPT_LOG_N] * 8
 
 
 @pytest.mark.parametrize("document_count", (1, 2))
@@ -137,11 +134,11 @@ def test_restore_preserves_resource_failure_and_writes_nothing(
 ) -> None:
     frames = []
     for index in range(document_count):
-        ciphertext = _synthetic_age_document(21) + bytes([index])
+        ciphertext = _synthetic_age_document(MAX_RECOVERY_SCRYPT_LOG_N + 1) + bytes([index])
         doc_id, _doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
         frames.append(Frame(VERSION, FrameType.MAIN_DOCUMENT, doc_id, 0, 1, ciphertext))
     destination = tmp_path / "restored"
-    with pytest.raises(RecoveryWorkLimitExceeded) as raised:
+    with pytest.raises(RecoveryResourceLimitError, match="hard limit"):
         execute_recovery(
             RecoveryRequest(
                 frames=tuple(frames),
@@ -151,5 +148,4 @@ def test_restore_preserves_resource_failure_and_writes_nothing(
                 output_path=destination,
             )
         )
-    assert raised.value.memory_bytes > 2 * 1024**3
     assert not destination.exists()

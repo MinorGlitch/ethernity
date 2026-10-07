@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from multiprocessing import resource_tracker
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import psutil
 
@@ -108,21 +108,7 @@ def run_disposable_worker(
                     raise DisposableWorkerError(
                         f"{operation} worker terminated before returning output"
                     )
-            try:
-                payload = parent_connection.recv_bytes(limits.output_bytes + 4096)
-            except (EOFError, OSError) as exc:
-                _terminate_process(process)
-                raise DisposableWorkerError(
-                    f"{operation} worker returned excessive or invalid output"
-                ) from exc
-            try:
-                status, value = pickle.loads(payload)
-            except (pickle.PickleError, EOFError, ValueError, TypeError) as exc:
-                raise DisposableWorkerError(f"{operation} worker returned invalid output") from exc
-            process.join(timeout=1)
-            if status == "ok":
-                return cast(ResultT, value)
-            raise DisposableWorkerError(f"{operation} worker failed: {value}")
+            return _receive_worker_result(operation, process, parent_connection, limits)
     finally:
         parent_connection.close()
         if process.is_alive():
@@ -131,6 +117,26 @@ def run_disposable_worker(
             process.join(timeout=1)
         with _active_workers_lock:
             _active_workers.discard(process)
+
+
+def _receive_worker_result(
+    operation: str, process: BaseProcess, parent_connection: Connection, limits: WorkerLimits
+) -> ResultT:
+    try:
+        payload = parent_connection.recv_bytes(limits.output_bytes + 4096)
+    except (EOFError, OSError) as exc:
+        _terminate_process(process)
+        raise DisposableWorkerError(
+            f"{operation} worker returned excessive or invalid output"
+        ) from exc
+    try:
+        status, value = pickle.loads(payload)
+    except (pickle.PickleError, EOFError, ValueError, TypeError) as exc:
+        raise DisposableWorkerError(f"{operation} worker returned invalid output") from exc
+    process.join(timeout=1)
+    if status == "ok":
+        return cast(ResultT, value)
+    raise DisposableWorkerError(f"{operation} worker failed: {value}")
 
 
 def terminate_active_workers() -> None:
@@ -258,7 +264,7 @@ def _install_windows_job_limits(limits: WorkerLimits) -> None:
             ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
 
-    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
+    kernel32 = cast(Any, ctypes).WinDLL("kernel32", use_last_error=True)
     kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
     kernel32.CreateJobObjectW.restype = wintypes.HANDLE
     kernel32.SetInformationJobObject.argtypes = (

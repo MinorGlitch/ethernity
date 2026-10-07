@@ -95,11 +95,11 @@ class TestAgeCli(unittest.TestCase):
         with mock.patch.object(
             age_runtime,
             "preflight_age_scrypt",
-            side_effect=ValueError("RESOURCE_INTENSIVE_COMPATIBILITY_REQUIRED"),
+            side_effect=ValueError("cumulative scrypt work exceeds the recovery KDF budget"),
         ):
             with self.assertRaisesRegex(
                 ValueError,
-                "RESOURCE_INTENSIVE_COMPATIBILITY_REQUIRED",
+                "cumulative scrypt work exceeds the recovery KDF budget",
             ):
                 decrypt_bytes(b"age document", passphrase="secret")
 
