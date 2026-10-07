@@ -8,24 +8,25 @@ from typing import Any, cast
 
 import pytest
 from textual.containers import VerticalScroll
-from textual.widgets import Button, Collapsible, LoadingIndicator, OptionList, RichLog, Static
-from textual.worker import WorkerState
+from textual.pilot import Pilot
+from textual.widgets import Button, Collapsible, OptionList, RichLog, Static
+from textual.worker import Worker, WorkerState
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.execution import (
     ReviewedTask,
-    build_review_details,
-    infer_execution_failure_section,
+    execution_failure_section,
     normalize_execution_outcome,
 )
 from ethernity.app.output_paths import common_output_folder, single_output_folder
 from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.widgets.settings_form import SettingsForm
-from ethernity.config import apply_api_config_patch, load_app_config
+from ethernity.config import apply_config_patch, load_app_config
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.models import TaskExecutionPlan, TaskExecutionResult
+from ethernity.tasks.presentation.registry import build_review_details
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.settings import SettingsTaskState
@@ -147,10 +148,10 @@ def test_reviewed_task_keeps_an_isolated_snapshot(tmp_path: Path) -> None:
     execution_state.output_dir = Path("attempt-only-output")
 
     assert cast(BackupTaskState, reviewed_task.state_snapshot).output_dir == Path("reviewed-output")
-    assert reviewed_task.plan.output_paths == (Path("reviewed-output"),)
+    assert reviewed_task.plan.output_paths == (Path("reviewed-output/backup-<id>"),)
     details = {detail.label: detail.value for detail in reviewed_task.review_details}
     assert details["Files"] == "1 file"
-    assert details["Destination"] == str(Path("reviewed-output").absolute())
+    assert details["Destination"] == str(Path("reviewed-output/backup-<id>").absolute())
     assert cast(BackupTaskState, reviewed_task.execution_state()).output_dir == Path(
         "reviewed-output"
     )
@@ -187,12 +188,13 @@ def test_execution_outcomes_normalize_every_terminal_worker_state() -> None:
     exception = normalize_execution_outcome(
         WorkerState.ERROR,
         error=RuntimeError("Output is read-only."),
+        phase="write",
     )
     assert not exception.result.ok
     assert exception.result.message == "The task failed."
     assert exception.error_message == "Output is read-only."
     assert exception.error_detail == "RuntimeError: Output is read-only."
-    assert infer_execution_failure_section("backup", exception) == "output"
+    assert execution_failure_section("backup", exception) == "output"
 
     cancelled = normalize_execution_outcome(WorkerState.CANCELLED)
     assert not cancelled.result.ok
@@ -249,7 +251,7 @@ def test_background_write_identity_remains_visible_on_a_narrow_workflow() -> Non
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
             app.execution_controller._running_task = "backup"
-            await pilot.press("2")
+            await pilot.press("2", "ctrl+p", "?")
             await pilot.pause()
 
             assert str(app.query_one("#canvas-title", Static).content) == "Restore files"
@@ -311,7 +313,7 @@ def test_failure_result_prioritizes_remediation_and_reviewed_destination(tmp_pat
     asyncio.run(run())
 
 
-def test_failure_returns_to_live_workflow_after_switching_workflows(monkeypatch) -> None:
+def test_progress_locks_navigation_and_failure_returns_to_live_workflow(monkeypatch) -> None:
     started = threading.Event()
     release = threading.Event()
     calls: list[BackupTaskState] = []
@@ -339,22 +341,16 @@ def test_failure_returns_to_live_workflow_after_switching_workflows(monkeypatch)
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.click("#review-execute")
-            for _ in range(40):
-                await pilot.pause(0.05)
-                if started.is_set():
-                    break
+            await _wait_for_thread_start(pilot, started)
             assert started.is_set()
 
-            await pilot.press("2")
+            await pilot.press("2", "ctrl+p", "?")
             await pilot.pause()
             app.backup_state.input_paths = []
             app.backup_state.output_dir = Path("edited-while-running")
 
-            assert app.active_task == "restore"
-            assert str(app.query_one("#app-header-status", Static).content).startswith("v")
-            assert str(app.query_one("#canvas-primary", Button).label) == "Backup in progress"
-            assert app.query_one("#canvas-loading", LoadingIndicator).display
-            assert app.query_one("#canvas-primary", Button).disabled
+            assert app.active_task == "backup"
+            assert app.screen.query_one("#progress-modal").display
 
             await pilot.press("q")
             await pilot.pause()
@@ -415,7 +411,7 @@ def test_return_and_new_review_capture_current_config_contents(
 ) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
-    apply_api_config_patch(config_path, {"values": {"qr": {"chunk_size": 640}}})
+    apply_config_patch(config_path, {"values": {"qr": {"chunk_size": 640}}})
     settings = SettingsTaskState.from_current(config_path)
     started = threading.Event()
     allow_config_read = threading.Event()
@@ -443,18 +439,15 @@ def test_return_and_new_review_capture_current_config_contents(
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.click("#review-execute")
-            for _ in range(40):
-                await pilot.pause(0.05)
-                if started.is_set():
-                    break
+            await _wait_for_thread_start(pilot, started)
             assert started.is_set()
 
-            apply_api_config_patch(config_path, {"values": {"qr": {"chunk_size": 1024}}})
+            apply_config_patch(config_path, {"values": {"qr": {"chunk_size": 1024}}})
             allow_config_read.set()
             await _wait_for_selector(app, pilot, "#result-modal")
             await pilot.pause()
 
-            apply_api_config_patch(config_path, {"values": {"qr": {"chunk_size": 2048}}})
+            apply_config_patch(config_path, {"values": {"qr": {"chunk_size": 2048}}})
             await _click_when_laid_out(app, pilot, "#result-return")
             await pilot.press("ctrl+r")
             await _wait_for_selector(app, pilot, "#review-modal")
@@ -506,17 +499,14 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.click("#review-execute")
-            for _ in range(40):
-                await pilot.pause(0.05)
-                if started.is_set():
-                    break
+            await _wait_for_thread_start(pilot, started)
             assert started.is_set()
 
             await pilot.press("7")
             await pilot.pause()
             settings_form = app.query_one(SettingsForm)
             assert settings_form.disabled
-            assert "Locked while task runs" in _screen_text(app)
+            assert app.screen.query_one("#progress-modal").display
             assert not app.settings_controller.apply_text("qr_chunk_size", "2048")
 
             assert load_app_config(config_path).qr_chunk_size == original_chunk_size
@@ -567,19 +557,13 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.click("#review-execute")
-            for _ in range(40):
-                await pilot.pause(0.05)
-                if started.is_set():
-                    break
+            await _wait_for_thread_start(pilot, started)
             assert started.is_set()
             worker = app.execution_controller.running_worker
             assert worker is not None
 
             worker.cancel()
-            for _ in range(40):
-                await pilot.pause(0.05)
-                if worker.state == WorkerState.CANCELLED:
-                    break
+            await _wait_for_worker_cancelled(pilot, worker)
 
             assert worker.state == WorkerState.CANCELLED
             assert app.running_task == "backup"
@@ -697,3 +681,17 @@ def test_output_paths_report_the_nearest_meaningful_common_folder() -> None:
     assert single_output_folder(paths) == Path("/archive/restored")
     assert common_output_folder(paths) == str(Path("/archive/restored"))
     assert single_output_folder((Path("/one/file.pdf"), Path("/two/file.pdf"))) is None
+
+
+async def _wait_for_thread_start(pilot: Pilot, started: threading.Event) -> None:
+    for _ in range(40):
+        await pilot.pause(0.05)
+        if started.is_set():
+            return
+
+
+async def _wait_for_worker_cancelled(pilot: Pilot, worker: Worker) -> None:
+    for _ in range(40):
+        await pilot.pause(0.05)
+        if worker.state == WorkerState.CANCELLED:
+            return

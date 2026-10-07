@@ -1,20 +1,29 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from functools import partial
 from typing import Any, Literal, Protocol, TypeVar
 
 from textual.worker import Worker, WorkerState, WorkType
 
-from ethernity.app.app_types import ActiveTask
 from ethernity.app.execution import (
     ExecutionOutcome,
     ReviewedTask,
     normalize_execution_outcome,
 )
+from ethernity.app.operation_progress import OperationProgress, OperationProgressSink
 from ethernity.app.task_catalog import TASK_TITLES
 from ethernity.security.resource_worker import terminate_active_workers
 from ethernity.tasks.models import TaskExecutionResult
+from ethernity.tasks.task_types import TaskKey
+from ethernity.workflows.shared.events import emit_finalizing, event_session
+from ethernity.workflows.shared.execution_control import (
+    ExecutionControl,
+    OperationCancelled,
+    cancellation_point,
+    execution_session,
+)
 
 ResultType = TypeVar("ResultType")
 CallThreadReturnType = TypeVar("CallThreadReturnType")
@@ -53,7 +62,9 @@ class ExecutionControllerApp(Protocol):
         **kwargs: Any,
     ) -> CallThreadReturnType: ...
 
-    def _present_execution_start(self, task: ActiveTask) -> None: ...
+    def _present_execution_start(self, reviewed_task: ReviewedTask) -> None: ...
+
+    def _present_execution_progress(self, progress: OperationProgress) -> None: ...
 
     def _present_execution_outcome(
         self,
@@ -67,15 +78,17 @@ class ExecutionController:
 
     def __init__(self, app: ExecutionControllerApp) -> None:
         self._app = app
-        self._running_task: ActiveTask | None = None
+        self._running_task: TaskKey | None = None
         self._running_worker: Worker[Any] | None = None
         self._reviewed_tasks: dict[Worker[Any], ReviewedTask] = {}
         self._active_token: object | None = None
         self._thread_finished = False
         self._cancelled_worker: Worker[Any] | None = None
+        self._control = ExecutionControl()
+        self._progress = OperationProgress()
 
     @property
-    def running_task(self) -> ActiveTask | None:
+    def running_task(self) -> TaskKey | None:
         return self._running_task
 
     @property
@@ -92,7 +105,9 @@ class ExecutionController:
         self._active_token = execution_token
         self._thread_finished = False
         self._cancelled_worker = None
-        self._app._present_execution_start(reviewed_task.task)
+        self._control = ExecutionControl()
+        self._progress = OperationProgress()
+        self._app._present_execution_start(reviewed_task)
         try:
             worker = self._app.run_worker(
                 partial(self._execute_in_thread, reviewed_task, execution_token),
@@ -127,6 +142,7 @@ class ExecutionController:
         if reviewed_task is None:
             return
         if event.state == WorkerState.CANCELLED:
+            self._control.request_cancel()
             terminate_active_workers()
             self._cancelled_worker = event.worker
             if self._thread_finished:
@@ -142,22 +158,53 @@ class ExecutionController:
 
         self._reviewed_tasks.pop(event.worker, None)
         self._release_lock(event.worker)
-        self._app._present_execution_outcome(
-            reviewed_task,
-            normalize_execution_outcome(
-                event.state,
-                value=event.worker.result if event.state == WorkerState.SUCCESS else None,
-                error=event.worker.error if event.state == WorkerState.ERROR else None,
-            ),
+        outcome = normalize_execution_outcome(
+            event.state,
+            value=event.worker.result if event.state == WorkerState.SUCCESS else None,
+            error=event.worker.error if event.state == WorkerState.ERROR else None,
+            phase=self._progress.phase,
         )
+        if outcome.result.status == "failed":
+            outcome = replace(
+                outcome,
+                failed_stage=self._progress.stage,
+                output_note=(
+                    "The save did not finish. Check the destination for output."
+                    if self._control.committing
+                    else "No output was saved."
+                ),
+            )
+        self._app._present_execution_outcome(reviewed_task, outcome)
+
+    def request_cancel(self) -> bool:
+        return self._running_task is not None and self._control.request_cancel()
+
+    def _on_progress(self, execution_token: object, progress: OperationProgress) -> None:
+        if execution_token is self._active_token:
+            self._progress = progress
+            self._app._present_execution_progress(progress)
 
     def _execute_in_thread(
         self,
         reviewed_task: ReviewedTask,
         execution_token: object,
     ) -> TaskExecutionResult:
+        sink = OperationProgressSink(
+            self._control,
+            lambda progress: self._app.call_from_thread(
+                self._on_progress, execution_token, progress
+            ),
+        )
         try:
-            return reviewed_task.execute()
+            with execution_session(self._control), event_session(sink):
+                cancellation_point()
+                if reviewed_task.task == "settings":
+                    emit_finalizing()
+                return reviewed_task.execute()
+        except OperationCancelled:
+            return TaskExecutionResult(
+                status="cancelled", message="Cancelled. No output was saved."
+            )
         finally:
             self._app.call_from_thread(self._on_thread_finished, execution_token)
 

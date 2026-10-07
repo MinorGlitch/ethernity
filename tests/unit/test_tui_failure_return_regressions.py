@@ -6,7 +6,6 @@ from typing import Any, cast
 
 from textual.widgets import Button, Static
 
-from ethernity.app.app_types import ActiveTask, TaskState
 from ethernity.app.application import EthernityApp
 from ethernity.app.execution import (
     ExecutionOutcome,
@@ -14,13 +13,15 @@ from ethernity.app.execution import (
     ReviewedTask,
 )
 from ethernity.app.screens.task_result import TaskResultScreen
+from ethernity.core.failures import FailureInfo, FailureStage
 from ethernity.tasks.models import TaskExecutionResult
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
+from ethernity.tasks.task_types import TaskKey, TaskState
 
 
 def _reviewed_task(
-    task: ActiveTask,
+    task: TaskKey,
     state: TaskState,
     tmp_path: Path,
 ) -> ReviewedTask:
@@ -66,6 +67,7 @@ def test_restore_runtime_output_failure_returns_to_reviewed_destination(tmp_path
         result=TaskExecutionResult(
             status="failed",
             message="Restored files could not be written.",
+            failure=FailureInfo("OUTPUT_IO_ERROR", FailureStage.OUTPUT),
         ),
         error_message=f"Permission denied writing destination {destination}.",
         error_detail=f"PermissionError: {destination}",
@@ -107,6 +109,7 @@ def test_replacement_signing_failure_returns_to_signing_key_recovery(tmp_path: P
         result=TaskExecutionResult(
             status="failed",
             message="Replacement sheets could not be created.",
+            failure=FailureInfo("ROOT_SIGNING_KEY_MISMATCH", FailureStage.AUTHENTICATION),
         ),
         error_message="Signing key authentication failed while creating replacement sheets.",
         error_detail="AuthenticationError: signing key was rejected.",
