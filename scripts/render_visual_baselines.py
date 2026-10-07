@@ -968,8 +968,14 @@ def build_sample_inputs(case: VisualBaselineCase, output_path: Path) -> RenderIn
 def _sample_kit_payloads() -> tuple[bytes, ...]:
     """Keep artwork checks independent of changes to the printed kit transport."""
 
-    path = Path(__file__).resolve().parents[1] / "tests/fixtures/render/kit-qr-payloads.json"
-    return tuple(payload.encode("ascii") for payload in json.loads(path.read_text()))
+    # Preserve symbol sizes and pagination without freezing an executable kit in the fixtures.
+    lengths = (1426, 1200, 1200, 1197) + (1200,) * 11 + (133,)
+    return tuple(
+        hashlib.shake_256(f"visual-kit-{index}".encode("ascii"))
+        .hexdigest((length + 1) // 2)[:length]
+        .encode("ascii")
+        for index, length in enumerate(lengths)
+    )
 
 
 def rasterize_pdf_pages(
