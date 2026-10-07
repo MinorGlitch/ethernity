@@ -47,12 +47,13 @@ build = ["pyinstaller>=6.19.0"]
 dev = [
     "coverage>=7.13.4",
     "hypothesis>=6.151.9",
-    "jsonschema>=4.25.1",
     "pip-audit>=2.10.0",
     "pre-commit>=4.5.1",
+    "pylint>=4.1.2",
     "pyrefly>=1.1.1",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.15.2",
     "tkinterdnd2>=0.4.3",
     "typos>=1.44.0",
@@ -77,10 +78,12 @@ ethernity = [
     "resources/designs/_shared/assets/fonts/*.txt",
     "resources/designs/*/design.json",
     "resources/designs/*/style.json",
+    "resources/designs/_shared/*.json",
     "app/*.tcss",
     "resources/config/*.toml",
     "resources/kit/recovery_kit.bundle.html",
     "resources/kit/recovery_kit.scanner.bundle.html",
+    "resources/kit/recovery_kit.assembler.html",
     "resources/crypto/bip39_wordlist.txt",
     "py.typed",
 ]
@@ -94,10 +97,38 @@ line-length = 100
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = [
+    "E", "F", "I",
+    "B",       # Common mistakes, including mutable defaults and loop-variable closures.
+    "UP",      # Syntax supported by our minimum Python version.
+    "RET505",  # Unnecessary else after return.
+    "RUF100",  # Unused noqa comments.
+    "C901",    # Complex control flow.
+    "PLR0912", # Too many branches.
+    "PLR0915", # Too many statements.
+]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-branches = 12
+max-statements = 50
+
+[tool.pylint.main]
+recursive = true
+persistent = false
+py-version = "3.11"
+
+[tool.pylint.messages_control]
+disable = ["all"]
+enable = ["duplicate-code", "too-many-nested-blocks"]
+
+[tool.pylint.reports]
+score = false
 
 [tool.pyrefly]
 project-includes = ["src", "tooling"]
@@ -138,15 +169,14 @@ show_missing = true
 [dependency-groups]
 dev = [
     "coverage==7.15.0",
-    "debugpy==1.8.21",
     "hypothesis==6.156.1",
-    "jsonschema>=4.25.1",
     "pip-audit==2.10.1",
     "pre-commit==4.6.0",
+    "pylint==4.1.2",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
+    "pytest-xdist==3.8.0",
     "ruff==0.15.20",
     "tkinterdnd2==0.6.2",
-    "twine>=6.2.0",
     "typos==1.48.0",
 ]

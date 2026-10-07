@@ -16,14 +16,6 @@
 $ErrorActionPreference = "Stop"
 
 $KitResourceDir = "src/ethernity/resources/kit"
-$ExpectedBundles = @(
-    "recovery_kit.bundle.html",
-    "recovery_kit.scanner.bundle.html"
-)
-
-if (-not (Get-Command libdeflate-gzip -ErrorAction SilentlyContinue)) {
-    throw "libdeflate-gzip is required to generate deterministic recovery-kit bundles"
-}
 
 Get-ChildItem -Path $KitResourceDir -Filter "recovery_kit*.bundle.html" -File `
     -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -31,9 +23,11 @@ Get-ChildItem -Path $KitResourceDir -Filter "recovery_kit*.bundle.html" -File `
 Push-Location kit
 try {
     npm ci
+    if ($LASTEXITCODE -ne 0) { throw "Kit dependency installation failed" }
     $env:ETHERNITY_KIT_COMPRESSION = "gzip"
     $env:ETHERNITY_KIT_VARIANTS = "both"
     node build_kit.mjs
+    if ($LASTEXITCODE -ne 0) { throw "Recovery-kit generation failed" }
 }
 finally {
     Remove-Item Env:ETHERNITY_KIT_COMPRESSION -ErrorAction SilentlyContinue
@@ -41,18 +35,9 @@ finally {
     Pop-Location
 }
 
-$GeneratedBundles = @(Get-ChildItem -Path $KitResourceDir -Filter "*.html" -File)
-if ($GeneratedBundles.Count -ne $ExpectedBundles.Count) {
-    $GeneratedNames = ($GeneratedBundles | ForEach-Object Name) -join ", "
-    throw "Expected exactly $($ExpectedBundles.Count) generated recovery-kit bundles; found: $GeneratedNames"
-}
-foreach ($BundleName in $ExpectedBundles) {
-    $BundlePath = Join-Path $KitResourceDir $BundleName
-    $Bundle = Get-Item $BundlePath -ErrorAction SilentlyContinue
-    if ($null -eq $Bundle -or $Bundle.Length -eq 0) {
-        throw "Missing or empty generated recovery-kit bundle: $BundlePath"
-    }
-}
-
 uv sync --extra build --frozen
+if ($LASTEXITCODE -ne 0) { throw "Build dependency installation failed" }
+uv run python -m tooling.release_resources --kit-directory $KitResourceDir
+if ($LASTEXITCODE -ne 0) { throw "Recovery-kit bundle verification failed" }
 uv run pyinstaller --clean --noconfirm ethernity.spec
+if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }

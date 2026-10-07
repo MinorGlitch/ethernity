@@ -270,16 +270,13 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: kit/package-lock.json
 
       - name: Install kit dependencies
         working-directory: kit
         run: npm ci
-
-      - name: Install kit gzip compressor
-        run: sudo apt-get update && sudo apt-get install --yes libdeflate-tools
 
       - name: Generate kit bundles
         working-directory: kit
@@ -290,42 +287,15 @@ jobs:
           rm -f ../src/ethernity/resources/kit/recovery_kit*.bundle.html
           node build_kit.mjs
 
-      - name: Prepare kit bundle upload
-        run: |
-          set -euo pipefail
-          mkdir -p release-kit-bundles
-          cp \
-            src/ethernity/resources/kit/recovery_kit.bundle.html \
-            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html \
-            release-kit-bundles/
-          shopt -s nullglob
-          bundles=(release-kit-bundles/*.html)
-          if (( ${#bundles[@]} != 2 )); then
-            echo "expected exactly two default recovery-kit bundles" >&2
-            ls -la release-kit-bundles >&2
-            exit 1
-          fi
-          for bundle in \
-            release-kit-bundles/recovery_kit.bundle.html \
-            release-kit-bundles/recovery_kit.scanner.bundle.html
-          do
-            if [[ ! -s "${bundle}" ]]; then
-              echo "missing or empty default recovery-kit bundle: ${bundle}" >&2
-              exit 1
-            fi
-            size="$(wc -c < "${bundle}")"
-            if (( size < 1000 )); then
-              echo "default recovery-kit bundle is unexpectedly small: ${bundle}" >&2
-              exit 1
-            fi
-          done
+      - name: Verify generated kit bundles
+        run: python3 -m tooling.release_resources --kit-directory src/ethernity/resources/kit
 
       - name: Upload kit bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-kit-bundles
           if-no-files-found: error
-          path: release-kit-bundles/*.html
+          path: src/ethernity/resources/kit/*.html
 
   build:
     needs: [precheck, kit-bundles]
@@ -385,30 +355,7 @@ jobs:
           path: src/ethernity/resources/kit
 
       - name: Verify exact generated kit bundles
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          bundles=(src/ethernity/resources/kit/*.html)
-          if (( ${#bundles[@]} != 2 )); then
-            echo "expected exactly two default recovery-kit bundles" >&2
-            printf '  %s\n' "${bundles[@]}" >&2
-            exit 1
-          fi
-          for bundle in \
-            src/ethernity/resources/kit/recovery_kit.bundle.html \
-            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
-          do
-            if [[ ! -s "${bundle}" ]]; then
-              echo "missing or empty default recovery-kit bundle: ${bundle}" >&2
-              exit 1
-            fi
-            size="$(wc -c < "${bundle}")"
-            if (( size < 1000 )); then
-              echo "default recovery-kit bundle is unexpectedly small: ${bundle}" >&2
-              exit 1
-            fi
-          done
+        run: python -m tooling.release_resources --kit-directory src/ethernity/resources/kit
 
       - name: Build with PyInstaller (onedir)
         run: uv run pyinstaller --clean --noconfirm ethernity.spec
@@ -788,25 +735,7 @@ jobs:
           path: src/ethernity/resources/kit
 
       - name: Verify exact source archive kit bundles
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          bundles=(src/ethernity/resources/kit/*.html)
-          if (( ${#bundles[@]} != 2 )); then
-            echo "expected exactly two default recovery-kit bundles" >&2
-            printf '  %s\n' "${bundles[@]}" >&2
-            exit 1
-          fi
-          for bundle in \
-            src/ethernity/resources/kit/recovery_kit.bundle.html \
-            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
-          do
-            if [[ ! -s "${bundle}" ]]; then
-              echo "missing or empty default recovery-kit bundle: ${bundle}" >&2
-              exit 1
-            fi
-          done
+        run: python -m tooling.release_resources --kit-directory src/ethernity/resources/kit
 
       - name: Build tagged source archive
         shell: bash
@@ -819,6 +748,7 @@ jobs:
             exit 1
           fi
           mv "${archives[0]}" "ethernity-source-${{ needs.precheck.outputs.tag }}.tar.gz"
+          python -m tooling.release_resources "ethernity-source-${{ needs.precheck.outputs.tag }}.tar.gz"
 
       - name: Generate source archive SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0

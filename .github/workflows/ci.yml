@@ -29,6 +29,9 @@ jobs:
         uses: ./.github/actions/setup-python
       - name: Ruff lint
         run: uv run ruff check src tests tooling
+      - name: Pylint duplication and nesting
+        if: ${{ !cancelled() }}
+        run: uv run pylint src/ethernity tooling
 
   format:
     runs-on: ubuntu-latest
@@ -72,7 +75,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: kit/package-lock.json
       - name: Install kit dependencies
@@ -101,7 +104,7 @@ jobs:
             --output-dir "${RUNNER_TEMP}/render-visual-baselines" \
             --rasterize never
       - name: Verify composited QR scans
-        run: uv run pytest tests/unit/test_render_visual_baselines.py -v
+        run: uv run pytest tests/unit/test_render_visual_baselines.py -n 2 -v
 
   test:
     needs: kit-bundles
@@ -134,7 +137,7 @@ jobs:
       - name: Setup Node.js for kit interop tests
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: kit/package-lock.json
       - name: Install kit dependencies
@@ -163,7 +166,7 @@ jobs:
       - name: Run e2e tests
         env:
           ETHERNITY_TEST_CLI_TIMEOUT_SECONDS: "300"
-        run: uv run pytest tests/e2e -v
+        run: uv run pytest tests/e2e -n 2 --dist loadfile -v
 
   coverage:
     needs: kit-bundles
@@ -182,7 +185,7 @@ jobs:
       - name: Setup Node.js for unit coverage
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: kit/package-lock.json
       - name: Install kit dependencies
@@ -221,8 +224,7 @@ jobs:
       - name: Verify generated bundles are not committed
         run: |
           TRACKED="$(git ls-files -- \
-            src/ethernity/resources/kit/recovery_kit.bundle.html \
-            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html)"
+            "src/ethernity/resources/kit/*.html")"
           if [ -n "$TRACKED" ]; then
             echo "ERROR: recovery kit bundles are generated release files and must not be committed."
             echo "$TRACKED"
@@ -231,38 +233,23 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: kit/package-lock.json
       - name: Install kit dependencies
         working-directory: kit
         run: npm ci
-      - name: Install kit gzip compressor
-        run: sudo apt-get update && sudo apt-get install --yes libdeflate-tools
       - name: Generate kit bundles for packages
         working-directory: kit
         run: node build_kit.mjs
       - name: Verify generated kit bundles
-        run: |
-          for BUNDLE in \
-            src/ethernity/resources/kit/recovery_kit.bundle.html \
-            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
-          do
-            test -s "$BUNDLE"
-            SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || stat -f%z "$BUNDLE")
-            echo "Generated bundle size ($BUNDLE): $SIZE bytes"
-            if [ "$SIZE" -lt 1000 ]; then
-              echo "ERROR: Generated bundle seems too small, may be corrupted: $BUNDLE"
-              exit 1
-            fi
-          done
+        run: python3 -m tooling.release_resources --kit-directory src/ethernity/resources/kit
+
       - name: Upload generated kit bundles
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: recovery-kit-bundles
-          path: |
-            src/ethernity/resources/kit/recovery_kit.bundle.html
-            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
+          path: src/ethernity/resources/kit/*.html
           if-no-files-found: error
           retention-days: 1
 
@@ -283,7 +270,7 @@ jobs:
       - name: Build wheel and sdist
         run: uv build --wheel --sdist --out-dir dist
       - name: Verify package contents
-        run: python3 scripts/check_wheel_contents.py dist/*.whl dist/*.tar.gz
+        run: python3 -m tooling.release_resources dist/*.whl dist/*.tar.gz
       - name: Install built wheel
         run: python3 -m pip install --force-reinstall dist/*.whl
       - name: Smoke test installed package
@@ -312,7 +299,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: kit/package-lock.json
 
@@ -327,10 +314,7 @@ jobs:
           path: src/ethernity/resources/kit
 
       - name: Verify build output
-        run: |
-          echo "Build completed successfully"
-          ls -la src/ethernity/resources/kit/recovery_kit.bundle.html
-          ls -la src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
+        run: python3 -m tooling.release_resources --kit-directory src/ethernity/resources/kit
 
       - name: Run kit tests
         working-directory: kit
@@ -378,7 +362,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: kit/package-lock.json
       - name: Audit npm dependencies

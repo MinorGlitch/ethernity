@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from setuptools import setup
@@ -9,27 +11,25 @@ from setuptools.command.sdist import sdist as _sdist
 from setuptools.errors import SetupError
 
 _PROJECT_ROOT = Path(__file__).resolve().parent
-_REQUIRED_KIT_BUNDLES = (
-    _PROJECT_ROOT / "src" / "ethernity" / "resources" / "kit" / "recovery_kit.bundle.html",
-    _PROJECT_ROOT / "src" / "ethernity" / "resources" / "kit" / "recovery_kit.scanner.bundle.html",
-)
 
 
 def _assert_generated_kit_bundles_present() -> None:
-    failures: list[str] = []
-    for bundle_path in _REQUIRED_KIT_BUNDLES:
-        if not bundle_path.is_file():
-            failures.append(f"missing: {bundle_path.relative_to(_PROJECT_ROOT)}")
-            continue
-        if bundle_path.stat().st_size < 1000:
-            failures.append(f"too small: {bundle_path.relative_to(_PROJECT_ROOT)}")
-    if failures:
-        details = "\n".join(f"  - {failure}" for failure in failures)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_PROJECT_ROOT / "tooling" / "release_resources.py"),
+            "--kit-directory",
+            str(_PROJECT_ROOT / "src" / "ethernity" / "resources" / "kit"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
         raise SetupError(
             "recovery kit bundles must be generated before building release artifacts:\n"
-            f"{details}\n"
-            "Install libdeflate-gzip (Ubuntu: libdeflate-tools; macOS: Homebrew libdeflate), "
-            "then run 'cd kit && node build_kit.mjs'."
+            f"{result.stderr.strip()}\n"
+            "Run 'cd kit && npm ci && node build_kit.mjs'."
         )
 
 
