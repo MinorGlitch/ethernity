@@ -26,7 +26,7 @@ from ethernity.tasks.rebuild import RebuildTaskState
 @click.option(
     "--output-dir",
     type=click.Path(file_okay=False, path_type=Path),
-    help="Where rebuilt backup documents will be saved.",
+    help="Parent folder for the rebuilt backup-<id> folder.",
 )
 @click.option("--passphrase", help="Passphrase to unlock the backup.")
 @click.option(
@@ -75,7 +75,6 @@ from ethernity.tasks.rebuild import RebuildTaskState
 @click.option("--design", default="sentinel", show_default=True, help="Built-in render style.")
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")
-@click.option("--json", "json_output", is_flag=True, help="Emit one machine-readable JSON object.")
 @click.pass_context
 def rebuild(
     ctx: click.Context,
@@ -94,7 +93,6 @@ def rebuild(
     design: str,
     preview: bool,
     yes: bool,
-    json_output: bool,
 ) -> None:
     """Rebuild a backup from its latest recoverable state."""
 
@@ -115,12 +113,10 @@ def rebuild(
         design=design,
     )
     run_task(
-        "rebuild",
         state,
+        not_ready_message="Rebuild is not ready.",
         preview=preview,
         yes=yes,
-        json_output=json_output,
-        not_ready_message="Rebuild is not ready.",
     )
 
 

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import json
 import tomllib
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 import ethernity.main as root_entrypoint
 from ethernity.main import main
 from ethernity.run.cli import cli
+from ethernity.run.command_registry import RUN_COMMANDS
 from ethernity.tasks.models import TaskExecutionResult
 
 
@@ -84,34 +85,7 @@ def test_run_backup_preview_uses_task_model() -> None:
     assert "Nothing will be written until final review." not in result.output
 
 
-def test_run_backup_json_preview_uses_task_model() -> None:
-    runner = CliRunner()
-
-    result = runner.invoke(
-        cli,
-        [
-            "backup",
-            "--input",
-            "secrets.txt",
-            "--output-dir",
-            "backup-out",
-            "--preview",
-            "--json",
-        ],
-    )
-
-    payload = json.loads(result.output)
-    assert result.exit_code == 0
-    assert payload["task"] == "backup"
-    assert payload["status"] == "preview"
-    assert payload["ready"] is True
-    assert payload["preview"]["title"] == "Documents to create"
-    assert payload["plan"]["output_paths"] == ["backup-out"]
-    assert payload["result"] is None
-    assert payload["error"] is None
-
-
-def test_run_backup_json_preview_uses_automatic_output_folder_when_unset() -> None:
+def test_run_backup_preview_uses_automatic_output_folder_when_unset() -> None:
     runner = CliRunner()
 
     result = runner.invoke(
@@ -121,18 +95,12 @@ def test_run_backup_json_preview_uses_automatic_output_folder_when_unset() -> No
             "--input",
             "secrets.txt",
             "--preview",
-            "--json",
         ],
     )
 
-    payload = json.loads(result.output)
     assert result.exit_code == 0
-    assert payload["ready"] is True
-    assert payload["validation"]["issues"] == []
-    assert payload["plan"]["summary"] == (
-        "Create backup documents in an automatic folder named for the backup ID"
-    )
-    assert payload["plan"]["output_paths"] == ["backup-<backup id>"]
+    assert "backup-<id>" in result.output
+    assert "Documents to create" in result.output
 
 
 def test_run_backup_requires_ready_state_without_preview() -> None:
@@ -142,21 +110,6 @@ def test_run_backup_requires_ready_state_without_preview() -> None:
 
     assert result.exit_code != 0
     assert "Backup is not ready" in result.output
-
-
-def test_run_backup_json_not_ready_is_machine_readable() -> None:
-    runner = CliRunner()
-
-    result = runner.invoke(cli, ["backup", "--yes", "--json"])
-
-    payload = json.loads(result.output)
-    assert result.exit_code == 1
-    assert payload["status"] == "not_ready"
-    assert payload["ready"] is False
-    assert payload["error"] == "Backup is not ready."
-    assert [issue["code"] for issue in payload["validation"]["issues"]] == [
-        "BACKUP_FILES_REQUIRED",
-    ]
 
 
 def test_run_shard_count_options_reject_values_above_shamir_limit() -> None:
@@ -267,7 +220,7 @@ def test_run_backup_zero_recovery_count_disables_passphrase_shards(monkeypatch) 
     assert calls[0].to_backup_request().shard_count is None
 
 
-def test_run_backup_json_yes_executes_task_model(monkeypatch) -> None:
+def test_run_backup_execution_reports_written_files(monkeypatch) -> None:
     calls = []
 
     def fake_execute(self):
@@ -290,16 +243,13 @@ def test_run_backup_json_yes_executes_task_model(monkeypatch) -> None:
             "--output-dir",
             "backup-out",
             "--yes",
-            "--json",
         ],
     )
 
-    payload = json.loads(result.output)
     assert result.exit_code == 0
     assert len(calls) == 1
-    assert payload["status"] == "executed"
-    assert payload["result"]["message"] == "Backup documents created."
-    assert payload["result"]["output_paths"] == [str(Path("backup-out/main.pdf"))]
+    assert "Backup documents created." in result.output
+    assert str(Path("backup-out/main.pdf")) in result.output
 
 
 def test_run_restore_preview_uses_task_model() -> None:
@@ -348,7 +298,6 @@ def test_run_restore_yes_executes_task_model(monkeypatch) -> None:
             "secret",
             "--output",
             "recovered",
-            "--resource-intensive-compatibility-recovery",
             "--yes",
         ],
     )
@@ -359,8 +308,6 @@ def test_run_restore_yes_executes_task_model(monkeypatch) -> None:
     assert calls[0].auth_text_file == Path("auth.txt")
     assert calls[0].to_recovery_request().auth_text_file == Path("auth.txt")
     assert calls[0].passphrase == "secret"
-    assert calls[0].resource_intensive_compatibility_recovery
-    assert calls[0].to_recovery_request().resource_intensive_compatibility_recovery
     assert "Recovered files written." in result.output
 
 
@@ -679,3 +626,44 @@ def test_run_print_kit_yes_executes_task_model(monkeypatch) -> None:
     assert str(calls[0].output_path) == "kit.pdf"
     assert calls[0].chunk_size == 512
     assert "Recovery kit created." in result.output
+
+
+def test_restore_rejects_removed_resource_override() -> None:
+    result = CliRunner().invoke(cli, ["restore", "--resource-intensive-compatibility-recovery"])
+    assert result.exit_code == 2
+    assert "No such option" in result.output
+
+
+@pytest.mark.parametrize("command", [command.name for command in RUN_COMMANDS])
+def test_run_commands_reject_json_output(command: str) -> None:
+    runner = CliRunner()
+    help_result = runner.invoke(cli, [command, "--help"])
+    assert help_result.exit_code == 0
+    assert "--json" not in help_result.output
+
+    result = runner.invoke(cli, [command, "--json"])
+    assert result.exit_code == 2
+    assert "No such option" in result.output
+    assert "--json" in result.output
+
+
+def test_run_backup_requires_confirmation(monkeypatch) -> None:
+    def unexpected_execute(_self):
+        pytest.fail("Backup must not execute without --yes.")
+
+    monkeypatch.setattr("ethernity.tasks.backup.BackupTaskState.execute", unexpected_execute)
+    result = CliRunner().invoke(cli, ["backup", "--input", "secret.txt"])
+
+    assert result.exit_code == 1
+    assert "Use --preview to inspect the task or --yes to execute." in result.output
+
+
+def test_run_backup_reports_execution_error(monkeypatch) -> None:
+    def failed_execute(_self):
+        raise ValueError("Cannot read selected file.")
+
+    monkeypatch.setattr("ethernity.tasks.backup.BackupTaskState.execute", failed_execute)
+    result = CliRunner().invoke(cli, ["backup", "--input", "secret.txt", "--yes"])
+
+    assert result.exit_code == 1
+    assert "Error: Cannot read selected file." in result.output

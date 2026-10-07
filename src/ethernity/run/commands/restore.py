@@ -4,6 +4,7 @@ from pathlib import Path
 
 import click
 
+from ethernity.run.commands.recovery_inputs import recovery_source_fields
 from ethernity.run.context import current_config_path
 from ethernity.run.execution import run_task
 from ethernity.tasks.restore import RestoreTarget, RestoreTaskState
@@ -63,14 +64,6 @@ from ethernity.tasks.restore import RestoreTarget, RestoreTaskState
 )
 @click.option("--allow-unsigned", is_flag=True, help="Allow unsigned legacy recovery payloads.")
 @click.option(
-    "--resource-intensive-compatibility-recovery",
-    is_flag=True,
-    help=(
-        "Raise the scrypt work limits for this restore attempt. "
-        "This can consume substantial CPU and memory."
-    ),
-)
-@click.option(
     "--output",
     "output_path",
     type=click.Path(path_type=Path),
@@ -78,7 +71,6 @@ from ethernity.tasks.restore import RestoreTarget, RestoreTaskState
 )
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")
-@click.option("--json", "json_output", is_flag=True, help="Emit one machine-readable JSON object.")
 @click.pass_context
 def restore(
     ctx: click.Context,
@@ -94,20 +86,16 @@ def restore(
     extension_doc_hash: str | None,
     expected_head_doc_hash: str | None,
     allow_unsigned: bool,
-    resource_intensive_compatibility_recovery: bool,
     output_path: Path | None,
     preview: bool,
     yes: bool,
-    json_output: bool,
 ) -> None:
     """Restore files."""
 
     state = RestoreTaskState(
-        source_paths=list(source_paths),
-        recovery_text_file=recovery_text,
-        payloads_file=payloads_file,
-        auth_text_file=auth_text_file,
-        auth_payloads_file=auth_payloads_file,
+        **recovery_source_fields(
+            source_paths, recovery_text, payloads_file, auth_text_file, auth_payloads_file
+        ),
         config_path=current_config_path(ctx),
         passphrase=passphrase,
         recovery_documents=list(recovery_documents),
@@ -118,15 +106,12 @@ def restore(
         expected_head_doc_hash=expected_head_doc_hash,
         output_path=output_path,
         allow_unsigned=allow_unsigned,
-        resource_intensive_compatibility_recovery=(resource_intensive_compatibility_recovery),
     )
     run_task(
-        "restore",
         state,
+        not_ready_message="Restore is not ready.",
         preview=preview,
         yes=yes,
-        json_output=json_output,
-        not_ready_message="Restore is not ready.",
     )
 
 

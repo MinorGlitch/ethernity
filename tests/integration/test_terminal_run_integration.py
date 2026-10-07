@@ -45,6 +45,8 @@ def test_run_backup_and_restore_round_trip(tmp_path: Path) -> None:
                 "--yes",
             ],
         )
+        assert backup_result.exit_code == 0, backup_result.output
+        [backup_dir] = backup_dir.glob("backup-*")
         restore_result = runner.invoke(
             cli,
             [

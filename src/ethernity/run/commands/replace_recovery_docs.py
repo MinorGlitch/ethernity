@@ -121,7 +121,6 @@ from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 @click.option("--design", default="sentinel", show_default=True, help="Built-in render style.")
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")
-@click.option("--json", "json_output", is_flag=True, help="Emit one machine-readable JSON object.")
 @click.pass_context
 def replace_recovery_docs(
     ctx: click.Context,
@@ -147,7 +146,6 @@ def replace_recovery_docs(
     design: str,
     preview: bool,
     yes: bool,
-    json_output: bool,
 ) -> None:
     """Create replacement recovery documents for an existing backup."""
 
@@ -175,12 +173,10 @@ def replace_recovery_docs(
         design=design,
     )
     run_task(
-        "replace-recovery-docs",
         state,
+        not_ready_message="Replace recovery documents is not ready.",
         preview=preview,
         yes=yes,
-        json_output=json_output,
-        not_ready_message="Replace recovery documents is not ready.",
     )
 
 

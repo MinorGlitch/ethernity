@@ -39,7 +39,6 @@ from ethernity.tasks.kit import KitVariant, PrintKitTaskState
 )
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")
-@click.option("--json", "json_output", is_flag=True, help="Emit one machine-readable JSON object.")
 def print_kit(
     output_path: Path | None,
     variant: str,
@@ -48,7 +47,6 @@ def print_kit(
     chunk_size: int | None,
     preview: bool,
     yes: bool,
-    json_output: bool,
 ) -> None:
     """Create a printable offline recovery kit PDF."""
 
@@ -60,12 +58,10 @@ def print_kit(
         chunk_size=chunk_size,
     )
     run_task(
-        "print-kit",
         state,
+        not_ready_message="Offline recovery kit is not ready.",
         preview=preview,
         yes=yes,
-        json_output=json_output,
-        not_ready_message="Offline recovery kit is not ready.",
     )
 
 

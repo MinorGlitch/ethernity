@@ -38,7 +38,7 @@ PASSPHRASE_WORD_CHOICES = tuple(str(count) for count in MNEMONIC_WORD_COUNTS)
 @click.option(
     "--output-dir",
     type=click.Path(file_okay=False, path_type=Path),
-    help="Where backup documents will be saved.",
+    help="Parent folder for backup-<id>. Defaults to the current folder.",
 )
 @click.option(
     "--recovery-threshold",
@@ -89,7 +89,6 @@ PASSPHRASE_WORD_CHOICES = tuple(str(count) for count in MNEMONIC_WORD_COUNTS)
     type=click.Choice(PASSPHRASE_WORD_CHOICES),
     help="Generated passphrase word count.",
 )
-@click.option("--json", "json_output", is_flag=True, help="Emit one machine-readable JSON object.")
 @click.pass_context
 def backup(
     ctx: click.Context,
@@ -109,7 +108,6 @@ def backup(
     yes: bool,
     passphrase: str | None,
     passphrase_words: str | None,
-    json_output: bool,
 ) -> None:
     """Create a backup."""
 
@@ -133,12 +131,10 @@ def backup(
         qr_chunk_size=qr_chunk_size,
     )
     run_task(
-        "backup",
         state,
+        not_ready_message="Backup is not ready.",
         preview=preview,
         yes=yes,
-        json_output=json_output,
-        not_ready_message="Backup is not ready.",
     )
 
 

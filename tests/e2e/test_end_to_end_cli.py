@@ -75,6 +75,8 @@ def test_run_backup_and_restore_round_trip_via_module_entrypoint(tmp_path: Path)
         "correct horse battery staple",
         "--yes",
     )
+    assert backup_result.returncode == 0, backup_result.stderr + backup_result.stdout
+    [backup_dir] = backup_dir.glob("backup-*")
     restore_result = _run_cli(
         repo_root,
         tmp_path,

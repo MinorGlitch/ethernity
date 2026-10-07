@@ -5,7 +5,9 @@ from pathlib import Path
 import click
 
 from ethernity.crypto.sharding import MAX_SHARES
+from ethernity.formats.extension_mode import UpdateMode
 from ethernity.page_sizes import paper_size_names, resolve_paper_size
+from ethernity.run.commands.recovery_inputs import recovery_source_fields
 from ethernity.run.context import current_config_path
 from ethernity.run.execution import run_task
 from ethernity.tasks.add_files import AddFilesTaskState
@@ -44,7 +46,10 @@ from ethernity.tasks.add_files import AddFilesTaskState
 @click.option(
     "--output-dir",
     type=click.Path(file_okay=False, path_type=Path),
-    help="New folder for the update documents.",
+    help=(
+        "New folder for the update documents. Defaults to "
+        "backup-<original-id>-update-<number> in the current directory."
+    ),
 )
 @click.option(
     "--input",
@@ -66,6 +71,15 @@ from ethernity.tasks.add_files import AddFilesTaskState
     help="Base folder used for relative paths in the update.",
 )
 @click.option("--passphrase", help="Passphrase to unlock the backup.")
+@click.option(
+    "--update-mode",
+    type=click.Choice([mode.value for mode in UpdateMode]),
+    help=(
+        "Choose for the first update only. Cumulative (default) needs the original and latest "
+        "update; incremental can print less but needs every update. "
+        "Existing series keep their mode."
+    ),
+)
 @click.option(
     "--recovery-document",
     "recovery_documents",
@@ -116,7 +130,6 @@ from ethernity.tasks.add_files import AddFilesTaskState
 @click.option("--design", help="Built-in render style; otherwise use the saved style.")
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")
-@click.option("--json", "json_output", is_flag=True, help="Emit one machine-readable JSON object.")
 @click.pass_context
 def add_files(
     ctx: click.Context,
@@ -130,6 +143,7 @@ def add_files(
     input_dirs: tuple[Path, ...],
     base_dir: Path | None,
     passphrase: str | None,
+    update_mode: str | None,
     recovery_documents: tuple[Path, ...],
     recovery_payload_files: tuple[Path, ...],
     expected_head_doc_hash: str | None,
@@ -142,22 +156,20 @@ def add_files(
     design: str | None,
     preview: bool,
     yes: bool,
-    json_output: bool,
 ) -> None:
     """Add or replace files in an existing backup."""
 
     state = AddFilesTaskState(
-        source_paths=list(source_paths),
-        recovery_text_file=recovery_text,
-        payloads_file=payloads_file,
-        auth_text_file=auth_text_file,
-        auth_payloads_file=auth_payloads_file,
+        **recovery_source_fields(
+            source_paths, recovery_text, payloads_file, auth_text_file, auth_payloads_file
+        ),
         output_dir=output_dir,
         config_path=current_config_path(ctx),
         input_paths=list(input_paths),
         input_dirs=list(input_dirs),
         base_dir=base_dir,
         passphrase=passphrase,
+        update_mode=UpdateMode(update_mode) if update_mode is not None else None,
         recovery_documents=list(recovery_documents),
         recovery_payload_files=list(recovery_payload_files),
         expected_head_doc_hash=expected_head_doc_hash,
@@ -170,12 +182,10 @@ def add_files(
         design=design,
     )
     run_task(
-        "add-files",
         state,
+        not_ready_message="Add Files is not ready.",
         preview=preview,
         yes=yes,
-        json_output=json_output,
-        not_ready_message="Add Files is not ready.",
     )
 
 
