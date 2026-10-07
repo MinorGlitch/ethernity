@@ -106,8 +106,12 @@ owns encoding, content measurement, pagination, and payload accounting.
 For sheets, `qr_area_top` centers the complete QR group between that template coordinate and
 the measured fallback card. QR frames and corner marks belong in the same `qr_slot` group.
 The renderer rejects a group that cannot fit in the available space.
+For an unframed QR beside sheet instructions, `qr_bottom_gap` lets the image shrink only when
+the measured fallback card needs more room. Ordinary payloads retain the template's full QR size.
 Fallback line numbers continue within each frame across page breaks and restart for a new
 frame. Number gutters account for three or more digits without losing encoded data.
+`number_maximum_width` caps a recovery profile's number gutter when its number element uses
+`fit: "shrink"`. Keep its minimum font size readable and verify the maximum line count fits.
 Recovery `section_gap_rows` reserves blank rows between frame cards on the same page.
 The gap is included in pagination and is omitted at the start of a page.
 A sheet density can set `title_height` when its heading font needs more height than the

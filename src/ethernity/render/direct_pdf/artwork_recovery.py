@@ -45,6 +45,7 @@ def profile(
             data.safety,
             data.columns,
             data.column_gap * sx,
+            data.number_maximum_width * sx if data.number_maximum_width is not None else None,
         ),
     )
 
@@ -155,6 +156,7 @@ def _numbered_row(
             style=spec.number_style,
             minimum_width_mm=spec.number_minimum_width_mm,
             padding_mm=spec.number_padding_mm,
+            maximum_width_mm=spec.number_maximum_width_mm,
         )
         / painter.scale[0]
     )

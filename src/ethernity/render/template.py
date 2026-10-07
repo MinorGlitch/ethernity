@@ -187,6 +187,7 @@ class FallbackProfile(TemplateModel):
     reserved: float = 0
     number_gap: float = 0
     number_width: float = 0
+    number_maximum_width: Positive | None = None
     number_padding: float = 0
     inline_number: bool = False
     safety: float = 0.2
@@ -290,6 +291,7 @@ class SheetFallback(TemplateModel):
     box: Rectangle
     bottom_anchor: bool = True
     qr_area_top: NonNegative | None = None
+    qr_bottom_gap: NonNegative | None = None
     padding: float = 0
     payload_inset: float = 0
     column_gap: float = 4

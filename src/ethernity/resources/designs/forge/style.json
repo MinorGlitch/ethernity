@@ -189,6 +189,7 @@
             "right": 1.8,
             "number_gap": 1.5,
             "number_width": 8.5,
+            "number_maximum_width": 8.5,
             "number_padding": 0.8,
             "columns": 2,
             "column_gap": 12,
@@ -196,7 +197,7 @@
               {"key": "fallback-title-0", "kind": "text", "box": [5, 1.1, 170, 4.6], "text": "{title}", "style": "continuation-label"}
             ],
             "row": [
-              {"key": "fallback-line-number-1", "kind": "text", "box": [5, 1.7, 8.5, 4.8], "text": "{number:02d}.", "style": "fallback-number", "align": "right", "min_size": 6.5},
+              {"key": "fallback-line-number-1", "kind": "text", "box": [5, 1.7, 8.5, 4.8], "text": "{number:02d}.", "style": "fallback-number", "align": "right", "fit": "shrink", "min_size": 6.5},
               {"key": "fallback-line-box-1", "kind": "panel", "box": [15, 0.7, 69, 5.6], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.15},
               {"key": "fallback-line-text-1", "kind": "text", "box": [16.8, 1.7, 65.4, 4.4], "text": "{payload}", "style": "recovery-value", "fit": "shrink", "min_size": 6.8, "max_lines": 1}
             ]
@@ -210,6 +211,7 @@
             "right": 1.8,
             "number_gap": 1.5,
             "number_width": 8.5,
+            "number_maximum_width": 8.5,
             "number_padding": 0.8,
             "columns": 2,
             "column_gap": 12,
@@ -217,7 +219,7 @@
               {"key": "fallback-title-0", "kind": "text", "box": [5, 1.1, 170, 4.6], "text": "{title}", "style": "continuation-label"}
             ],
             "row": [
-              {"key": "fallback-line-number-0", "kind": "text", "box": [5, 1.7, 8.5, 4.8], "text": "{number:02d}.", "style": "fallback-number", "align": "right", "min_size": 6.5},
+              {"key": "fallback-line-number-0", "kind": "text", "box": [5, 1.7, 8.5, 4.8], "text": "{number:02d}.", "style": "fallback-number", "align": "right", "fit": "shrink", "min_size": 6.5},
               {"key": "fallback-line-box-0", "kind": "panel", "box": [15, 0.7, 69, 5.6], "stroke": "#e2e8f0", "fill": "#f8fafc", "line_width": 0.15},
               {"key": "fallback-line-text-0", "kind": "text", "box": [16.8, 1.7, 65.4, 4.4], "text": "{payload}", "style": "recovery-value", "fit": "shrink", "min_size": 6.8, "max_lines": 1}
             ]

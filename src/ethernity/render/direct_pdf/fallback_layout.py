@@ -87,6 +87,7 @@ class ResponsiveFallbackSpec:
     safety_mm: float = 0.2
     columns: int = 1
     column_gap_mm: float = 0.0
+    number_maximum_width_mm: float | None = None
 
 
 @dataclass(frozen=True)
@@ -452,6 +453,11 @@ def _validate_spec(spec: ResponsiveFallbackSpec) -> None:
             raise ValueError(f"fallback {label} must be finite and non-negative")
     if not spec.inline_number and spec.number_minimum_width_mm <= 0:
         raise ValueError("fallback gutter number width must be positive")
+    if spec.number_maximum_width_mm is not None and (
+        not math.isfinite(spec.number_maximum_width_mm)
+        or spec.number_maximum_width_mm < spec.number_minimum_width_mm
+    ):
+        raise ValueError("maximum fallback number width must include the minimum width")
 
 
 def _payload_width(
@@ -469,6 +475,8 @@ def _payload_width(
             spec.number_minimum_width_mm,
             surface.measure_text_width(number_label, spec.number_style) + spec.number_padding_mm,
         )
+        if spec.number_maximum_width_mm is not None:
+            number_width_mm = min(number_width_mm, spec.number_maximum_width_mm)
     payload_width_mm = (
         (area.width_mm - (spec.columns - 1) * spec.column_gap_mm) / spec.columns
         - spec.content_left_inset_mm
@@ -488,6 +496,7 @@ def measured_fallback_number_width(
     style: TextStyle,
     minimum_width_mm: float,
     padding_mm: float,
+    maximum_width_mm: float | None = None,
 ) -> float:
     """Measure a page-local number gutter from its widest displayed fallback label."""
 
@@ -500,10 +509,11 @@ def measured_fallback_number_width(
         default=0,
     )
     label = f"{maximum_display_number:02d}."
-    return max(
+    width = max(
         minimum_width_mm,
         surface.measure_text_width(label, style) + padding_mm,
     )
+    return min(width, maximum_width_mm) if maximum_width_mm is not None else width
 
 
 def build_fallback_summary(

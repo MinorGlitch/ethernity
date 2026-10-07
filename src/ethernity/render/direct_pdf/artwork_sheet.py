@@ -68,7 +68,8 @@ def sheet_document(
         fallback_title=sections[0].title or "",
     )
     items = document_inputs.qr_payload_items((payload,), config=inputs.qr_config or QrConfig())
-    art = _center_qr(painter, document.first, spec.qr_area_top, top)
+    art = _fit_qr(painter, document.first, spec.qr_bottom_gap, top)
+    art = _center_qr(painter, art, spec.qr_area_top, top)
     plans = painter.paint_plans(art, values, prefix="p1", items=items)
 
     def draw(
@@ -149,6 +150,24 @@ def sheet_document(
         inputs, sections, (fallback_layout.FallbackPage(1, tuple(placed)),)
     )
     return [plans], summary
+
+
+def _fit_qr(painter: Artwork, art: PageArtwork, gap: float | None, bottom: float) -> PageArtwork:
+    """Keep a compact sheet's QR full-sized unless its fallback needs the space."""
+    if gap is None:
+        return art
+    fitted = []
+    for element in expanded_elements(painter.definition, art.elements):
+        if element.qr_slot is not None:
+            if element.kind != "image":
+                raise ValueError("Sheet QR fitting requires an unframed QR image")
+            x, y, width, height = element.box
+            size = min(width, height, bottom - gap - y)
+            if size <= 0:
+                raise ValueError("Sheet QR image does not fit above the fallback card")
+            element = element.model_copy(update={"box": (x + width - size, y, size, size)})
+        fitted.append(element)
+    return art.model_copy(update={"elements": tuple(fitted)})
 
 
 def _center_qr(painter: Artwork, art: PageArtwork, top: float | None, bottom: float) -> PageArtwork:
