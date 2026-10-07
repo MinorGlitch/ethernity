@@ -19,6 +19,7 @@ def test_picker_path_resolution_uses_browsing_folder_and_expands_home(
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
 
     assert resolve_picker_path("notes.txt", root) == root / "notes.txt"
     assert resolve_picker_path("../notes.txt", root) == tmp_path / "notes.txt"
@@ -39,6 +40,7 @@ def test_path_completion_preserves_relative_and_home_paths(
     (tmp_path / "photos").mkdir()
     (tmp_path / "photo.txt").touch()
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
     assert complete_picker_path("do", tmp_path, include_files=True).value == "document"
     assert complete_picker_path("documents", tmp_path, include_files=True).value == "documents/"
@@ -113,6 +115,7 @@ def test_open_picker_accepts_home_paths_and_rejects_missing_paths_without_losing
     existing = tmp_path / "existing.txt"
     existing.touch()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
 
     async def run() -> None:
         app = EthernityApp()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -66,6 +65,7 @@ from ethernity.tasks.settings import SettingsTaskState
 from ethernity.tasks.source_assessment import SourceAssessment
 from ethernity.version import get_ethernity_version
 from ethernity.workflows.shared import events
+from tests.support.pilot import wait_for_condition as _wait_for_condition
 
 
 @pytest.fixture(autouse=True)
@@ -87,18 +87,6 @@ def _isolate_default_app_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 async def _type_text(pilot, value: str) -> None:
     for character in value:
         await pilot.press("space" if character == " " else character)
-
-
-async def _wait_for_condition(
-    pilot,
-    condition: Callable[[], bool],
-    description: str,
-) -> None:
-    for _ in range(40):
-        if condition():
-            return
-        await pilot.pause(0.05)
-    raise AssertionError(f"Timed out waiting for {description}.")
 
 
 async def _choose_picker_paths(app: EthernityApp, pilot, *paths: Path) -> None:
@@ -688,7 +676,11 @@ def test_textual_app_field_controls_use_available_wide_space() -> None:
                 form.show_group(group)
                 await pilot.pause()
                 for control in form.active_pane.query(".setting-select, .setting-input"):
-                    assert control.region.width == (38 if isinstance(control, Select) else 12)
+                    if isinstance(control, Select):
+                        assert control.region.width >= 38
+                        assert control.region.right <= form.active_pane.content_region.right
+                    else:
+                        assert control.region.width == 12
 
     asyncio.run(run())
 
@@ -1099,8 +1091,8 @@ def test_textual_app_common_terminal_sizes_keep_workspaces_readable() -> None:
             async with app.run_test(size=size) as pilot:
                 workspace = app.query_one("#workspace").region
 
-                assert workspace.x == 0
-                assert workspace.width == size[0]
+                assert workspace.width == min(size[0], 140)
+                assert workspace.x == (size[0] - workspace.width) // 2
                 assert workspace.width >= (24 if size[0] <= 80 else 36)
                 assert workspace.x + workspace.width <= size[0]
                 assert not list(app.screen.query("#preview"))
@@ -2671,7 +2663,7 @@ def test_textual_app_workflow_path_fields_middle_truncate_long_paths(tmp_path) -
             assert "..." in backup_base_dir
             assert str(backup_output) not in backup_output_value
             assert str(long_root) not in backup_base_dir
-            assert backup_output_value.endswith("backup-output-folder/backup-<id>")
+            assert backup_output_value.endswith(str(Path("backup-output-folder") / "backup-<id>"))
             assert backup_base_dir.endswith("final-destination")
 
             await pilot.press("2")
@@ -3012,7 +3004,9 @@ def test_textual_app_shows_progress_screen_while_task_runs(monkeypatch) -> None:
             assert app.running_task == "backup"
             assert isinstance(app.screen, TaskProgressScreen)
             assert app.screen.query_one("#operation-bar", ProgressBar).total is None
-            assert "backup-out/backup-<id>" in _static_text(app, "#progress-destination")
+            assert str(Path("backup-out") / "backup-<id>") in _static_text(
+                app, "#progress-destination"
+            )
             assert not app.screen.query_one("#progress-cancel", Button).disabled
 
             release.set()

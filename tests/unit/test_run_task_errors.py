@@ -74,7 +74,7 @@ def test_real_missing_input_reports_its_path_without_writing(tmp_path, option) -
     assert isinstance(result.exception, SystemExit)
     assert "Error:" in result.output
     assert "not found" in result.output
-    assert str(missing) in result.output
+    assert repr(str(missing)) in result.output
     assert "Traceback" not in result.output
     assert not output.exists()
 

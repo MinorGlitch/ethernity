@@ -14,6 +14,7 @@ from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.tasks.page_layout import BACKUP_RENDER_DOC_TYPES
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.task_types import TaskKey
+from tests.support.pilot import wait_for_condition
 
 
 @pytest.mark.parametrize("value", ["", "2/0", "0/2", "3/2", "2/256", "two/three"])
@@ -92,7 +93,11 @@ def test_specific_field_errors_keep_the_draft_open_and_task_values_unchanged(
             assert isinstance(editor, EditFieldScreen)
             field = editor.query_one("#edit-field-input", Input)
             field.value = invalid
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: editor.query_one("#edit-field-save", Button).disabled,
+                "invalid draft to disable Apply",
+            )
 
             assert editor.query_one("#edit-field-save", Button).disabled
             assert error_fragment in str(editor.query_one("#edit-field-error", Static).content)
@@ -103,7 +108,11 @@ def test_specific_field_errors_keep_the_draft_open_and_task_values_unchanged(
             assert app._current_state().model_dump() == before
 
             field.value = valid
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: not editor.query_one("#edit-field-save", Button).disabled,
+                "valid draft to enable Apply",
+            )
             assert not editor.query_one("#edit-field-save", Button).disabled
             await pilot.press("enter")
             await pilot.pause()

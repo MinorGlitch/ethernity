@@ -144,6 +144,7 @@ def test_command_reports_conflict_before_execution(tmp_path, monkeypatch, mode) 
     )
 
     assert result.exit_code == (0 if mode == "--preview" else 1)
-    assert "choose a new folder" in result.output
-    assert "may be replaced" not in result.output
+    message = " ".join(result.output.split())
+    assert "choose a new folder" in message
+    assert "may be replaced" not in message
     assert (output / "keep.txt").read_text() == "original"

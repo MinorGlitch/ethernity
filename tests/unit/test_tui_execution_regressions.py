@@ -30,6 +30,7 @@ from ethernity.tasks.presentation.registry import build_review_details
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.settings import SettingsTaskState
+from tests.support.pilot import wait_for_condition
 
 
 def test_review_details_use_plain_security_and_policy_language() -> None:
@@ -398,7 +399,11 @@ def test_wrong_worker_result_is_presented_and_clears_running_state(monkeypatch) 
             assert not list(app.query("#canvas-loading"))
             assert "Ethernity received an invalid task result." in _screen_text(app)
             app.screen.query_one("#result-details-panel", Collapsible).collapsed = False
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: "Expected TaskExecutionResult, got dict." in _screen_text(app),
+                "expanded error log to render",
+            )
             assert "Expected TaskExecutionResult, got dict." in _screen_text(app)
             assert app.screen.query_one("#result-return", Button)
 
