@@ -24,7 +24,7 @@ from ethernity.tasks.presentation.workflow_replace_recovery import (
 )
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.settings import SettingsTaskState
-from tests.support.pilot import wait_for_focus
+from tests.support.pilot import wait_for_condition, wait_for_focus, wait_for_widget
 
 
 def test_action_colors_and_primary_focus_survive_both_themes() -> None:
@@ -80,7 +80,7 @@ def test_focused_buttons_do_not_underline_labels_or_blank_padding(theme, size) -
         app = EthernityApp()
         app.theme = theme
         async with app.run_test(size=size) as pilot:
-            await pilot.pause()
+            await wait_for_focus(pilot, app.query_one("#workspace-backup-files"))
             for selector in ("#nav-create", "#workbench-step-0", "#workspace-backup-files"):
                 button = app.query_one(selector, Button)
                 button.focus()
@@ -90,10 +90,17 @@ def test_focused_buttons_do_not_underline_labels_or_blank_padding(theme, size) -
 
             # Padding is part of the target, even at the edge of the navigation strip.
             restore = app.query_one("#nav-restore", Button)
-            await pilot.click(restore, offset=(1, restore.region.height - 1))
+            assert await pilot.click(restore, offset=(1, restore.region.height - 1))
+            await wait_for_condition(
+                pilot, lambda: app.active_task == "restore", "restore workspace to open"
+            )
             assert app.active_task == "restore"
+            await wait_for_focus(pilot, app.query_one("#workflow-restore-source-body-load"))
 
             await pilot.press("7")
+            await wait_for_focus(
+                pilot, await wait_for_widget(pilot, "#setting-control-render_style")
+            )
             app.query_one(SettingsForm).show_group("Config file")
             copy = app.query_one("#settings-copy-config", Button)
             copy.focus()

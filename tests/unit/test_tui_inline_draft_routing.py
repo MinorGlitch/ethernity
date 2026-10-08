@@ -11,6 +11,7 @@ from ethernity.app.widgets.workflow.paths import DestinationEditor
 from ethernity.app.widgets.workflow.unlock import UnlockEditor
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.restore import RestoreTaskState
+from tests.support.pilot import wait_for_condition
 
 
 def test_late_field_commit_keeps_the_task_where_the_field_was_edited() -> None:
@@ -35,7 +36,14 @@ def test_late_field_commit_keeps_the_task_where_the_field_was_edited() -> None:
             await app._show_task("add_files")
             destination.post_message(DestinationEditor.ValueChanged(destination, "edited-restore"))
             unlock.post_message(UnlockEditor.ValueChanged(unlock, "edited restore phrase"))
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: (
+                    app.restore_state.output_path == Path("edited-restore")
+                    and app.restore_state.passphrase == "edited restore phrase"
+                ),
+                "queued edits to reach the restore draft",
+            )
 
             assert app.active_task == "add_files"
             assert app.restore_state.output_path == Path("edited-restore")

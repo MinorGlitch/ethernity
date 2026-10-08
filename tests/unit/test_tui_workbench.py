@@ -141,8 +141,17 @@ def test_workbench_summary_is_redacted_and_collapses_at_80_columns() -> None:
             )
         )
         async with app.run_test(size=(120, 32)) as pilot:
-            await pilot.click("#nav-restore")
-            await pilot.click(app.query_one(WorkbenchSteps).button_for("unlock"))
+            assert await pilot.click("#nav-restore")
+            await wait_for_condition(
+                pilot, lambda: app.active_task == "restore", "restore workspace to open"
+            )
+            await wait_for_focus(pilot, app.query_one("#workflow-restore-source-body-load"))
+            assert await pilot.click(app.query_one(WorkbenchSteps).button_for("unlock"))
+            await wait_for_condition(
+                pilot,
+                lambda: app.query_one(TaskCanvas).active_step == "unlock",
+                "unlock step to open",
+            )
             summary = app.query_one(WorkbenchSummary)
             assert summary.display
             assert "never-display-this-secret" not in "\n".join(

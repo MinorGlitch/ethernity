@@ -14,6 +14,7 @@ from textual.widgets import (
 )
 
 from ethernity.app.application import EthernityApp
+from ethernity.app.navigation import workspace_focus_selector
 from ethernity.app.screens.confirm_action import ConfirmActionScreen
 from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.file_picker import FilePickerScreen
@@ -22,7 +23,7 @@ from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import KeyedRadioSet
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
-from tests.support.pilot import wait_for_condition
+from tests.support.pilot import wait_for_condition, wait_for_focus, wait_for_widget
 
 
 def test_menu_traversal_closes_and_restores_its_invoker() -> None:
@@ -182,7 +183,7 @@ def test_closed_dropdowns_share_form_focus_order(size: tuple[int, int]) -> None:
                 ("settings", "#setting-control-render_style"),
             ):
                 await app._show_task(task)
-                await pilot.pause()
+                await wait_for_focus(pilot, app.query_one(workspace_focus_selector(task)))
                 app._reveal_focus_target(selector)
                 await pilot.pause()
                 control = app.query_one(selector, Select)
@@ -191,8 +192,11 @@ def test_closed_dropdowns_share_form_focus_order(size: tuple[int, int]) -> None:
                 index = chain.index(control)
                 for key, direction in (("down", 1), ("j", 1), ("up", -1), ("k", -1)):
                     control.focus()
+                    await wait_for_focus(pilot, control)
                     await pilot.press(key)
-                    assert app.screen.focused is chain[(index + direction) % len(chain)]
+                    expected = chain[(index + direction) % len(chain)]
+                    await wait_for_focus(pilot, expected)
+                    assert app.screen.focused is expected
                     assert not control.expanded
                     assert control.value == original
 
@@ -267,29 +271,34 @@ def test_arrows_reach_step_rail_open_sections_and_bottom_actions() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
-            await pilot.pause()
+            await wait_for_focus(pilot, app.query_one("#workspace-backup-files"))
             steps = app.query_one(WorkbenchSteps)
             steps.button_for("files").focus()
+            await wait_for_focus(pilot, steps.button_for("files"))
             await pilot.press("down")
+            await wait_for_focus(pilot, steps.button_for("recovery"))
             assert app.screen.focused is steps.button_for("recovery")
             assert steps.button_for("files").has_class("active-step")
             await pilot.press("enter")
+            await wait_for_focus(pilot, app.query_one("#workspace-backup-recovery-method"))
             assert steps.button_for("recovery").has_class("active-step")
 
             await app._show_task("restore")
-            await pilot.pause()
+            await wait_for_focus(pilot, app.query_one("#workflow-restore-source-body-load"))
             last_source = app.query_one("#workflow-restore-source-body-secondary-1", Button)
             last_source.focus()
-            await pilot.press("down")
-            assert app.screen.focused is app.query_one("#workspace-restore-auth-policy")
-            await pilot.press("down")
-            assert app.screen.focused is app.query_one("#workspace-restore-signature-source")
-            await pilot.press("down")
-            assert app.screen.focused is app.query_one("#workspace-restore-expected-head")
-            await pilot.press("down")
-            assert app.screen.focused is app.query_one("#canvas-primary", Button)
-            await pilot.press("up")
-            assert app.screen.focused is app.query_one("#workspace-restore-expected-head")
+            await wait_for_focus(pilot, last_source)
+            for key, selector in (
+                ("down", "#workspace-restore-auth-policy"),
+                ("down", "#workspace-restore-signature-source"),
+                ("down", "#workspace-restore-expected-head"),
+                ("down", "#canvas-primary"),
+                ("up", "#workspace-restore-expected-head"),
+            ):
+                await pilot.press(key)
+                expected = app.query_one(selector)
+                await wait_for_focus(pilot, expected)
+                assert app.screen.focused is expected
 
     asyncio.run(run())
 
@@ -342,12 +351,19 @@ def test_returning_to_settings_focuses_the_active_category() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
+            await wait_for_focus(pilot, app.query_one("#workspace-backup-files"))
             await pilot.press("7")
+            await wait_for_focus(
+                pilot, await wait_for_widget(pilot, "#setting-control-render_style")
+            )
             form = app.query_one(SettingsForm)
             rail = form.query_one("#settings-categories", WorkbenchSteps)
             rail.button_for("Printing").focus()
-            await pilot.press("down", "enter")
-            await pilot.pause()
+            await wait_for_focus(pilot, rail.button_for("Printing"))
+            await pilot.press("down")
+            await wait_for_focus(pilot, rail.button_for("Backup defaults"))
+            await pilot.press("enter")
+            await wait_for_focus(pilot, app.query_one("#setting-control-backup_base_dir"))
             assert form.active_group == "Backup defaults"
             assert form.active_pane in app.screen.focused.ancestors
 
@@ -356,16 +372,26 @@ def test_returning_to_settings_focuses_the_active_category() -> None:
             pane = form.active_pane
             control = app.query_one("#setting-control-qr_error", Select)
             control.focus()
+            await wait_for_focus(pilot, control)
             await pilot.press("right")
+            await wait_for_focus(pilot, control)
             focused = app.screen.focused
             assert focused is not None and pane in focused.ancestors
             assert focused in app.screen.focus_chain
             assert focused.has_class("settings-control")
 
-            await pilot.press("ctrl+b", "1", "ctrl+b", "7")
-            await pilot.pause()
+            await pilot.press("ctrl+b", "1")
+            await wait_for_condition(
+                pilot, lambda: app.active_task == "backup", "backup workspace to open"
+            )
+            await pilot.press("ctrl+b", "7")
+            await wait_for_condition(
+                pilot, lambda: app.active_task == "settings", "settings workspace to reopen"
+            )
+            # A shortcut from top navigation keeps focus there until an arrow enters the form.
             assert app.active_task == "settings"
             await pilot.press("down")
+            await wait_for_focus(pilot, control)
             assert form.active_pane is pane
             focused = app.screen.focused
             assert focused is not None and pane in focused.ancestors
