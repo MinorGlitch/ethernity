@@ -23,10 +23,9 @@ def test_backup_essentials_fit_80_by_24_with_many_selected_files(tmp_path: Path)
         app = EthernityApp(backup_state=BackupTaskState(input_paths=paths))
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            for _ in range(40):
-                if app.backup_state.current_estimate() is not None:
-                    break
-                await pilot.pause(0.05)
+            await wait_for_condition(
+                pilot, lambda: app.backup_state.current_estimate() is not None, "backup estimate"
+            )
             assert app.backup_state.current_estimate() is not None
             assert "20 files" in str(app.query_one("#backup-files-value", Static).content)
             assert not app.query_one("#backup-files-panel", Collapsible).collapsed
@@ -123,6 +122,7 @@ def test_backup_print_overrides_survive_navigation_without_changing_settings() -
         ("design", "maritime", "design", "maritime"),
     ),
 )
+@pytest.mark.portability
 def test_background_refresh_preserves_pending_select_edits(control, value, attribute, expected):
     async def run() -> None:
         app = EthernityApp()

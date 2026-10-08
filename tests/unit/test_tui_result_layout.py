@@ -10,7 +10,7 @@ from textual.widgets import Button, OptionList, Static
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens import task_result
 from ethernity.tasks.models import TaskExecutionResult, TaskResultDetail
-from tests.support.pilot import wait_for_condition
+from tests.support.pilot import wait_for_visible
 
 
 @pytest.mark.parametrize(
@@ -68,11 +68,7 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
                     continue
                 visited.add(button)
                 owner = footer if button.id == "result-close" else body
-                await wait_for_condition(
-                    pilot,
-                    lambda owner=owner, button=button: owner.region.contains_region(button.region),
-                    f"{button.id} to scroll into view",
-                )
+                await wait_for_visible(pilot, button, within=owner)
                 assert owner.region.x <= button.region.x < button.region.right <= owner.region.right
                 assert (
                     owner.region.y <= button.region.y < button.region.bottom <= owner.region.bottom

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 from textual.widgets import Button, Static
 
@@ -18,6 +18,7 @@ from ethernity.tasks.models import TaskExecutionResult
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.task_types import TaskKey, TaskState
+from tests.support.pilot import click_when_ready, wait_for_focus, wait_for_widget
 
 
 def _reviewed_task(
@@ -40,19 +41,6 @@ def _reviewed_task(
             contents=b"",
         ),
     )
-
-
-async def _click_result_return(app: EthernityApp, pilot: Any) -> None:
-    for _ in range(20):
-        await pilot.pause(0.05)
-        buttons = list(app.screen.query("#result-return"))
-        if buttons and buttons[0].region.width > 0:
-            assert await pilot.click("#result-return")
-            break
-    else:
-        raise AssertionError("Result return action was not laid out")
-    for _ in range(10):
-        await pilot.pause(0.05)
 
 
 def test_restore_runtime_output_failure_returns_to_reviewed_destination(tmp_path: Path) -> None:
@@ -87,7 +75,9 @@ def test_restore_runtime_output_failure_returns_to_reviewed_destination(tmp_path
                 result_screen.query_one("#result-reviewed-destination", Static).content
             ).endswith(str(Path("/") / "reviewed-restore-destination"))
 
-            await _click_result_return(app, pilot)
+            await click_when_ready(pilot, "#result-return")
+            control = await wait_for_widget(pilot, "#workflow-restore-destination-body-action")
+            await wait_for_focus(pilot, control)
 
             assert app.active_task == "restore"
             assert app.workflow_ui_states["restore"].active_step == "destination"
@@ -127,7 +117,9 @@ def test_replacement_signing_failure_returns_to_signing_key_recovery(tmp_path: P
                 "Edit signing-key recovery"
             )
 
-            await _click_result_return(app, pilot)
+            await click_when_ready(pilot, "#result-return")
+            control = await wait_for_widget(pilot, "#workspace-replace-signing-key-select")
+            await wait_for_focus(pilot, control)
 
             assert app.active_task == "replace_recovery_docs"
             assert app.workflow_ui_states["replace_recovery_docs"].active_step == "recovery"

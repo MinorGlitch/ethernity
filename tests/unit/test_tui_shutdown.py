@@ -7,6 +7,8 @@ from textual.widgets import ListItem, ListView, Select
 
 from ethernity.app.application import EthernityApp
 
+pytestmark = pytest.mark.portability
+
 
 @pytest.mark.parametrize("pending", ["selection", "navigation", "focus"])
 def test_pending_ui_work_does_not_access_closed_screens(monkeypatch, pending) -> None:

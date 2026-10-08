@@ -4,13 +4,12 @@ import asyncio
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from textual.containers import VerticalScroll
-from textual.pilot import Pilot
 from textual.widgets import Button, Collapsible, OptionList, RichLog, Static
-from textual.worker import Worker, WorkerState
+from textual.worker import WorkerState
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.execution import (
@@ -30,7 +29,7 @@ from ethernity.tasks.presentation.registry import build_review_details
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.settings import SettingsTaskState
-from tests.support.pilot import wait_for_condition
+from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_widget
 
 
 def test_review_details_use_plain_security_and_policy_language() -> None:
@@ -81,50 +80,6 @@ def test_review_details_use_plain_security_and_policy_language() -> None:
         )
     }
     assert rebuild_details["Source version"] == "Latest loaded version accepted"
-
-
-async def _wait_for_selector(
-    app: EthernityApp,
-    pilot: Any,
-    selector: str,
-    *,
-    attempts: int = 80,
-) -> None:
-    layout_selector = {
-        "#result-modal": "#result-close",
-        "#review-modal": "#review-close",
-    }.get(selector, selector)
-    for _ in range(attempts):
-        await pilot.pause(0.05)
-        widgets = list(app.screen.query(selector))
-        layout_widgets = list(app.screen.query(layout_selector))
-        if (
-            widgets
-            and layout_widgets
-            and layout_widgets[0].region.width > 0
-            and layout_widgets[0].region.height > 0
-        ):
-            return
-    raise AssertionError(
-        f"Timed out waiting for {selector}; screen={type(app.screen).__name__}; "
-        f"exception={app._exception!r}"
-    )
-
-
-async def _click_when_laid_out(
-    app: EthernityApp,
-    pilot: Any,
-    selector: str,
-    *,
-    attempts: int = 80,
-) -> None:
-    for _ in range(attempts):
-        await pilot.pause(0.05)
-        widgets = list(app.screen.query(selector))
-        if widgets and widgets[0].region.width > 0 and widgets[0].region.height > 0:
-            assert await pilot.click(selector)
-            return
-    raise AssertionError(f"Timed out waiting for laid-out {selector}")
 
 
 def _screen_text(app: EthernityApp) -> str:
@@ -230,10 +185,7 @@ def test_review_preparation_is_visible_and_locks_the_workspace_at_80_columns(
             await pilot.press("3")
             review_task = asyncio.create_task(app.action_review())
             try:
-                for _ in range(40):
-                    await pilot.pause(0.05)
-                    if started.is_set():
-                        break
+                await wait_for_condition(pilot, started.is_set, "review preparation to start")
                 assert started.is_set()
                 assert str(app.query_one("#canvas-primary", Button).label) == "Preparing review..."
                 assert app.query_one("#canvas-primary", Button).disabled
@@ -242,7 +194,7 @@ def test_review_preparation_is_visible_and_locks_the_workspace_at_80_columns(
             finally:
                 release.set()
             await review_task
-            await _wait_for_selector(app, pilot, "#review-modal")
+            await wait_for_widget(pilot, "#review-close")
 
     asyncio.run(run())
 
@@ -341,8 +293,8 @@ def test_progress_locks_navigation_and_failure_returns_to_live_workflow(monkeypa
         )
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
-            await _click_when_laid_out(app, pilot, "#review-execute")
-            await _wait_for_thread_start(pilot, started)
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_condition(pilot, started.is_set, "worker to start")
             assert started.is_set()
 
             await pilot.press("2", "ctrl+p", "?")
@@ -359,13 +311,13 @@ def test_progress_locks_navigation_and_failure_returns_to_live_workflow(monkeypa
             assert app.running_task == "backup"
 
             release.set()
-            await _wait_for_selector(app, pilot, "#result-modal")
+            await wait_for_widget(pilot, "#result-close")
             assert app.running_task is None
             failure_text = _screen_text(app)
             assert "First attempt was rejected." in failure_text
             assert "Choose at least one file or folder" not in failure_text
 
-            await _click_when_laid_out(app, pilot, "#result-return")
+            await click_when_ready(pilot, "#result-return")
             await pilot.pause()
 
             assert app.active_task == "backup"
@@ -392,8 +344,8 @@ def test_wrong_worker_result_is_presented_and_clears_running_state(monkeypatch) 
         )
         async with app.run_test(size=(100, 28)) as pilot:
             await pilot.press("ctrl+r")
-            await _click_when_laid_out(app, pilot, "#review-execute")
-            await _wait_for_selector(app, pilot, "#result-modal")
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_widget(pilot, "#result-close")
 
             assert app.running_task is None
             assert not list(app.query("#canvas-loading"))
@@ -443,30 +395,29 @@ def test_return_and_new_review_capture_current_config_contents(
         )
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
-            await _click_when_laid_out(app, pilot, "#review-execute")
-            await _wait_for_thread_start(pilot, started)
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_condition(pilot, started.is_set, "worker to start")
             assert started.is_set()
 
             apply_config_patch(config_path, {"values": {"qr": {"chunk_size": 1024}}})
             allow_config_read.set()
-            await _wait_for_selector(app, pilot, "#result-modal")
+            await wait_for_widget(pilot, "#result-close")
             await pilot.pause()
 
             apply_config_patch(config_path, {"values": {"qr": {"chunk_size": 2048}}})
-            await _click_when_laid_out(app, pilot, "#result-return")
+            await click_when_ready(pilot, "#result-return")
             await pilot.press("ctrl+r")
-            await _wait_for_selector(app, pilot, "#review-modal")
+            await wait_for_widget(pilot, "#review-close")
             await pilot.pause()
-            await _click_when_laid_out(app, pilot, "#review-execute")
-            for _ in range(40):
-                await pilot.pause(0.05)
-                if len(observed_chunk_sizes) == 2:
-                    break
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_condition(
+                pilot, lambda: len(observed_chunk_sizes) == 2, "second execution to read its config"
+            )
             assert len(observed_chunk_sizes) == 2, (
                 app.running_task,
                 type(app.screen).__name__,
             )
-            await _wait_for_selector(app, pilot, "#result-modal")
+            await wait_for_widget(pilot, "#result-close")
 
             assert observed_chunk_sizes == [640, 2048]
             assert load_app_config(config_path).qr_chunk_size == 2048
@@ -503,8 +454,8 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
         )
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
-            await _click_when_laid_out(app, pilot, "#review-execute")
-            await _wait_for_thread_start(pilot, started)
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_condition(pilot, started.is_set, "worker to start")
             assert started.is_set()
 
             await pilot.press("7")
@@ -519,7 +470,7 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
             assert app.settings_state.save_status == "Locked while task runs"
 
             release.set()
-            await _wait_for_selector(app, pilot, "#result-modal")
+            await wait_for_widget(pilot, "#result-close")
             assert not settings_form.disabled
 
     asyncio.run(run())
@@ -561,14 +512,16 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
         )
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
-            await _click_when_laid_out(app, pilot, "#review-execute")
-            await _wait_for_thread_start(pilot, started)
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_condition(pilot, started.is_set, "worker to start")
             assert started.is_set()
             worker = app.execution_controller.running_worker
             assert worker is not None
 
             worker.cancel()
-            await _wait_for_worker_cancelled(pilot, worker)
+            await wait_for_condition(
+                pilot, lambda: worker.state == WorkerState.CANCELLED, "worker cancellation"
+            )
 
             assert worker.state == WorkerState.CANCELLED
             assert app.running_task == "backup"
@@ -587,7 +540,7 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
             assert app.execution_controller.running_worker is worker
 
             release.set()
-            await _wait_for_selector(app, pilot, "#result-modal")
+            await wait_for_widget(pilot, "#result-close")
 
             assert physically_finished.is_set()
             assert app.running_task is None
@@ -686,17 +639,3 @@ def test_output_paths_report_the_nearest_meaningful_common_folder() -> None:
     assert single_output_folder(paths) == Path("/archive/restored")
     assert common_output_folder(paths) == str(Path("/archive/restored"))
     assert single_output_folder((Path("/one/file.pdf"), Path("/two/file.pdf"))) is None
-
-
-async def _wait_for_thread_start(pilot: Pilot, started: threading.Event) -> None:
-    for _ in range(40):
-        await pilot.pause(0.05)
-        if started.is_set():
-            return
-
-
-async def _wait_for_worker_cancelled(pilot: Pilot, worker: Worker) -> None:
-    for _ in range(40):
-        await pilot.pause(0.05)
-        if worker.state == WorkerState.CANCELLED:
-            return

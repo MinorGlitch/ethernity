@@ -18,7 +18,7 @@ from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.models import TaskIssue, TaskValidation
 from ethernity.tasks.settings import SETTING_DESCRIPTORS, SettingsTaskState
-from tests.support.pilot import wait_for_condition
+from tests.support.pilot import wait_for_condition, wait_for_focus
 
 
 class ControlsApp(StyledApp):
@@ -179,6 +179,7 @@ def test_positive_switch_labels_preserve_persisted_negative_flags(tmp_path: Path
 
 
 @pytest.mark.parametrize("size", [(120, 32), (80, 24)])
+@pytest.mark.portability
 def test_long_settings_page_scrolls_focused_controls_above_the_footer(size) -> None:
     async def run() -> None:
         app = EthernityApp()
@@ -190,14 +191,7 @@ def test_long_settings_page_scrolls_focused_controls_above_the_footer(size) -> N
             pane = form.active_pane
             for control in pane.query(".settings-control"):
                 control.focus()
-                await wait_for_condition(
-                    pilot,
-                    lambda control=control: (
-                        app.focused is control
-                        and pane.content_region.contains_region(control.region)
-                    ),
-                    f"{control.id} to scroll into view",
-                )
+                await wait_for_focus(pilot, control)
                 assert app.focused is control
                 assert pane.content_region.contains_region(control.region), control.id
                 assert control.region.bottom <= form.query_one("#settings-save-row").region.y

@@ -14,6 +14,8 @@ from ethernity.security.resource_worker import (
     terminate_active_workers,
 )
 
+pytestmark = pytest.mark.portability
+
 
 def _return_bytes(size: int) -> bytes:
     return b"x" * size

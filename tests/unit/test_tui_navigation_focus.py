@@ -61,6 +61,7 @@ def test_menu_selection_leaves_focus_in_a_coherent_workflow() -> None:
 
 @pytest.mark.parametrize("menu,choice", [("manage", "rebuild"), ("tools", "settings")])
 @pytest.mark.parametrize("row", [0, 2])
+@pytest.mark.portability
 def test_menu_padding_selects_the_whole_choice(menu: str, choice: str, row: int) -> None:
     async def run() -> None:
         app = EthernityApp()

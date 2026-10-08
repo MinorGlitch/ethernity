@@ -20,6 +20,7 @@ from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.models import TaskExecutionResult
 from ethernity.tasks.settings import SettingsTaskState
+from tests.support.pilot import wait_for_condition
 
 
 def _config_settings(tmp_path: Path) -> SettingsTaskState:
@@ -134,12 +135,9 @@ def test_successful_settings_save_rehydrates_only_inherited_app_fields(tmp_path:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.press("7")
             app.query_one("#setting-control-page_size", Select).value = "A4"
-            for _ in range(40):
-                if app.kit_state.paper_size == "A4":
-                    break
-                await pilot.pause(0.05)
-            else:
-                raise AssertionError("Timed out waiting for saved page size to propagate.")
+            await wait_for_condition(
+                pilot, lambda: app.kit_state.paper_size == "A4", "saved page size to propagate"
+            )
 
             assert app.backup_state.paper_size == "LETTER"
             assert app.kit_state.paper_size == "A4"
@@ -191,12 +189,11 @@ def test_settings_numeric_input_saves_when_focus_leaves_and_reverts_invalid_draf
             await pilot.pause()
             assert field.value == "2048"
             app.query_one("#settings-reset-section", Button).focus()
-            for _ in range(40):
-                if app.settings_state.setting_value("qr_chunk_size") == 2048:
-                    break
-                await pilot.pause(0.05)
-            else:
-                raise AssertionError("Timed out waiting for QR chunk size to save.")
+            await wait_for_condition(
+                pilot,
+                lambda: app.settings_state.setting_value("qr_chunk_size") == 2048,
+                "QR chunk size to save",
+            )
 
             assert app.settings_state.setting_value("qr_chunk_size") == 2048
             assert app.settings_state.save_status == "Saved"
@@ -212,12 +209,11 @@ def test_settings_numeric_input_saves_when_focus_leaves_and_reverts_invalid_draf
             await pilot.pause()
             assert field.value == "0"
             app.query_one("#settings-reset-section", Button).focus()
-            for _ in range(40):
-                if field.value == "2048" and app.settings_state.save_status == "Not saved":
-                    break
-                await pilot.pause(0.05)
-            else:
-                raise AssertionError("Timed out waiting for invalid QR chunk size to revert.")
+            await wait_for_condition(
+                pilot,
+                lambda: field.value == "2048" and app.settings_state.save_status == "Not saved",
+                "invalid QR chunk size to revert",
+            )
 
             assert app.settings_state.setting_value("qr_chunk_size") == 2048
             assert field.value == "2048"

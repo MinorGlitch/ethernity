@@ -20,12 +20,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from ethernity.publication import (
     create_sibling_staging_dir,
     promote_staged_directory,
     publish_staged_directory,
     sync_directory_metadata,
 )
+
+pytestmark = pytest.mark.portability
 
 
 class TestDirectoryPublication(unittest.TestCase):

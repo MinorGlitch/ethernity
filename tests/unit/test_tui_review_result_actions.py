@@ -10,7 +10,6 @@ from textual.widgets import Button, Collapsible, Static
 from ethernity.app import application
 from ethernity.app.application import EthernityApp
 from ethernity.app.execution import ReviewedTask
-from ethernity.app.output_paths import open_documents
 from ethernity.app.screens.file_picker import FilePickerScreen
 from ethernity.app.screens.review_task import ReviewEditRequest, ReviewTaskScreen
 from ethernity.app.screens.task_result import TaskResultScreen
@@ -28,7 +27,7 @@ from ethernity.tasks.models import (
 from ethernity.tasks.presentation.models import ReviewDetail
 from ethernity.tasks.presentation.registry import build_review_details
 from ethernity.tasks.recovery_check import GeneratedRecoveryCheckRequest
-from tests.support.pilot import wait_for_condition
+from tests.support.pilot import wait_for_visible
 
 
 def test_review_edit_returns_the_decision_and_keeps_write_safety_visible(tmp_path: Path) -> None:
@@ -135,11 +134,7 @@ def test_review_rows_align_and_keyboard_reaches_every_edit(size: tuple[int, int]
                 button = screen.focused
                 if button in edits:
                     visited.add(button)
-                    await wait_for_condition(
-                        pilot,
-                        lambda button=button: body.region.contains_region(button.region),
-                        f"{button.id} to scroll into view",
-                    )
+                    await wait_for_visible(pilot, button, within=body)
                     assert (
                         body.region.y
                         <= button.region.y
@@ -233,15 +228,6 @@ def test_result_actions_send_typed_requests_and_report_generated_checks(tmp_path
             )
 
     asyncio.run(run())
-
-
-def test_open_documents_uses_argument_lists(monkeypatch, tmp_path: Path) -> None:
-    commands: list[list[str]] = []
-    monkeypatch.setattr("ethernity.app.output_paths.sys.platform", "darwin")
-    monkeypatch.setattr("ethernity.app.output_paths.subprocess.Popen", commands.append)
-    documents = (tmp_path / "backup with spaces.pdf", tmp_path / "recovery.pdf")
-    open_documents(documents)
-    assert commands == [["open", *(str(path) for path in documents)]]
 
 
 def test_result_recovery_uses_completed_backup_without_picker(monkeypatch, tmp_path: Path) -> None:

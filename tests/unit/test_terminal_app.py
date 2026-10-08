@@ -65,7 +65,11 @@ from ethernity.tasks.settings import SettingsTaskState
 from ethernity.tasks.source_assessment import SourceAssessment
 from ethernity.version import get_ethernity_version
 from ethernity.workflows.shared import events
-from tests.support.pilot import wait_for_condition as _wait_for_condition
+from tests.support.pilot import (
+    click_when_ready,
+    wait_for_condition as _wait_for_condition,
+    wait_for_widget,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -263,20 +267,6 @@ def _rich_log_text(log: RichLog) -> str:
 
 def _help_markdown_text(app: EthernityApp) -> str:
     return app.screen.query_one("#help-body", MarkdownViewer).document.source
-
-
-async def _wait_for_result_modal(app: EthernityApp, pilot) -> None:
-    for _ in range(40):
-        await pilot.pause(0.05)
-        close_buttons = list(app.screen.query("#result-close"))
-        if (
-            list(app.screen.query("#result-modal"))
-            and close_buttons
-            and close_buttons[0].region.width > 0
-            and close_buttons[0].region.height > 0
-        ):
-            return
-    raise AssertionError("Result modal did not finish mounting.")
 
 
 def _button_label(app: EthernityApp, selector: str) -> str:
@@ -2995,12 +2985,9 @@ def test_textual_app_shows_progress_screen_while_task_runs(monkeypatch) -> None:
             assert not list(app.query("#canvas-loading"))
             await pilot.press("ctrl+r")
             await pilot.pause()
-            await pilot.click("#review-execute")
+            await click_when_ready(pilot, "#review-execute")
 
-            for _ in range(20):
-                await pilot.pause(0.05)
-                if started.is_set():
-                    break
+            await _wait_for_condition(pilot, started.is_set, "worker to start")
 
             assert started.is_set()
             assert app.running_task == "backup"
@@ -3012,7 +2999,7 @@ def test_textual_app_shows_progress_screen_while_task_runs(monkeypatch) -> None:
             assert not app.screen.query_one("#progress-cancel", Button).disabled
 
             release.set()
-            await _wait_for_result_modal(app, pilot)
+            await wait_for_widget(pilot, "#result-close")
 
             assert app.running_task is None
             assert "Slow backup complete" in _result_text(app)
@@ -3068,14 +3055,11 @@ def test_textual_app_review_can_execute_ready_backup(monkeypatch) -> None:
             assert "A new backup-<id> folder will be created inside the destination." in review_text
             assert "Existing backups stay unchanged." in review_text
 
-            await pilot.click("#review-execute")
-            for _ in range(10):
-                await pilot.pause(0.1)
-                if calls:
-                    break
+            await click_when_ready(pilot, "#review-execute")
+            await _wait_for_condition(pilot, lambda: bool(calls), "execution to start")
 
             assert [str(path) for path in calls[0].input_paths] == ["secrets.txt"]
-            await _wait_for_result_modal(app, pilot)
+            await wait_for_widget(pilot, "#result-close")
 
             result_text = _result_text(app)
             assert "Fake backup complete" in result_text
@@ -3183,14 +3167,11 @@ def test_textual_app_review_can_execute_print_kit(monkeypatch) -> None:
             ) in review_text
             assert "This offline recovery kit cannot authenticate" in review_text
 
-            await pilot.click("#review-execute")
-            for _ in range(10):
-                await pilot.pause(0.1)
-                if calls:
-                    break
+            await click_when_ready(pilot, "#review-execute")
+            await _wait_for_condition(pilot, lambda: bool(calls), "execution to start")
 
             assert str(calls[0].output_path) == "kit.pdf"
-            await _wait_for_result_modal(app, pilot)
+            await wait_for_widget(pilot, "#result-close")
 
             result_text = _result_text(app)
             assert "Fake kit complete" in result_text
@@ -3436,14 +3417,11 @@ def test_textual_app_review_can_execute_ready_restore(monkeypatch) -> None:
             assert _button_label(app, "#review-execute") == "Restore files"
             assert "The restore folder does not exist and will be created." in review_text
 
-            await pilot.click("#review-execute")
-            for _ in range(10):
-                await pilot.pause(0.1)
-                if calls:
-                    break
+            await click_when_ready(pilot, "#review-execute")
+            await _wait_for_condition(pilot, lambda: bool(calls), "execution to start")
 
             assert calls[0].output_path == Path("recovered")
-            await _wait_for_result_modal(app, pilot)
+            await wait_for_widget(pilot, "#result-close")
 
             result_text = _result_text(app)
             assert "Fake restore complete" in result_text
@@ -3560,8 +3538,8 @@ async def _exercise_add_files_review() -> None:
         assert "Recovery sheets\nNo new recovery sheets" in review_text
         assert _button_label(add_app, "#review-execute") == "Create update"
 
-        await pilot.click("#review-execute")
-        await _wait_for_result_modal(add_app, pilot)
+        await click_when_ready(pilot, "#review-execute")
+        await wait_for_widget(pilot, "#result-close")
 
         result_text = _result_text(add_app)
         assert "Fake update complete" in result_text
@@ -3596,8 +3574,8 @@ async def _exercise_rebuild_review() -> None:
         assert "Existing backups stay unchanged." in review_text
         assert _button_label(rebuild_app, "#review-execute") == "Rebuild backup"
 
-        await pilot.click("#review-execute")
-        await _wait_for_result_modal(rebuild_app, pilot)
+        await click_when_ready(pilot, "#review-execute")
+        await wait_for_widget(pilot, "#result-close")
 
         result_text = _result_text(rebuild_app)
         assert "Fake rebuild complete" in result_text
@@ -3647,8 +3625,8 @@ async def _exercise_replacement_review() -> None:
         assert "Existing backup files: Left unchanged" in review_text
         assert _button_label(replace_app, "#review-execute") == ("Create replacement sheets")
 
-        await pilot.click("#review-execute")
-        await _wait_for_result_modal(replace_app, pilot)
+        await click_when_ready(pilot, "#review-execute")
+        await wait_for_widget(pilot, "#result-close")
 
         result_text = _result_text(replace_app)
         assert "Fake replacement complete" in result_text
@@ -3676,8 +3654,8 @@ def test_textual_app_execution_failure_shows_result_screen(monkeypatch) -> None:
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.pause()
-            await pilot.click("#review-execute")
-            await _wait_for_result_modal(app, pilot)
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_widget(pilot, "#result-close")
 
             result_text = _result_text(app)
             assert "Backup failed" in result_text
@@ -3716,11 +3694,7 @@ def _assert_absent_controls(app: EthernityApp, selectors: tuple[str, ...]) -> No
 async def _enter_edit_field(
     app: EthernityApp, pilot: Pilot, value: str, *, plain_input: bool = False
 ) -> None:
-    await _wait_for_condition(
-        pilot,
-        lambda: bool(app.screen.query("#edit-field-input")),
-        "field editor to mount",
-    )
+    await wait_for_widget(pilot, "#edit-field-input")
     editor = app.screen
     field = editor.query_one("#edit-field-input", Input)
     if plain_input:
