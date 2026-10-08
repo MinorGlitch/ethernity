@@ -10,6 +10,7 @@ from textual.widgets import Button, OptionList, Static
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens import task_result
 from ethernity.tasks.models import TaskExecutionResult, TaskResultDetail
+from tests.support.pilot import wait_for_condition
 
 
 @pytest.mark.parametrize(
@@ -55,7 +56,7 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
             path_list = screen.query_one("#result-output-paths", OptionList)
             assert [str(path_list.get_option_at_index(i).prompt) for i in range(2)] == [
                 "backup.pdf",
-                "sheets/recovery.pdf",
+                str(Path("sheets") / "recovery.pdf"),
             ]
 
             buttons = set(screen.query(Button).results(Button))
@@ -67,6 +68,11 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
                     continue
                 visited.add(button)
                 owner = footer if button.id == "result-close" else body
+                await wait_for_condition(
+                    pilot,
+                    lambda owner=owner, button=button: owner.region.contains_region(button.region),
+                    f"{button.id} to scroll into view",
+                )
                 assert owner.region.x <= button.region.x < button.region.right <= owner.region.right
                 assert (
                     owner.region.y <= button.region.y < button.region.bottom <= owner.region.bottom
@@ -77,8 +83,7 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
             for button_id in ("copy-paths", "open-folder", "open-documents"):
                 screen.query_one(f"#result-{button_id}", Button).press()
                 await pilot.pause()
-            assert copied == ["\n".join(str(path) for path in paths)]
-            assert opened == [folder, paths]
+            assert (copied, opened) == (["\n".join(str(path) for path in paths)], [folder, paths])
 
             screen.set_context_action_running("test_recovery")
             await pilot.pause()

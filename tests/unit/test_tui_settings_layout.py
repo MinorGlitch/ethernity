@@ -18,6 +18,7 @@ from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.models import TaskIssue, TaskValidation
 from ethernity.tasks.settings import SETTING_DESCRIPTORS, SettingsTaskState
+from tests.support.pilot import wait_for_condition
 
 
 class ControlsApp(StyledApp):
@@ -105,7 +106,14 @@ def test_settings_help_is_contextual_and_warnings_keep_their_own_role(
             form = app.query_one(SettingsForm)
             form.show_group("Advanced")
             form.focus_active()
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: (
+                    "Higher correction"
+                    in str(form.query_one("#settings-focus-help", Static).content)
+                ),
+                "help for the first setting",
+            )
             field = form.query_one("#setting-row-qr_chunk_size", SettingField)
             warning = field.query_one(InlineNotice)
             marker = field.query_one(".setting-marker", Static)
@@ -118,7 +126,11 @@ def test_settings_help_is_contextual_and_warnings_keep_their_own_role(
                 form.query_one("#settings-focus-help", Static).content
             )
             field.query_one(Input).focus()
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: "More bytes" in str(form.query_one("#settings-focus-help", Static).content),
+                "help for the focused setting",
+            )
             assert "More bytes" in str(form.query_one("#settings-focus-help", Static).content)
             assert warning.region.y >= field.query_one(Input).region.bottom + 1
             form.update_statuses(
@@ -178,7 +190,14 @@ def test_long_settings_page_scrolls_focused_controls_above_the_footer(size) -> N
             pane = form.active_pane
             for control in pane.query(".settings-control"):
                 control.focus()
-                await pilot.pause()
+                await wait_for_condition(
+                    pilot,
+                    lambda control=control: (
+                        app.focused is control
+                        and pane.content_region.contains_region(control.region)
+                    ),
+                    f"{control.id} to scroll into view",
+                )
                 assert app.focused is control
                 assert pane.content_region.contains_region(control.region), control.id
                 assert control.region.bottom <= form.query_one("#settings-save-row").region.y

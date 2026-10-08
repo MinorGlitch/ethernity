@@ -13,6 +13,7 @@ from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.styling import StyledApp
 from ethernity.tasks import recovery_check
 from ethernity.tasks.models import TaskExecutionResult
+from tests.support.pilot import wait_for_condition
 
 
 class RecoveryCheckApp(StyledApp):
@@ -61,10 +62,7 @@ def test_check_runs_in_background_serializes_and_discards_closed_screen(
             try:
                 assert controller.start(request, screen, "test_recovery")
                 assert not controller.start(request, screen, "test_recovery")
-                for _ in range(40):
-                    await pilot.pause(0.01)
-                    if started.is_set():
-                        break
+                await wait_for_condition(pilot, started.is_set, "recovery check to start")
                 assert started.is_set()
                 assert controller.running
                 assert screen.query_one("#result-test-recovery", Button).disabled
@@ -74,10 +72,9 @@ def test_check_runs_in_background_serializes_and_discards_closed_screen(
                 assert screen not in app.screen_stack
             finally:
                 release.set()
-            for _ in range(40):
-                await pilot.pause(0.01)
-                if not controller.running:
-                    break
+            await wait_for_condition(
+                pilot, lambda: not controller.running, "recovery check to finish"
+            )
             assert not controller.running
             assert "passed" not in str(checks.content)
             controller.close()
@@ -131,10 +128,9 @@ def test_missing_quorum_stays_a_failed_recovery_check(monkeypatch, tmp_path: Pat
                 screen,
                 "test_recovery",
             )
-            for _ in range(40):
-                await pilot.pause(0.01)
-                if not controller.running:
-                    break
+            await wait_for_condition(
+                pilot, lambda: not controller.running, "recovery check to finish"
+            )
             checks = screen.query_one("#result-document-checks", Static)
             assert checks.has_class("failure")
             assert "Need at least 2" in str(checks.content)
@@ -167,23 +163,23 @@ def test_required_phrase_is_masked_and_explicit_input_retries(monkeypatch, tmp_p
                 screen,
                 "test_recovery",
             )
-            for _ in range(40):
-                await pilot.pause(0.01)
-                if isinstance(app.screen, EditFieldScreen) and list(
-                    app.screen.query("#edit-field-input")
-                ):
-                    await pilot.pause()
-                    break
+            await wait_for_condition(
+                pilot,
+                lambda: (
+                    isinstance(app.screen, EditFieldScreen)
+                    and bool(app.screen.query("#edit-field-input"))
+                ),
+                "passphrase editor to mount",
+            )
             assert isinstance(app.screen, EditFieldScreen)
             field = app.screen.query_one("#edit-field-input", Input)
             assert field.password
             assert "recovery document" in str(app.screen.query_one("#edit-field-prompt").render())
             field.value = "explicit phrase"
             await pilot.press("enter")
-            for _ in range(40):
-                await pilot.pause(0.01)
-                if not controller.running:
-                    break
+            await wait_for_condition(
+                pilot, lambda: not controller.running, "recovery check to finish"
+            )
             assert not controller.running
             message = str(screen.query_one("#result-document-checks", Static).content)
             assert "Generated PDF recovery passed" in message
@@ -214,18 +210,18 @@ def test_cancelled_phrase_restores_actions_and_reports_no_completed_check(
                 screen,
                 "test_recovery",
             )
-            for _ in range(40):
-                await pilot.pause(0.01)
-                if isinstance(app.screen, EditFieldScreen) and list(
-                    app.screen.query("#edit-field-input")
-                ):
-                    await pilot.pause()
-                    break
+            await wait_for_condition(
+                pilot,
+                lambda: (
+                    isinstance(app.screen, EditFieldScreen)
+                    and bool(app.screen.query("#edit-field-input"))
+                ),
+                "passphrase editor to mount",
+            )
             await pilot.press("escape")
-            for _ in range(40):
-                await pilot.pause(0.01)
-                if not controller.running:
-                    break
+            await wait_for_condition(
+                pilot, lambda: not controller.running, "recovery check to finish"
+            )
             assert not controller.running
             assert "No recovery check completed" in str(
                 screen.query_one("#result-document-checks", Static).content

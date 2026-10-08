@@ -22,6 +22,7 @@ from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import KeyedRadioSet
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
+from tests.support.pilot import wait_for_condition
 
 
 def test_menu_traversal_closes_and_restores_its_invoker() -> None:
@@ -64,8 +65,14 @@ def test_menu_padding_selects_the_whole_choice(menu: str, choice: str, row: int)
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
-            await pilot.click(f"#nav-{menu}")
-            await pilot.click(f"#{choice}", offset=(1, row))
+            assert await pilot.click(f"#nav-{menu}")
+            await wait_for_condition(pilot, lambda: app._nav_menu_open, "navigation menu to open")
+            assert await pilot.click(f"#{choice}", offset=(1, row))
+            await wait_for_condition(
+                pilot,
+                lambda: app.active_task == choice and not app._nav_menu_open,
+                "selected workflow to open",
+            )
             assert app.active_task == choice
             assert not app._nav_menu_open
 

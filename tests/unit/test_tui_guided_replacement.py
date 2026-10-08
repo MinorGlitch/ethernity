@@ -18,6 +18,7 @@ from ethernity.tasks.presentation.models import (
     SummaryPresentation,
 )
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
+from tests.support.pilot import wait_for_condition
 
 
 def test_replacement_recovery_default_is_visible_and_custom_quorum_stays_collapsed() -> None:
@@ -139,7 +140,11 @@ def test_replacement_invalid_quorum_blocks_review_and_stays_visible_at_80x24() -
 
             threshold.focus()
             threshold.value = ""
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: ui_state.draft_values.get("recovery") == {"threshold": "", "count": "3"},
+                "quorum validation to update",
+            )
 
             assert ui_state.has_invalid_draft("recovery")
             assert ui_state.draft_values["recovery"] == {"threshold": "", "count": "3"}
@@ -149,7 +154,11 @@ def test_replacement_invalid_quorum_blocks_review_and_stays_visible_at_80x24() -
             assert app.replace_recovery_docs_state.recovery_document_count == 3
 
             threshold.value = "6"
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: ui_state.draft_values.get("recovery") == {"threshold": "6", "count": "3"},
+                "quorum validation to update",
+            )
 
             assert ui_state.draft_values["recovery"] == {"threshold": "6", "count": "3"}
             assert "cannot exceed" in str(notice.content)
@@ -165,7 +174,11 @@ def test_replacement_invalid_quorum_blocks_review_and_stays_visible_at_80x24() -
             assert ui_state.active_step == "recovery"
 
             count.value = "7"
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: app.replace_recovery_docs_state.recovery_document_count == 7,
+                "valid quorum to reach task state",
+            )
 
             assert not ui_state.has_invalid_draft("recovery")
             assert not primary.disabled

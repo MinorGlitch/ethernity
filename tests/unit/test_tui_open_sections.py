@@ -8,6 +8,7 @@ from ethernity.app.application import EthernityApp
 from ethernity.app.widgets.form import FormSection
 from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.tasks.backup import BackupTaskState
+from tests.support.pilot import wait_for_condition
 
 
 def test_backup_fields_follow_their_steps_and_focus_routes_to_them() -> None:
@@ -50,7 +51,11 @@ def test_backup_only_shows_fields_for_the_selected_recovery_options() -> None:
 
             mode = app.query_one("#workspace-backup-signing-key-mode", Select)
             mode.value = "sharded"
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: app.backup_state.signing_key_mode == "sharded",
+                "signing key selection to update",
+            )
             assert app.backup_state.signing_key_mode == "sharded"
             assert app.query_one("#backup-key-sheets-row").display
             mode.focus()
@@ -58,7 +63,11 @@ def test_backup_only_shows_fields_for_the_selected_recovery_options() -> None:
             assert app.screen.focused is app.query_one("#workspace-backup-signing-key-shards")
 
             mode.value = "embedded"
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: app.backup_state.signing_key_mode == "embedded",
+                "signing key selection to update",
+            )
             app.backup_state.passphrase = None
             app.refresh_task_view()
             await pilot.pause()

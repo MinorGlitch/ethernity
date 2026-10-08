@@ -14,6 +14,7 @@ from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.restore import RestoreTaskState
+from tests.support.pilot import wait_for_condition
 
 
 def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> None:
@@ -32,6 +33,11 @@ def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> N
             assert app.query_one("#backup-files-section").display
             assert not app.query_one("#backup-recovery-section").display
             await pilot.click("#canvas-primary")
+            await wait_for_condition(
+                pilot,
+                lambda: app.screen.focused is app.query_one("#workspace-backup-recovery-method"),
+                "recovery controls to receive focus",
+            )
             assert canvas.active_step == "recovery"
             assert summary.display
             assert [
@@ -41,11 +47,15 @@ def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> N
             ] == ["Files"]
             assert app.screen.focused is app.query_one("#workspace-backup-recovery-method")
             await pilot.click("#canvas-primary")
+            await wait_for_condition(pilot, lambda: canvas.active_step == "print", "print step")
             assert canvas.active_step == "print"
             await pilot.click(rail.button_for("files"))
+            await wait_for_condition(pilot, lambda: canvas.active_step == "files", "files step")
             assert canvas.active_step == "files"
             await pilot.click(rail.button_for("review"))
-            await pilot.pause()
+            await wait_for_condition(
+                pilot, lambda: isinstance(app.screen, ReviewTaskScreen), "backup review to open"
+            )
             assert isinstance(app.screen, ReviewTaskScreen)
             assert app.screen._plan.output_paths == (output / "backup-<id>",)
             assert not output.exists()
@@ -76,6 +86,11 @@ def test_continue_keeps_missing_input_visible() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#canvas-primary")
+            await wait_for_condition(
+                pilot,
+                lambda: app.screen.focused is app.query_one("#workspace-backup-files"),
+                "missing input control to receive focus",
+            )
             assert app.query_one(TaskCanvas).active_step == "files"
             assert app.query_one("#canvas-step-issue").display
             assert app.screen.focused is app.query_one("#workspace-backup-files")
@@ -179,7 +194,12 @@ def test_manage_and_tools_menus_expose_their_tasks_without_loaded_backup() -> No
             assert app._nav_menu_open
             assert app.query_one("#add_files", ListItem).display
             assert not list(app.query("#backup"))
-            await pilot.click("#add_files")
+            assert await pilot.click("#add_files")
+            await wait_for_condition(
+                pilot,
+                lambda: app.active_task == "add_files" and not app._nav_menu_open,
+                "Add files workflow to open",
+            )
             assert app.active_task == "add_files"
             assert not app._nav_menu_open
             await pilot.click("#nav-tools")

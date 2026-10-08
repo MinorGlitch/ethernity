@@ -389,6 +389,8 @@ class TaskViewActions(EthernityAppContext):
         return await run_directional_widget_binding(self.screen.focused, key)
 
     def refresh_task_view(self) -> None:
+        if not self.is_running:
+            return
         state = self._current_state()
         if self.active_task == "backup" and self.running_task is None:
             self.backup_estimate_controller.refresh()
@@ -534,7 +536,7 @@ class TaskViewActions(EthernityAppContext):
         return states
 
     def _show_task(self, task: TaskKey) -> None:
-        if task not in TASK_ORDER:
+        if not self.is_running or task not in TASK_ORDER:
             return
         if self.screen is not self.screen_stack[0]:
             return
@@ -570,7 +572,7 @@ class TaskViewActions(EthernityAppContext):
             self.call_after_refresh(self._focus_active_task, task)
 
     def _focus_active_task(self, task: TaskKey) -> None:
-        if self._nav_menu_open or self.screen is not self.screen_stack[0]:
+        if not self.is_running or self._nav_menu_open or self.screen is not self.screen_stack[0]:
             return
         if task == self.active_task:
             if is_guided_task(task):

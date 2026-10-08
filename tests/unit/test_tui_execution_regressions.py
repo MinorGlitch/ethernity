@@ -341,7 +341,7 @@ def test_progress_locks_navigation_and_failure_returns_to_live_workflow(monkeypa
         )
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
-            await pilot.click("#review-execute")
+            await _click_when_laid_out(app, pilot, "#review-execute")
             await _wait_for_thread_start(pilot, started)
             assert started.is_set()
 
@@ -392,7 +392,7 @@ def test_wrong_worker_result_is_presented_and_clears_running_state(monkeypatch) 
         )
         async with app.run_test(size=(100, 28)) as pilot:
             await pilot.press("ctrl+r")
-            await pilot.click("#review-execute")
+            await _click_when_laid_out(app, pilot, "#review-execute")
             await _wait_for_selector(app, pilot, "#result-modal")
 
             assert app.running_task is None
@@ -443,7 +443,7 @@ def test_return_and_new_review_capture_current_config_contents(
         )
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
-            await pilot.click("#review-execute")
+            await _click_when_laid_out(app, pilot, "#review-execute")
             await _wait_for_thread_start(pilot, started)
             assert started.is_set()
 
@@ -457,7 +457,7 @@ def test_return_and_new_review_capture_current_config_contents(
             await pilot.press("ctrl+r")
             await _wait_for_selector(app, pilot, "#review-modal")
             await pilot.pause()
-            await pilot.click("#review-execute")
+            await _click_when_laid_out(app, pilot, "#review-execute")
             for _ in range(40):
                 await pilot.pause(0.05)
                 if len(observed_chunk_sizes) == 2:
@@ -503,7 +503,7 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
         )
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
-            await pilot.click("#review-execute")
+            await _click_when_laid_out(app, pilot, "#review-execute")
             await _wait_for_thread_start(pilot, started)
             assert started.is_set()
 
@@ -561,7 +561,7 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
         )
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
-            await pilot.click("#review-execute")
+            await _click_when_laid_out(app, pilot, "#review-execute")
             await _wait_for_thread_start(pilot, started)
             assert started.is_set()
             worker = app.execution_controller.running_worker

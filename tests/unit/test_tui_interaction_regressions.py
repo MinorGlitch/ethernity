@@ -44,6 +44,7 @@ from ethernity.tasks.models import (
     TaskSection,
     TaskValidation,
 )
+from tests.support.pilot import wait_for_condition
 
 
 def test_editor_and_diagnostics_actions_use_concrete_labels() -> None:
@@ -106,7 +107,13 @@ def test_save_file_picker_requires_a_file_name_and_rejects_paths(tmp_path: Path)
 
                 name = picker.query_one("#file-picker-name", Input)
                 name.value = "nested/kit.pdf"
-                await pilot.pause()
+                await wait_for_condition(
+                    pilot,
+                    lambda error=error: (
+                        str(error.content) == "Enter only a name. Remove any folder path."
+                    ),
+                    "file name validation",
+                )
 
                 body = picker.query_one("#file-picker-body")
                 actions = picker.query_one("#file-picker-actions")

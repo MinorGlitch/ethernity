@@ -2394,8 +2394,10 @@ def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
 
             await app._select_workbench_step("files")
             await pilot.pause()
-            await pilot.click("#workspace-add-files-base-dir")
-            await pilot.pause()
+            base_dir = app.query_one("#workspace-add-files-base-dir", Button)
+            base_dir.focus()
+            await pilot.wait_for_scheduled_animations()
+            assert await pilot.click(base_dir)
             await _choose_picker_paths(app, pilot, tmp_path)
 
             assert app.add_files_state.base_dir == tmp_path
@@ -3714,14 +3716,20 @@ def _assert_absent_controls(app: EthernityApp, selectors: tuple[str, ...]) -> No
 async def _enter_edit_field(
     app: EthernityApp, pilot: Pilot, value: str, *, plain_input: bool = False
 ) -> None:
-    field = app.screen.query_one("#edit-field-input", Input)
+    await _wait_for_condition(
+        pilot,
+        lambda: bool(app.screen.query("#edit-field-input")),
+        "field editor to mount",
+    )
+    editor = app.screen
+    field = editor.query_one("#edit-field-input", Input)
     if plain_input:
         assert not isinstance(field, MaskedInput)
     field.value = ""
     field.focus()
     await _type_text(pilot, value)
     await pilot.press("enter")
-    await pilot.pause()
+    await _wait_for_condition(pilot, lambda: app.screen is not editor, "field editor to close")
 
 
 async def _open_reset_all(app: EthernityApp, pilot: Pilot) -> None:
