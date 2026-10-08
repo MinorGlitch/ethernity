@@ -9,6 +9,7 @@ from ethernity.app.application import EthernityApp
 from ethernity.app.screens.file_picker import FilePickerScreen
 from ethernity.app.screens.review_task import ReviewTaskScreen
 from ethernity.tasks.backup import BackupTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_widget
 
 
@@ -20,7 +21,7 @@ def test_review_edit_prepares_a_new_snapshot_before_any_write(tmp_path: Path) ->
     app = EthernityApp(backup_state=BackupTaskState(input_paths=[source], output_dir=old_output))
 
     async def run() -> None:
-        async with app.run_test(size=(100, 32)) as pilot:
+        async with run_app_test(app, size=(100, 32)) as pilot:
             await app.action_review()
             await wait_for_widget(pilot, "#review-execute")
             original_review = app.screen
@@ -49,7 +50,7 @@ def test_cancelled_review_edit_returns_to_review_without_mutation(tmp_path: Path
     )
 
     async def run() -> None:
-        async with app.run_test(size=(100, 32)) as pilot:
+        async with run_app_test(app, size=(100, 32)) as pilot:
             initial = app.backup_state.model_dump_json()
             await app.action_review()
             await wait_for_widget(pilot, "#review-execute")

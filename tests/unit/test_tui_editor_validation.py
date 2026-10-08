@@ -14,6 +14,7 @@ from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.tasks.page_layout import BACKUP_RENDER_DOC_TYPES
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.task_types import TaskKey
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition
 
 
@@ -84,7 +85,7 @@ def test_specific_field_errors_keep_the_draft_open_and_task_values_unchanged(
 ) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await app._show_task(task)
             before = app._current_state().model_dump()
             await getattr(app, editor_method)()
@@ -130,7 +131,7 @@ def test_review_shortcut_does_not_bypass_an_invalid_field_editor() -> None:
                 output_path=Path("recovered"),
             )
         )
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await app._show_task("restore")
             await app._edit_expected_head_fingerprint()
             await pilot.pause()
@@ -155,7 +156,7 @@ def test_review_shortcut_commits_focused_inline_destination_and_phrase() -> None
                 output_path=Path("old-destination"),
             )
         )
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await app._show_task("restore")
             await pilot.pause()
             await pilot.click(app.query_one(WorkbenchSteps).button_for("destination"))

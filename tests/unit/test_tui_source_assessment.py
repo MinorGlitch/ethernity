@@ -21,6 +21,7 @@ from ethernity.tasks.source_assessment import (
     source_freshness_status,
 )
 from ethernity.workflows.recovery.models import RecoveryUnlockStatus
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition
 
 
@@ -254,7 +255,7 @@ def test_source_mutation_runs_assessment_in_background(monkeypatch) -> None:
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 36)) as pilot:
+        async with run_app_test(app, size=(120, 36)) as pilot:
             await pilot.press("2")
             app._apply_restore_sources_picked((Path("scan.pdf"),))
             assert app.workflow_ui_states["restore"].source_assessment_loading
@@ -287,7 +288,7 @@ def test_shutdown_during_source_assessment_does_not_refresh_removed_widgets(monk
     async def run() -> None:
         app = EthernityApp()
         try:
-            async with app.run_test(size=(120, 36)) as pilot:
+            async with run_app_test(app, size=(120, 36)) as pilot:
                 await pilot.press("2")
                 app._apply_restore_sources_picked((Path("scan.pdf"),))
                 await wait_for_condition(pilot, started.is_set, "source assessment to start")
@@ -308,7 +309,7 @@ def test_programmatic_auth_select_sync_does_not_start_source_assessment() -> Non
                 output_path=Path("recovered"),
             )
         )
-        async with app.run_test(size=(120, 36)) as pilot:
+        async with run_app_test(app, size=(120, 36)) as pilot:
             await pilot.press("2")
             ui_state = app.workflow_ui_states["restore"]
             ui_state.activate("destination")

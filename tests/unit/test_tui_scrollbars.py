@@ -11,6 +11,7 @@ from textual.widgets import OptionList, RichLog, Static
 
 from ethernity.app.styling import StyledApp
 from ethernity.app.widgets.form import FormScroll
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition
 
 
@@ -28,7 +29,7 @@ class ScrollbarApp(StyledApp):
 def test_scrollbars_keep_a_real_content_gap_and_remain_clickable(size) -> None:
     async def run() -> None:
         app = ScrollbarApp()
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             for host in app.query("#form, #document, #choices"):
                 host.styles.height = 6
             await wait_for_condition(
@@ -70,7 +71,7 @@ def test_native_log_keeps_horizontal_track_compact_and_vertical_gap_on_resize() 
 
     async def run() -> None:
         app = LogApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             log = app.query_one(RichLog)
             log.styles.height = 10
             log.styles.width = 40

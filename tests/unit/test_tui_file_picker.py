@@ -9,6 +9,7 @@ from textual.widgets import Button, DirectoryTree, Input, Static
 from ethernity.app.application import EthernityApp
 from ethernity.app.path_selection import complete_picker_path, resolve_picker_path
 from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
+from tests.support.app import run_app_test
 
 
 def test_picker_path_resolution_uses_browsing_folder_and_expands_home(
@@ -61,7 +62,7 @@ def test_open_picker_entered_files_append_and_entered_folders_only_navigate(tmp_
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             picker = FilePickerScreen(
                 title="Choose files and folders",
                 prompt="Paste a path or browse.",
@@ -114,7 +115,7 @@ def test_open_picker_accepts_home_paths_and_rejects_missing_paths_without_losing
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             picker = FilePickerScreen(
                 title="Choose files",
                 prompt="Paste a path or browse.",
@@ -157,7 +158,7 @@ def test_open_directory_path_requires_explicit_folder_selection_and_rejects_file
     async def run() -> None:
         results: list[tuple[Path, ...] | None] = []
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             picker = FilePickerScreen(
                 title="Choose folder",
                 prompt="Paste a path or browse.",
@@ -195,7 +196,7 @@ def test_save_picker_accepts_full_new_path_and_rejects_missing_parent(
     async def run() -> None:
         results: list[tuple[Path, ...] | None] = []
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             picker = FilePickerScreen(
                 title="Choose destination",
                 prompt="Paste a path or browse.",
@@ -235,7 +236,7 @@ def test_picker_completion_shortcut_fills_path_without_modifying_selection(tmp_p
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             picker = FilePickerScreen(
                 title="Choose files",
                 prompt="Paste a path or browse.",

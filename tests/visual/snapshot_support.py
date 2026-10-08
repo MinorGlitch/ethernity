@@ -14,6 +14,8 @@ from unittest.mock import patch
 from textual.app import App
 from textual.pilot import Pilot
 
+from tests.support.app import run_app_test
+
 RunBeforeCapture = Callable[[App[object], Pilot[object]], Awaitable[None] | None]
 
 
@@ -36,7 +38,8 @@ def capture_svg(
 
     async def capture() -> str:
         app.animation_level = "none"
-        async with app.run_test(
+        async with run_app_test(
+            app,
             size=terminal_size,
             tooltips=False,
             notifications=False,

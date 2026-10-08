@@ -9,6 +9,7 @@ from textual.widgets import Input, OptionList
 
 from ethernity.app.styling import StyledApp
 from ethernity.app.widgets.form import FormSelect
+from tests.support.app import run_app_test
 
 
 class DropdownApp(StyledApp):
@@ -29,7 +30,7 @@ class DropdownApp(StyledApp):
 def test_dropdown_padding_is_highlighted_clickable_and_survives_updates(allow_blank: bool) -> None:
     async def run() -> None:
         app = DropdownApp(allow_blank=allow_blank)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             field = app.query_one(FormSelect)
             await pilot.press("enter")
             overlay = field.query_one(OptionList)
@@ -76,7 +77,7 @@ def test_dropdown_padding_is_highlighted_clickable_and_survives_updates(allow_bl
 def test_long_dropdown_choices_wrap_and_scroll_without_clipping() -> None:
     async def run() -> None:
         app = DropdownApp(allow_blank=False)
-        async with app.run_test(size=(40, 20)) as pilot:
+        async with run_app_test(app, size=(40, 20)) as pilot:
             field = app.query_one(FormSelect)
             labels = [
                 f"Choice {index} with a description that wraps onto another line"

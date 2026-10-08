@@ -18,6 +18,7 @@ from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.models import TaskIssue, TaskValidation
 from ethernity.tasks.settings import SETTING_DESCRIPTORS, SettingsTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition, wait_for_focus
 
 
@@ -38,7 +39,7 @@ class ControlsApp(StyledApp):
 def test_controls_render_text_in_middle_row_and_keep_horizontal_padding(size) -> None:
     async def run() -> None:
         app = ControlsApp()
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             await pilot.pause()
             expected_height = 1 if size[1] < 28 else 3
             middle = expected_height // 2
@@ -101,7 +102,7 @@ def test_settings_help_is_contextual_and_warnings_keep_their_own_role(
         state.set_setting_value("qr_chunk_size", 1024)
         app = EthernityApp(settings_state=state)
         app.theme = theme
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             await pilot.press("7")
             form = app.query_one(SettingsForm)
             form.show_group("Advanced")
@@ -159,7 +160,7 @@ def test_positive_switch_labels_preserve_persisted_negative_flags(tmp_path: Path
         config = tmp_path / "settings.toml"
         config.write_text(DEFAULT_CONFIG_PATH.read_text())
         app = EthernityApp(settings_state=SettingsTaskState.from_current(config))
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             await pilot.press("7")
             app.query_one(SettingsForm).show_group("Advanced")
             await pilot.pause()
@@ -183,7 +184,7 @@ def test_positive_switch_labels_preserve_persisted_negative_flags(tmp_path: Path
 def test_long_settings_page_scrolls_focused_controls_above_the_footer(size) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             await pilot.press("7")
             form = app.query_one(SettingsForm)
             form.show_group("Advanced")

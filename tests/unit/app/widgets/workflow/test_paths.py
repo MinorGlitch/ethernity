@@ -14,6 +14,7 @@ from ethernity.tasks.presentation.models import (
     PathSelectionBodyPresentation,
     WorkspaceAction,
 )
+from tests.support.app import run_app_test
 from tests.unit.app.widgets.workflow.widget_harness import WorkflowWidgetHarness
 
 
@@ -35,7 +36,7 @@ def test_path_and_destination_summaries_render_dynamic_text_literally() -> None:
             id="paths",
         )
         path_app = WorkflowWidgetHarness(paths)
-        async with path_app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(path_app, size=(80, 24)) as pilot:
             await pilot.pause()
             selection = paths.query_one(SelectionList)
             assert paths.selected_keys == ("one",)
@@ -58,7 +59,7 @@ def test_path_and_destination_summaries_render_dynamic_text_literally() -> None:
             id="destination",
         )
         destination_app = WorkflowWidgetHarness(destination)
-        async with destination_app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(destination_app, size=(80, 24)) as pilot:
             await pilot.pause()
             value = destination.query_one(Input)
             notice = destination.query_one(InlineNotice)
@@ -79,7 +80,7 @@ def test_destination_commits_typed_path_once_and_preserves_pending_edits() -> No
         presentation = DestinationBodyPresentation(display_path="/tmp/original")
         destination = DestinationEditor(presentation, id="destination")
         app = WorkflowWidgetHarness(destination)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             value = destination.query_one(Input)
             value.focus()
             await pilot.press("ctrl+a", "ctrl+k")
@@ -105,7 +106,7 @@ def test_destination_sync_reveals_the_path_tail_and_preserves_the_edit_cursor() 
         presentation = DestinationBodyPresentation(display_path=path)
         destination = DestinationEditor(presentation, id="destination")
         app = WorkflowWidgetHarness(destination)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             value = destination.query_one(Input)
             assert value.value == path
             assert value.cursor_position == len(path)

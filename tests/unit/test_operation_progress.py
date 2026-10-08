@@ -23,6 +23,7 @@ from ethernity.workflows.shared.execution_control import (
     cancellation_point,
     execution_session,
 )
+from tests.support.app import run_app_test
 
 
 def test_cancellation_and_commit_are_mutually_exclusive() -> None:
@@ -122,7 +123,7 @@ def test_progress_only_exposes_curated_activity_and_real_counts() -> None:
 def test_progress_geometry_and_stopping_state(size: tuple[int, int]) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             screen = TaskProgressScreen(
                 title="Create backup", destination="~/backup-1234", cancel=lambda: True
             )
@@ -179,7 +180,7 @@ def test_worker_progress_finishes_cleanup_before_returning_to_form(
     async def run() -> None:
         state = BackupTaskState(input_paths=[tmp_path / "input.txt"], output_dir=tmp_path)
         app = EthernityApp(backup_state=state)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             try:
                 reviewed = ReviewedTask.capture("backup", state)
                 app.execution_controller.start(reviewed)

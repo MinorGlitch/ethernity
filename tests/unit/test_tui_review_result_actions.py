@@ -27,6 +27,7 @@ from ethernity.tasks.models import (
 from ethernity.tasks.presentation.models import ReviewDetail
 from ethernity.tasks.presentation.registry import build_review_details
 from ethernity.tasks.recovery_check import GeneratedRecoveryCheckRequest
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_visible
 
 
@@ -45,7 +46,7 @@ def test_review_edit_returns_the_decision_and_keeps_write_safety_visible(tmp_pat
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await app.push_screen(screen, outcomes.append)
             await pilot.pause()
 
@@ -107,7 +108,7 @@ def test_review_rows_align_and_keyboard_reaches_every_edit(size: tuple[int, int]
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             await app.push_screen(screen, outcomes.append)
             await pilot.pause()
             body = screen.query_one("#review-body", VerticalScroll)
@@ -197,7 +198,7 @@ def test_result_actions_send_typed_requests_and_report_generated_checks(tmp_path
 
     async def run() -> None:
         app = ResultApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
             screen.query_one("#result-test-recovery", Button).press()
@@ -254,7 +255,7 @@ def test_result_recovery_uses_completed_backup_without_picker(monkeypatch, tmp_p
             task="backup", title="Backup created", result=result, context_actions_enabled=True
         )
         monkeypatch.setattr(app.recovery_check_controller, "start", start)
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
             screen.query_one("#result-test-recovery", Button).press()
@@ -286,7 +287,7 @@ def test_generated_recovery_action_requires_typed_carriers_after_check(
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
             assert screen.query_one("#result-test-recovery", Button).disabled

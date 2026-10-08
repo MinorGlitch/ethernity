@@ -65,6 +65,7 @@ from ethernity.tasks.settings import SettingsTaskState
 from ethernity.tasks.source_assessment import SourceAssessment
 from ethernity.version import get_ethernity_version
 from ethernity.workflows.shared import events
+from tests.support.app import run_app_test
 from tests.support.pilot import (
     click_when_ready,
     wait_for_condition as _wait_for_condition,
@@ -294,7 +295,7 @@ def _assert_modal_action_buttons_are_spaced(app: EthernityApp) -> None:
 def test_textual_app_switches_between_backup_and_restore() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             assert app.active_task == "backup"
             assert not list(app.screen.query(Header))
             assert _static_text(app, "#app-header-brand") == "ETHERNITY"
@@ -320,7 +321,7 @@ def test_textual_app_switches_between_backup_and_restore() -> None:
 def test_textual_app_nav_highlight_does_not_switch_workflow() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(160, 48)) as pilot:
+        async with run_app_test(app, size=(160, 48)) as pilot:
             await pilot.press("ctrl+b", "right")
             await pilot.pause()
 
@@ -339,7 +340,7 @@ def test_textual_app_nav_highlight_does_not_switch_workflow() -> None:
 def test_textual_app_numeric_workflow_switch_moves_focus_out_of_hidden_workspace() -> None:
     async def run() -> None:
         app = EthernityApp(backup_state=BackupTaskState(input_paths=[Path("secrets.txt")]))
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             app.query_one("#workspace-backup-files", Button).focus()
             await pilot.pause()
 
@@ -366,7 +367,7 @@ def test_textual_app_numeric_workflow_switch_moves_focus_out_of_hidden_workspace
 def test_textual_app_palette_changes_shell_colors() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             workspace = app.screen
             nav = app.query_one("#nav-menu")
             workspace_before = workspace.styles.background
@@ -385,7 +386,7 @@ def test_textual_app_palette_changes_shell_colors() -> None:
 def test_textual_app_workspace_shows_real_flow_controls() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             _assert_absent_controls(
                 app,
                 (
@@ -490,7 +491,7 @@ def test_textual_app_blocked_workflows_show_inline_summary_and_fix_action() -> N
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             for key, (
                 active_task,
                 _review_label,
@@ -520,7 +521,7 @@ def test_textual_app_blocked_workflows_show_inline_summary_and_fix_action() -> N
 def test_textual_app_editors_and_review_open_centered() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app.action_edit_passphrase()
             await pilot.pause()
             edit_region = app.screen.query_one("#edit-field-modal").region
@@ -554,7 +555,7 @@ def test_textual_app_editors_and_review_open_centered() -> None:
 def test_textual_app_workspace_buttons_keep_gaps_and_clear_primary_action() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             for task_key in ("1", "2", "3", "4", "5", "6"):
                 await pilot.press(task_key)
                 await pilot.pause()
@@ -587,7 +588,7 @@ def test_textual_app_workspace_buttons_keep_gaps_and_clear_primary_action() -> N
 def test_textual_app_modal_action_rows_keep_visible_gaps() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(96, 32)) as pilot:
+        async with run_app_test(app, size=(96, 32)) as pilot:
             await app.action_edit_passphrase()
             await pilot.pause()
             _assert_modal_action_buttons_are_spaced(app)
@@ -630,7 +631,7 @@ def test_textual_app_modal_action_rows_keep_visible_gaps() -> None:
 def test_textual_app_field_controls_use_available_wide_space() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(200, 48)) as pilot:
+        async with run_app_test(app, size=(200, 48)) as pilot:
             for task_key in ("1", "2", "3", "4", "5", "6"):
                 await pilot.press(task_key)
                 await pilot.pause()
@@ -666,7 +667,7 @@ def test_textual_app_field_controls_use_available_wide_space() -> None:
 def test_textual_app_top_navigation_keeps_workspace_geometry() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             workspace = app.query_one("#workspace").region
             await pilot.press("ctrl+b")
             await pilot.pause()
@@ -687,7 +688,7 @@ def test_textual_app_top_navigation_keeps_workspace_geometry() -> None:
 def test_textual_app_workspaces_are_grouped_into_sections() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             expected_steps = {
                 "restore": 4,
                 "add_files": 4,
@@ -726,7 +727,7 @@ def test_textual_app_workspaces_are_grouped_into_sections() -> None:
 def test_textual_app_workspace_buttons_match_presentation_actions() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             for task_key in ("1", "2", "3", "4", "5", "6"):
                 await pilot.press(task_key)
                 await pilot.pause()
@@ -778,7 +779,7 @@ def test_textual_app_workspace_controls_have_event_paths() -> None:
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             for task_key in ("1", "2", "3", "4", "5", "6"):
                 await pilot.press(task_key)
                 await pilot.pause()
@@ -810,7 +811,7 @@ def test_textual_app_workspace_controls_have_event_paths() -> None:
 def test_textual_app_radios_show_effective_defaults_without_fake_selections() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             backup = app.query_one(
                 "#workspace-backup-recovery-method",
                 KeyedRadioSet,
@@ -846,7 +847,7 @@ def test_textual_app_radios_show_effective_defaults_without_fake_selections() ->
 def test_textual_app_replacement_recovery_choice_uses_inline_quorum() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await pilot.press("5")
             mode = app.query_one(
                 "#workflow-replace_recovery_docs-recovery-body-mode",
@@ -880,7 +881,7 @@ def test_textual_app_replacement_recovery_choice_uses_inline_quorum() -> None:
 def test_textual_app_empty_path_lists_use_empty_states_instead_of_placeholder_rows() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("3")
             await pilot.pause()
             editor = app.query_one("#workflow-add_files-files-body", PathSelectionEditor)
@@ -898,7 +899,7 @@ def test_textual_app_empty_path_lists_use_empty_states_instead_of_placeholder_ro
 def test_textual_app_command_palette_commands_are_workflow_aware(tmp_path) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             backup_commands = {command.title for command in app.get_system_commands(app.screen)}
 
             assert {
@@ -982,7 +983,7 @@ def test_textual_app_command_palette_commands_are_workflow_aware(tmp_path) -> No
 def test_textual_app_keeps_pristine_backup_neutral_then_shows_selected_file_summary() -> None:
     async def run() -> None:
         app = EthernityApp(settings_state=SettingsTaskState.from_current(DEFAULT_CONFIG_PATH))
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             assert not app.query_one("#backup-files-value").display
             assert not app.query_one("#backup-files-panel").display
             assert not app.query_one("#backup-destination-status").display
@@ -1035,7 +1036,7 @@ def test_textual_app_restore_loaded_without_destination_stays_blocked_inline() -
                 passphrase="secret",
             )
         )
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("2")
             await pilot.pause()
 
@@ -1066,7 +1067,7 @@ def test_textual_app_common_terminal_sizes_keep_workspaces_readable() -> None:
     async def run() -> None:
         for size in ((160, 48), (140, 36), (120, 36), (96, 30), (80, 30)):
             app = EthernityApp()
-            async with app.run_test(size=size) as pilot:
+            async with run_app_test(app, size=size) as pilot:
                 workspace = app.query_one("#workspace").region
 
                 assert workspace.width == min(size[0], 140)
@@ -1111,7 +1112,7 @@ def test_textual_app_common_terminal_sizes_keep_workspaces_readable() -> None:
 def test_textual_app_help_is_contextual_and_concise() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("?")
             await pilot.pause()
 
@@ -1222,7 +1223,7 @@ def test_file_picker_deselects_paths_and_can_go_up() -> None:
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app.action_edit_primary()
             await pilot.pause()
 
@@ -1272,7 +1273,7 @@ def test_textual_app_diagnostics_are_on_demand_and_redacted(tmp_path) -> None:
             ),
             settings_state=settings,
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             command_titles = {command.title for command in app.get_system_commands(app.screen)}
             assert "Show backup diagnostics" in command_titles
             internals_button = app.query_one("#canvas-internals", Button)
@@ -1354,7 +1355,7 @@ def test_textual_app_hides_internals_button_when_config_option_is_off(tmp_path) 
             ),
             settings_state=settings,
         )
-        async with app.run_test(size=(120, 32)):
+        async with run_app_test(app, size=(120, 32)):
             command_titles = {command.title for command in app.get_system_commands(app.screen)}
 
             assert "Show backup diagnostics" not in command_titles
@@ -1366,7 +1367,7 @@ def test_textual_app_hides_internals_button_when_config_option_is_off(tmp_path) 
 def test_textual_app_hides_diagnostics_until_backup_files_exist() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)):
+        async with run_app_test(app, size=(120, 32)):
             command_titles = {command.title for command in app.get_system_commands(app.screen)}
 
             assert "Show backup diagnostics" not in command_titles
@@ -1378,7 +1379,7 @@ def test_textual_app_hides_diagnostics_until_backup_files_exist() -> None:
 def test_textual_app_supports_hjkl_and_arrow_navigation() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(160, 32)) as pilot:
+        async with run_app_test(app, size=(160, 32)) as pilot:
             await pilot.pause()
             await pilot.press("h", "l")
             await pilot.pause()
@@ -1407,7 +1408,7 @@ def test_textual_app_supports_hjkl_and_arrow_navigation() -> None:
 def test_textual_app_hjkl_leave_closed_selects_without_opening_them() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(160, 48)) as pilot:
+        async with run_app_test(app, size=(160, 48)) as pilot:
             await pilot.press("6")
             await pilot.pause()
 
@@ -1428,7 +1429,7 @@ def test_textual_app_hjkl_leave_closed_selects_without_opening_them() -> None:
 def test_textual_app_switches_to_kit_and_settings() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("6")
             await pilot.pause()
 
@@ -1456,7 +1457,7 @@ def test_textual_app_switches_to_kit_and_settings() -> None:
 def test_textual_app_switches_to_maintenance_tasks() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("3")
             await pilot.pause()
 
@@ -1486,7 +1487,7 @@ def test_textual_app_switches_to_maintenance_tasks() -> None:
 def test_textual_app_canvas_rows_edit_secondary_choices() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             assert "Store recovery sheets separately" in _static_text(
                 app,
                 "#backup-recovery-help",
@@ -1550,7 +1551,7 @@ def test_textual_app_canvas_rows_edit_secondary_choices() -> None:
 def test_textual_app_splits_backup_files_and_folders() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app.action_edit_primary()
             await _choose_picker_paths(app, pilot, Path("README.md"), Path("docs"))
 
@@ -1563,7 +1564,7 @@ def test_textual_app_splits_backup_files_and_folders() -> None:
 def test_textual_app_unlock_recovery_documents_are_real_picker() -> None:
     async def run() -> None:
         app = EthernityApp(restore_state=RestoreTaskState(source_paths=[Path("scan.pdf")]))
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("2")
             await pilot.click("#canvas-primary")
             unlock_methods = app.query_one(
@@ -1619,7 +1620,7 @@ def test_textual_app_unlock_input_lists_show_selected_recovery_inputs() -> None:
             ),
         )
         for app, key, editor_selector, expected_method, expected_text in cases:
-            async with app.run_test(size=(120, 48)) as pilot:
+            async with run_app_test(app, size=(120, 48)) as pilot:
                 await pilot.press(key)
                 await pilot.pause()
 
@@ -1633,7 +1634,7 @@ def test_textual_app_unlock_input_lists_show_selected_recovery_inputs() -> None:
                 recovery_payload_files=[Path("restore-payloads.txt")],
             )
         )
-        async with restore_app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(restore_app, size=(120, 48)) as pilot:
             await pilot.press("2")
             await pilot.click("#canvas-primary")
             await pilot.pause()
@@ -1646,7 +1647,7 @@ def test_textual_app_unlock_input_lists_show_selected_recovery_inputs() -> None:
 def test_textual_app_restore_source_modes_are_real_pickers() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("2")
             source = app.query_one("#workflow-restore-source-body", SourceChooser)
             assert not source.query(RadioSet)
@@ -1685,7 +1686,7 @@ def test_textual_app_restore_source_modes_are_real_pickers() -> None:
 def test_textual_app_restore_expected_head_fingerprint_is_real_control() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("2")
             assert app.query_one("#restore-verification-section", FormSection).display
             app.query_one("#workspace-restore-expected-head", Button).focus()
@@ -1726,7 +1727,7 @@ def test_textual_app_expected_fingerprint_is_real_freshness_path(
                 passphrase="secret",
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("3")
             await pilot.press("ctrl+r")
             await pilot.pause()
@@ -1747,7 +1748,7 @@ def test_textual_app_expected_fingerprint_is_real_freshness_path(
 def test_textual_app_fingerprint_actions_match_configured_sources() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("3")
             await pilot.pause()
             assert app.query_one("#workspace-add-files-fingerprint", Button).display
@@ -1785,7 +1786,7 @@ def test_textual_app_restore_target_fingerprint_is_real_control() -> None:
                 document_count=2,
             ),
         )
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("2")
             await pilot.pause()
             await pilot.click(app.query_one(WorkbenchSteps).button_for("target"))
@@ -1819,7 +1820,7 @@ def test_textual_app_restore_target_fingerprint_is_real_control() -> None:
 def test_textual_app_restore_auth_policy_control_is_real() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("2")
             await pilot.pause()
 
@@ -1853,7 +1854,7 @@ def test_textual_app_restore_auth_policy_control_is_real() -> None:
 def test_textual_app_restore_signature_source_control_is_real() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("2")
             await pilot.pause()
 
@@ -1894,7 +1895,7 @@ def test_textual_app_edit_add_files_state(monkeypatch: pytest.MonkeyPatch) -> No
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("3")
             await pilot.click("#workflow-add_files-source-body-load")
             await _choose_picker_paths(app, pilot, Path("scan.pdf"))
@@ -1934,7 +1935,7 @@ def test_textual_app_edit_rebuild_state(monkeypatch: pytest.MonkeyPatch) -> None
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("4")
             await pilot.pause()
 
@@ -1994,7 +1995,7 @@ def test_textual_app_edit_rebuild_state(monkeypatch: pytest.MonkeyPatch) -> None
 def test_textual_app_rebuild_signature_source_control_is_real() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("4")
             await pilot.pause()
 
@@ -2030,7 +2031,7 @@ def test_textual_app_edit_replace_recovery_docs_state(
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("5")
             await pilot.click("#workflow-replace_recovery_docs-source-body-source-load")
             await _choose_picker_paths(app, pilot, Path("README.md"))
@@ -2085,7 +2086,7 @@ def test_textual_app_replace_recovery_signing_key_controls_are_real(
 
     async def run() -> None:
         app = EthernityApp(replace_recovery_docs_state=state)
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("5")
             await app._select_workbench_step("recovery")
             await pilot.pause()
@@ -2150,7 +2151,7 @@ def test_textual_app_replace_recovery_passphrase_replacement_count_is_real() -> 
                 recovery_payload_files=[Path("recovery-payloads.txt")]
             )
         )
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("5")
             await pilot.pause()
 
@@ -2186,7 +2187,7 @@ def test_textual_app_replace_recovery_signing_key_payloads_are_real_picker(
 
     async def run() -> None:
         app = EthernityApp(replace_recovery_docs_state=state)
-        async with app.run_test(size=(120, 72)) as pilot:
+        async with run_app_test(app, size=(120, 72)) as pilot:
             await pilot.press("5")
             await app._select_workbench_step("recovery")
             await pilot.pause()
@@ -2219,7 +2220,7 @@ def test_textual_app_replace_recovery_signing_key_payloads_are_real_picker(
 def test_textual_app_custom_quorum_updates_do_not_trip_assignment_validation() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             app._apply_backup_recovery("4/5")
             app._apply_replace_recovery_set("4/5")
 
@@ -2258,7 +2259,7 @@ def test_textual_app_quorum_parser_rejects_counts_above_shamir_limit() -> None:
 def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(140, 72)) as pilot:
+        async with run_app_test(app, size=(140, 72)) as pilot:
             await pilot.pause()
 
             assert not app.backup_state.validate_task().ready
@@ -2335,7 +2336,7 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
 def test_update_mode_choice_uses_keyboard_and_existing_series_is_read_only() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             await pilot.press("3")
             await app._select_workbench_step("files")
             await pilot.pause()
@@ -2376,7 +2377,7 @@ def test_update_mode_choice_uses_keyboard_and_existing_series_is_read_only() -> 
 def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(140, 72)) as pilot:
+        async with run_app_test(app, size=(140, 72)) as pilot:
             await pilot.press("3")
             await pilot.pause()
 
@@ -2438,7 +2439,7 @@ def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
 def test_textual_app_edit_kit_output() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("6")
             await app.action_edit_output()
             await _save_picker_name(app, pilot, "kit.pdf")
@@ -2452,7 +2453,7 @@ def test_textual_app_edit_kit_output() -> None:
 def test_textual_app_edit_kit_qr_chunk_size() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             await pilot.press("6")
             await pilot.pause()
             app.query_one("#workspace-kit-chunk-size", Button).focus()
@@ -2477,7 +2478,7 @@ def test_textual_app_edit_settings_state(tmp_path) -> None:
             encoding="utf-8",
         )
         app = EthernityApp(settings_state=SettingsTaskState.from_current(config_path))
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("7")
             app.query_one("#setting-control-render_style", Select).value = "forge"
             await pilot.pause()
@@ -2519,7 +2520,7 @@ def test_textual_app_settings_categories_show_advanced_and_config_actions(tmp_pa
             encoding="utf-8",
         )
         app = EthernityApp(settings_state=SettingsTaskState.from_current(config_path))
-        async with app.run_test(size=(120, 72)) as pilot:
+        async with run_app_test(app, size=(120, 72)) as pilot:
             await pilot.press("7")
             await pilot.pause()
 
@@ -2604,7 +2605,7 @@ def test_textual_app_settings_middle_truncates_long_config_path(tmp_path) -> Non
             encoding="utf-8",
         )
         app = EthernityApp(settings_state=SettingsTaskState.from_current(config_path))
-        async with app.run_test(size=(96, 40)) as pilot:
+        async with run_app_test(app, size=(96, 40)) as pilot:
             await pilot.press("7")
             await pilot.pause()
 
@@ -2644,7 +2645,7 @@ def test_textual_app_workflow_path_fields_middle_truncate_long_paths(tmp_path) -
             ),
             kit_state=PrintKitTaskState(output_path=kit_output),
         )
-        async with app.run_test(size=(96, 40)) as pilot:
+        async with run_app_test(app, size=(96, 40)) as pilot:
             backup_output_value = _static_text(app, "#backup-output-value")
             backup_base_dir = _static_text(app, "#backup-base-dir-value")
             assert "..." in backup_output_value
@@ -2679,7 +2680,7 @@ def test_textual_app_settings_restores_section_and_all_defaults(tmp_path) -> Non
             encoding="utf-8",
         )
         app = EthernityApp(settings_state=SettingsTaskState.from_current(config_path))
-        async with app.run_test(size=(120, 72)) as pilot:
+        async with run_app_test(app, size=(120, 72)) as pilot:
             await pilot.press("7")
 
             app.query_one("#setting-control-render_style", Select).value = "forge"
@@ -2763,7 +2764,7 @@ def test_textual_app_settings_restores_focused_section_from_command_action(tmp_p
         settings = SettingsTaskState.from_current(config_path)
         settings.set_setting_value("qr_chunk_size", 1024)
         app = EthernityApp(settings_state=settings)
-        async with app.run_test(size=(120, 72)) as pilot:
+        async with run_app_test(app, size=(120, 72)) as pilot:
             await pilot.press("7")
             await pilot.pause()
 
@@ -2802,7 +2803,7 @@ def test_textual_app_edit_restore_fields_updates_readiness(
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("2")
             await app.action_edit_primary()
             await _choose_picker_paths(app, pilot, Path("README.md"))
@@ -2825,7 +2826,7 @@ def test_textual_app_edit_restore_fields_updates_readiness(
 def test_textual_app_edit_and_clear_backup_state() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app.action_edit_primary()
             await _choose_picker_paths(app, pilot, Path("README.md"))
             await app.action_edit_output()
@@ -2859,7 +2860,7 @@ def test_textual_app_file_sections_can_clear_selected_paths() -> None:
                 output_dir=Path("backup-out"),
             )
         )
-        async with backup_app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(backup_app, size=(120, 32)) as pilot:
             assert "README.md" in _checklist_text(backup_app)
 
             assert not backup_app.query_one("#backup-files-panel", Collapsible).collapsed
@@ -2879,7 +2880,7 @@ def test_textual_app_file_sections_can_clear_selected_paths() -> None:
                 passphrase="secret",
             )
         )
-        async with add_app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(add_app, size=(120, 32)) as pilot:
             await pilot.press("3")
             await pilot.pause()
             assert "new.txt" in _checklist_text(add_app)
@@ -2909,7 +2910,7 @@ def test_textual_app_selected_file_sections_show_size_and_base_folder(tmp_path) 
                 output_dir=tmp_path / "backup-out",
             )
         )
-        async with backup_app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(backup_app, size=(120, 32)) as pilot:
             await _wait_for_condition(
                 pilot,
                 lambda: backup_app.backup_state.current_estimate() is not None,
@@ -2931,7 +2932,7 @@ def test_textual_app_selected_file_sections_show_size_and_base_folder(tmp_path) 
                 passphrase="secret",
             )
         )
-        async with add_app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(add_app, size=(120, 32)) as pilot:
             await pilot.press("3")
             await pilot.pause()
             editor = add_app.query_one(
@@ -2950,7 +2951,7 @@ def test_textual_app_selected_file_sections_show_size_and_base_folder(tmp_path) 
 def test_textual_app_blocked_review_focuses_first_requirement() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.pause()
 
@@ -2985,7 +2986,7 @@ def test_textual_app_shows_progress_screen_while_task_runs(monkeypatch) -> None:
                 output_dir=Path("backup-out"),
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             assert not list(app.query("#canvas-loading"))
             await pilot.press("ctrl+r")
             await pilot.pause()
@@ -3044,7 +3045,7 @@ def test_textual_app_review_can_execute_ready_backup(monkeypatch) -> None:
                 output_dir=Path("backup-out"),
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.pause()
 
@@ -3104,7 +3105,7 @@ def test_textual_app_backup_review_shows_risky_recovery_warning() -> None:
                 recovery_method="single_phrase",
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.pause()
 
@@ -3126,7 +3127,7 @@ def test_textual_app_backup_review_shows_custom_qr_warning() -> None:
                 qr_chunk_size=384,
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.pause()
 
@@ -3155,7 +3156,7 @@ def test_textual_app_review_can_execute_print_kit(monkeypatch) -> None:
 
     async def run() -> None:
         app = EthernityApp(kit_state=PrintKitTaskState(output_path=Path("kit.pdf")))
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("6")
             await pilot.pause()
             assert "kit.pdf (current folder)" in _checklist_text(app)
@@ -3200,7 +3201,7 @@ def test_textual_app_review_can_execute_print_kit(monkeypatch) -> None:
 def test_textual_app_print_kit_review_shows_custom_qr_warning() -> None:
     async def run() -> None:
         app = EthernityApp(kit_state=PrintKitTaskState(output_path=Path("kit.pdf"), chunk_size=512))
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("6")
             await pilot.press("ctrl+r")
             await pilot.pause()
@@ -3226,7 +3227,7 @@ def test_textual_app_review_shows_new_backup_inside_existing_parent(tmp_path) ->
                 output_dir=output_dir,
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             assert not app.query_one("#backup-destination-status").display
             assert "backup-<id>" in _static_text(app, "#backup-output-value")
             assert "Selected output folder already exists" not in _preview_text(app)
@@ -3248,7 +3249,7 @@ def test_textual_app_print_kit_warns_before_replacing_existing_pdf(tmp_path) -> 
         output_path = tmp_path / "kit.pdf"
         output_path.write_text("existing", encoding="utf-8")
         app = EthernityApp(kit_state=PrintKitTaskState(output_path=output_path))
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("6")
             await pilot.pause()
 
@@ -3339,7 +3340,7 @@ def test_textual_app_restore_review_shows_destination_conflict_safety(tmp_path) 
                 output_path=restore_dir,
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("2")
             await pilot.pause()
 
@@ -3372,7 +3373,7 @@ def test_textual_app_review_cancel_returns_without_losing_inputs() -> None:
                 output_dir=Path("backup-out"),
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.pause()
 
@@ -3410,7 +3411,7 @@ def test_textual_app_review_can_execute_ready_restore(monkeypatch) -> None:
                 output_path=Path("recovered"),
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("2")
             await pilot.press("ctrl+r")
             await pilot.pause()
@@ -3455,7 +3456,7 @@ def test_textual_app_rebuild_review_shows_stale_source_warning() -> None:
                 output_dir=Path("rebuilt"),
             )
         )
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             await pilot.press("4")
             await pilot.press("ctrl+r")
             await pilot.pause()
@@ -3533,7 +3534,7 @@ async def _exercise_add_files_review() -> None:
             passphrase="secret",
         )
     )
-    async with add_app.run_test(size=(120, 32)) as pilot:
+    async with run_app_test(add_app, size=(120, 32)) as pilot:
         await pilot.press("3")
         await pilot.press("ctrl+r")
         await pilot.pause()
@@ -3569,7 +3570,7 @@ async def _exercise_rebuild_review() -> None:
             output_dir=Path("rebuilt"),
         )
     )
-    async with rebuild_app.run_test(size=(120, 32)) as pilot:
+    async with run_app_test(rebuild_app, size=(120, 32)) as pilot:
         await pilot.press("4")
         await pilot.press("ctrl+r")
         await pilot.pause()
@@ -3607,7 +3608,7 @@ async def _exercise_replacement_review() -> None:
             recovery_document_count=5,
         )
     )
-    async with replace_app.run_test(size=(120, 32)) as pilot:
+    async with run_app_test(replace_app, size=(120, 32)) as pilot:
         await pilot.press("5")
         await pilot.press("ctrl+r")
         await pilot.pause()
@@ -3661,7 +3662,7 @@ def test_textual_app_execution_failure_shows_result_screen(monkeypatch) -> None:
                 output_dir=Path("backup-out"),
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.pause()
             await click_when_ready(pilot, "#review-execute")

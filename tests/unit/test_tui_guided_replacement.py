@@ -18,6 +18,7 @@ from ethernity.tasks.presentation.models import (
     SummaryPresentation,
 )
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition
 
 
@@ -55,7 +56,7 @@ def test_replacement_custom_quorum_updates_live_and_can_return_to_recommended() 
                 output_dir=Path("replacement"),
             )
         )
-        async with app.run_test(size=(120, 36)) as pilot:
+        async with run_app_test(app, size=(120, 36)) as pilot:
             await pilot.press("5")
             await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
             await pilot.pause()
@@ -108,7 +109,7 @@ def test_replacement_invalid_quorum_blocks_review_and_stays_visible_at_80x24() -
                 output_dir=Path("replacement"),
             )
         )
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("5")
             await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
             await pilot.pause()
@@ -205,7 +206,7 @@ def test_existing_replacement_destination_blocks_review_and_focuses_output(tmp_p
             output_dir=output,
         )
         app = EthernityApp(replace_recovery_docs_state=state)
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("5")
             await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
             await pilot.pause()
@@ -246,7 +247,7 @@ def test_replacement_guided_inputs_use_workspace_traversal_and_keep_radio_arrows
                 output_dir=Path("replacement"),
             )
         )
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await pilot.press("5")
             await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
             await pilot.pause()

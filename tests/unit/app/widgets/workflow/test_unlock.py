@@ -10,6 +10,7 @@ from ethernity.tasks.presentation.models import (
     UnlockBodyPresentation,
     WorkspaceAction,
 )
+from tests.support.app import run_app_test
 from tests.unit.app.widgets.workflow.widget_harness import WorkflowWidgetHarness
 
 
@@ -28,7 +29,7 @@ def test_unlock_editor_uses_native_radio_behavior_and_typed_local_action() -> No
             id="unlock",
         )
         app = WorkflowWidgetHarness(editor)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             radio = editor.query_one(RadioSet)
             radio.focus()
 
@@ -57,7 +58,7 @@ def test_inline_passphrase_masks_input_and_commits_only_user_edits() -> None:
             id="unlock",
         )
         app = WorkflowWidgetHarness(editor)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             value = editor.query_one(Input)
             assert value.password
             assert value.value == ""

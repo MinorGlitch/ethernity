@@ -14,6 +14,7 @@ from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.screens.paste_text import PasteTextScreen
 from ethernity.app.screens.review_task import ReviewTaskScreen
 from ethernity.app.screens.task_result import TaskResultScreen
+from tests.support.app import run_app_test
 
 
 class FooterTestApp(App[None]):
@@ -45,7 +46,7 @@ def test_footer_stays_hidden_until_nested_modals_are_closed() -> None:
     async def run() -> None:
         app = FooterTestApp()
 
-        async with app.run_test() as pilot:
+        async with run_app_test(app) as pilot:
             footer = app.query_one(Footer)
             assert footer.display
 

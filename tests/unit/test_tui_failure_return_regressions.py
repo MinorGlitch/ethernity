@@ -18,6 +18,7 @@ from ethernity.tasks.models import TaskExecutionResult
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.task_types import TaskKey, TaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import click_when_ready, wait_for_focus, wait_for_widget
 
 
@@ -63,7 +64,7 @@ def test_restore_runtime_output_failure_returns_to_reviewed_destination(tmp_path
 
     async def run() -> None:
         app = EthernityApp(restore_state=state)
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             app._present_execution_outcome(reviewed_task, outcome)
             await pilot.pause()
 
@@ -107,7 +108,7 @@ def test_replacement_signing_failure_returns_to_signing_key_recovery(tmp_path: P
 
     async def run() -> None:
         app = EthernityApp(replace_recovery_docs_state=state)
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             app.workflow_ui_states["replace_recovery_docs"].activate("output")
             app._present_execution_outcome(reviewed_task, outcome)
             await pilot.pause()

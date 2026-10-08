@@ -24,6 +24,7 @@ from ethernity.tasks.presentation.workflow_replace_recovery import (
 )
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.settings import SettingsTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition, wait_for_focus, wait_for_widget
 
 
@@ -32,7 +33,7 @@ def test_action_colors_and_primary_focus_survive_both_themes() -> None:
         for theme in ("ethernity-dark", "ethernity-light"):
             app = EthernityApp()
             app.theme = theme
-            async with app.run_test(size=(80, 24)) as pilot:
+            async with run_app_test(app, size=(80, 24)) as pilot:
                 await app.push_screen(
                     ConfirmActionScreen(
                         title="Restore defaults",
@@ -79,7 +80,7 @@ def test_focused_buttons_do_not_underline_labels_or_blank_padding(theme, size) -
     async def run() -> None:
         app = EthernityApp()
         app.theme = theme
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             await wait_for_focus(pilot, app.query_one("#workspace-backup-files"))
             for selector in ("#nav-create", "#workbench-step-0", "#workspace-backup-files"):
                 button = app.query_one(selector, Button)
@@ -128,7 +129,7 @@ def test_radio_focus_highlights_candidate_without_changing_committed_choice(them
     async def run() -> None:
         app = EthernityApp()
         app.theme = theme
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             await pilot.pause()
             step = app.query_one(WorkbenchSteps).button_for("recovery")
             await pilot.click(step, offset=(1, step.region.height - 1))
@@ -166,7 +167,7 @@ def test_open_directory_current_folder_confirms_immediately(tmp_path: Path) -> N
     async def run() -> None:
         results: list[tuple[Path, ...] | None] = []
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             picker = FilePickerScreen(
                 title="Choose output folder",
                 prompt="Choose where documents will be written.",
@@ -190,7 +191,7 @@ def test_open_directory_current_folder_confirms_immediately(tmp_path: Path) -> N
 def test_navigation_uses_compact_readable_state_cues() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(160, 32)) as pilot:
+        async with run_app_test(app, size=(160, 32)) as pilot:
             await pilot.click("#nav-manage")
             await pilot.pause()
             nav = app.query_one("#nav-list", ListView)
@@ -227,7 +228,7 @@ def test_kit_custom_qr_sizing_has_visible_consequence(tmp_path: Path) -> None:
                 chunk_size=384,
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("6")
             await pilot.pause()
 
@@ -304,7 +305,7 @@ def test_simple_enum_selects_render_human_labels_without_changing_values(
                 },
             ),
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("6")
             await pilot.pause()
 
@@ -356,7 +357,7 @@ def test_dropdown_options_are_visible_and_selectable_in_both_themes() -> None:
         ):
             app = EthernityApp()
             app.theme = theme
-            async with app.run_test(size=size) as pilot:
+            async with run_app_test(app, size=size) as pilot:
                 await app._select_workbench_step("print")
                 await pilot.pause()
                 paper = app.query_one("#workspace-backup-paper-size", Select)

@@ -24,6 +24,7 @@ from textual.widgets import Static
 from ethernity.app.application import EthernityApp
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.restore import RestoreTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_widget
 from tests.test_support import temp_env
 
@@ -63,7 +64,7 @@ def test_textual_app_backup_and_restore_round_trip(tmp_path: Path) -> None:
                     passphrase=passphrase,
                 )
             )
-            async with backup_app.run_test(size=(140, 40)) as pilot:
+            async with run_app_test(backup_app, size=(140, 40)) as pilot:
                 await _run_final_review(backup_app, pilot)
                 check_button = await wait_for_widget(pilot, "#result-test-recovery")
                 check_button.focus()
@@ -87,7 +88,7 @@ def test_textual_app_backup_and_restore_round_trip(tmp_path: Path) -> None:
                     passphrase=passphrase,
                 )
             )
-            async with restore_app.run_test(size=(140, 40)) as pilot:
+            async with run_app_test(restore_app, size=(140, 40)) as pilot:
                 await pilot.press("2")
                 await pilot.pause()
                 await _run_final_review(restore_app, pilot)

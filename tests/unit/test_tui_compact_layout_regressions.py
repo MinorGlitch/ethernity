@@ -11,6 +11,7 @@ from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.restore import RestoreTaskState
+from tests.support.app import run_app_test
 
 
 def test_narrow_kit_keeps_fields_and_their_warning_reachable(tmp_path: Path) -> None:
@@ -21,7 +22,7 @@ def test_narrow_kit_keeps_fields_and_their_warning_reachable(tmp_path: Path) -> 
                 chunk_size=384,
             )
         )
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("6")
             await pilot.pause()
 
@@ -76,7 +77,7 @@ def test_restore_destination_path_stays_on_one_line_at_wide_and_narrow_sizes(
                 output_path=destination,
             )
         )
-        async with app.run_test(size=(96, 40)) as pilot:
+        async with run_app_test(app, size=(96, 40)) as pilot:
             await pilot.press("2")
             await pilot.pause()
             await pilot.click(app.query_one(WorkbenchSteps).button_for("destination"))

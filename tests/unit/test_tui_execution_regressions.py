@@ -29,6 +29,7 @@ from ethernity.tasks.presentation.registry import build_review_details
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.settings import SettingsTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_widget
 
 
@@ -181,7 +182,7 @@ def test_review_preparation_is_visible_and_locks_the_workspace_at_80_columns(
                 passphrase="secret",
             )
         )
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("3")
             review_task = asyncio.create_task(app.action_review())
             try:
@@ -202,7 +203,7 @@ def test_review_preparation_is_visible_and_locks_the_workspace_at_80_columns(
 def test_background_write_identity_remains_visible_on_a_narrow_workflow() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             app.execution_controller._running_task = "backup"
             await pilot.press("2", "ctrl+p", "?")
             await pilot.pause()
@@ -220,7 +221,7 @@ def test_background_write_identity_remains_visible_on_a_narrow_workflow() -> Non
 def test_background_write_identity_remains_visible_on_settings() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             app.execution_controller._running_task = "backup"
             await pilot.press("7")
             await pilot.pause()
@@ -250,7 +251,7 @@ def test_failure_result_prioritizes_remediation_and_reviewed_destination(tmp_pat
             return_section="output",
         )
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -291,7 +292,7 @@ def test_progress_locks_navigation_and_failure_returns_to_live_workflow(monkeypa
                 output_dir=Path("reviewed-output"),
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await click_when_ready(pilot, "#review-execute")
             await wait_for_condition(pilot, started.is_set, "worker to start")
@@ -342,7 +343,7 @@ def test_wrong_worker_result_is_presented_and_clears_running_state(monkeypatch) 
                 output_dir=Path("backup-out"),
             )
         )
-        async with app.run_test(size=(100, 28)) as pilot:
+        async with run_app_test(app, size=(100, 28)) as pilot:
             await pilot.press("ctrl+r")
             await click_when_ready(pilot, "#review-execute")
             await wait_for_widget(pilot, "#result-close")
@@ -393,7 +394,7 @@ def test_return_and_new_review_capture_current_config_contents(
             ),
             settings_state=settings,
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await click_when_ready(pilot, "#review-execute")
             await wait_for_condition(pilot, started.is_set, "worker to start")
@@ -452,7 +453,7 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
             ),
             settings_state=settings,
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app.action_show_task("settings")
             settings_form = app.query_one(SettingsForm)
             await app.action_show_task("backup")
@@ -512,7 +513,7 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
             ),
             settings_state=settings,
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await click_when_ready(pilot, "#review-execute")
             await wait_for_condition(pilot, started.is_set, "worker to start")
@@ -558,7 +559,7 @@ def test_large_result_paths_scroll_while_actions_stay_visible() -> None:
 
     async def run(size: tuple[int, int]) -> None:
         app = EthernityApp()
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             app.push_screen(
                 TaskResultScreen(
                     task="backup",

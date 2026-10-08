@@ -11,6 +11,7 @@ from ethernity.app.widgets.workflow.paths import DestinationEditor
 from ethernity.app.widgets.workflow.unlock import UnlockEditor
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.restore import RestoreTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition
 
 
@@ -28,7 +29,7 @@ def test_late_field_commit_keeps_the_task_where_the_field_was_edited() -> None:
                 output_dir=Path("update-folder"),
             ),
         )
-        async with app.run_test(size=(100, 32)) as pilot:
+        async with run_app_test(app, size=(100, 32)) as pilot:
             await app._show_task("restore")
             await pilot.pause()
             destination = app.query_one("#workflow-restore-destination-body", DestinationEditor)
@@ -57,7 +58,7 @@ def test_late_field_commit_keeps_the_task_where_the_field_was_edited() -> None:
 def test_task_shortcuts_cannot_change_the_target_of_an_open_picker() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 32)) as pilot:
+        async with run_app_test(app, size=(100, 32)) as pilot:
             await app._show_task("restore")
             await app.action_edit_primary()
             await pilot.pause()

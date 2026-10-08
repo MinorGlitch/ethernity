@@ -4,7 +4,9 @@ The visual tests follow Textual's [testing guidance](https://textual.textualize.
 and use its built-in `App.run_test()` and `App.export_screenshot()` APIs to render exact SVG
 screenshots at fixed terminal sizes. The normal test run compares those renders against reviewed
 files in `snapshots/`. The harness forces truecolor independently of the invoking terminal and
-normalizes Rich's generated SVG IDs so local and CI renders remain comparable.
+normalizes Rich's generated SVG IDs so local and CI renders remain comparable. UI interactions
+use the shared `run_app_test` session in `tests/support/app.py`, which waits for queued messages,
+layout, focus changes, and animations before capture.
 
 The evaluated `pytest-textual-snapshot` version `1.1.0` pins
 Syrupy 4.8, which requires pytest below 9, while this repository pins pytest 9.1.1. Keeping the

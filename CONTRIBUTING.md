@@ -86,8 +86,13 @@ version there. Windows and macOS run these tests as part of their full Python 3.
 Mark a test `portability` when it covers a platform boundary or an asynchronous UI regression and
 is fast enough for this check.
 
-UI tests share the bounded waits in `tests/support/pilot.py`. Wait for the state change the test
-needs, such as a visible dialog, focused control, or completed worker. Use the `set_home` fixture
+UI tests use `run_app_test` from `tests/support/app.py`. It drains event chains, waits for layout
+and animations, and finishes each key before sending the next. This avoids relying on CPU-idle
+timing, which differs between platforms. Tests for rapid input should send actions without an
+intervening pause, as the navigation regression does.
+
+For background workers and future timers, use the bounded waits in `tests/support/pilot.py`.
+Wait for the state change the test needs, such as a completed worker. Use the `set_home` fixture
 for home-directory overrides; unittest-based tests use `tests.support.environment.home_environment`.
 Navigation awaits workspace mounting. Widgets are created on first use and retained when switching
 tasks, so tests must open a workspace before querying its controls.

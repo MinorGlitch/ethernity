@@ -331,7 +331,7 @@ class TaskViewActions(EthernityAppContext):
         )
         self._close_nav_menu(restore_focus=False)
         assert current is not None
-        buttons[(buttons.index(current) + direction) % len(buttons)].focus()
+        self.screen.set_focus(buttons[(buttons.index(current) + direction) % len(buttons)])
         return True
 
     def _focus_first_blocker(self) -> None:
@@ -607,11 +607,11 @@ class TaskViewActions(EthernityAppContext):
         self._nav_menu_open = True
         self._refresh_navigation()
         self._sync_nav_layout()
-        self.call_after_refresh(self._focus_nav_menu)
+        self._focus_nav_menu()
 
     def _focus_nav_menu(self) -> None:
         if self._nav_menu_open and self.screen is self.screen_stack[0]:
-            self.query_one("#nav-list", ListView).focus()
+            self.screen.set_focus(self.query_one("#nav-list", ListView))
 
     def _close_nav_menu(
         self,
@@ -624,7 +624,8 @@ class TaskViewActions(EthernityAppContext):
         if refresh:
             self._sync_nav_layout()
         if was_open and restore_focus:
-            self.screen_stack[0].query_one(f"#nav-{self._nav_menu}", Button).focus()
+            screen = self.screen_stack[0]
+            screen.set_focus(screen.query_one(f"#nav-{self._nav_menu}", Button))
 
     def _sync_nav_layout(self) -> None:
         menu = self.query_one("#nav-menu")

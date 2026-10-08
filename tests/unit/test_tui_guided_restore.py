@@ -18,6 +18,7 @@ from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.tasks.presentation.models import SourceBodyPresentation, SummaryPresentation
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.source_assessment import SourceAssessment
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_widget
 
 
@@ -73,7 +74,7 @@ def test_restore_review_step_opens_review_from_any_editor() -> None:
                 output_path=Path("recovered"),
             )
         )
-        async with app.run_test(size=(120, 36)) as pilot:
+        async with run_app_test(app, size=(120, 36)) as pilot:
             await pilot.press("2")
             await pilot.pause()
 
@@ -92,7 +93,7 @@ def test_restore_review_step_opens_review_from_any_editor() -> None:
 def test_restore_document_action_opens_picker_and_returns_focus() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 32)) as pilot:
+        async with run_app_test(app, size=(100, 32)) as pilot:
             await pilot.press("2")
             load_documents = app.query_one("#workflow-restore-source-body-load")
             load_documents.focus()
@@ -134,7 +135,7 @@ def test_restore_specific_version_choice_opens_the_matching_editor() -> None:
                 has_updates=True,
             ),
         )
-        async with app.run_test(size=(100, 32)) as pilot:
+        async with run_app_test(app, size=(100, 32)) as pilot:
             await pilot.press("2")
             await pilot.click(app.query_one(WorkbenchSteps).button_for("target"))
             await pilot.pause()
@@ -208,7 +209,7 @@ def test_restore_inline_path_and_passphrase_edits_update_state_without_modals() 
                 recovery_documents=[Path("sheet.pdf")],
             )
         )
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("2")
             await pilot.click(app.query_one(WorkbenchSteps).button_for("destination"))
             destination = app.query_one("#workflow-restore-destination-body-value", Input)

@@ -12,6 +12,7 @@ from ethernity.app.execution import ReviewedTask, normalize_execution_outcome
 from ethernity.crypto.age_policy import RecoveryResourceLimitError
 from ethernity.tasks import source_assessment
 from ethernity.tasks.restore import RestoreTaskState
+from tests.support.app import run_app_test
 
 
 @pytest.mark.parametrize("size", ((80, 24), (120, 40)))
@@ -20,7 +21,7 @@ def test_restore_resource_limit_is_a_failure_without_override(
 ) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             state = RestoreTaskState(
                 source_paths=[tmp_path / "backup.pdf"],
                 passphrase="test passphrase",

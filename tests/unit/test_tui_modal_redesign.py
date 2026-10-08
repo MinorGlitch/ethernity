@@ -15,6 +15,7 @@ from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.help import HelpScreen
 from ethernity.app.screens.paste_text import PasteTextScreen
 from ethernity.tasks.models import TaskDiagnosticBlock, TaskDiagnostics
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition, wait_for_widget
 
 
@@ -37,7 +38,7 @@ def test_editor_keeps_invalid_quorum_draft_until_validator_accepts_it() -> None:
     async def run() -> None:
         results: list[str | None] = []
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             screen = EditFieldScreen(
                 title="Recovery sheets",
                 prompt="Enter the required and total sheet counts.",
@@ -75,7 +76,7 @@ def test_password_editor_masks_value_and_preserves_whitespace() -> None:
     async def run() -> None:
         results: list[str | None] = []
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             screen = EditFieldScreen(
                 title="Passphrase",
                 prompt="Enter a passphrase.",
@@ -98,7 +99,7 @@ def test_paste_editor_keeps_enter_for_newlines_and_saves_full_text() -> None:
     async def run() -> None:
         results: list[str | None] = []
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             screen = PasteTextScreen(title="Recovery text", prompt="Paste the whole document.")
             await app.push_screen(screen, results.append)
             await pilot.pause()
@@ -123,7 +124,7 @@ def test_paste_editor_keeps_enter_for_newlines_and_saves_full_text() -> None:
 def test_help_diagnostics_and_input_modal_actions_stay_visible(size: tuple[int, int]) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             screens = (
                 (EditFieldScreen(title="Name", prompt="Enter a name."), "edit-field"),
                 (
@@ -169,7 +170,7 @@ def test_help_diagnostics_and_input_modal_actions_stay_visible(size: tuple[int, 
 def test_help_focuses_scroll_content_and_lists_real_navigation_commands() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             screen = HelpScreen(build_help_content(task="restore"))
             await app.push_screen(screen)
             await pilot.pause()
@@ -186,7 +187,7 @@ def test_help_focuses_scroll_content_and_lists_real_navigation_commands() -> Non
 def test_diagnostics_json_uses_wrapped_lines_at_small_terminal_width() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(60, 20)) as pilot:
+        async with run_app_test(app, size=(60, 20)) as pilot:
             screen = DiagnosticsScreen(
                 TaskDiagnostics(
                     title="Diagnostics",

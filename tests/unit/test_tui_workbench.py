@@ -14,6 +14,7 @@ from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.restore import RestoreTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition, wait_for_focus
 
 
@@ -24,7 +25,7 @@ def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> N
 
     async def run() -> None:
         app = EthernityApp(backup_state=BackupTaskState(input_paths=[source], output_dir=output))
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             canvas = app.query_one(TaskCanvas)
             rail = app.query_one(WorkbenchSteps)
             assert canvas.active_step == "files"
@@ -68,7 +69,7 @@ def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> N
 def test_restore_has_one_page_heading_and_named_open_sections() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with run_app_test(app, size=(150, 40)) as pilot:
             await pilot.press("2")
             assert str(app.query_one("#canvas-title", Static).content) == "Restore files"
             assert not app.query(".workflow-step-heading, #canvas-instruction")
@@ -84,7 +85,7 @@ def test_restore_has_one_page_heading_and_named_open_sections() -> None:
 def test_continue_keeps_missing_input_visible() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.click("#canvas-primary")
             await wait_for_condition(
                 pilot,
@@ -105,7 +106,7 @@ def test_continue_keeps_missing_input_visible() -> None:
 def test_warnings_and_errors_are_distinct_from_actions_and_appear_once(theme: str) -> None:
     async def run() -> None:
         app = EthernityApp(kit_state=PrintKitTaskState(chunk_size=384))
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             app.theme = theme
             await pilot.press("6")
             warning = app.query_one("#kit-qr-warning", InlineNotice)
@@ -140,7 +141,7 @@ def test_workbench_summary_is_redacted_and_collapses_at_80_columns() -> None:
                 output_path=Path("recovered"),
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             assert await pilot.click("#nav-restore")
             await wait_for_condition(
                 pilot, lambda: app.active_task == "restore", "restore workspace to open"
@@ -181,7 +182,7 @@ def test_step_navigation_commits_destination_draft_before_hiding_editor() -> Non
                 source_paths=[Path("scan.pdf")], passphrase="secret", output_path=Path("old")
             )
         )
-        async with app.run_test(size=(100, 32)) as pilot:
+        async with run_app_test(app, size=(100, 32)) as pilot:
             await pilot.click("#nav-restore")
             await wait_for_condition(
                 pilot, lambda: app.active_task == "restore", "restore workspace to open"
@@ -203,7 +204,7 @@ def test_step_navigation_commits_destination_draft_before_hiding_editor() -> Non
 def test_manage_and_tools_menus_expose_their_tasks_without_loaded_backup() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.click("#nav-manage")
             assert app._nav_menu_open
             assert app.query_one("#add_files", ListItem).display

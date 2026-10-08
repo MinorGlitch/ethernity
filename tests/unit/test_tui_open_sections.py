@@ -8,13 +8,14 @@ from ethernity.app.application import EthernityApp
 from ethernity.app.widgets.form import FormSection
 from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.tasks.backup import BackupTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition
 
 
 def test_backup_fields_follow_their_steps_and_focus_routes_to_them() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             before = app.backup_state.model_dump()
             for selector, step, section_id in (
                 ("#workspace-backup-base-dir", "files", "backup-paths-section"),
@@ -43,7 +44,7 @@ def test_backup_fields_follow_their_steps_and_focus_routes_to_them() -> None:
 def test_backup_only_shows_fields_for_the_selected_recovery_options() -> None:
     async def run() -> None:
         app = EthernityApp(backup_state=BackupTaskState(passphrase="never-show-this-secret"))
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             await app._select_workbench_step("recovery")
             assert not app.query_one("#backup-words-row").display
             assert not app.query_one("#backup-key-sheets-row").display

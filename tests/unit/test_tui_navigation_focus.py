@@ -23,13 +23,14 @@ from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import KeyedRadioSet
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition, wait_for_focus, wait_for_widget
 
 
 def test_menu_traversal_closes_and_restores_its_invoker() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             for close_key in ("tab", "shift+tab", "escape"):
                 await pilot.click("#nav-manage")
                 await pilot.pause()
@@ -46,7 +47,7 @@ def test_menu_traversal_closes_and_restores_its_invoker() -> None:
 def test_menu_selection_leaves_focus_in_a_coherent_workflow() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("ctrl+b", "right", "right", "enter")
             await pilot.pause()
             assert app._nav_menu_open
@@ -66,7 +67,7 @@ def test_menu_selection_leaves_focus_in_a_coherent_workflow() -> None:
 def test_menu_padding_selects_the_whole_choice(menu: str, choice: str, row: int) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             assert await pilot.click(f"#nav-{menu}")
             await wait_for_condition(pilot, lambda: app._nav_menu_open, "navigation menu to open")
             assert await pilot.click(f"#{choice}", offset=(1, row))
@@ -84,7 +85,7 @@ def test_menu_padding_selects_the_whole_choice(menu: str, choice: str, row: int)
 def test_tab_remains_stable_for_guided_controls_and_modal_actions() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("2")
             await pilot.pause()
             source_load = app.query_one("#workflow-restore-source-body-load", Button)
@@ -143,7 +144,7 @@ def test_tab_remains_stable_for_guided_controls_and_modal_actions() -> None:
 def test_clicking_workspace_dismisses_menu() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.click("#nav-manage")
             assert app._nav_menu_open
             await pilot.click("#canvas-title", offset=(1, 0))
@@ -172,7 +173,7 @@ def test_closed_dropdowns_share_form_focus_order(size: tuple[int, int]) -> None:
                 passphrase="test-only phrase",
             )
         )
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             for task, selector in (
                 ("backup", "#workspace-backup-design"),
                 ("restore", "#workspace-restore-auth-policy"),
@@ -207,7 +208,7 @@ def test_closed_dropdowns_share_form_focus_order(size: tuple[int, int]) -> None:
 def test_dropdown_commit_cancel_and_traversal(size: tuple[int, int]) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             await app._show_task("restore")
             app._reveal_focus_target("#workspace-restore-auth-policy")
             await pilot.pause()
@@ -245,7 +246,7 @@ def test_dropdown_commit_cancel_and_traversal(size: tuple[int, int]) -> None:
 def test_dropdown_typeahead_and_navigation_shortcut_do_not_change_values() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.pause()
             await app._select_workbench_step("print")
             await pilot.pause()
@@ -270,7 +271,7 @@ def test_dropdown_typeahead_and_navigation_shortcut_do_not_change_values() -> No
 def test_arrows_reach_step_rail_open_sections_and_bottom_actions() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await wait_for_focus(pilot, app.query_one("#workspace-backup-files"))
             steps = app.query_one(WorkbenchSteps)
             steps.button_for("files").focus()
@@ -306,7 +307,7 @@ def test_arrows_reach_step_rail_open_sections_and_bottom_actions() -> None:
 def test_radio_arrows_and_hjkl_keep_choice_focus_until_tab() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app._select_workbench_step("recovery")
             radio = app.query_one("#workspace-backup-recovery-method", KeyedRadioSet)
             radio.focus()
@@ -324,7 +325,7 @@ def test_radio_arrows_and_hjkl_keep_choice_focus_until_tab() -> None:
 def test_text_editing_keeps_letters_and_cursor_keys_in_the_editor() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             editor = EditFieldScreen(title="Label", prompt="Enter a label")
             await app.push_screen(editor)
             await pilot.press("h", "j", "k", "l", "left", "left", "X")
@@ -350,7 +351,7 @@ def test_text_editing_keeps_letters_and_cursor_keys_in_the_editor() -> None:
 def test_returning_to_settings_focuses_the_active_category() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await wait_for_focus(pilot, app.query_one("#workspace-backup-files"))
             await pilot.press("7")
             await wait_for_focus(

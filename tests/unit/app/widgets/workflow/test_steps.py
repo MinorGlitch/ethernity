@@ -24,6 +24,7 @@ from ethernity.tasks.presentation.models import (
     UnlockBodyPresentation,
     WorkspaceAction,
 )
+from tests.support.app import run_app_test
 from tests.unit.app.widgets.workflow.widget_harness import (
     WorkflowWidgetHarness,
     sample_restore_workflow,
@@ -63,7 +64,7 @@ def test_step_stack_shows_active_editor_and_focuses_its_first_control() -> None:
         )
         stack = WorkflowStepStack(workflow, id="steps")
         app = WorkflowWidgetHarness(stack)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             steps = list(stack.query(WorkflowStep))
             bodies = list(stack.query(".guided-step-body"))
 
@@ -130,7 +131,7 @@ def test_composite_step_body_keeps_keyed_parts_mounted_and_enforces_kinds() -> N
         )
         composite = CompositeStepBody(body, id="combined")
         app = WorkflowWidgetHarness(composite)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             source = composite.query_one("#combined-source", SourceChooser)
             trust_editor = composite.query_one("#combined-trust", OptionsEditor)
 
@@ -202,7 +203,7 @@ def test_hidden_optional_section_stays_mounted_and_can_be_disclosed() -> None:
         )
         stack = WorkflowStepStack(workflow)
         app = WorkflowWidgetHarness(stack)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             target = stack.query_one("#workflow-restore-target")
             assert target is not None and not target.display
             assert not stack.query_one("#workflow-restore-destination").disabled

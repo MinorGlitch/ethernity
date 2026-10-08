@@ -38,6 +38,7 @@ from ethernity.tasks.models import (
     TaskSection,
     TaskValidation,
 )
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition
 
 
@@ -45,7 +46,7 @@ def test_save_file_picker_requires_a_file_name_and_rejects_paths(tmp_path: Path)
     async def run() -> None:
         for size in ((60, 20), (80, 24)):
             app = EthernityApp()
-            async with app.run_test(size=size) as pilot:
+            async with run_app_test(app, size=size) as pilot:
                 picker = FilePickerScreen(
                     title="Save PDF",
                     prompt="Choose a PDF file.",
@@ -85,7 +86,7 @@ def test_save_file_picker_requires_a_file_name_and_rejects_paths(tmp_path: Path)
 def test_required_kit_save_file_picker_has_no_clear_noop() -> None:
     async def run() -> None:
         app = EthernityApp(kit_state=PrintKitTaskState(output_path=Path("kit.pdf")))
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("6")
             await app.action_edit_output()
             await pilot.pause()
@@ -109,7 +110,7 @@ def test_open_file_picker_remove_action_updates_count_and_empty_feedback(tmp_pat
             mode=FilePickerMode.OPEN_FILES,
             selected_paths=(selected_path,),
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app.push_screen(picker)
             await pilot.pause()
 
@@ -134,7 +135,7 @@ def test_open_file_picker_remove_action_updates_count_and_empty_feedback(tmp_pat
 def test_open_files_picker_has_no_folder_action(tmp_path: Path) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             picker = FilePickerScreen(
                 title="Choose files",
                 prompt="Choose files only.",
@@ -153,7 +154,7 @@ def test_open_files_picker_has_no_folder_action(tmp_path: Path) -> None:
 def test_open_paths_picker_actions_fit_at_60_columns(tmp_path: Path) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(60, 20)) as pilot:
+        async with run_app_test(app, size=(60, 20)) as pilot:
             picker = FilePickerScreen(
                 title="Choose paths",
                 prompt="Choose files or folders.",
@@ -195,7 +196,7 @@ def test_save_file_picker_revalidates_when_base_folder_changes(tmp_path: Path) -
         clear_base.mkdir()
 
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             picker = FilePickerScreen(
                 title="Save PDF",
                 prompt="Choose a PDF file.",
@@ -260,7 +261,7 @@ def test_destructive_clear_has_no_bare_key_binding() -> None:
 def test_escape_closes_navigation_menu_without_affecting_closed_shell() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.click("#nav-tools")
             await pilot.pause()
             assert app._nav_menu_open
@@ -280,7 +281,7 @@ def test_escape_closes_navigation_menu_without_affecting_closed_shell() -> None:
 def test_settings_advanced_tab_exposes_direct_traversable_controls() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await pilot.press("7")
             await pilot.pause()
             app.query_one(SettingsForm).show_group("Advanced")
@@ -300,7 +301,7 @@ def test_settings_advanced_tab_exposes_direct_traversable_controls() -> None:
 def test_backup_recovery_options_synchronizes_after_state_refresh() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             choice = app.query_one("#workspace-backup-recovery-method", KeyedRadioSet)
             assert choice.selected_key == "recommended_shards"
             for method in ("single_phrase", "custom_shards", "recommended_shards"):
@@ -316,7 +317,7 @@ def test_backup_recovery_options_synchronizes_after_state_refresh() -> None:
 def test_backup_recovery_options_accepts_keyboard_selection() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             choice = app.query_one("#workspace-backup-recovery-method", KeyedRadioSet)
             await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
             choice.focus()
@@ -341,7 +342,7 @@ def test_workspace_path_lists_are_read_only_and_render_markup_literally() -> Non
                 output_dir=output_path,
             )
         )
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await pilot.pause()
             app.query_one("#backup-files-panel", Collapsible).collapsed = False
             await pilot.pause(0.1)
@@ -423,7 +424,7 @@ def test_review_renders_every_dynamic_field_as_literal_text() -> None:
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -463,7 +464,7 @@ def test_result_renders_messages_and_newline_paths_without_markup() -> None:
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -503,7 +504,7 @@ def test_help_avoids_duplicate_intro_and_focuses_scroll_content() -> None:
         assert "Enter or Space opens a dropdown" in markdown
 
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             screen = HelpScreen(content)
             await app.push_screen(screen)
             await pilot.pause()
@@ -548,7 +549,7 @@ def test_review_shows_detail_lines_and_visible_actions_at_80_columns() -> None:
             execute_label="Create PDF",
         )
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -597,7 +598,7 @@ def test_review_readiness_never_contradicts_validation_errors() -> None:
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -629,7 +630,7 @@ def test_review_header_and_actions_fit_at_60_by_20() -> None:
             execute_label="Create sheets",
         )
         app = EthernityApp()
-        async with app.run_test(size=(60, 20)) as pilot:
+        async with run_app_test(app, size=(60, 20)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -650,7 +651,7 @@ def test_large_result_keeps_actions_visible_at_80_by_24(tmp_path: Path) -> None:
         )
         screen = TaskResultScreen(task="backup", title="Create a backup", result=result)
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -691,7 +692,7 @@ def test_add_files_result_shows_version_history_and_storage_guidance(monkeypatch
             ),
         )
         app = EthernityApp()
-        async with app.run_test(size=(90, 28)) as pilot:
+        async with run_app_test(app, size=(90, 28)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -775,7 +776,7 @@ def test_failure_result_leads_with_actionable_error_and_partial_write_location(
             ),
         )
         app = EthernityApp()
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -813,7 +814,7 @@ def test_result_variants_keep_content_and_actions_visible_at_small_sizes(
         partial_path: Path | None = None,
     ) -> None:
         app = EthernityApp()
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -903,7 +904,7 @@ def test_result_presents_partial_success_as_a_completed_write(tmp_path: Path) ->
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
 
@@ -921,7 +922,7 @@ def test_result_presents_partial_success_as_a_completed_write(tmp_path: Path) ->
 def test_restore_verification_controls_live_on_source_step() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("2")
             await pilot.pause()
 

@@ -20,6 +20,7 @@ from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.models import TaskExecutionResult
 from ethernity.tasks.settings import SettingsTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition, wait_for_widget
 
 
@@ -30,7 +31,7 @@ def test_settings_preserve_queued_select_changes(tmp_path: Path, keys: tuple[str
 
     async def run() -> None:
         app = EthernityApp(settings_state=SettingsTaskState.from_current(config_path))
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("7")
             await wait_for_widget(pilot, "#setting-control-render_style")
             values = {"render_style": "forge", "page_size": "LETTER"}
@@ -161,7 +162,7 @@ def test_successful_settings_save_rehydrates_only_inherited_app_fields(tmp_path:
         app = EthernityApp(settings_state=settings)
         app.backup_state.paper_size = "LETTER"
 
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             await pilot.press("7")
             app.query_one("#setting-control-page_size", Select).value = "A4"
             await wait_for_condition(
@@ -186,7 +187,7 @@ def test_cleared_workflow_starts_again_from_saved_settings(tmp_path: Path) -> No
             ),
             settings_state=settings,
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             app.action_clear_task()
             await pilot.pause()
 
@@ -204,7 +205,7 @@ def test_settings_numeric_input_saves_when_focus_leaves_and_reverts_invalid_draf
     async def run() -> None:
         settings = _config_settings(tmp_path)
         app = EthernityApp(settings_state=settings)
-        async with app.run_test(size=(120, 72)) as pilot:
+        async with run_app_test(app, size=(120, 72)) as pilot:
             await pilot.press("7")
             form = app.query_one(SettingsForm)
             form.show_group("Advanced")
@@ -259,7 +260,7 @@ def test_settings_path_picker_saves_and_clears_the_selected_setting(tmp_path: Pa
     async def run() -> None:
         settings = _config_settings(tmp_path)
         app = EthernityApp(settings_state=settings)
-        async with app.run_test(size=(100, 40)) as pilot:
+        async with run_app_test(app, size=(100, 40)) as pilot:
             await pilot.press("7")
             form = app.query_one(SettingsForm)
             form.show_group("Backup defaults")
@@ -304,7 +305,7 @@ def test_settings_path_picker_saves_and_clears_the_selected_setting(tmp_path: Pa
 def test_settings_header_and_save_status_stay_fixed_while_active_pane_scrolls() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("7")
             form = app.query_one(SettingsForm)
             form.show_group("Advanced")

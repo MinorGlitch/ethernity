@@ -5,6 +5,7 @@ import asyncio
 from ethernity.app.application import EthernityApp
 from ethernity.app.bindings import APP_BINDINGS
 from ethernity.tasks.backup import BackupTaskState
+from tests.support.app import run_app_test
 
 
 def test_footer_advertises_global_navigation_and_help_commands() -> None:
@@ -31,7 +32,7 @@ def test_backup_review_opens_recovery_for_invalid_signing_mode(tmp_path) -> None
                 signing_key_shard_threshold=2,
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             # Mount applies Settings defaults; introduce the incomplete draft as a user edit.
             app.backup_state.signing_key_shard_threshold = 2
             app.refresh_task_view()

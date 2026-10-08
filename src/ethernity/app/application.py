@@ -226,11 +226,11 @@ class EthernityApp(
         if self.screen is not self.screen_stack[0]:
             return
         self._close_nav_menu(restore_focus=False)
-        self.call_after_refresh(self._focus_top_navigation)
+        self._focus_top_navigation()
 
     def _focus_top_navigation(self) -> None:
         if not self._nav_menu_open and self.screen is self.screen_stack[0]:
-            self.query_one("#workbench-navigation Button.active-task").focus()
+            self.screen.set_focus(self.query_one("#workbench-navigation Button.active-task"))
 
     def action_focus_next(self) -> None:
         """Keep Tab from moving focus underneath an open menu."""

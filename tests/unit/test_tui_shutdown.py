@@ -6,6 +6,7 @@ import pytest
 from textual.widgets import ListItem, ListView, Select
 
 from ethernity.app.application import EthernityApp
+from tests.support.app import run_app_test
 
 pytestmark = pytest.mark.portability
 
@@ -14,7 +15,7 @@ pytestmark = pytest.mark.portability
 def test_pending_ui_work_does_not_access_closed_screens(monkeypatch, pending) -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test():
+        async with run_app_test(app):
             select = app.query_one("#workspace-backup-paper-size", Select)
             with select.prevent(Select.Changed):
                 select.value = "LETTER"

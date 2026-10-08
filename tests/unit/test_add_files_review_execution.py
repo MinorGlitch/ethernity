@@ -29,6 +29,7 @@ from ethernity.workflows.add_files.service import (
 )
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
+from tests.support.app import run_app_test
 
 
 def _valid_config(tmp_path: Path) -> Path:
@@ -621,7 +622,7 @@ def test_automatic_destination_is_shared_by_preview_plan_and_picker(
 
     async def run() -> None:
         app = EthernityApp(add_files_state=state)
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await pilot.press("3")
             picked = []
 
@@ -676,7 +677,7 @@ def test_run_task_and_textual_review_prime_add_files_assessment(monkeypatch) -> 
 
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await pilot.press("3")
             await app.action_review()
             await pilot.pause()

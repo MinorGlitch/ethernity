@@ -9,6 +9,7 @@ from textual.widgets import Button, Select
 
 from ethernity.app.widgets.form import FormRow, FormSection
 from ethernity.app.widgets.workbench import workbench_steps
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_focus, wait_for_visible
 from tests.visual.layout_assertions import assert_scrollbar_gaps
 from tests.visual.production_states import ProductionVisualApp, production_case
@@ -30,7 +31,7 @@ def test_each_flow_step_has_bounded_rows_and_reachable_controls(case, size) -> N
     async def run() -> None:
         app = ProductionVisualApp(production_case(case))
         app.animation_level = "none"
-        async with app.run_test(size=size, tooltips=False) as pilot:
+        async with run_app_test(app, size=size, tooltips=False) as pilot:
             await pilot.pause()
             canvas = app.query_one("#task-canvas")
             steps = workbench_steps(canvas._presentation)

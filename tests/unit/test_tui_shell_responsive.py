@@ -7,6 +7,7 @@ from textual.widgets import Button, Label, ListView
 
 from ethernity.app.application import EthernityApp
 from ethernity.tasks.backup import BackupTaskState
+from tests.support.app import run_app_test
 
 
 def test_shell_breakpoints_drive_navigation_and_header_priority() -> None:
@@ -29,7 +30,7 @@ def test_shell_breakpoints_drive_navigation_and_header_priority() -> None:
         )
         for size, width_class, height_class in cases:
             app = EthernityApp()
-            async with app.run_test(size=size) as pilot:
+            async with run_app_test(app, size=size) as pilot:
                 await pilot.pause()
 
                 assert app.screen.has_class(width_class)
@@ -52,7 +53,7 @@ def test_shell_fills_editor_width_and_reserves_the_action_row() -> None:
     async def run() -> None:
         for size in ((240, 48), (160, 48), (120, 32), (80, 24), (60, 20)):
             app = EthernityApp()
-            async with app.run_test(size=size) as pilot:
+            async with run_app_test(app, size=size) as pilot:
                 await pilot.pause()
 
                 workspace = app.query_one("#workspace").region
@@ -90,7 +91,7 @@ def test_shell_fills_editor_width_and_reserves_the_action_row() -> None:
 def test_navigation_menus_fit_below_their_buttons_and_close_on_resize() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(160, 48)) as pilot:
+        async with run_app_test(app, size=(160, 48)) as pilot:
             for menu, items in (("manage", 3), ("tools", 2)):
                 for width, rows in ((160, 48), (120, 32), (80, 24), (60, 20)):
                     await pilot.resize_terminal(width, rows)
@@ -131,7 +132,7 @@ def test_action_bar_keeps_its_label_and_uses_screen_breakpoints() -> None:
                 output_dir=Path("backup-out"),
             )
         )
-        async with app.run_test(size=(120, 32)) as pilot:
+        async with run_app_test(app, size=(120, 32)) as pilot:
             action_row = app.query_one("#canvas-action-row")
             primary = app.query_one("#canvas-primary", Button)
             full_label = str(primary.label)
@@ -166,7 +167,7 @@ def test_ethernity_theme_preserves_light_and_no_color_modes(monkeypatch) -> None
     async def run() -> None:
         monkeypatch.setenv("NO_COLOR", "1")
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             assert app.theme == "ethernity-dark"
             assert app.current_theme.primary == "#E0B56D"
             assert app.no_color

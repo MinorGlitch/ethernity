@@ -13,13 +13,14 @@ from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.source_assessment import SourceAssessment
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_widget
 
 
 def test_workspaces_load_on_demand_and_keep_unsubmitted_input() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 36)) as pilot:
+        async with run_app_test(app, size=(120, 36)) as pilot:
             assert not app.query("#restore-workspace, #add_files-workspace")
             assert not app.query(SettingsForm)
 
@@ -78,7 +79,7 @@ def _visible_nav_tasks(app: EthernityApp) -> list[str]:
 def test_primary_navigation_keeps_expert_tasks_in_the_palette() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.pause()
             assert not app.query_one("#nav-menu").display
             assert len(app.query("#workbench-navigation Button")) == 4
@@ -97,7 +98,7 @@ def test_loaded_documents_are_reused_without_guessing_identity_from_paths() -> N
     async def run() -> None:
         app = EthernityApp(restore_state=_assessed_restore())
         _store_assessment(app.restore_state)
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app._show_task("restore")
             await pilot.pause()
             assert app._loaded_backup_context is not None
@@ -127,7 +128,7 @@ def test_loaded_backup_does_not_overwrite_existing_target_drafts() -> None:
         draft = AddFilesTaskState(input_paths=[Path("user-selected-file.txt")])
         app = EthernityApp(restore_state=_assessed_restore(), add_files_state=draft)
         _store_assessment(app.restore_state)
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app._show_task("restore")
             await pilot.pause()
             assert app._loaded_backup_context is not None
@@ -144,7 +145,7 @@ def test_unassessed_selection_does_not_create_loaded_backup_identity() -> None:
     async def run() -> None:
         state = RestoreTaskState(source_paths=[Path("backup-deadbeef-latest.pdf")])
         app = EthernityApp(restore_state=state)
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app._show_task("restore")
             await pilot.pause()
             assert app._loaded_backup_context is None
@@ -156,7 +157,7 @@ def test_unassessed_selection_does_not_create_loaded_backup_identity() -> None:
 def test_tools_menu_can_be_opened_and_selected_with_the_keyboard() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("ctrl+b")
             await pilot.pause()
             assert app.screen.focused is app.query_one("#nav-create", Button)
@@ -174,6 +175,34 @@ def test_tools_menu_can_be_opened_and_selected_with_the_keyboard() -> None:
     asyncio.run(run())
 
 
+def test_top_navigation_actions_do_not_need_a_render_between_keys() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with run_app_test(app, size=(100, 30)) as pilot:
+            app.action_open_navigation()
+            await app.action_move_right()
+            await app.action_move_right()
+            await pilot.pause()
+            assert app.screen.focused is app.query_one("#nav-manage", Button)
+
+            await app.action_move_down()
+            menu = app.query_one("#nav-list", ListView)
+            assert app.screen.focused is menu
+            await app.action_move_down()
+            await pilot.pause()
+            assert menu.highlighted_child is app.query_one("#rebuild", ListItem)
+
+            app.action_close_navigation()
+            assert app.screen.focused is app.query_one("#nav-manage", Button)
+            await app.action_move_left()
+            await app.action_move_left()
+            await app.action_move_left()
+            await pilot.pause()
+            assert app.screen.focused is app.query_one("#nav-tools", Button)
+
+    asyncio.run(run())
+
+
 def test_loaded_backup_preserves_invalid_unsaved_form_drafts() -> None:
     async def run() -> None:
         app = EthernityApp(restore_state=_assessed_restore())
@@ -181,7 +210,7 @@ def test_loaded_backup_preserves_invalid_unsaved_form_drafts() -> None:
         app.workflow_ui_states["add_files"].set_invalid_draft(
             "files", {"path": "partially edited path"}, message="Choose a readable file."
         )
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app._show_task("restore")
             await pilot.pause()
             await app._show_task("add_files")

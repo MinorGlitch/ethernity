@@ -19,6 +19,7 @@ from ethernity.tasks.presentation.models import (
     SummaryPresentation,
 )
 from ethernity.tasks.rebuild import RebuildTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_widget
 
 
@@ -99,7 +100,7 @@ def test_add_files_path_selection_can_remove_one_item_without_reopening_picker()
                 passphrase="secret",
             )
         )
-        async with app.run_test(size=(120, 36)) as pilot:
+        async with run_app_test(app, size=(120, 36)) as pilot:
             await pilot.press("3")
             await pilot.click(app.query_one(WorkbenchSteps).button_for("files"))
             await pilot.pause()
@@ -130,7 +131,7 @@ def test_rebuild_output_selects_update_task_state_through_typed_events() -> None
                 output_dir=Path("rebuilt"),
             )
         )
-        async with app.run_test(size=(120, 36)) as pilot:
+        async with run_app_test(app, size=(120, 36)) as pilot:
             await pilot.press("4")
             await pilot.click(app.query_one(WorkbenchSteps).button_for("output"))
             await pilot.pause()
@@ -160,7 +161,7 @@ def test_rebuild_output_selects_update_task_state_through_typed_events() -> None
 def test_rebuild_folder_action_opens_directory_picker() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(100, 32)) as pilot:
+        async with run_app_test(app, size=(100, 32)) as pilot:
             await pilot.press("4")
             await click_when_ready(pilot, "#workflow-rebuild-source-body-secondary-0")
             await wait_for_widget(pilot, "#file-picker-cancel")

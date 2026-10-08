@@ -11,6 +11,7 @@ from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.settings import SettingsTaskState
+from tests.support.app import run_app_test
 from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_widget
 
 
@@ -21,7 +22,7 @@ def test_backup_essentials_fit_80_by_24_with_many_selected_files(tmp_path: Path)
 
     async def run() -> None:
         app = EthernityApp(backup_state=BackupTaskState(input_paths=paths))
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.pause()
             await wait_for_condition(
                 pilot, lambda: app.backup_state.current_estimate() is not None, "backup estimate"
@@ -70,7 +71,7 @@ def test_custom_backup_quorum_changes_from_the_visible_button() -> None:
                 shard_count=5,
             )
         )
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.pause(0.1)
             assert not list(app.screen.query("#edit-field-modal"))
             await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
@@ -93,7 +94,7 @@ def test_custom_backup_quorum_changes_from_the_visible_button() -> None:
 def test_backup_print_overrides_survive_navigation_without_changing_settings() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             original_paper = app.settings_state.paper_size
             original_design = app.settings_state.design
             app.query_one("#workspace-backup-paper-size", Select).value = "LETTER"
@@ -127,7 +128,7 @@ def test_backup_print_overrides_survive_navigation_without_changing_settings() -
 def test_background_refresh_preserves_pending_select_edits(control, value, attribute, expected):
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 36)) as pilot:
+        async with run_app_test(app, size=(120, 36)) as pilot:
             select = app.query_one(f"#workspace-backup-{control}", Select)
             select.value = value
             # An estimate can finish before the queued Select.Changed is handled.
@@ -195,7 +196,7 @@ def test_backup_mount_preserves_effective_values_and_explicit_fields(
         )
         before = app.backup_state.model_dump()
         explicit_fields = set(app.backup_state.model_fields_set)
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             await pilot.pause(0.1)
             assert app.backup_state.model_dump() == before
             assert app.backup_state.model_fields_set == explicit_fields

@@ -7,6 +7,7 @@ from textual.widgets import Button, RadioSet, Static
 
 from ethernity.app.widgets.workflow.source import SourceChooser
 from ethernity.tasks.presentation.models import SourceAssessmentPresentation, WorkspaceAction
+from tests.support.app import run_app_test
 from tests.unit.app.widgets.workflow.widget_harness import (
     WorkflowWidgetHarness,
     sample_source_body,
@@ -17,7 +18,7 @@ def test_source_chooser_loads_documents_without_classifying_them() -> None:
     async def run() -> None:
         chooser = SourceChooser(sample_source_body(), id="source")
         app = WorkflowWidgetHarness(chooser)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             assert not chooser.query(RadioSet)
             primary = chooser.query_one("#source-load", Button)
             assert str(primary.label) == "Load backup documents..."
@@ -52,7 +53,7 @@ def test_source_chooser_keeps_decoded_details_visible_when_changing_documents() 
         )
         chooser = SourceChooser(body, id="source")
         app = WorkflowWidgetHarness(chooser)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             assessment = chooser.query_one(".guided-summary")
             assert assessment.display
             details = [str(widget.content) for widget in assessment.query(Static)]
@@ -71,7 +72,7 @@ def test_source_chooser_loading_state_explains_what_is_happening() -> None:
     async def run() -> None:
         chooser = SourceChooser(replace(sample_source_body(), loading=True), id="source")
         app = WorkflowWidgetHarness(chooser)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             assert chooser.query_one(".guided-loading").display
             label = chooser.query_one(".guided-loading-label", Static)
             assert str(label.content) == "Reading backup documents..."
@@ -87,7 +88,7 @@ def test_source_actions_reflow_on_resize_and_remain_clickable() -> None:
     async def run() -> None:
         chooser = SourceChooser(sample_source_body(), id="source")
         app = WorkflowWidgetHarness(chooser)
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             for width, columns in ((120, 3), (60, 2), (36, 1), (120, 3)):
                 await pilot.resize_terminal(width, 40)
                 await pilot.pause()
@@ -120,7 +121,7 @@ def test_hidden_source_actions_release_their_columns() -> None:
         body = sample_source_body()
         chooser = SourceChooser(body, id="source")
         app = WorkflowWidgetHarness(chooser)
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with run_app_test(app, size=(120, 40)) as pilot:
             chooser.sync_presentation(replace(body, secondary_actions=()))
             await pilot.pause()
             actions = chooser.query_one(".guided-source-actions")

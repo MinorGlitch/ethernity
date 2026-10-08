@@ -10,6 +10,7 @@ from textual.widgets import Button, OptionList, Static
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens import task_result
 from ethernity.tasks.models import TaskExecutionResult, TaskResultDetail
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_visible
 
 
@@ -44,7 +45,7 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
         screen = task_result.TaskResultScreen(
             task="backup", title="Create backup", result=result, context_actions_enabled=True
         )
-        async with app.run_test(size=size) as pilot:
+        async with run_app_test(app, size=size) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
             body = screen.query_one("#result-body", VerticalScroll)

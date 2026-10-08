@@ -13,6 +13,7 @@ from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.styling import StyledApp
 from ethernity.tasks import recovery_check
 from ethernity.tasks.models import TaskExecutionResult
+from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition
 
 
@@ -56,7 +57,7 @@ def test_check_runs_in_background_serializes_and_discards_closed_screen(
         screen = _result_screen(tmp_path / "backup.pdf")
         controller = RecoveryCheckController(app)
         request = recovery_check.GeneratedRecoveryCheckRequest((tmp_path / "backup.pdf",))
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
             try:
@@ -92,7 +93,7 @@ def test_worker_start_failure_restores_actions(monkeypatch, tmp_path: Path) -> N
         app = RecoveryCheckApp()
         controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
             monkeypatch.setattr(app, "run_worker", fail)
@@ -120,7 +121,7 @@ def test_missing_quorum_stays_a_failed_recovery_check(monkeypatch, tmp_path: Pat
         app = RecoveryCheckApp()
         controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
             assert controller.start(
@@ -155,7 +156,7 @@ def test_required_phrase_is_masked_and_explicit_input_retries(monkeypatch, tmp_p
         app = RecoveryCheckApp()
         controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
             assert controller.start(
@@ -202,7 +203,7 @@ def test_cancelled_phrase_restores_actions_and_reports_no_completed_check(
         app = RecoveryCheckApp()
         controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
             await pilot.pause()
             assert controller.start(

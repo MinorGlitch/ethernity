@@ -16,6 +16,7 @@ from ethernity.tasks.presentation.models import (
     WorkspaceAction,
     WorkspaceValue,
 )
+from tests.support.app import run_app_test
 from tests.unit.app.widgets.workflow.widget_harness import WorkflowWidgetHarness
 
 
@@ -26,7 +27,7 @@ def test_quorum_editor_has_live_sentence_and_specific_inline_error() -> None:
             id="quorum",
         )
         app = WorkflowWidgetHarness(editor)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             summary = editor.query_one(".guided-summary", Static)
             notice = editor.query_one(InlineNotice)
             threshold = editor.query_one("#quorum-threshold", Input)
@@ -75,7 +76,7 @@ def test_options_editor_uses_native_keyed_selects_and_suppresses_sync_messages()
         )
         editor = OptionsEditor(body, id="options")
         app = WorkflowWidgetHarness(editor)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             select = editor.query_one("#workspace-rebuild-paper", Select)
             values = list(editor.query(".guided-detail"))
 
@@ -144,7 +145,7 @@ def test_optional_options_part_hides_empty_chrome_but_keeps_structural_controls(
         )
         editor = OptionsEditor(empty, id="trust")
         app = WorkflowWidgetHarness(editor)
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with run_app_test(app, size=(80, 24)) as pilot:
             assert not editor.display
             assert not editor.query_one(".guided-detail").display
             assert not editor.query_one(".guided-actions").display
