@@ -28,11 +28,11 @@ def test_late_field_commit_keeps_the_task_where_the_field_was_edited() -> None:
             ),
         )
         async with app.run_test(size=(100, 32)) as pilot:
-            app._show_task("restore")
+            await app._show_task("restore")
             await pilot.pause()
             destination = app.query_one("#workflow-restore-destination-body", DestinationEditor)
             unlock = app.query_one("#workflow-restore-unlock-body", UnlockEditor)
-            app._show_task("add_files")
+            await app._show_task("add_files")
             destination.post_message(DestinationEditor.ValueChanged(destination, "edited-restore"))
             unlock.post_message(UnlockEditor.ValueChanged(unlock, "edited restore phrase"))
             await pilot.pause()
@@ -50,7 +50,7 @@ def test_task_shortcuts_cannot_change_the_target_of_an_open_picker() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(100, 32)) as pilot:
-            app._show_task("restore")
+            await app._show_task("restore")
             await app.action_edit_primary()
             await pilot.pause()
             picker = app.screen
@@ -58,7 +58,7 @@ def test_task_shortcuts_cannot_change_the_target_of_an_open_picker() -> None:
             picker.query_one("#file-picker-tree", DirectoryTree).focus()
 
             await pilot.press("3")
-            app.action_show_task("add_files")
+            await app.action_show_task("add_files")
             await pilot.pause()
             assert app.screen is picker
             assert app.active_task == "restore"
@@ -66,7 +66,7 @@ def test_task_shortcuts_cannot_change_the_target_of_an_open_picker() -> None:
             picker.query_one("#file-picker-cancel", Button).press()
             await pilot.pause()
             assert app.screen is app.screen_stack[0]
-            app.action_show_task("add_files")
+            await app.action_show_task("add_files")
             await pilot.pause()
             assert app.active_task == "add_files"
 

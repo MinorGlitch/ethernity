@@ -460,13 +460,13 @@ class ProductionVisualApp(EthernityApp):
         definition = workflow_definition(self.visual_case.task)
         return cast(TaskState, getattr(self, definition.state_attribute))
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         super().on_mount()
         case = self.visual_case
         if case.active_step is not None:
             ui_state = self.workflow_ui_states[case.task]
             ui_state.activate(case.active_step)
-        self._show_task(case.task)
+        await self._show_task(case.task)
         if is_guided_task(case.task):
             self.call_after_refresh(self._focus_guided_active_step)
         else:
@@ -482,9 +482,9 @@ class SettingsVisualApp(EthernityApp):
         super().__init__(settings_state=visual_settings_state())
         self.theme = theme
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         super().on_mount()
-        self._show_task("settings")
+        await self._show_task("settings")
         self.call_after_refresh(self._focus_active_task, "settings")
 
 

@@ -453,6 +453,9 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
             settings_state=settings,
         )
         async with app.run_test(size=(120, 32)) as pilot:
+            await app.action_show_task("settings")
+            settings_form = app.query_one(SettingsForm)
+            await app.action_show_task("backup")
             await pilot.press("ctrl+r")
             await click_when_ready(pilot, "#review-execute")
             await wait_for_condition(pilot, started.is_set, "worker to start")
@@ -460,7 +463,6 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
 
             await pilot.press("7")
             await pilot.pause()
-            settings_form = app.query_one(SettingsForm)
             assert settings_form.disabled
             assert app.screen.query_one("#progress-modal").display
             assert not app.settings_controller.apply_text("qr_chunk_size", "2048")

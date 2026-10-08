@@ -13,6 +13,19 @@ from ethernity.app.workspaces.replace_recovery import ReplaceRecoveryWorkspace
 from ethernity.app.workspaces.restore import RestoreWorkspace
 from ethernity.app.workspaces.workspace_controls import BaseWorkspace
 from ethernity.tasks.presentation.models import TaskPresentation
+from ethernity.tasks.task_types import TaskKey
+
+_WORKSPACES = {
+    workspace.task_key: workspace
+    for workspace in (
+        BackupWorkspace,
+        RestoreWorkspace,
+        AddFilesWorkspace,
+        RebuildWorkspace,
+        ReplaceRecoveryWorkspace,
+        KitWorkspace,
+    )
+}
 
 
 class TaskWorkspaces(Widget):
@@ -21,11 +34,14 @@ class TaskWorkspaces(Widget):
     def compose(self) -> ComposeResult:
         with ContentSwitcher(initial="backup-workspace", id="task-workspace-switcher"):
             yield BackupWorkspace(id="backup-workspace")
-            yield RestoreWorkspace(id="restore-workspace")
-            yield AddFilesWorkspace(id="add_files-workspace")
-            yield RebuildWorkspace(id="rebuild-workspace")
-            yield ReplaceRecoveryWorkspace(id="replace_recovery_docs-workspace")
-            yield KitWorkspace(id="kit-workspace")
+
+    async def prepare(self, task: TaskKey) -> None:
+        """Mount a workspace once, retaining its controls when switching away."""
+        workspace_id = workflow_definition(task).workspace_id
+        if workspace_id is None or self.query(f"#{workspace_id}"):
+            return
+        switcher = self.query_one(ContentSwitcher)
+        await switcher.add_content(_WORKSPACES[task](id=workspace_id))
 
     def update_presentation(self, presentation: TaskPresentation) -> None:
         if presentation.task_key == "settings":

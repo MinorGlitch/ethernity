@@ -32,6 +32,7 @@ from ethernity.app.workspaces.workspace_controls import BaseWorkspace
 from ethernity.tasks.models import TaskValidation
 from ethernity.tasks.presentation.models import InlineNoticePresentation, TaskPresentation
 from ethernity.tasks.settings import SettingsTaskState
+from ethernity.tasks.task_types import TaskKey
 
 
 class TaskCanvas(Widget):
@@ -92,10 +93,19 @@ class TaskCanvas(Widget):
                         yield InlineNotice(id="canvas-step-issue")
                     with Vertical(id="canvas-task-workspaces"):
                         yield TaskWorkspaces(id="task-workspaces")
-                    with Vertical(id="canvas-settings-workspace"):
-                        yield SettingsForm(id="settings-form-widget")
+                    yield Vertical(id="canvas-settings-workspace")
                     yield TaskActionBar(id="task-action-bar")
                 yield WorkbenchSummary(id="workbench-summary")
+
+    async def prepare_task(self, task: TaskKey) -> None:
+        """Finish mounting controls before applying state or moving focus."""
+        if task == "settings":
+            if not self.query(SettingsForm):
+                await self.query_one("#canvas-settings-workspace").mount(
+                    SettingsForm(id="settings-form-widget")
+                )
+        else:
+            await self.query_one(TaskWorkspaces).prepare(task)
 
     def update_task(
         self,
@@ -147,8 +157,8 @@ class TaskCanvas(Widget):
         update_static_text(self.query_one("#canvas-title", Static), "" if is_settings else heading)
         self.query_one("#canvas-task-workspaces", Vertical).display = not is_settings
         self.query_one("#canvas-settings-workspace", Vertical).display = is_settings
-        settings_form = self.query_one(SettingsForm)
-        settings_form.disabled = running
+        for settings_form in self.query(SettingsForm):
+            settings_form.disabled = running
         self._settings_write_locked = running
 
         if not is_settings:

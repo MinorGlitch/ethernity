@@ -94,7 +94,10 @@ class WorkbenchSteps(Widget):
                 continue
             step = steps[index]
             label = f"{index + 1:02} {step.label}" if self._numbered else step.label
-            button.label = Content.from_text(label, markup=False)
+            content = Content.from_text(label, markup=False)
+            if button.label != content:
+                button.label = content
+                button.refresh(layout=True)
             button.tooltip = step.summary or step.label
             became_active = step.key == active and not button.has_class("active-step")
             button.set_class(step.key == active, "active-step")

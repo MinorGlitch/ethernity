@@ -3,15 +3,43 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from textual.widgets import Button, Label, ListItem, ListView
+from textual.widgets import Button, Input, Label, ListItem, ListView
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.backup_context import LoadedBackupContext
+from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.app.workflow_registry import WORKFLOWS
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.source_assessment import SourceAssessment
+from tests.support.pilot import wait_for_widget
+
+
+def test_workspaces_load_on_demand_and_keep_unsubmitted_input() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(120, 36)) as pilot:
+            assert not app.query("#restore-workspace, #add_files-workspace")
+            assert not app.query(SettingsForm)
+
+            await app.action_show_task("restore")
+            await wait_for_widget(pilot, "#restore-workspace")
+            field = app.query_one("#workflow-restore-destination-body-value", Input)
+            field.value = "unsubmitted destination"
+            await pilot.pause()
+            await app.action_show_task("backup")
+            await app.action_show_task("restore")
+            assert app.query_one("#workflow-restore-destination-body-value") is field
+            assert field.value == "unsubmitted destination"
+            assert not app.query("#add_files-workspace")
+            assert not app.query(SettingsForm)
+
+            await app.action_show_task("settings")
+            await wait_for_widget(pilot, "#settings-form-widget")
+            assert app.query_one(SettingsForm).active_group == "Printing"
+
+    asyncio.run(run())
 
 
 def _assessed_restore(*, identity: str = "0123456789abcdef") -> RestoreTaskState:
@@ -70,7 +98,7 @@ def test_loaded_documents_are_reused_without_guessing_identity_from_paths() -> N
         app = EthernityApp(restore_state=_assessed_restore())
         _store_assessment(app.restore_state)
         async with app.run_test(size=(100, 30)) as pilot:
-            app._show_task("restore")
+            await app._show_task("restore")
             await pilot.pause()
             assert app._loaded_backup_context is not None
             assert app._loaded_backup_context.summary == "Backup 01234567"
@@ -81,7 +109,7 @@ def test_loaded_documents_are_reused_without_guessing_identity_from_paths() -> N
                 "replace_recovery_docs",
             ]
 
-            app._show_task("add_files")
+            await app._show_task("add_files")
             await pilot.pause()
             assert app.add_files_state.source_paths == [Path("rearranged-papers.pdf")]
             assert app.add_files_state.passphrase == "test passphrase"
@@ -100,10 +128,10 @@ def test_loaded_backup_does_not_overwrite_existing_target_drafts() -> None:
         app = EthernityApp(restore_state=_assessed_restore(), add_files_state=draft)
         _store_assessment(app.restore_state)
         async with app.run_test(size=(100, 30)) as pilot:
-            app._show_task("restore")
+            await app._show_task("restore")
             await pilot.pause()
             assert app._loaded_backup_context is not None
-            app._show_task("add_files")
+            await app._show_task("add_files")
             await pilot.pause()
             assert app.add_files_state.input_paths == [Path("user-selected-file.txt")]
             assert app.add_files_state.source_paths == []
@@ -117,7 +145,7 @@ def test_unassessed_selection_does_not_create_loaded_backup_identity() -> None:
         state = RestoreTaskState(source_paths=[Path("backup-deadbeef-latest.pdf")])
         app = EthernityApp(restore_state=state)
         async with app.run_test(size=(100, 30)) as pilot:
-            app._show_task("restore")
+            await app._show_task("restore")
             await pilot.pause()
             assert app._loaded_backup_context is None
             assert not app._nav_menu_open
@@ -154,9 +182,9 @@ def test_loaded_backup_preserves_invalid_unsaved_form_drafts() -> None:
             "files", {"path": "partially edited path"}, message="Choose a readable file."
         )
         async with app.run_test(size=(100, 30)) as pilot:
-            app._show_task("restore")
+            await app._show_task("restore")
             await pilot.pause()
-            app._show_task("add_files")
+            await app._show_task("add_files")
             await pilot.pause()
             assert app.add_files_state.source_paths == []
             assert app.workflow_ui_states["add_files"].has_invalid_draft("files")

@@ -288,8 +288,8 @@ class TaskViewActions(EthernityAppContext):
             return
         await self.push_screen(DiagnosticsScreen(self._current_diagnostics()))
 
-    def action_show_task(self, task: TaskKey) -> None:
-        self._show_task(task)
+    async def action_show_task(self, task: TaskKey) -> None:
+        await self._show_task(task)
 
     async def action_move_down(self) -> None:
         if await self._run_focused_key_binding("down"):
@@ -535,7 +535,7 @@ class TaskViewActions(EthernityAppContext):
             states[task] = "attention" if needs_attention else "in-progress"
         return states
 
-    def _show_task(self, task: TaskKey) -> None:
+    async def _show_task(self, task: TaskKey) -> None:
         if not self.is_running or task not in TASK_ORDER:
             return
         if self.screen is not self.screen_stack[0]:
@@ -564,6 +564,7 @@ class TaskViewActions(EthernityAppContext):
             if pristine and self._loaded_backup_context.apply_to(state):
                 if state.current_source_assessment() is None:
                     self.source_assessment_controller.request(task)
+        await self.query_one(TaskCanvas).prepare_task(task)
         self.active_task = task
         self._last_execution_result = None
         self._close_nav_menu(refresh=False, restore_focus=False)
@@ -595,9 +596,9 @@ class TaskViewActions(EthernityAppContext):
                 workspace_id = workflow_definition(task).workspace_id
                 self.query_one(f"#{workspace_id}").query_one(FormScroll).focus_start(control)
 
-    def _show_relative_task(self, offset: int) -> None:
+    async def _show_relative_task(self, offset: int) -> None:
         current = TASK_ORDER.index(self.active_task)
-        self._show_task(TASK_ORDER[(current + offset) % len(TASK_ORDER)])
+        await self._show_task(TASK_ORDER[(current + offset) % len(TASK_ORDER)])
 
     def _open_nav_menu(self, menu: NavMenu) -> None:
         if self.screen is not self.screen_stack[0]:
@@ -673,7 +674,7 @@ class TaskViewActions(EthernityAppContext):
         self.execution_controller.start(reviewed_task)
 
     async def _edit_review_field(self, task: TaskKey, section: str) -> None:
-        self._show_task(task)
+        await self._show_task(task)
         step = step_for_section(task, section)
         if step is not None:
             self.workflow_ui_states[task].activate(step)
@@ -762,7 +763,7 @@ class TaskViewActions(EthernityAppContext):
         recoverable_errors: tuple[TaskIssue, ...],
         return_section: str | None,
     ) -> None:
-        self._show_task(task)
+        await self._show_task(task)
         first_issue = next(
             (issue for issue in recoverable_errors if issue.severity == "error"),
             recoverable_errors[0] if recoverable_errors else None,

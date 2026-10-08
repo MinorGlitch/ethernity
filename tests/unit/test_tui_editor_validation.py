@@ -85,7 +85,7 @@ def test_specific_field_errors_keep_the_draft_open_and_task_values_unchanged(
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(80, 24)) as pilot:
-            app._show_task(task)
+            await app._show_task(task)
             before = app._current_state().model_dump()
             await getattr(app, editor_method)()
             await pilot.pause()
@@ -131,7 +131,7 @@ def test_review_shortcut_does_not_bypass_an_invalid_field_editor() -> None:
             )
         )
         async with app.run_test(size=(80, 24)) as pilot:
-            app._show_task("restore")
+            await app._show_task("restore")
             await app._edit_expected_head_fingerprint()
             await pilot.pause()
             editor = app.screen
@@ -156,7 +156,7 @@ def test_review_shortcut_commits_focused_inline_destination_and_phrase() -> None
             )
         )
         async with app.run_test(size=(80, 24)) as pilot:
-            app._show_task("restore")
+            await app._show_task("restore")
             await pilot.pause()
             await pilot.click(app.query_one(WorkbenchSteps).button_for("destination"))
             await pilot.pause()

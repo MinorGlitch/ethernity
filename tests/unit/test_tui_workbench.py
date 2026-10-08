@@ -174,6 +174,9 @@ def test_step_navigation_commits_destination_draft_before_hiding_editor() -> Non
         )
         async with app.run_test(size=(100, 32)) as pilot:
             await pilot.click("#nav-restore")
+            await wait_for_condition(
+                pilot, lambda: app.active_task == "restore", "restore workspace to open"
+            )
             rail = app.query_one(WorkbenchSteps)
             await pilot.click(rail.button_for("destination"))
             field = app.query_one("#workflow-restore-destination-body-value", Input)

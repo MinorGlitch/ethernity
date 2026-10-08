@@ -181,7 +181,7 @@ def test_closed_dropdowns_share_form_focus_order(size: tuple[int, int]) -> None:
                 ("kit", "#workspace-kit-variant-select"),
                 ("settings", "#setting-control-render_style"),
             ):
-                app._show_task(task)
+                await app._show_task(task)
                 await pilot.pause()
                 app._reveal_focus_target(selector)
                 await pilot.pause()
@@ -204,7 +204,7 @@ def test_dropdown_commit_cancel_and_traversal(size: tuple[int, int]) -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=size) as pilot:
-            app._show_task("restore")
+            await app._show_task("restore")
             app._reveal_focus_target("#workspace-restore-auth-policy")
             await pilot.pause()
             control = app.query_one("#workspace-restore-auth-policy", Select)
@@ -276,7 +276,7 @@ def test_arrows_reach_step_rail_open_sections_and_bottom_actions() -> None:
             await pilot.press("enter")
             assert steps.button_for("recovery").has_class("active-step")
 
-            app._show_task("restore")
+            await app._show_task("restore")
             await pilot.pause()
             last_source = app.query_one("#workflow-restore-source-body-secondary-1", Button)
             last_source.focus()

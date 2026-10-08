@@ -81,7 +81,7 @@ class AppEventHandlers(EthernityAppContext):
             self._close_nav_menu(restore_focus=False)
         if button_id in {"nav-create", "nav-restore"}:
             event.stop()
-            self._show_task("backup" if button_id == "nav-create" else "restore")
+            await self._show_task("backup" if button_id == "nav-create" else "restore")
             self.call_after_refresh(self._focus_active_task, self.active_task)
         elif button_id in {"nav-manage", "nav-tools"}:
             event.stop()
@@ -116,7 +116,7 @@ class AppEventHandlers(EthernityAppContext):
             return
         if event.list_view.id == "nav-list":
             event.stop()
-            self._show_task(cast(TaskKey, event.item.id))
+            await self._show_task(cast(TaskKey, event.item.id))
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         if event.item is None or event.item.id is None:
