@@ -14,6 +14,8 @@ from ethernity.render.design_style import load_page_template
 from ethernity.render.types import DocumentOrigin
 from ethernity.render.validation import validate_rendered_pdf_document
 
+pytestmark = pytest.mark.usefixtures("reuse_qr_images")
+
 DESIGNS = ("ledger", "maritime")
 PAPERS = ("A4", "LETTER", "A5")
 

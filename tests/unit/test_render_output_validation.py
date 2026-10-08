@@ -33,6 +33,16 @@ from ethernity.render.validation import validate_rendered_pdf_document
 _DESIGNS = ("archive", "forge", "ledger", "maritime", "sentinel")
 
 
+def test_shared_sample_copies_do_not_share_pdf_mutations(rendered_sample) -> None:
+    damaged, _ = rendered_sample("archive", "main")
+    original = damaged.output_path.read_bytes()
+    _rewrite_page_paint(damaged, cover=True)
+    clean, result = rendered_sample("archive", "main")
+    assert clean.output_path != damaged.output_path
+    assert clean.output_path.read_bytes() == original
+    _validate(clean, result)
+
+
 def _inputs(tmp_path: Path, design: str, role: str) -> RenderInputs:
     case = baselines.VisualBaselineCase(design, role, "A4")
     return baselines.build_sample_inputs(case, tmp_path / f"{design}-{role}.pdf")
@@ -60,10 +70,9 @@ def _rewrite_page_paint(inputs: RenderInputs, *, prefix: bytes = b"", cover: boo
 
 @pytest.mark.parametrize("design", _DESIGNS)
 def test_covered_qrs_with_original_layouts_and_resources_are_rejected(
-    tmp_path: Path, design: str
+    rendered_sample, design: str
 ) -> None:
-    inputs = _inputs(tmp_path, design, "main")
-    result = render_frames_to_pdf(inputs)
+    inputs, result = rendered_sample(design, "main")
     _rewrite_page_paint(inputs, cover=True)
     with pytest.raises(RenderValidationError, match="no usable QR"):
         _validate(inputs, result)
@@ -85,9 +94,8 @@ def test_faint_composed_qrs_are_rejected(tmp_path: Path, design: str, dark: obje
 
 @pytest.mark.parametrize("design", _DESIGNS)
 @pytest.mark.parametrize("invisible", (True, False), ids=("invisible-mode", "covered-page"))
-def test_invisible_recovery_text_is_rejected(tmp_path: Path, design: str, invisible: bool) -> None:
-    inputs = _inputs(tmp_path, design, "recovery")
-    result = render_frames_to_pdf(inputs)
+def test_invisible_recovery_text_is_rejected(rendered_sample, design: str, invisible: bool) -> None:
+    inputs, result = rendered_sample(design, "recovery")
     _rewrite_page_paint(inputs, prefix=b"3 Tr\n" if invisible else b"", cover=not invisible)
     with pytest.raises(RenderValidationError, match="invisible|unreadable"):
         _validate(inputs, result)
@@ -215,9 +223,9 @@ def test_kit_rejects_a_duplicated_loader_with_a_consistent_physical_layout(
 
 @pytest.mark.parametrize("design", _DESIGNS)
 @pytest.mark.parametrize("role", ("main", "recovery", "shard", "signing_key_shard", "kit"))
-def test_actual_output_matches_inputs(tmp_path: Path, design: str, role: str) -> None:
-    inputs = _inputs(tmp_path, design, role)
-    _validate(inputs, render_frames_to_pdf(inputs))
+def test_actual_output_matches_inputs(rendered_sample, design: str, role: str) -> None:
+    inputs, result = rendered_sample(design, role)
+    _validate(inputs, result)
     for page in PdfReader(inputs.output_path).pages:
         fonts = page["/Resources"]["/Font"]
         assert fonts
@@ -229,9 +237,8 @@ def test_actual_output_matches_inputs(tmp_path: Path, design: str, role: str) ->
             assert descriptor["/FontFile2"].get_data(), font["/BaseFont"]
 
 
-def test_blank_pdf_with_original_layouts_and_resources_is_rejected(tmp_path: Path) -> None:
-    inputs = _inputs(tmp_path, "sentinel", "main")
-    result = render_frames_to_pdf(inputs)
+def test_blank_pdf_with_original_layouts_and_resources_is_rejected(rendered_sample) -> None:
+    inputs, result = rendered_sample("sentinel", "main")
     reader = PdfReader(inputs.output_path)
     writer = PdfWriter()
     for page in reader.pages:
@@ -389,9 +396,8 @@ def test_lossless_passphrase_continuations_validate(
     _validate(inputs, render_frames_to_pdf(inputs))
 
 
-def test_document_and_layout_page_counts_are_required_without_fallback(tmp_path: Path) -> None:
-    inputs = _inputs(tmp_path, "sentinel", "main")
-    result = render_frames_to_pdf(inputs)
+def test_document_and_layout_page_counts_are_required_without_fallback(rendered_sample) -> None:
+    inputs, result = rendered_sample("sentinel", "main")
     with pytest.raises(RenderValidationError, match="layout report"):
         _validate(inputs, replace(result, layout_report=None))
     assert result.document_summary is not None

@@ -15,6 +15,8 @@ from ethernity.render.design_style import load_page_template
 from ethernity.render.types import DocumentOrigin, FallbackSection
 from ethernity.render.validation import validate_rendered_pdf_document
 
+pytestmark = pytest.mark.usefixtures("reuse_qr_images")
+
 
 def qr_rects(page):
     return [c.rect for c in page.components if c.component_type == "image"]

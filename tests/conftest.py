@@ -7,6 +7,8 @@ import pytest
 
 from tests.support.environment import home_environment
 
+pytest_plugins = ("tests.support.rendering",)
+
 
 @pytest.fixture
 def set_home(monkeypatch: pytest.MonkeyPatch) -> Callable[[Path], None]:

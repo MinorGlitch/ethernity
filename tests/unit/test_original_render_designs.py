@@ -10,6 +10,8 @@ from scripts.render_visual_baselines import VisualBaselineCase, build_sample_inp
 
 from ethernity.render import render_frames_to_pdf
 
+pytestmark = pytest.mark.usefixtures("reuse_qr_images")
+
 REFERENCE = Path(__file__).parents[1] / "fixtures" / "render" / "original-designs"
 MANIFEST = json.loads((REFERENCE / "manifest.json").read_text())
 REVISED = REFERENCE.parent / "revised-designs"

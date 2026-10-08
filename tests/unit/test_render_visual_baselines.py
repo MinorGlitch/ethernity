@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
 from fpdf import FPDF
 from PIL import Image
 from pypdf import PdfReader
@@ -46,6 +47,8 @@ from ethernity.render.types import (
     RenderRect,
     RenderResult,
 )
+
+pytestmark = pytest.mark.usefixtures("reuse_qr_images")
 
 _SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "render_visual_baselines.py"
 _SPEC = importlib.util.spec_from_file_location("render_visual_baselines", _SCRIPT_PATH)

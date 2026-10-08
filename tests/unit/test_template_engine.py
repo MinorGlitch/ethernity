@@ -28,6 +28,8 @@ from ethernity.render.template import Template
 from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 from ethernity.render.validation import validate_rendered_pdf_document
 
+pytestmark = pytest.mark.usefixtures("reuse_qr_images")
+
 DESIGNS = tuple(list_design_definitions())
 ROUTES = tuple(
     (design.name, kind)

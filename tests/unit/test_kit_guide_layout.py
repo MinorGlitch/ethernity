@@ -12,6 +12,8 @@ from ethernity.render.copy_catalog import build_copy_bundle, build_instruction_c
 from ethernity.render.design_style import load_page_template
 from ethernity.render.validation import validate_rendered_pdf_document
 
+pytestmark = pytest.mark.usefixtures("reuse_qr_images")
+
 
 @pytest.mark.parametrize("design", ("archive", "ledger", "maritime"))
 @pytest.mark.parametrize("paper", ("A4", "LETTER", "A5"))

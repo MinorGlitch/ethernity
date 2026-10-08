@@ -18,6 +18,8 @@ import unittest
 from itertools import product
 from pathlib import Path
 
+import pytest
+
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.formats.extension_mode import UpdateMode
 from ethernity.render import DocumentOrigin, RenderInputs, render_frames_to_pdf
@@ -25,6 +27,8 @@ from ethernity.render.checks import extract_pdf_text, validate_pdf_has_pages
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.types import FallbackSection
 from ethernity.render.validation import validate_rendered_pdf_document
+
+pytestmark = pytest.mark.usefixtures("reuse_qr_images")
 
 
 def _frame() -> Frame:
