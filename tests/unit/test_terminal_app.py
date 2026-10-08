@@ -68,6 +68,7 @@ from ethernity.workflows.shared import events
 from tests.support.pilot import (
     click_when_ready,
     wait_for_condition as _wait_for_condition,
+    wait_for_focus,
     wait_for_widget,
 )
 
@@ -1921,6 +1922,7 @@ def test_textual_app_edit_add_files_state(monkeypatch: pytest.MonkeyPatch) -> No
     asyncio.run(run())
 
 
+@pytest.mark.portability
 def test_textual_app_edit_rebuild_state(monkeypatch: pytest.MonkeyPatch) -> None:
     _allow_ui_source_assessment(monkeypatch)
 
@@ -1969,7 +1971,9 @@ def test_textual_app_edit_rebuild_state(monkeypatch: pytest.MonkeyPatch) -> None
             await app._select_workbench_step("output")
             await pilot.pause()
             assert app.query_one("#rebuild-qr-section", FormSection).display
-            app.query_one("#workspace-rebuild-qr-chunk-size", Button).focus()
+            density = app.query_one("#workspace-rebuild-qr-chunk-size", Button)
+            density.focus()
+            await wait_for_focus(pilot, density)
             await pilot.press("enter")
             await _enter_edit_field(app, pilot, "384", plain_input=True)
 
@@ -2143,6 +2147,7 @@ def test_textual_app_replace_recovery_signing_key_controls_are_real(
     asyncio.run(run())
 
 
+@pytest.mark.portability
 def test_textual_app_replace_recovery_passphrase_replacement_count_is_real() -> None:
     async def run() -> None:
         app = EthernityApp(
@@ -2155,7 +2160,7 @@ def test_textual_app_replace_recovery_passphrase_replacement_count_is_real() -> 
             await pilot.pause()
 
             app.query_one("#workspace-replace-passphrase-select", Select).value = "replace"
-            await pilot.pause()
+            await wait_for_widget(pilot, "#edit-field-input")
             field = app.screen.query_one("#edit-field-input", Input)
             assert not isinstance(field, MaskedInput)
             field.value = ""
@@ -2265,6 +2270,7 @@ def test_textual_app_quorum_parser_rejects_counts_above_shamir_limit() -> None:
     assert parse_threshold_count("256/256") is None
 
 
+@pytest.mark.portability
 def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
     async def run() -> None:
         app = EthernityApp()
@@ -2282,7 +2288,9 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
 
             words_select = app.query_one("#workspace-backup-passphrase-words", Select)
             words_select.value = "18"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot, lambda: app.backup_state.passphrase_words == 18, "phrase length selection"
+            )
 
             assert app.backup_state.passphrase_words == 18
             assert app.backup_state.passphrase is None
@@ -2295,15 +2303,19 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
             assert app.backup_state.passphrase_words is None
 
             words_select.value = "24"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: (
+                    app.backup_state.passphrase is None and app.backup_state.passphrase_words == 24
+                ),
+                "generated phrase to replace the manual phrase",
+            )
 
             assert app.backup_state.passphrase is None
             assert app.backup_state.passphrase_words == 24
 
             app.query_one("#workspace-backup-signing-key-mode", Select).value = "sharded"
-            await pilot.pause()
-            await pilot.click("#workspace-backup-signing-key-shards")
-            await pilot.pause()
+            await click_when_ready(pilot, "#workspace-backup-signing-key-shards")
             await _enter_edit_field(app, pilot, "3/5", plain_input=True)
 
             assert app.backup_state.signing_key_mode == "sharded"
@@ -2335,6 +2347,7 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
     asyncio.run(run())
 
 
+@pytest.mark.portability
 def test_update_mode_choice_uses_keyboard_and_existing_series_is_read_only() -> None:
     async def run() -> None:
         app = EthernityApp()
@@ -2345,8 +2358,13 @@ def test_update_mode_choice_uses_keyboard_and_existing_series_is_read_only() -> 
             choice = app.query_one("#workspace-add-files-update-mode", Select)
             assert choice.value == "cumulative"
             choice.focus()
+            await wait_for_focus(pilot, choice)
             await pilot.press("enter", "down", "enter")
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: app.add_files_state.update_mode == UpdateMode.INCREMENTAL,
+                "incremental update mode selection",
+            )
             assert app.add_files_state.to_add_files_request().update_mode == UpdateMode.INCREMENTAL
 
             app.add_files_state.source_paths = [Path("existing-series.pdf")]

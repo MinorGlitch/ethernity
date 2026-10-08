@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
 from textual.widgets import Input, RadioSet
 
 from ethernity.app.application import EthernityApp
@@ -17,6 +18,7 @@ from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.tasks.presentation.models import SourceBodyPresentation, SummaryPresentation
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.source_assessment import SourceAssessment
+from tests.support.pilot import wait_for_widget
 
 
 def test_restore_discloses_dependent_sections_and_shows_errors_after_editing() -> None:
@@ -61,6 +63,7 @@ def test_restore_discloses_dependent_sections_and_shows_errors_after_editing() -
     assert attempted.steps[0].issue.message == "Choose backup documents."
 
 
+@pytest.mark.portability
 def test_restore_review_step_opens_review_from_any_editor() -> None:
     async def run() -> None:
         app = EthernityApp(
@@ -78,7 +81,7 @@ def test_restore_review_step_opens_review_from_any_editor() -> None:
             assert stack.active_step == "source"
 
             await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
-            await pilot.pause()
+            await wait_for_widget(pilot, "#review-close")
 
             assert app.screen.query_one("#review-modal")
             assert stack.active_step == "source"

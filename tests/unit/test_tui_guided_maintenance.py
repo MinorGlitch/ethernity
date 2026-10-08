@@ -19,6 +19,7 @@ from ethernity.tasks.presentation.models import (
     SummaryPresentation,
 )
 from ethernity.tasks.rebuild import RebuildTaskState
+from tests.support.pilot import click_when_ready, wait_for_widget
 
 
 @pytest.mark.parametrize("output_dir", [None, Path("custom-update")])
@@ -146,13 +147,14 @@ def test_rebuild_output_selects_update_task_state_through_typed_events() -> None
     asyncio.run(run())
 
 
+@pytest.mark.portability
 def test_rebuild_folder_action_opens_directory_picker() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(100, 32)) as pilot:
             await pilot.press("4")
-            await pilot.click("#workflow-rebuild-source-body-secondary-0")
-            await pilot.pause()
+            await click_when_ready(pilot, "#workflow-rebuild-source-body-secondary-0")
+            await wait_for_widget(pilot, "#file-picker-cancel")
 
             assert isinstance(app.screen, FilePickerScreen)
             assert app.screen._mode == FilePickerMode.OPEN_DIRECTORY

@@ -15,6 +15,7 @@ from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.help import HelpScreen
 from ethernity.app.screens.paste_text import PasteTextScreen
 from ethernity.tasks.models import TaskDiagnosticBlock, TaskDiagnostics
+from tests.support.pilot import wait_for_condition, wait_for_widget
 
 
 def _inside(outer: Region, inner: Region) -> bool:
@@ -26,6 +27,7 @@ def _inside(outer: Region, inner: Region) -> bool:
     )
 
 
+@pytest.mark.portability
 def test_editor_keeps_invalid_quorum_draft_until_validator_accepts_it() -> None:
     def quorum_error(value: str) -> str | None:
         if value and parse_threshold_count(value) is None:
@@ -43,10 +45,11 @@ def test_editor_keeps_invalid_quorum_draft_until_validator_accepts_it() -> None:
                 validator=quorum_error,
             )
             await app.push_screen(screen, results.append)
-            await pilot.pause()
+            await wait_for_widget(pilot, "#edit-field-input")
             field = screen.query_one("#edit-field-input", Input)
             field.value = "2/0"
-            await pilot.pause()
+            save = screen.query_one("#edit-field-save", Button)
+            await wait_for_condition(pilot, lambda: save.disabled, "invalid quorum validation")
 
             assert screen.query_one("#edit-field-save", Button).disabled
             assert "enough total sheets" in str(
@@ -59,10 +62,10 @@ def test_editor_keeps_invalid_quorum_draft_until_validator_accepts_it() -> None:
             assert field.value.replace(" ", "") == "2/0"
 
             field.value = "2/3"
-            await pilot.pause()
+            await wait_for_condition(pilot, lambda: not save.disabled, "valid quorum validation")
             assert not screen.query_one("#edit-field-save", Button).disabled
             await pilot.press("enter")
-            await pilot.pause()
+            await wait_for_condition(pilot, lambda: bool(results), "accepted quorum")
             assert results == ["2/3"]
 
     asyncio.run(run())

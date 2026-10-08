@@ -24,6 +24,7 @@ from ethernity.tasks.presentation.workflow_replace_recovery import (
 )
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.settings import SettingsTaskState
+from tests.support.pilot import wait_for_focus
 
 
 def test_action_colors_and_primary_focus_survive_both_themes() -> None:
@@ -73,6 +74,7 @@ def test_action_colors_and_primary_focus_survive_both_themes() -> None:
 
 @pytest.mark.parametrize("theme", ["ethernity-dark", "ethernity-light"])
 @pytest.mark.parametrize("size", [(120, 32), (80, 32), (80, 24), (120, 24)])
+@pytest.mark.portability
 def test_focused_buttons_do_not_underline_labels_or_blank_padding(theme, size) -> None:
     async def run() -> None:
         app = EthernityApp()
@@ -82,7 +84,7 @@ def test_focused_buttons_do_not_underline_labels_or_blank_padding(theme, size) -
             for selector in ("#nav-create", "#workbench-step-0", "#workspace-backup-files"):
                 button = app.query_one(selector, Button)
                 button.focus()
-                await pilot.pause()
+                await wait_for_focus(pilot, button)
                 assert_clean_button(button)
                 assert button.parent.content_region.contains_region(button.region)
 
@@ -95,7 +97,7 @@ def test_focused_buttons_do_not_underline_labels_or_blank_padding(theme, size) -
             app.query_one(SettingsForm).show_group("Config file")
             copy = app.query_one("#settings-copy-config", Button)
             copy.focus()
-            await pilot.pause()
+            await wait_for_focus(pilot, copy)
             assert_clean_button(copy)
             rail = app.query_one(SettingsForm).query_one(WorkbenchSteps)
             assert rail.content_region.contains_region(rail.button_for("Config file").region)

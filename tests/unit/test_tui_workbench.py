@@ -14,7 +14,7 @@ from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.restore import RestoreTaskState
-from tests.support.pilot import wait_for_condition
+from tests.support.pilot import wait_for_condition, wait_for_focus
 
 
 def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> None:
@@ -164,6 +164,7 @@ def test_workbench_summary_is_redacted_and_collapses_at_80_columns() -> None:
     asyncio.run(run())
 
 
+@pytest.mark.portability
 def test_step_navigation_commits_destination_draft_before_hiding_editor() -> None:
     async def run() -> None:
         app = EthernityApp(
@@ -177,6 +178,7 @@ def test_step_navigation_commits_destination_draft_before_hiding_editor() -> Non
             await pilot.click(rail.button_for("destination"))
             field = app.query_one("#workflow-restore-destination-body-value", Input)
             field.focus()
+            await wait_for_focus(pilot, field)
             field.value = "new-destination"
             await app._select_workbench_step("unlock")
             await pilot.pause()

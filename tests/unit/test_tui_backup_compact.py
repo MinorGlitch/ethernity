@@ -11,7 +11,7 @@ from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.settings import SettingsTaskState
-from tests.support.pilot import wait_for_condition
+from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_widget
 
 
 def test_backup_essentials_fit_80_by_24_with_many_selected_files(tmp_path: Path) -> None:
@@ -60,6 +60,7 @@ def test_backup_essentials_fit_80_by_24_with_many_selected_files(tmp_path: Path)
     asyncio.run(run())
 
 
+@pytest.mark.portability
 def test_custom_backup_quorum_changes_from_the_visible_button() -> None:
     async def run() -> None:
         app = EthernityApp(
@@ -73,8 +74,8 @@ def test_custom_backup_quorum_changes_from_the_visible_button() -> None:
             await pilot.pause(0.1)
             assert not list(app.screen.query("#edit-field-modal"))
             await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
-            await pilot.click("#workspace-backup-recovery-quorum")
-            await pilot.pause()
+            await click_when_ready(pilot, "#workspace-backup-recovery-quorum")
+            await wait_for_widget(pilot, "#edit-field-input")
             field = app.screen.query_one("#edit-field-input", Input)
             assert field.value == "3/5"
             field.value = "2/3"
