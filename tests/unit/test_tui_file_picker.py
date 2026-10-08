@@ -12,14 +12,13 @@ from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
 
 
 def test_picker_path_resolution_uses_browsing_folder_and_expands_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, set_home
 ) -> None:
     root = tmp_path / "browse"
     root.mkdir()
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("USERPROFILE", str(home))
+    set_home(home)
 
     assert resolve_picker_path("notes.txt", root) == root / "notes.txt"
     assert resolve_picker_path("../notes.txt", root) == tmp_path / "notes.txt"
@@ -31,16 +30,13 @@ def test_picker_path_resolution_uses_browsing_folder_and_expands_home(
         resolve_picker_path("invalid\x00path", root)
 
 
-def test_path_completion_preserves_relative_and_home_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_path_completion_preserves_relative_and_home_paths(tmp_path: Path, set_home) -> None:
     (tmp_path / "documents").mkdir()
     (tmp_path / "documentary").mkdir()
     (tmp_path / "documents" / "backup.pdf").touch()
     (tmp_path / "photos").mkdir()
     (tmp_path / "photo.txt").touch()
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    set_home(tmp_path)
 
     assert complete_picker_path("do", tmp_path, include_files=True).value == "document"
     assert complete_picker_path("documents", tmp_path, include_files=True).value == "documents/"
@@ -106,7 +102,7 @@ def test_open_picker_entered_files_append_and_entered_folders_only_navigate(tmp_
 
 
 def test_open_picker_accepts_home_paths_and_rejects_missing_paths_without_losing_selection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, set_home
 ) -> None:
     home = tmp_path / "home"
     home.mkdir()
@@ -114,8 +110,7 @@ def test_open_picker_accepts_home_paths_and_rejects_missing_paths_without_losing
     entered.touch()
     existing = tmp_path / "existing.txt"
     existing.touch()
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("USERPROFILE", str(home))
+    set_home(home)
 
     async def run() -> None:
         app = EthernityApp()

@@ -9,7 +9,6 @@ from ethernity.run.cli import cli
 from ethernity.tasks.models import TaskValidationError
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.workflows.replacement_recovery import service
-from tests.support.environment import home_environment
 
 
 def _state(output: Path | None) -> ReplaceRecoveryDocsTaskState:
@@ -89,9 +88,8 @@ def test_unused_destination_is_ready_without_creating_directories(tmp_path) -> N
     assert not state.validate_task().ready
 
 
-def test_home_relative_destination_uses_workflow_normalization(tmp_path, monkeypatch) -> None:
-    for name, value in home_environment(tmp_path).items():
-        monkeypatch.setenv(name, value)
+def test_home_relative_destination_uses_workflow_normalization(tmp_path, set_home) -> None:
+    set_home(tmp_path)
     output = tmp_path / "replacement"
     output.mkdir()
 

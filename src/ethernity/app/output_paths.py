@@ -27,12 +27,7 @@ def common_output_folder(paths: tuple[Path, ...]) -> str:
 
 
 def open_folder(folder: Path) -> None:
-    command = ["open", str(folder)]
-    if sys.platform.startswith("win"):
-        command = ["explorer", str(folder)]
-    elif sys.platform != "darwin":
-        command = ["xdg-open", str(folder)]
-    subprocess.Popen(command)
+    open_documents((folder,))
 
 
 def open_documents(paths: tuple[Path, ...]) -> None:

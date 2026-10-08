@@ -16,8 +16,6 @@
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
 from typing import cast
 
@@ -36,6 +34,7 @@ from textual.widgets import (
 )
 
 from ethernity.app.app_context import EthernityAppContext
+from ethernity.app.output_paths import open_folder
 from ethernity.app.widgets.actions import ActionButton, inline_action_group
 from ethernity.app.widgets.form import FormRow, FormScroll, FormSelect
 from ethernity.app.widgets.static_text import update_static_text
@@ -361,23 +360,12 @@ class SettingsForm(Widget):
         self._select_options_by_key[key] = option_key
 
     def _open_config_folder(self) -> None:
-        folder = str(self._config_folder())
-        command = ["open", folder]
-        if sys.platform.startswith("win"):
-            command = ["explorer", folder]
-        elif sys.platform != "darwin":
-            command = ["xdg-open", folder]
         try:
-            subprocess.Popen(command)
+            open_folder(Path(self._config_full_path).parent)
         except OSError as exc:
             self.app.notify(f"Could not open folder: {exc}", severity="error")
             return
         self.app.notify("Opening settings folder.")
-
-    def _config_folder(self) -> str:
-        if not self._config_full_path:
-            return "."
-        return str(Path(self._config_full_path).parent)
 
     def _settings_app(self) -> EthernityAppContext:
         return cast(EthernityAppContext, self.app)

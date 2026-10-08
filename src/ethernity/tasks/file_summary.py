@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePath
 
 
-def display_path(path: Path | str, *, max_chars: int = 56) -> str:
+def display_path(path: PurePath | str, *, max_chars: int = 56) -> str:
+    """Shorten a native path for display without resolving it on disk."""
     if max_chars <= 0:
         return ""
     text = str(path)
-    home = str(Path.home())
-    if text == home:
-        text = "~"
-    elif text.startswith(f"{home}/"):
-        text = f"~/{text[len(home) + 1 :]}"
+    home = Path.home()
+    try:
+        relative = type(home)(path).relative_to(home)
+    except ValueError:
+        pass
+    else:
+        text = str(type(home)("~") / relative)
     if len(text) <= max_chars:
         return text
     if max_chars <= 3:

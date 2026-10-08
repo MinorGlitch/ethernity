@@ -13,16 +13,18 @@ from ethernity.workflows.shared.outputs import (
     discard_prepared_output_dir,
     prepare_backup_output_dir,
 )
-from tests.support.environment import home_environment
+
+pytestmark = pytest.mark.portability
 
 
 @pytest.mark.parametrize("destination", [None, ".", "~", "~/new/nested", "existing", "new"])
-def test_backup_always_publishes_in_a_named_child(tmp_path, monkeypatch, destination) -> None:
+def test_backup_always_publishes_in_a_named_child(
+    tmp_path, monkeypatch, set_home, destination
+) -> None:
     monkeypatch.chdir(tmp_path)
     home = tmp_path / "home"
     home.mkdir()
-    for name, value in home_environment(home).items():
-        monkeypatch.setenv(name, value)
+    set_home(home)
     (tmp_path / "existing").mkdir()
     parent = Path(destination).expanduser() if destination is not None else Path(".")
     if parent.is_dir():
