@@ -63,6 +63,22 @@ uv run pytest tests/unit tests/integration -q
 The full Python suite needs the generated kit bundles and installed npm dependencies from setup.
 The [CI workflow](.github/workflows/ci.yml) defines the platform matrix, coverage thresholds, E2E
 tests, packaging checks, and dependency audits. Local checks do not replace those gates.
+Python 3.11 checks the minimum supported version across all three operating systems; Linux also
+runs the suite on Python 3.13.
+
+For a quick check of native paths, file publication, worker limits, and UI event handling, run:
+
+```sh
+uv run pytest tests/unit -m portability -q
+```
+
+CI runs this selection on Windows, macOS, and Linux before the full suites finish. These tests
+also remain in the full suite. Mark a test `portability` when it covers a platform boundary or
+an asynchronous UI regression and is fast enough for this check.
+
+UI tests share the bounded waits in `tests/support/pilot.py`. Wait for the state change the test
+needs, such as a visible dialog, focused control, or completed worker. Use the `set_home` fixture
+for home-directory overrides; unittest-based tests use `tests.support.environment.home_environment`.
 
 Golden and visual suites can run in two worker processes:
 

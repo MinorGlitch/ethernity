@@ -106,6 +106,23 @@ jobs:
       - name: Verify composited QR scans
         run: uv run pytest tests/unit/test_render_visual_baselines.py -n 2 -v
 
+  portability:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+        with:
+          python-version: "3.11"
+      - name: Check native paths, publication, workers, and UI events
+        run: uv run pytest tests/unit -m portability -q
+
   test:
     needs: kit-bundles
     runs-on: ${{ matrix.os }}
@@ -118,8 +135,6 @@ jobs:
             python-version: "3.11"
           - os: windows-latest
             python-version: "3.11"
-          - os: ubuntu-latest
-            python-version: "3.12"
           - os: ubuntu-latest
             python-version: "3.13"
     steps:
@@ -396,6 +411,7 @@ jobs:
       - typos
       - kit-lint
       - render-visual
+      - portability
       - test
       - e2e
       - coverage
