@@ -9,6 +9,7 @@ from textual.widgets import Button, Select
 
 from ethernity.app.widgets.form import FormRow, FormSection
 from ethernity.app.widgets.workbench import workbench_steps
+from tests.support.pilot import wait_for_visible
 from tests.visual.layout_assertions import assert_scrollbar_gaps
 from tests.visual.production_states import ProductionVisualApp, production_case
 
@@ -61,7 +62,9 @@ def test_each_flow_step_has_bounded_rows_and_reachable_controls(case, size) -> N
                             continue
                         control.focus(scroll_visible=False)
                         control.scroll_visible(animate=False, immediate=True)
-                        await pilot.pause(0.01)
+                        await wait_for_visible(
+                            pilot, control, within=app.query_one("#canvas-task-workspaces")
+                        )
                         assert viewport.contains_region(control.region), (
                             case,
                             size,

@@ -19,29 +19,31 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from textual.widgets import Button, Static
+from textual.widgets import Static
 
 from ethernity.app.application import EthernityApp
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.restore import RestoreTaskState
+from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_widget
 from tests.test_support import temp_env
 
 
 async def _run_final_review(app: EthernityApp, pilot: Any) -> None:
     await pilot.press("ctrl+r")
-    await pilot.pause()
-    await pilot.click("#review-execute")
-    for _ in range(120):
-        await pilot.pause(0.1)
-        result = app._last_execution_result
-        if result is not None:
-            if not result.ok:
-                screen = app.screen
-                error = getattr(screen, "_error", None)
-                detail = getattr(screen, "_error_detail", None)
-                raise AssertionError(f"task failed: {error}; {detail}")
-            return
-    raise AssertionError("task did not finish")
+    await click_when_ready(pilot, "#review-execute")
+    await wait_for_condition(
+        pilot,
+        lambda: app._last_execution_result is not None,
+        "backup or restore to finish",
+        timeout=60,
+    )
+    result = app._last_execution_result
+    assert result is not None
+    if not result.ok:
+        screen = app.screen
+        error = getattr(screen, "_error", None)
+        detail = getattr(screen, "_error_detail", None)
+        raise AssertionError(f"task failed: {error}; {detail}")
 
 
 def test_textual_app_backup_and_restore_round_trip(tmp_path: Path) -> None:
@@ -63,23 +65,19 @@ def test_textual_app_backup_and_restore_round_trip(tmp_path: Path) -> None:
             )
             async with backup_app.run_test(size=(140, 40)) as pilot:
                 await _run_final_review(backup_app, pilot)
-                await pilot.pause()
-                check_button = backup_app.screen.query_one("#result-test-recovery", Button)
-                check_button.scroll_visible(animate=False, immediate=True)
-                await pilot.pause()
-                assert await pilot.click("#result-test-recovery")
-                for _ in range(120):
-                    await pilot.pause(0.1)
-                    if not backup_app.recovery_check_controller.running:
-                        checks = backup_app.screen.query_one("#result-document-checks", Static)
-                        if checks.display:
-                            assert "Generated PDF recovery passed: 1 file recovered" in str(
-                                checks.content
-                            )
-                            assert "using 2 recovery sheets" in str(checks.content)
-                            break
-                else:
-                    raise AssertionError("Generated document recovery test did not finish")
+                check_button = await wait_for_widget(pilot, "#result-test-recovery")
+                check_button.focus()
+                await pilot.wait_for_scheduled_animations()
+                await click_when_ready(pilot, "#result-test-recovery")
+                checks = backup_app.screen.query_one("#result-document-checks", Static)
+                await wait_for_condition(
+                    pilot,
+                    lambda: not backup_app.recovery_check_controller.running and checks.display,
+                    "generated document recovery to finish",
+                    timeout=60,
+                )
+                assert "Generated PDF recovery passed: 1 file recovered" in str(checks.content)
+                assert "using 2 recovery sheets" in str(checks.content)
 
             [backup_dir] = backup_dir.glob("backup-*")
             restore_app = EthernityApp(

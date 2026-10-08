@@ -106,9 +106,12 @@ def test_add_files_path_selection_can_remove_one_item_without_reopening_picker()
 
             paths = app.query_one("#workflow-add_files-files-body-paths", SelectionList)
             paths.select("file-0")
-            await pilot.pause()
-            await pilot.click("#workspace-add-files-remove-selected")
-            await pilot.pause()
+            await click_when_ready(pilot, "#workspace-add-files-remove-selected")
+            await wait_for_condition(
+                pilot,
+                lambda: app.add_files_state.input_paths == [Path("two.txt")],
+                "selected file to be removed",
+            )
 
             assert app.add_files_state.input_paths == [Path("two.txt")]
             assert "one.txt" not in _selection_text(paths)

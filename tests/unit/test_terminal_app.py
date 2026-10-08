@@ -1877,7 +1877,11 @@ def test_textual_app_restore_signature_source_control_is_real() -> None:
             )
 
             app.query_one("#workspace-restore-signature-source", Select).value = "auto"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: app.restore_state.auth_payloads_file is None,
+                "automatic signature source to clear the selected file",
+            )
 
             assert app.restore_state.auth_text_file is None
             assert app.restore_state.auth_payloads_file is None

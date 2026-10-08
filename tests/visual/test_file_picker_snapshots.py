@@ -9,7 +9,7 @@ from typing import cast
 import pytest
 from textual.geometry import Region
 from textual.pilot import Pilot
-from textual.widgets import Button, DirectoryTree, SelectionList, Static
+from textual.widgets import Button, DirectoryTree, Input, SelectionList, Static
 
 from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
 from tests.visual.production_states import (
@@ -88,6 +88,10 @@ async def _open_file_picker(
     )
     await app.push_screen(screen)
     await pilot.pause()
+    # A valid relative path keeps the editable location and its wrapping identical
+    # on developer machines and CI. The tree still reads the real fixture files.
+    screen._location_value = PICKER_FIXTURE_ROOT.relative_to(PROJECT_ROOT).as_posix()
+    screen.query_one("#file-picker-location", Input).value = screen._location_value
     app.screen.refresh(layout=True)
     await pilot.pause()
     _assert_file_picker_geometry(screen, case)
