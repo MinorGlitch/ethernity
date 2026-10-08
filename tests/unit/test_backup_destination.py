@@ -31,7 +31,7 @@ def test_backup_always_publishes_in_a_named_child(tmp_path, monkeypatch, destina
     final, staging = prepare_backup_output_dir(destination, "deadbeef")
 
     assert Path(final) == parent / "backup-deadbeef"
-    assert Path(staging).parent == Path(final).parent
+    assert Path(staging).parent.resolve() == Path(final).parent.resolve()
     assert not Path(final).exists()
     (Path(staging) / "qr_document.pdf").write_bytes(b"staged document")
     commit_prepared_output_dir(staging, final)
