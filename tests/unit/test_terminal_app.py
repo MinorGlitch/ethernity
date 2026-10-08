@@ -2959,13 +2959,14 @@ def test_textual_app_blocked_review_focuses_first_requirement() -> None:
     asyncio.run(run())
 
 
+@pytest.mark.portability
 def test_textual_app_shows_progress_screen_while_task_runs(monkeypatch) -> None:
     started = threading.Event()
     release = threading.Event()
 
     def fake_execute(self: BackupTaskState) -> TaskExecutionResult:
         started.set()
-        release.wait(timeout=5)
+        assert release.wait(timeout=30), "Test did not release the backup worker."
         return TaskExecutionResult(
             status="succeeded",
             message="Slow backup complete.",
@@ -2987,18 +2988,24 @@ def test_textual_app_shows_progress_screen_while_task_runs(monkeypatch) -> None:
             await pilot.pause()
             await click_when_ready(pilot, "#review-execute")
 
-            await _wait_for_condition(pilot, started.is_set, "worker to start")
+            try:
+                await _wait_for_condition(pilot, started.is_set, "worker to start")
+                destination = await wait_for_widget(pilot, "#progress-destination")
+                expected = str(Path("backup-out") / "backup-<id>")
+                await _wait_for_condition(
+                    pilot,
+                    lambda: expected in str(cast(Static, destination).content),
+                    "progress destination to populate",
+                )
 
-            assert started.is_set()
-            assert app.running_task == "backup"
-            assert isinstance(app.screen, TaskProgressScreen)
-            assert app.screen.query_one("#operation-bar", ProgressBar).total is None
-            assert str(Path("backup-out") / "backup-<id>") in _static_text(
-                app, "#progress-destination"
-            )
-            assert not app.screen.query_one("#progress-cancel", Button).disabled
-
-            release.set()
+                assert started.is_set()
+                assert app.running_task == "backup"
+                assert isinstance(app.screen, TaskProgressScreen)
+                assert app.screen.query_one("#operation-bar", ProgressBar).total is None
+                assert expected in _static_text(app, "#progress-destination")
+                assert not app.screen.query_one("#progress-cancel", Button).disabled
+            finally:
+                release.set()
             await wait_for_widget(pilot, "#result-close")
 
             assert app.running_task is None
