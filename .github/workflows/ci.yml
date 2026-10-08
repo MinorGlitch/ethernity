@@ -81,7 +81,16 @@ jobs:
             --output-dir "${RUNNER_TEMP}/render-visual-baselines" \
             --rasterize never
       - name: Verify terminal snapshots
-        run: uv run pytest tests/visual -n 2 -v
+        run: uv run pytest tests/visual -n 2 -v --durations=30 --junitxml=test-results/visual.xml
+      - name: Upload snapshot results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: terminal-snapshot-results
+          path: |
+            test-results/visual.xml
+            tests/visual/snapshots/*.received.svg
+          retention-days: 7
 
   portability:
     runs-on: ubuntu-latest
@@ -142,7 +151,7 @@ jobs:
 
       - name: Run unit and integration tests
         if: matrix.os != 'ubuntu-latest'
-        run: uv run pytest tests/unit tests/integration -n 2 --dist loadfile -v
+        run: uv run pytest tests/unit tests/integration -n 2 --dist loadfile -v --durations=30 --junitxml=test-results/python.xml
       - name: Run unit and integration tests with coverage
         id: coverage-tests
         if: matrix.os == 'ubuntu-latest'
@@ -150,13 +159,21 @@ jobs:
           uv run pytest tests/unit tests/integration -n 2 --dist loadfile \
             --cov=ethernity \
             --cov=tooling.document_inspector_app \
-            --cov-report=
+            --cov-report= --durations=30 --junitxml=test-results/python.xml
       - name: Check application coverage
         if: ${{ !cancelled() && steps.coverage-tests.outcome == 'success' }}
         run: uv run coverage report --include='src/ethernity/*' --fail-under=85
       - name: Check document inspector coverage
         if: ${{ !cancelled() && steps.coverage-tests.outcome == 'success' }}
         run: uv run coverage report --include='tooling/document_inspector_app/*' --fail-under=45
+
+      - name: Upload test timings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-tests-${{ matrix.os }}-${{ matrix.python-version }}
+          path: test-results/python.xml
+          retention-days: 7
 
   e2e:
     needs: kit-bundles
@@ -175,7 +192,14 @@ jobs:
       - name: Run e2e tests
         env:
           ETHERNITY_TEST_CLI_TIMEOUT_SECONDS: "300"
-        run: uv run pytest tests/e2e -n 2 --dist loadfile -v
+        run: uv run pytest tests/e2e -n 2 --dist loadfile -v --durations=30 --junitxml=test-results/e2e.xml
+      - name: Upload end-to-end test timings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: end-to-end-test-results
+          path: test-results/e2e.xml
+          retention-days: 7
 
   kit-bundles:
     runs-on: ubuntu-latest

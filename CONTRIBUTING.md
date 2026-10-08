@@ -67,6 +67,8 @@ The full unit and integration suites run on macOS and Windows with Python 3.11, 
 with Python 3.13. The Linux run collects application and document-inspector coverage together,
 then checks them separately against the 85% and 45% thresholds. Reporting does not rerun tests.
 Python lint, formatting, type checking, and spelling share one CI job with separate result steps.
+Each platform, E2E, and terminal snapshot run reports its 30 slowest tests and uploads JUnit
+timings for seven days. Failed terminal snapshots also upload their received SVGs.
 
 Tests should fail when the behavior they protect breaks. Check output content, state changes,
 or failure handling; avoid tests that only construct a dataclass, repeat source code, or check
@@ -87,6 +89,13 @@ is fast enough for this check.
 UI tests share the bounded waits in `tests/support/pilot.py`. Wait for the state change the test
 needs, such as a visible dialog, focused control, or completed worker. Use the `set_home` fixture
 for home-directory overrides; unittest-based tests use `tests.support.environment.home_environment`.
+Navigation awaits workspace mounting. Widgets are created on first use and retained when switching
+tasks, so tests must open a workspace before querying its controls.
+
+Layout suites can opt into `reuse_qr_images` to reuse identical payload/configuration images.
+`rendered_sample` supplies a private copy of a shared sample PDF for output-validation tests.
+Keep these fixtures out of codec tests and tests that change rendering internals. The existing
+decoding, appearance, and content assertions still run.
 
 Golden and visual suites can run in two worker processes:
 
