@@ -19,7 +19,7 @@ from ethernity.tasks.presentation.models import (
     SummaryPresentation,
 )
 from ethernity.tasks.rebuild import RebuildTaskState
-from tests.support.pilot import click_when_ready, wait_for_widget
+from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_widget
 
 
 @pytest.mark.parametrize("output_dir", [None, Path("custom-update")])
@@ -136,7 +136,13 @@ def test_rebuild_output_selects_update_task_state_through_typed_events() -> None
             design = app.query_one("#workspace-rebuild-design", Select)
             paper.value = "LETTER"
             design.value = "forge"
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: (
+                    app.rebuild_state.paper_size == "LETTER" and app.rebuild_state.design == "forge"
+                ),
+                "rebuild paper and design selections to reach task state",
+            )
 
             assert app.rebuild_state.paper_size == "LETTER"
             assert app.rebuild_state.design == "forge"

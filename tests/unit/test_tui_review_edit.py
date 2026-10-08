@@ -9,6 +9,7 @@ from ethernity.app.application import EthernityApp
 from ethernity.app.screens.file_picker import FilePickerScreen
 from ethernity.app.screens.review_task import ReviewTaskScreen
 from ethernity.tasks.backup import BackupTaskState
+from tests.support.pilot import wait_for_widget
 
 
 def test_review_edit_prepares_a_new_snapshot_before_any_write(tmp_path: Path) -> None:
@@ -21,15 +22,15 @@ def test_review_edit_prepares_a_new_snapshot_before_any_write(tmp_path: Path) ->
     async def run() -> None:
         async with app.run_test(size=(100, 32)) as pilot:
             await app.action_review()
-            await pilot.pause()
+            await wait_for_widget(pilot, "#review-execute")
             original_review = app.screen
             assert isinstance(original_review, ReviewTaskScreen)
             assert original_review._plan.output_paths == (old_output / "backup-<id>",)
             _output_edit_button(original_review).press()
-            await pilot.pause()
+            await wait_for_widget(pilot, "#file-picker-cancel")
             assert isinstance(app.screen, FilePickerScreen)
             app.screen.dismiss((new_output,))
-            await pilot.pause()
+            await wait_for_widget(pilot, "#review-execute")
             assert app.running_task is None
             assert app.backup_state.output_dir == new_output
             assert isinstance(app.screen, ReviewTaskScreen)
@@ -51,13 +52,13 @@ def test_cancelled_review_edit_returns_to_review_without_mutation(tmp_path: Path
         async with app.run_test(size=(100, 32)) as pilot:
             initial = app.backup_state.model_dump_json()
             await app.action_review()
-            await pilot.pause()
+            await wait_for_widget(pilot, "#review-execute")
             assert isinstance(app.screen, ReviewTaskScreen)
             _output_edit_button(app.screen).press()
-            await pilot.pause()
+            await wait_for_widget(pilot, "#file-picker-cancel")
             assert isinstance(app.screen, FilePickerScreen)
             await pilot.press("escape")
-            await pilot.pause()
+            await wait_for_widget(pilot, "#review-execute")
             assert isinstance(app.screen, ReviewTaskScreen)
             assert app.backup_state.model_dump_json() == initial
             assert app.running_task is None

@@ -11,6 +11,7 @@ from textual.widgets import OptionList, RichLog, Static
 
 from ethernity.app.styling import StyledApp
 from ethernity.app.widgets.form import FormScroll
+from tests.support.pilot import wait_for_condition
 
 
 class ScrollbarApp(StyledApp):
@@ -30,7 +31,14 @@ def test_scrollbars_keep_a_real_content_gap_and_remain_clickable(size) -> None:
         async with app.run_test(size=size) as pilot:
             for host in app.query("#form, #document, #choices"):
                 host.styles.height = 6
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: all(
+                    host.region.height == 6 and host.region.width == app.screen.content_region.width
+                    for host in app.query("#form, #document, #choices")
+                ),
+                "scroll hosts to fit the screen after resizing",
+            )
             for host in app.query("#form, #document, #choices"):
                 assert host.show_vertical_scrollbar
                 bar = host.vertical_scrollbar
@@ -42,9 +50,12 @@ def test_scrollbars_keep_a_real_content_gap_and_remain_clickable(size) -> None:
                         child.region.right <= bar.content_region.x - 2 for child in host.children
                     )
                 # Track actions still work at the visible one-cell track.
-                await pilot.click(bar, offset=(2, bar.region.height - 1))
-                await pilot.pause()
-                assert host.scroll_y > 0
+                assert await pilot.click(bar, offset=(2, bar.region.height - 1))
+                await wait_for_condition(
+                    pilot,
+                    lambda host=host: host.scroll_y > 0,
+                    f"{host.id} scrollbar to move content",
+                )
                 host.scroll_home(animate=False, immediate=True)
                 await pilot.pause()
                 assert host.scroll_y == 0
@@ -77,8 +88,7 @@ def test_native_log_keeps_horizontal_track_compact_and_vertical_gap_on_resize() 
                 assert vertical.content_region.x - log.scrollable_content_region.right == 2
                 assert horizontal.region.height == horizontal.content_region.height == 1
                 assert horizontal.styles.padding.left == 0
-            await pilot.click(horizontal, offset=(horizontal.region.width - 1, 0))
-            await pilot.pause()
-            assert log.scroll_x > 0
+            assert await pilot.click(horizontal, offset=(horizontal.region.width - 1, 0))
+            await wait_for_condition(pilot, lambda: log.scroll_x > 0, "log to scroll horizontally")
 
     asyncio.run(run())

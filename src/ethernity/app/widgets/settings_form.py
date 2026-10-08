@@ -28,7 +28,6 @@ from textual.widgets import (
     ContentSwitcher,
     Input,
     MaskedInput,
-    Select,
     Static,
     Switch,
 )
@@ -136,7 +135,6 @@ class SettingsForm(Widget):
             markup=markup,
         )
         self._config_full_path = ""
-        self._select_options_by_key: dict[str, tuple[tuple[str, str], ...]] = {}
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="settings-body"):
@@ -263,12 +261,11 @@ class SettingsForm(Widget):
         for descriptor in SETTING_DESCRIPTORS:
             control_id = f"#setting-control-{descriptor.key}"
             if descriptor.kind == "enum":
-                select = self.query_one(control_id, Select)
+                select = self.query_one(control_id, FormSelect)
                 options = _select_options(settings, descriptor)
-                with select.prevent(Select.Changed):
-                    self._set_select_options(select, descriptor.key, options)
-                    select.value = _select_value(settings, descriptor, options)
-                    select.disabled = not bool(options)
+                select.sync_options(options)
+                select.sync_value(_select_value(settings, descriptor, options))
+                select.disabled = not bool(options)
             elif descriptor.kind == "bool":
                 switch = self.query_one(control_id, Switch)
                 with switch.prevent(Switch.Changed):
@@ -346,18 +343,6 @@ class SettingsForm(Widget):
         if button_id == "settings-open-config":
             event.stop()
             self._open_config_folder()
-
-    def _set_select_options(
-        self,
-        select: Select[str],
-        key: str,
-        options: list[tuple[str, str]],
-    ) -> None:
-        option_key = tuple(options)
-        if self._select_options_by_key.get(key) == option_key:
-            return
-        select.set_options(options)
-        self._select_options_by_key[key] = option_key
 
     def _open_config_folder(self) -> None:
         try:

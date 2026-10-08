@@ -20,7 +20,36 @@ from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.models import TaskExecutionResult
 from ethernity.tasks.settings import SettingsTaskState
-from tests.support.pilot import wait_for_condition
+from tests.support.pilot import wait_for_condition, wait_for_widget
+
+
+@pytest.mark.parametrize("keys", [("render_style", "page_size"), ("page_size", "render_style")])
+def test_settings_preserve_queued_select_changes(tmp_path: Path, keys: tuple[str, str]) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
+
+    async def run() -> None:
+        app = EthernityApp(settings_state=SettingsTaskState.from_current(config_path))
+        async with app.run_test(size=(120, 48)) as pilot:
+            await pilot.press("7")
+            await wait_for_widget(pilot, "#setting-control-render_style")
+            values = {"render_style": "forge", "page_size": "LETTER"}
+            # Saving the first change refreshes every field while the second is still queued.
+            for key in keys:
+                app.query_one(f"#setting-control-{key}", Select).value = values[key]
+            await wait_for_condition(
+                pilot,
+                lambda: (
+                    app.settings_state.design == "forge"
+                    and app.settings_state.paper_size == "LETTER"
+                ),
+                "both queued settings to be applied",
+            )
+            saved = SettingsTaskState.from_current(config_path)
+            assert saved.design == "forge"
+            assert saved.paper_size == "LETTER"
+
+    asyncio.run(run())
 
 
 def _config_settings(tmp_path: Path) -> SettingsTaskState:

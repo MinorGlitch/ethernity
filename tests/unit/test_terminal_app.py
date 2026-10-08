@@ -1802,13 +1802,19 @@ def test_textual_app_restore_target_fingerprint_is_real_control() -> None:
             await pilot.pause()
             target = app.query_one("#workflow-restore-target-body-choices", RadioSet)
             target.focus()
+            await wait_for_focus(pilot, target)
             await pilot.press("right", "right", "space")
-            await pilot.pause()
-            await pilot.click("#edit-field-cancel")
-            await pilot.click("#workspace-restore-target-fingerprint")
-            app.screen.query_one("#edit-field-input", Input).value = "cd" * 32
+            await click_when_ready(pilot, "#edit-field-cancel")
+            await click_when_ready(pilot, "#workspace-restore-target-fingerprint")
+            field = await wait_for_widget(pilot, "#edit-field-input")
+            assert isinstance(field, Input)
+            field.value = "cd" * 32
             await pilot.press("enter")
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: app.restore_state.extension_doc_hash == "cd" * 32,
+                "restore fingerprint to reach task state",
+            )
 
             assert app.restore_state.target == "specific_update"
             assert app.restore_state.extension_index is None
@@ -1831,7 +1837,9 @@ def test_textual_app_restore_auth_policy_control_is_real() -> None:
                 app.query_one("#workspace-restore-auth-policy", Select).tooltip
             )
             app.query_one("#workspace-restore-auth-policy", Select).value = "allow-unsigned"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot, lambda: app.restore_state.allow_unsigned, "unsigned recovery to be enabled"
+            )
 
             assert app.restore_state.allow_unsigned
             assert app.restore_state.to_recovery_request().allow_unsigned
@@ -1840,7 +1848,11 @@ def test_textual_app_restore_auth_policy_control_is_real() -> None:
             assert "signatures will not be required" in _preview_text(app)
 
             app.query_one("#workspace-restore-auth-policy", Select).value = "require-signed"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: not app.restore_state.allow_unsigned,
+                "signed recovery to be required",
+            )
 
             assert not app.restore_state.allow_unsigned
             assert not app.query("#workspace-restore-resource-policy")
@@ -1969,7 +1981,7 @@ def test_textual_app_edit_rebuild_state(monkeypatch: pytest.MonkeyPatch) -> None
             )
 
             await app._select_workbench_step("output")
-            await pilot.pause()
+            await wait_for_focus(pilot, destination)
             assert app.query_one("#rebuild-qr-section", FormSection).display
             density = app.query_one("#workspace-rebuild-qr-chunk-size", Button)
             density.focus()
@@ -2707,7 +2719,14 @@ def test_textual_app_settings_restores_section_and_all_defaults(tmp_path) -> Non
             app.query_one("#setting-control-render_style", Select).value = "forge"
             await pilot.pause()
             app.query_one("#setting-control-page_size", Select).value = "LETTER"
-            await pilot.pause()
+            await _wait_for_condition(
+                pilot,
+                lambda: (
+                    app.settings_state.design == "forge"
+                    and app.settings_state.paper_size == "LETTER"
+                ),
+                "printing settings to be applied",
+            )
 
             assert app.settings_state.design == "forge"
             assert app.settings_state.paper_size == "LETTER"
@@ -3700,8 +3719,8 @@ def test_textual_app_execution_failure_shows_result_screen(monkeypatch) -> None:
             assert "RuntimeError: Printer path is not writable." in _result_text(app)
             assert _button_label(app, "#result-return") == "Edit destination"
 
-            await pilot.click("#result-return")
-            await pilot.pause()
+            await click_when_ready(pilot, "#result-return")
+            await wait_for_focus(pilot, app.query_one("#workspace-backup-output", Button))
 
             assert not list(app.screen.query("#result-modal"))
             assert not list(app.screen.query("#review-modal"))
