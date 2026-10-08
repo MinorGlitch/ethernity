@@ -63,8 +63,15 @@ uv run pytest tests/unit tests/integration -q
 The full Python suite needs the generated kit bundles and installed npm dependencies from setup.
 The [CI workflow](.github/workflows/ci.yml) defines the platform matrix, coverage thresholds, E2E
 tests, packaging checks, and dependency audits. Local checks do not replace those gates.
-Python 3.11 checks the minimum supported version across all three operating systems; Linux also
-runs the suite on Python 3.13.
+The full unit and integration suites run on macOS and Windows with Python 3.11, and on Linux
+with Python 3.13. The Linux run collects application and document-inspector coverage together,
+then checks them separately against the 85% and 45% thresholds. Reporting does not rerun tests.
+Python lint, formatting, type checking, and spelling share one CI job with separate result steps.
+
+Tests should fail when the behavior they protect breaks. Check output content, state changes,
+or failure handling; avoid tests that only construct a dataclass, repeat source code, or check
+that an old module was deleted. Keep rendering cases in the shared template matrix where possible.
+Released-backup fixtures must remain unchanged.
 
 For a quick check of native paths, file publication, worker limits, and UI event handling, run:
 
@@ -72,9 +79,10 @@ For a quick check of native paths, file publication, worker limits, and UI event
 uv run pytest tests/unit -m portability -q
 ```
 
-CI runs this selection on Windows, macOS, and Linux before the full suites finish. These tests
-also remain in the full suite. Mark a test `portability` when it covers a platform boundary or
-an asynchronous UI regression and is fast enough for this check.
+CI runs this selection separately on Linux with Python 3.11 to check the minimum supported Python
+version there. Windows and macOS run these tests as part of their full Python 3.11 suites.
+Mark a test `portability` when it covers a platform boundary or an asynchronous UI regression and
+is fast enough for this check.
 
 UI tests share the bounded waits in `tests/support/pilot.py`. Wait for the state change the test
 needs, such as a visible dialog, focused control, or completed worker. Use the `set_home` fixture
@@ -140,7 +148,11 @@ uv run pytest tests/unit/test_render_visual_baselines.py -n 2 -v
 
 Inspect the generated PDFs. For terminal layout changes, run `uv run pytest tests/visual -n 2 -v` and
 follow the [visual review workflow](tests/visual/README.md#review-workflow). Update visual baselines
-only after reviewing the intended change.
+only after reviewing the intended change. The `render-visual` CI job checks the PDF review matrix
+and terminal snapshots against the reviewed baselines. PDF unit tests run in the platform suites;
+the Linux job installs Poppler so tests that scan composited PDF pages cannot skip for its absence.
+Python/browser interoperability tests also run in the platform suites. The `kit-verify` job runs
+the JavaScript tests and generated-bundle browser checks.
 
 ### Formats, cryptography, and recovery
 

@@ -19,51 +19,28 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
-      - name: Ruff lint
-        run: uv run ruff check src tests tooling
-      - name: Pylint duplication and nesting
-        if: ${{ !cancelled() }}
-        run: uv run pylint src/ethernity tooling
-
-  format:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
-      - name: Ruff format
-        run: uv run ruff format --check src tests tooling
-
-  typecheck:
+  python-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
+        id: setup
         uses: ./.github/actions/setup-python
+      - name: Ruff lint
+        run: uv run ruff check src tests tooling
+      - name: Pylint duplication and nesting
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: uv run pylint src/ethernity tooling
+      - name: Ruff format
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: uv run ruff format --check src tests tooling
       - name: Pyrefly
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: uv run pyrefly check --output-format=github
-
-  typos:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
       - name: Typos
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: uv run typos .
 
   kit-lint:
@@ -103,16 +80,12 @@ jobs:
           uv run python scripts/render_visual_baselines.py \
             --output-dir "${RUNNER_TEMP}/render-visual-baselines" \
             --rasterize never
-      - name: Verify composited QR scans
-        run: uv run pytest tests/unit/test_render_visual_baselines.py -n 2 -v
+      - name: Verify terminal snapshots
+        run: uv run pytest tests/visual -n 2 -v
 
   portability:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -120,13 +93,13 @@ jobs:
         uses: ./.github/actions/setup-python
         with:
           python-version: "3.11"
-      - name: Check native paths, publication, workers, and UI events
+      - name: Check Linux portability on minimum Python
         run: uv run pytest tests/unit -m portability -q
 
   test:
     needs: kit-bundles
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -154,6 +127,9 @@ jobs:
         uses: ./.github/actions/setup-python
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install Poppler for composited QR tests
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install --yes poppler-utils
       - name: Setup Node.js for kit interop tests
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
@@ -164,10 +140,23 @@ jobs:
         working-directory: kit
         run: npm ci
 
-      - name: Run unit tests
-        run: uv run pytest tests/unit -n 2 --dist loadfile -v
-      - name: Run integration tests
-        run: uv run pytest tests/integration -n 2 --dist loadfile -v
+      - name: Run unit and integration tests
+        if: matrix.os != 'ubuntu-latest'
+        run: uv run pytest tests/unit tests/integration -n 2 --dist loadfile -v
+      - name: Run unit and integration tests with coverage
+        id: coverage-tests
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          uv run pytest tests/unit tests/integration -n 2 --dist loadfile \
+            --cov=ethernity \
+            --cov=tooling.document_inspector_app \
+            --cov-report=
+      - name: Check application coverage
+        if: ${{ !cancelled() && steps.coverage-tests.outcome == 'success' }}
+        run: uv run coverage report --include='src/ethernity/*' --fail-under=85
+      - name: Check document inspector coverage
+        if: ${{ !cancelled() && steps.coverage-tests.outcome == 'success' }}
+        run: uv run coverage report --include='tooling/document_inspector_app/*' --fail-under=45
 
   e2e:
     needs: kit-bundles
@@ -187,58 +176,6 @@ jobs:
         env:
           ETHERNITY_TEST_CLI_TIMEOUT_SECONDS: "300"
         run: uv run pytest tests/e2e -n 2 --dist loadfile -v
-
-  coverage:
-    needs: kit-bundles
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Download generated kit bundles
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: recovery-kit-bundles
-          path: src/ethernity/resources/kit
-      - name: Download kit loader roundtrip references
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: recovery-kit-packed
-          path: kit/dist
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
-      - name: Setup Node.js for unit coverage
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
-        with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: kit/package-lock.json
-      - name: Install kit dependencies
-        working-directory: kit
-        run: npm ci
-      - name: Run tests with coverage
-        run: |
-          uv run pytest tests/unit tests/integration -n 2 --dist loadfile \
-            --cov=ethernity \
-            --cov-report=term-missing \
-            --cov-fail-under=85
-
-  tooling-coverage:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
-      - name: Document inspector coverage
-        run: |
-          uv run pytest \
-            tests/unit/test_document_inspector_tool.py \
-            tests/unit/test_document_inspector_app_support.py \
-            --cov=tooling.document_inspector_app \
-            --cov-report=term-missing \
-            --cov-fail-under=45
 
   kit-bundles:
     runs-on: ubuntu-latest
@@ -357,12 +294,6 @@ jobs:
         working-directory: kit
         run: npm run test:browser
 
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
-
-      - name: Run kit interoperability tests
-        run: uv run pytest tests/unit/test_kit_vectors.py tests/unit/test_kit_interop.py -v
-
   python-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -405,17 +336,12 @@ jobs:
   ci-gate:
     if: ${{ always() }}
     needs:
-      - lint
-      - format
-      - typecheck
-      - typos
+      - python-checks
       - kit-lint
       - render-visual
       - portability
       - test
       - e2e
-      - coverage
-      - tooling-coverage
       - kit-bundles
       - package
       - kit-verify
