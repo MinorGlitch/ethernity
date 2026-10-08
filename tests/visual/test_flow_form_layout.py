@@ -9,7 +9,7 @@ from textual.widgets import Button, Select
 
 from ethernity.app.widgets.form import FormRow, FormSection
 from ethernity.app.widgets.workbench import workbench_steps
-from tests.support.pilot import wait_for_visible
+from tests.support.pilot import wait_for_focus, wait_for_visible
 from tests.visual.layout_assertions import assert_scrollbar_gaps
 from tests.visual.production_states import ProductionVisualApp, production_case
 
@@ -38,7 +38,9 @@ def test_each_flow_step_has_bounded_rows_and_reachable_controls(case, size) -> N
                 if step.key == "review":
                     continue
                 await app._select_workbench_step(step.key)
-                await pilot.pause()
+                # Step entry queues focus and scroll reset after the next layout.
+                await app.wait_for_refresh()
+                workspace = app.query_one("#canvas-task-workspaces")
                 assert_scrollbar_gaps(app.screen)
                 rows = [
                     row
@@ -54,17 +56,18 @@ def test_each_flow_step_has_bounded_rows_and_reachable_controls(case, size) -> N
                     sections
                     and sum(section.has_class("first-section") for section in sections) == 1
                 )
-                viewport = app.query_one("#canvas-task-workspaces").region
-                assert viewport.contains_region(sections[0].query_one(".form-section-title").region)
+                title = sections[0].query_one(".form-section-title")
+                await wait_for_visible(pilot, title, within=workspace)
+                viewport = workspace.region
+                assert viewport.contains_region(title.region), (case, size, step.key)
                 for row in rows:
                     for control in row.query("Button, Select, Input"):
                         if not control.display or control.disabled:
                             continue
                         control.focus(scroll_visible=False)
                         control.scroll_visible(animate=False, immediate=True)
-                        await wait_for_visible(
-                            pilot, control, within=app.query_one("#canvas-task-workspaces")
-                        )
+                        await wait_for_focus(pilot, control)
+                        await wait_for_visible(pilot, control, within=workspace)
                         assert viewport.contains_region(control.region), (
                             case,
                             size,

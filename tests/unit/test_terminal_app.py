@@ -2117,18 +2117,7 @@ def test_textual_app_replace_recovery_signing_key_controls_are_real(
             assert not app.query_one("#replace-signing-notice").display
 
             app.query_one("#workspace-replace-signing-key-select", Select).value = "custom"
-            await _wait_for_condition(
-                pilot,
-                lambda: bool(app.screen.query("#edit-field-input")),
-                "custom signing-key quorum editor",
-            )
-            field = app.screen.query_one("#edit-field-input", Input)
-            assert not isinstance(field, MaskedInput)
-            field.value = ""
-            field.focus()
-            await _type_text(pilot, "3/5")
-            await pilot.press("enter")
-            await pilot.pause()
+            await _enter_edit_field(app, pilot, "3/5", plain_input=True)
 
             assert app.replace_recovery_docs_state.signing_key_recovery_threshold == 3
             assert app.replace_recovery_docs_state.signing_key_recovery_count == 5
@@ -2166,14 +2155,7 @@ def test_textual_app_replace_recovery_passphrase_replacement_count_is_real() -> 
             await pilot.pause()
 
             app.query_one("#workspace-replace-passphrase-select", Select).value = "replace"
-            await wait_for_widget(pilot, "#edit-field-input")
-            field = app.screen.query_one("#edit-field-input", Input)
-            assert not isinstance(field, MaskedInput)
-            field.value = ""
-            field.focus()
-            await _type_text(pilot, "2")
-            await pilot.press("enter")
-            await pilot.pause()
+            await _enter_edit_field(app, pilot, "2", plain_input=True)
 
             state = app.replace_recovery_docs_state
             assert state.create_passphrase_recovery
@@ -2210,15 +2192,11 @@ def test_textual_app_replace_recovery_signing_key_payloads_are_real_picker(
             await pilot.pause()
             assert app.query_one("#replace-signing-section", FormSection).display
             app.query_one("#workspace-replace-signing-key-select", Select).value = "replace"
-            await pilot.pause()
-            count = app.screen.query_one("#edit-field-input", Input)
-            count.value = ""
-            count.focus()
-            await _type_text(pilot, "1")
-            await pilot.press("enter")
-            await pilot.pause()
+            await _enter_edit_field(app, pilot, "1")
 
-            app.query_one("#workspace-replace-signing-key-payloads", Button).focus()
+            payloads = app.query_one("#workspace-replace-signing-key-payloads", Button)
+            payloads.focus()
+            await wait_for_focus(pilot, payloads)
             await pilot.press("enter")
             await _choose_picker_paths(app, pilot, Path("signing-payloads.txt"))
 
@@ -2447,13 +2425,7 @@ def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
             )
 
             await pilot.click("#workspace-add-files-recovery-sheets")
-            await pilot.pause()
-            recovery_sheets = app.screen.query_one("#edit-field-input", Input)
-            recovery_sheets.value = ""
-            recovery_sheets.focus()
-            await _type_text(pilot, "3/5")
-            await pilot.press("enter")
-            await pilot.pause()
+            await _enter_edit_field(app, pilot, "3/5")
 
             assert app.add_files_state.create_recovery_sheets
             assert app.add_files_state.recovery_threshold == 3
@@ -3739,6 +3711,7 @@ async def _enter_edit_field(
         assert not isinstance(field, MaskedInput)
     field.value = ""
     field.focus()
+    await wait_for_focus(pilot, field)
     await _type_text(pilot, value)
     await pilot.press("enter")
     await _wait_for_condition(pilot, lambda: app.screen is not editor, "field editor to close")
