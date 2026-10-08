@@ -7,7 +7,6 @@ from textual.widgets import (
     Button,
     Collapsible,
     Input,
-    Label,
     MarkdownViewer,
     OptionList,
     RichLog,
@@ -19,11 +18,8 @@ from textual.widgets import (
 from ethernity.app.application import EthernityApp
 from ethernity.app.bindings import APP_BINDINGS
 from ethernity.app.help_content import build_help_content
-from ethernity.app.screens.diagnostics import DiagnosticsScreen
-from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
 from ethernity.app.screens.help import HelpScreen, _help_markdown
-from ethernity.app.screens.paste_text import PasteTextScreen
 from ethernity.app.screens.review_task import ReviewTaskScreen
 from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.widgets.settings_form import SettingsForm
@@ -34,8 +30,6 @@ from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
 from ethernity.tasks.models import (
     PreviewItem,
-    TaskDiagnosticBlock,
-    TaskDiagnostics,
     TaskExecutionPlan,
     TaskExecutionResult,
     TaskIssue,
@@ -45,45 +39,6 @@ from ethernity.tasks.models import (
     TaskValidation,
 )
 from tests.support.pilot import wait_for_condition
-
-
-def test_editor_and_diagnostics_actions_use_concrete_labels() -> None:
-    async def run() -> None:
-        app = EthernityApp()
-        async with app.run_test(size=(80, 24)) as pilot:
-            editor = EditFieldScreen(title="Passphrase", prompt="Enter a passphrase")
-            await app.push_screen(editor)
-            await pilot.pause()
-            assert str(editor.query_one("#edit-field-save", Button).label) == "Apply"
-            editor.dismiss(None)
-            await pilot.pause()
-
-            paste = PasteTextScreen(title="Recovery text", prompt="Paste recovery text")
-            await app.push_screen(paste)
-            await pilot.pause()
-            assert str(paste.query_one("#paste-text-save", Button).label) == "Use text"
-            paste.dismiss(None)
-            await pilot.pause()
-
-            diagnostics = DiagnosticsScreen(
-                TaskDiagnostics(
-                    title="Backup diagnostics",
-                    blocks=(
-                        TaskDiagnosticBlock(
-                            title="Backup",
-                            content="redacted",
-                            sensitive_content="secret",
-                        ),
-                    ),
-                )
-            )
-            await app.push_screen(diagnostics)
-            await pilot.pause()
-            assert str(diagnostics.query_one("#diagnostics-reveal-label", Label).content) == (
-                "Show sensitive values"
-            )
-
-    asyncio.run(run())
 
 
 def test_save_file_picker_requires_a_file_name_and_rejects_paths(tmp_path: Path) -> None:
@@ -318,40 +273,6 @@ def test_escape_closes_navigation_menu_without_affecting_closed_shell() -> None:
             await pilot.pause()
             assert app.is_running
             assert app.active_task == "backup"
-
-    asyncio.run(run())
-
-
-def test_action_bar_uses_screen_breakpoints_after_resize() -> None:
-    async def run() -> None:
-        app = EthernityApp(
-            backup_state=BackupTaskState(
-                input_paths=[Path("secrets.txt")],
-                output_dir=Path("backup-out"),
-            )
-        )
-        async with app.run_test(size=(120, 30)) as pilot:
-            action_row = app.query_one("#canvas-action-row")
-            primary = app.query_one("#canvas-primary", Button)
-            full_label = str(primary.label)
-            assert app.screen.has_class("-ethernity-standard")
-            assert full_label == "Continue >"
-
-            await pilot.resize_terminal(80, 24)
-            await pilot.pause()
-
-            assert app.screen.has_class("-ethernity-narrow")
-            assert app.screen.has_class("-ethernity-short")
-            assert str(primary.label) == full_label
-            assert primary.region.right == action_row.region.right
-            assert primary.region.width >= len(full_label)
-            assert action_row.region.bottom <= app.screen.size.height
-
-            await pilot.resize_terminal(120, 30)
-            await pilot.pause()
-
-            assert app.screen.has_class("-ethernity-standard")
-            assert str(primary.label) == full_label
 
     asyncio.run(run())
 

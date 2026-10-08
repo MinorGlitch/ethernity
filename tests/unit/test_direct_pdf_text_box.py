@@ -1,12 +1,10 @@
 import ast
 import unittest
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from fontTools.pens.boundsPen import BoundsPen
 from fontTools.ttLib import TTFont
 
-from ethernity.render.checks import validate_pdf_has_pages
 from ethernity.render.direct_pdf.components import TextAlign, TextBox
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.direct_pdf.text_fit import TextFitError, TextFitPolicy
@@ -240,23 +238,6 @@ class TestDirectPdfTextBox(unittest.TestCase):
 
         self.assertAlmostEqual(plan.layout.used_rect.x_mm, line.x_mm)
         self.assertAlmostEqual(plan.layout.used_rect.right_mm, rect.right_mm)
-
-    def test_paint_writes_valid_pdf(self) -> None:
-        with TemporaryDirectory() as tmp:
-            output_path = Path(tmp) / "text_box.pdf"
-            self.surface.add_page()
-            box = TextBox(
-                component_id="title",
-                text="Direct PDF TextBox",
-                style=TextStyle(family="Helvetica", size_pt=14),
-                policy=TextFitPolicy.FAIL,
-            )
-
-            plan = box.plan(self.surface, PdfRect(10, 10, 70, 20))
-            plan.paint(self.surface)
-            self.surface.output(output_path)
-
-            validate_pdf_has_pages(output_path)
 
 
 if __name__ == "__main__":

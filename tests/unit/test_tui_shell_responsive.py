@@ -149,6 +149,7 @@ def test_action_bar_keeps_its_label_and_uses_screen_breakpoints() -> None:
             assert primary.region.right == action_row.region.right
             assert primary.region.width >= 18
             assert primary.region.height == 1
+            assert action_row.region.bottom <= app.screen.size.height
             assert len(str(primary.label)) <= primary.region.width
 
             await pilot.resize_terminal(120, 32)

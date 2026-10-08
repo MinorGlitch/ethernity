@@ -86,6 +86,7 @@ def test_password_editor_masks_value_and_preserves_whitespace() -> None:
             await pilot.pause()
             field = screen.query_one("#edit-field-input", Input)
             assert field.password
+            assert str(screen.query_one("#edit-field-save", Button).label) == "Apply"
             await pilot.press("enter")
             await pilot.pause()
             assert results == ["  actual phrase  "]
@@ -102,6 +103,7 @@ def test_paste_editor_keeps_enter_for_newlines_and_saves_full_text() -> None:
             await app.push_screen(screen, results.append)
             await pilot.pause()
             field = screen.query_one("#paste-text-input", TextArea)
+            assert str(screen.query_one("#paste-text-save", Button).label) == "Use text"
             field.load_text("first")
             field.move_cursor((0, 5))
             await pilot.press("enter")

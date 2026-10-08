@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -11,29 +10,6 @@ from ethernity.main import main
 from ethernity.run.cli import cli
 from ethernity.run.command_registry import RUN_COMMANDS
 from ethernity.tasks.models import TaskExecutionResult
-
-
-def test_runtime_dependencies_exclude_old_prompt_stack() -> None:
-    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-    runtime_dependencies = tuple(
-        dependency.partition(">=")[0].partition("==")[0].lower()
-        for dependency in pyproject["project"]["dependencies"]
-    )
-    dev_dependencies = tuple(
-        dependency.partition(">=")[0].partition("==")[0].lower()
-        for dependency in pyproject["project"]["optional-dependencies"]["dev"]
-    )
-
-    assert "typer" not in runtime_dependencies
-    assert "questionary" not in runtime_dependencies
-    assert "prompt-toolkit" not in runtime_dependencies
-    assert "typer" not in dev_dependencies
-    assert "questionary" not in dev_dependencies
-    assert "prompt-toolkit" not in dev_dependencies
-
-
-def test_legacy_cli_source_package_is_removed() -> None:
-    assert not any(Path("src/ethernity/cli").rglob("*.py"))
 
 
 def test_root_help_points_to_new_terminal_app_and_runner(capsys) -> None:

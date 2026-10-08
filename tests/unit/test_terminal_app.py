@@ -551,7 +551,7 @@ def test_textual_app_editors_and_review_open_centered() -> None:
     asyncio.run(run())
 
 
-def test_textual_app_workspace_buttons_do_not_overlap_primary_action() -> None:
+def test_textual_app_workspace_buttons_keep_gaps_and_clear_primary_action() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(120, 48)) as pilot:
@@ -561,6 +561,15 @@ def test_textual_app_workspace_buttons_do_not_overlap_primary_action() -> None:
 
                 action_bar = app.query_one("#task-action-bar").region
                 active_workspace = app.screen.query_one(f"#{app.active_task}-workspace")
+                for row in active_workspace.query(".workspace-button-row"):
+                    buttons = [
+                        button
+                        for button in row.query(Button)
+                        if button.display and button.region.width > 0
+                    ]
+                    for previous, current in zip(buttons, buttons[1:], strict=False):
+                        assert current.region.y == previous.region.y
+                        assert current.region.x >= previous.region.right + 1
                 visible_workspace = active_workspace.query_one(".task-workspace").region
                 for button in app.screen.query(Button):
                     if button.id is None or not button.id.startswith("workspace-"):
@@ -571,28 +580,6 @@ def test_textual_app_workspace_buttons_do_not_overlap_primary_action() -> None:
                         continue
                     assert not button.region.overlaps(action_bar)
                     assert button.region.width < visible_workspace.width - 4
-
-    asyncio.run(run())
-
-
-def test_textual_app_workspace_button_rows_keep_visible_gaps() -> None:
-    async def run() -> None:
-        app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
-            for task_key in ("1", "2", "3", "4", "5", "6"):
-                await pilot.press(task_key)
-                await pilot.pause()
-
-                active_workspace = app.screen.query_one(f"#{app.active_task}-workspace")
-                for row in active_workspace.query(".workspace-button-row"):
-                    buttons = [
-                        button
-                        for button in row.query(Button)
-                        if button.display and button.region.width > 0
-                    ]
-                    for previous, current in zip(buttons, buttons[1:], strict=False):
-                        assert current.region.y == previous.region.y
-                        assert current.region.x >= previous.region.x + previous.region.width + 1
 
     asyncio.run(run())
 
@@ -1335,6 +1322,9 @@ def test_textual_app_diagnostics_are_on_demand_and_redacted(tmp_path) -> None:
             assert str(close_button.label) == "Close"
             assert close_button.variant == "default"
 
+            assert str(app.screen.query_one("#diagnostics-reveal-label", Label).content) == (
+                "Show sensitive values"
+            )
             switch = app.screen.query_one("#diagnostics-reveal", Switch)
             switch.toggle()
             await _wait_for_condition(

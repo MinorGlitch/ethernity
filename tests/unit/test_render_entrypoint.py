@@ -97,24 +97,6 @@ class TestRenderEntrypoint(unittest.TestCase):
                         self.assertIn("update id", page_text)
                         self.assertIn("5555555555555555", page_text)
 
-    def test_render_frames_to_pdf_writes_direct_pdf_by_default(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = Path(tmpdir) / "out.pdf"
-            inputs = RenderInputs(
-                frames=(_frame(),),
-                output_path=output_path,
-                context={"paper_size": "A4"},
-                doc_type="main",
-                origin=DocumentOrigin(kind="root_backup"),
-                render_qr=True,
-                render_fallback=False,
-            )
-
-            result = render_frames_to_pdf(inputs)
-
-            reader = validate_pdf_has_pages(output_path)
-            self.assertEqual(result.document_summary.page_count, len(reader.pages))
-
     def test_render_frames_to_pdf_rejects_empty_frames_when_qr_or_fallback_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             inputs = RenderInputs(

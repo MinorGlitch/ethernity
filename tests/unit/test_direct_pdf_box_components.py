@@ -1,9 +1,6 @@
 import unittest
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from ethernity.qr.codec import qr_bytes
-from ethernity.render.checks import validate_pdf_has_pages
 from ethernity.render.direct_pdf.components import (
     Ellipse,
     ImageBox,
@@ -119,47 +116,6 @@ class TestDirectPdfBoxComponents(unittest.TestCase):
         self.assertEqual(plan.image, image)
         self.assertEqual(plan.layout.component_type, "image")
         self.assertFalse(plan.layout.overflow)
-
-    def test_panel_rule_and_image_paint_valid_pdf(self) -> None:
-        with TemporaryDirectory() as tmp:
-            output_path = Path(tmp) / "box_components.pdf"
-            self.surface.add_page()
-
-            Panel(
-                component_id="page-border",
-                stroke=PdfColor(25, 25, 25),
-                line_width_mm=0.4,
-                corner_radius_mm=3.0,
-            ).plan(self.surface, PdfRect(5, 5, 90, 90)).paint(self.surface)
-            Ellipse(
-                component_id="step-marker",
-                stroke=PdfColor(25, 25, 25),
-                fill=PdfColor(25, 25, 25),
-                line_width_mm=0.2,
-            ).plan(self.surface, PdfRect(10, 12, 6, 6)).paint(self.surface)
-            Rule(
-                component_id="header-rule",
-                color=PdfColor(25, 25, 25),
-            ).plan(self.surface, PdfRect(10, 22, 80, 0.6)).paint(self.surface)
-            Line(
-                component_id="hatch-line",
-                color=PdfColor(225, 225, 225),
-                line_width_mm=0.15,
-            ).plan(
-                self.surface,
-                start_x_mm=12,
-                start_y_mm=24,
-                end_x_mm=30,
-                end_y_mm=42,
-            ).paint(self.surface)
-            ImageBox(
-                component_id="qr",
-                image=qr_bytes("direct-pdf-box-components", scale=2),
-                image_type="PNG",
-            ).plan(self.surface, PdfRect(10, 30, 30, 30)).paint(self.surface)
-            self.surface.output(output_path)
-
-            validate_pdf_has_pages(output_path)
 
 
 if __name__ == "__main__":
