@@ -17,33 +17,21 @@ import hashlib
 import unittest
 from unittest import mock
 
-from ethernity.cli.shared.types import InputFile
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
-from ethernity.extensions import (
-    build_extension_document,
-    build_virtual_chunk_source,
-    default_extension_chunker,
-)
-from ethernity.formats.extension_envelope import (
-    ExtensionChunkingProfile,
-)
-from ethernity.formats.extension_envelope_constants import (
+from ethernity.extensions.build import _build_extension_document
+from ethernity.formats.extension_chunking import default_extension_chunker
+from ethernity.formats.extension_constants import (
     CHUNK_ALGORITHM_FASTCDC,
     CHUNK_CODEC_GZIP,
     CHUNK_CODEC_RAW,
 )
+from ethernity.formats.extension_document import (
+    ExtensionChunkingProfile,
+)
+from ethernity.workflows.shared.operation_types import InputFile
 
 
 def _profile() -> ExtensionChunkingProfile:
-    return ExtensionChunkingProfile(
-        algorithm_id=CHUNK_ALGORITHM_FASTCDC,
-        target_size=64 * 1024,
-        min_size=16 * 1024,
-        max_size=256 * 1024,
-    )
-
-
-def _text_profile() -> ExtensionChunkingProfile:
     return ExtensionChunkingProfile(
         algorithm_id=CHUNK_ALGORITHM_FASTCDC,
         target_size=16 * 1024,
@@ -52,19 +40,51 @@ def _text_profile() -> ExtensionChunkingProfile:
     )
 
 
-def _chunk_offsets_and_hashes(chunks: tuple[bytes, ...]) -> tuple[list[int], list[str]]:
-    offsets: list[int] = []
-    offset = 0
-    for chunk in chunks:
-        offset += len(chunk)
-        offsets.append(offset)
-    hashes = [hashlib.sha256(chunk).hexdigest() for chunk in chunks]
+def _chunk_map(data: bytes, profile: ExtensionChunkingProfile) -> dict[bytes, bytes]:
+    return {
+        hashlib.sha256(data[start:end]).digest(): data[start:end]
+        for start, end in default_extension_chunker(data, profile)
+    }
+
+
+def _chunk_offsets_and_hashes(
+    data: bytes,
+    chunks: tuple[tuple[int, int], ...],
+) -> tuple[list[int], list[str]]:
+    data_view = memoryview(data)
+    offsets = [end for _start, end in chunks]
+    hashes = [hashlib.sha256(data_view[start:end]).hexdigest() for start, end in chunks]
     return offsets, hashes
 
 
 class TestExtensionBuild(unittest.TestCase):
+    def test_builder_rejects_ancestor_conflicts_with_retained_paths(self) -> None:
+        for existing_path, new_path in (
+            ("a", "a/b"),
+            ("a/b", "a"),
+            ("caf\u00e9", "cafe\u0301/file"),
+        ):
+            with self.subTest(existing_path=existing_path, new_path=new_path):
+                with self.assertRaisesRegex(ValueError, "ancestor of file"):
+                    _build_extension_document(
+                        index=1,
+                        parent_doc_hash=b"\x11" * 32,
+                        root_doc_hash=b"\x11" * 32,
+                        chunking=_profile(),
+                        input_files=(
+                            InputFile(
+                                source_path=None,
+                                relative_path=new_path,
+                                data=b"new",
+                                mtime=1,
+                            ),
+                        ),
+                        existing_file_sizes={existing_path: 3},
+                        existing_file_bytes=3,
+                    )
+
     def test_default_extension_chunker_matches_algorithm_1_conformance_vectors(self) -> None:
-        profile = _text_profile()
+        profile = _profile()
         vectors = (
             (b"", [], []),
             (
@@ -106,7 +126,7 @@ class TestExtensionBuild(unittest.TestCase):
         for data, expected_offsets, expected_hashes in vectors:
             with self.subTest(size=len(data), chunks=len(expected_offsets)):
                 chunks = default_extension_chunker(data, profile)
-                offsets, hashes = _chunk_offsets_and_hashes(chunks)
+                offsets, hashes = _chunk_offsets_and_hashes(data, chunks)
 
                 self.assertEqual(offsets, expected_offsets)
                 self.assertEqual(hashes, expected_hashes)
@@ -120,21 +140,17 @@ class TestExtensionBuild(unittest.TestCase):
 
         self.assertEqual(first, second)
         self.assertGreater(len(first), 1)
-        self.assertEqual(sum(len(chunk) for chunk in first), len(data))
-        self.assertTrue(all(len(chunk) <= profile.max_size for chunk in first))
-        self.assertTrue(all(len(chunk) >= profile.min_size for chunk in first[:-1]))
+        self.assertEqual(sum(end - start for start, end in first), len(data))
+        self.assertTrue(all(end - start <= profile.max_size for start, end in first))
+        self.assertTrue(all(end - start >= profile.min_size for start, end in first[:-1]))
 
     def test_default_extension_chunker_reuses_chunks_after_small_prefix_insert(self) -> None:
         profile = _profile()
         base = b"".join(hashlib.sha256(index.to_bytes(4, "big")).digest() for index in range(16000))
         updated = b"prefix-" + base
-        existing_chunks = build_virtual_chunk_source(
-            (base,),
-            chunking=profile,
-            chunker=default_extension_chunker,
-        )
+        existing_chunks = _chunk_map(base, profile)
 
-        built = build_extension_document(
+        built = _build_extension_document(
             index=2,
             parent_doc_hash=b"\x11" * 32,
             root_doc_hash=b"\x22" * 32,
@@ -147,9 +163,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=1,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
-            chunker=default_extension_chunker,
             existing_file_sizes={},
             existing_chunks=existing_chunks,
         )
@@ -160,7 +173,7 @@ class TestExtensionBuild(unittest.TestCase):
     def test_build_extension_document_dedupes_reused_chunks(self) -> None:
         shared = b"shared bytes"
 
-        built = build_extension_document(
+        built = _build_extension_document(
             index=2,
             parent_doc_hash=b"\x11" * 32,
             root_doc_hash=b"\x22" * 32,
@@ -179,14 +192,11 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=2,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
-            chunker=lambda data, _profile: (data,),
             existing_file_sizes={},
         )
 
         self.assertEqual(built.stats.changed_file_count, 2)
-        self.assertEqual(built.stats.logical_bytes, len(shared) * 2)
+        self.assertEqual(built.stats.file_bytes, len(shared) * 2)
         self.assertEqual(built.stats.new_chunks, 1)
         self.assertEqual(built.stats.reused_chunks, 1)
         self.assertEqual(len(built.document.files), 2)
@@ -202,7 +212,7 @@ class TestExtensionBuild(unittest.TestCase):
         )
 
     def test_build_extension_document_sorts_by_normalized_manifest_path(self) -> None:
-        built = build_extension_document(
+        built = _build_extension_document(
             index=2,
             parent_doc_hash=b"\x11" * 32,
             root_doc_hash=b"\x22" * 32,
@@ -221,16 +231,13 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=2,
                 ),
             ),
-            input_origin="directory",
-            input_roots=("root",),
-            chunker=lambda data, _profile: (data,) if data else (),
             existing_file_sizes={},
         )
 
         self.assertEqual([item.path for item in built.document.files], ["\u00f1.txt", "\u00f6.txt"])
 
     def test_build_extension_document_supports_zero_length_files(self) -> None:
-        built = build_extension_document(
+        built = _build_extension_document(
             index=1,
             parent_doc_hash=b"\x10" * 32,
             root_doc_hash=b"\x20" * 32,
@@ -243,9 +250,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=None,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
-            chunker=lambda data, _profile: (),
             existing_file_sizes={},
         )
 
@@ -255,11 +259,11 @@ class TestExtensionBuild(unittest.TestCase):
         self.assertEqual(built.stats.new_chunks, 0)
         self.assertEqual(built.stats.reused_chunks, 0)
 
-    def test_build_extension_document_reuses_virtual_root_chunks(self) -> None:
+    def test_build_extension_document_reuses_derived_root_chunks(self) -> None:
         shared = b"shared root bytes"
         shared_chunk_id = hashlib.sha256(shared).digest()
 
-        built = build_extension_document(
+        built = _build_extension_document(
             index=2,
             parent_doc_hash=b"\x10" * 32,
             root_doc_hash=b"\x20" * 32,
@@ -272,9 +276,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=5,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
-            chunker=lambda data, _profile: (data,),
             existing_file_sizes={},
             existing_chunks={shared_chunk_id: shared},
         )
@@ -284,58 +285,10 @@ class TestExtensionBuild(unittest.TestCase):
         self.assertEqual(len(built.document.chunks), 0)
         self.assertEqual(built.document.files[0].chunk_refs[0].chunk_id, shared_chunk_id)
 
-    def test_build_extension_document_rejects_chunker_byte_mismatch(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            "chunker output must preserve the original input bytes",
-        ):
-            build_extension_document(
-                index=1,
-                parent_doc_hash=b"\x10" * 32,
-                root_doc_hash=b"\x20" * 32,
-                chunking=_profile(),
-                input_files=(
-                    InputFile(
-                        source_path=None,
-                        relative_path="mismatch.txt",
-                        data=b"abcdefgh",
-                        mtime=1,
-                    ),
-                ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (b"abcd", b"WXYZ"),
-                existing_file_sizes={},
-            )
-
-    def test_build_extension_document_rejects_noncanonical_chunking_recipe(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            "locked extension chunking profile",
-        ):
-            build_extension_document(
-                index=1,
-                parent_doc_hash=b"\x10" * 32,
-                root_doc_hash=b"\x20" * 32,
-                chunking=_profile(),
-                input_files=(
-                    InputFile(
-                        source_path=None,
-                        relative_path="split.txt",
-                        data=b"abcdefgh",
-                        mtime=1,
-                    ),
-                ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (data[:4], data[4:]),
-                existing_file_sizes={},
-            )
-
     def test_build_extension_document_prefers_gzip_when_chunk_is_smaller(self) -> None:
         compressible = b"A" * 8192
 
-        built = build_extension_document(
+        built = _build_extension_document(
             index=1,
             parent_doc_hash=b"\x10" * 32,
             root_doc_hash=b"\x20" * 32,
@@ -348,22 +301,21 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=1,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
-            chunker=lambda data, _profile: (data,),
             existing_file_sizes={},
         )
 
         self.assertEqual(len(built.document.chunks), 1)
         self.assertEqual(built.document.chunks[0].codec, CHUNK_CODEC_GZIP)
-        self.assertEqual(built.document.chunks[0].decode_data(), compressible)
+        chunks = {item.chunk_id: item.decode_data() for item in built.document.chunks}
+        reconstructed = b"".join(chunks[ref.chunk_id] for ref in built.document.files[0].chunk_refs)
+        self.assertEqual(reconstructed, compressible)
 
     def test_build_extension_document_keeps_raw_when_gzip_is_not_smaller(self) -> None:
         incompressible = b"".join(
             hashlib.sha256(f"noise-{index}".encode("ascii")).digest() for index in range(128)
         )
 
-        built = build_extension_document(
+        built = _build_extension_document(
             index=1,
             parent_doc_hash=b"\x10" * 32,
             root_doc_hash=b"\x20" * 32,
@@ -376,9 +328,6 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=1,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
-            chunker=lambda data, _profile: (data,),
             existing_file_sizes={},
         )
 
@@ -386,33 +335,12 @@ class TestExtensionBuild(unittest.TestCase):
         self.assertEqual(built.document.chunks[0].codec, CHUNK_CODEC_RAW)
         self.assertEqual(built.document.chunks[0].data, incompressible)
 
-    def test_build_extension_document_rejects_incomplete_chunk_coverage(self) -> None:
-        with self.assertRaisesRegex(ValueError, "fully cover"):
-            build_extension_document(
-                index=1,
-                parent_doc_hash=b"\x10" * 32,
-                root_doc_hash=b"\x20" * 32,
-                chunking=_profile(),
-                input_files=(
-                    InputFile(
-                        source_path=None,
-                        relative_path="broken.txt",
-                        data=b"abcdef",
-                        mtime=None,
-                    ),
-                ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (data[:3],),
-                existing_file_sizes={},
-            )
-
     def test_build_extension_document_rejects_latest_state_size_overflow(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES",
+            "latest file set exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES",
         ):
-            build_extension_document(
+            _build_extension_document(
                 index=2,
                 parent_doc_hash=b"\x10" * 32,
                 root_doc_hash=b"\x20" * 32,
@@ -425,18 +353,13 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (data,),
-                existing_logical_bytes=MAX_DECOMPRESSED_PAYLOAD_BYTES - 4,
+                existing_file_bytes=MAX_DECOMPRESSED_PAYLOAD_BYTES - 4,
                 existing_file_sizes={"existing.bin": MAX_DECOMPRESSED_PAYLOAD_BYTES - 4},
             )
 
-    def test_build_extension_document_rejects_negative_existing_logical_bytes(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError, "existing logical bytes must be a non-negative int"
-        ):
-            build_extension_document(
+    def test_build_extension_document_rejects_negative_existing_file_bytes(self) -> None:
+        with self.assertRaisesRegex(ValueError, "existing file bytes must be a non-negative int"):
+            _build_extension_document(
                 index=2,
                 parent_doc_hash=b"\x10" * 32,
                 root_doc_hash=b"\x20" * 32,
@@ -449,11 +372,8 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (data,),
                 existing_file_sizes={},
-                existing_logical_bytes=-1,
+                existing_file_bytes=-1,
             )
 
     def test_build_extension_document_requires_existing_file_sizes(
@@ -463,7 +383,7 @@ class TestExtensionBuild(unittest.TestCase):
             ValueError,
             "existing file sizes are required",
         ):
-            build_extension_document(
+            _build_extension_document(
                 index=2,
                 parent_doc_hash=b"\x10" * 32,
                 root_doc_hash=b"\x20" * 32,
@@ -476,16 +396,13 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (data,),
-                existing_logical_bytes=7,
+                existing_file_bytes=7,
                 existing_file_sizes=None,
             )
 
     def test_build_extension_document_rejects_negative_existing_file_size(self) -> None:
         with self.assertRaisesRegex(ValueError, "existing file size must be a non-negative int"):
-            build_extension_document(
+            _build_extension_document(
                 index=2,
                 parent_doc_hash=b"\x10" * 32,
                 root_doc_hash=b"\x20" * 32,
@@ -498,19 +415,16 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (data,),
-                existing_logical_bytes=0,
+                existing_file_bytes=0,
                 existing_file_sizes={"updated.bin": -1},
             )
 
     def test_build_extension_document_rejects_inconsistent_existing_state_total(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "existing logical bytes must match existing file size total",
+            "existing file bytes must match existing file size total",
         ):
-            build_extension_document(
+            _build_extension_document(
                 index=2,
                 parent_doc_hash=b"\x10" * 32,
                 root_doc_hash=b"\x20" * 32,
@@ -523,16 +437,13 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (data,),
-                existing_logical_bytes=10,
+                existing_file_bytes=10,
                 existing_file_sizes={"updated.bin": 2},
             )
 
     def test_build_extension_document_checks_final_latest_state_size(self) -> None:
         with mock.patch("ethernity.extensions.build.MAX_DECOMPRESSED_PAYLOAD_BYTES", 25):
-            built = build_extension_document(
+            built = _build_extension_document(
                 index=2,
                 parent_doc_hash=b"\x10" * 32,
                 root_doc_hash=b"\x20" * 32,
@@ -551,10 +462,7 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (data,),
-                existing_logical_bytes=25,
+                existing_file_bytes=25,
                 existing_file_sizes={"a.bin": 5, "z.bin": 20},
             )
 
@@ -563,10 +471,10 @@ class TestExtensionBuild(unittest.TestCase):
     def test_build_extension_document_rejects_latest_state_file_count_overflow(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            f"logical latest state exceeds MAX_MANIFEST_FILES \\({MAX_MANIFEST_FILES}\\): "
+            f"latest file set exceeds MAX_MANIFEST_FILES \\({MAX_MANIFEST_FILES}\\): "
             f"{MAX_MANIFEST_FILES + 1} entries",
         ):
-            build_extension_document(
+            _build_extension_document(
                 index=2,
                 parent_doc_hash=b"\x10" * 32,
                 root_doc_hash=b"\x20" * 32,
@@ -579,10 +487,7 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (data,),
-                existing_logical_bytes=MAX_MANIFEST_FILES,
+                existing_file_bytes=MAX_MANIFEST_FILES,
                 existing_file_sizes={
                     f"existing-{index:04d}.txt": 1 for index in range(MAX_MANIFEST_FILES)
                 },
@@ -591,10 +496,10 @@ class TestExtensionBuild(unittest.TestCase):
     def test_build_extension_document_counts_existing_zero_byte_files_for_overflow(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            f"logical latest state exceeds MAX_MANIFEST_FILES \\({MAX_MANIFEST_FILES}\\): "
+            f"latest file set exceeds MAX_MANIFEST_FILES \\({MAX_MANIFEST_FILES}\\): "
             f"{MAX_MANIFEST_FILES + 1} entries",
         ):
-            build_extension_document(
+            _build_extension_document(
                 index=2,
                 parent_doc_hash=b"\x10" * 32,
                 root_doc_hash=b"\x20" * 32,
@@ -607,17 +512,14 @@ class TestExtensionBuild(unittest.TestCase):
                         mtime=1,
                     ),
                 ),
-                input_origin="file",
-                input_roots=(),
-                chunker=lambda data, _profile: (data,),
-                existing_logical_bytes=0,
+                existing_file_bytes=0,
                 existing_file_sizes={
                     f"existing-{index:04d}.txt": 0 for index in range(MAX_MANIFEST_FILES)
                 },
             )
 
     def test_build_extension_document_allows_replacement_at_file_count_limit(self) -> None:
-        built = build_extension_document(
+        built = _build_extension_document(
             index=2,
             parent_doc_hash=b"\x10" * 32,
             root_doc_hash=b"\x20" * 32,
@@ -630,10 +532,7 @@ class TestExtensionBuild(unittest.TestCase):
                     mtime=1,
                 ),
             ),
-            input_origin="file",
-            input_roots=(),
-            chunker=lambda data, _profile: (data,),
-            existing_logical_bytes=MAX_MANIFEST_FILES,
+            existing_file_bytes=MAX_MANIFEST_FILES,
             existing_file_sizes={
                 f"existing-{index:04d}.txt": 1 for index in range(MAX_MANIFEST_FILES)
             },

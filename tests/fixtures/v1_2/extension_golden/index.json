@@ -1,5 +1,4 @@
 {
-  "builder_sha256": "efd88fc0dd55c1f27e6613993d0b2ca99f6d12b1c11a03aa4f3a4c078188bb0c",
   "passphrase": "stable-v1_2-extension-passphrase",
   "profiles": {
     "base64": {

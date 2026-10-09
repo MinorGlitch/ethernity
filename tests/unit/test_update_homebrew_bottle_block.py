@@ -16,13 +16,36 @@ class TestUpdateHomebrewBottleBlock(unittest.TestCase):
     def test_build_bottle_block_uses_cellar_and_sorted_tags(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            linux_file = temp_path / "ethernity-v1.2.3.x86_64_linux.bottle.tar.gz"
-            mac_file = temp_path / "ethernity-v1.2.3.arm64_sonoma.bottle.tar.gz"
+            linux_file = temp_path / "ethernity--v1.2.3.x86_64_linux.bottle.tar.gz"
+            mac_file = temp_path / "ethernity--v1.2.3.arm64_sonoma.bottle.tar.gz"
             linux_file.write_bytes(b"linux")
             mac_file.write_bytes(b"mac")
-            json_file = temp_path / "bottle.json"
-            json_file.write_text(
-                json.dumps({"ethernity": {"bottle": {"cellar": "/opt/homebrew/Cellar"}}}),
+            linux_json = temp_path / "linux-bottle.json"
+            linux_json.write_text(
+                json.dumps(
+                    {
+                        "ethernity": {
+                            "bottle": {
+                                "cellar": ":any_skip_relocation",
+                                "tags": {"x86_64_linux": {}},
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            mac_json = temp_path / "mac-bottle.json"
+            mac_json.write_text(
+                json.dumps(
+                    {
+                        "ethernity": {
+                            "bottle": {
+                                "cellar": "/opt/homebrew/Cellar",
+                                "tags": {"arm64_sonoma": {}},
+                            }
+                        }
+                    }
+                ),
                 encoding="utf-8",
             )
 
@@ -30,7 +53,7 @@ class TestUpdateHomebrewBottleBlock(unittest.TestCase):
                 "owner/tap",
                 "ethernity-v1.2.3",
                 [linux_file, mac_file],
-                [json_file],
+                [linux_json, mac_json],
             )
 
         self.assertIn(
@@ -41,6 +64,7 @@ class TestUpdateHomebrewBottleBlock(unittest.TestCase):
         self.assertIn(hashlib.sha256(b"mac").hexdigest(), block)
         self.assertIn(hashlib.sha256(b"linux").hexdigest(), block)
         self.assertIn('cellar: "/opt/homebrew/Cellar"', block)
+        self.assertIn("cellar: :any_skip_relocation", block)
 
     def test_insert_or_replace_bottle_block_replaces_existing_block(self) -> None:
         formula = """class Ethernity < Formula

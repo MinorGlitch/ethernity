@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ActionsRow } from "./common.jsx";
+import { ActionsRow } from "./recovery_controls.jsx";
 
 export function CollectorStep({ className, input, status, output }) {
   const layoutClass = className ? `step-layout ${className}` : "step-layout";

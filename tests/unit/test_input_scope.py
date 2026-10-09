@@ -19,7 +19,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.cli.shared.input_scope import load_input_scope, summarize_input_scope_diff
+from ethernity.workflows.shared.input_scope import load_input_scope, summarize_input_scope_diff
 
 
 class TestInputScope(unittest.TestCase):

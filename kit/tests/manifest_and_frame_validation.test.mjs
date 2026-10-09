@@ -4,10 +4,12 @@ import { gzipSync } from "node:zlib";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { extractFiles } from "../app/envelope.js";
+import { extractFiles } from "../app/backup_document.js";
 import {
-  ENVELOPE_MAGIC,
-  ENVELOPE_VERSION,
+  DOCUMENT_MAGIC,
+  LEGACY_BACKUP_DOCUMENT_VERSION,
+  DOCUMENT_VERSION,
+  DOCUMENT_KIND_BACKUP,
   FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
   FRAME_TYPE_MAIN,
@@ -23,15 +25,16 @@ import {
   encodeUvarint,
   ensureAtob,
   toUnpaddedBase64,
-} from "./test_helpers.mjs";
+} from "./protocol_test_data.mjs";
 
 ensureAtob();
 
-function buildEnvelope(manifest, payload) {
+function buildBackupDocument(manifest, payload, version = LEGACY_BACKUP_DOCUMENT_VERSION) {
   const manifestBytes = encodeCbor(manifest);
   return concatBytes([
-    Uint8Array.from(ENVELOPE_MAGIC),
-    encodeUvarint(ENVELOPE_VERSION),
+    Uint8Array.from(DOCUMENT_MAGIC),
+    encodeUvarint(version),
+    ...(version === DOCUMENT_VERSION ? [encodeUvarint(DOCUMENT_KIND_BACKUP)] : []),
     encodeUvarint(manifestBytes.length),
     manifestBytes,
     encodeUvarint(payload.length),
@@ -62,65 +65,74 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
   const cases = [
     {
       name: "manifest must be map",
-      envelope: buildEnvelope(7, payload),
+      document: buildBackupDocument(7, payload),
       error: /manifest must be a map/,
     },
     {
       name: "required key missing",
-      envelope: (() => {
+      document: (() => {
         const manifest = validManifest(payload);
         delete manifest.created;
-        return buildEnvelope(manifest, payload);
+        return buildBackupDocument(manifest, payload);
       })(),
       error: /manifest created is required/,
     },
     {
       name: "payload codec required",
-      envelope: (() => {
+      document: (() => {
         const manifest = validManifest(payload);
         delete manifest.payload_codec;
-        return buildEnvelope(manifest, payload);
+        return buildBackupDocument(manifest, payload);
       })(),
       error: /manifest payload_codec is required/,
     },
     {
       name: "version type",
-      envelope: buildEnvelope({ ...validManifest(payload), version: "1" }, payload),
+      document: buildBackupDocument({ ...validManifest(payload), version: "1" }, payload),
       error: /manifest version must be an int/,
     },
     {
       name: "unsupported version",
-      envelope: buildEnvelope({ ...validManifest(payload), version: 9 }, payload),
+      document: buildBackupDocument({ ...validManifest(payload), version: 9 }, payload),
       error: /unsupported manifest version/,
     },
     {
       name: "created type",
-      envelope: buildEnvelope({ ...validManifest(payload), created: "now" }, payload),
+      document: buildBackupDocument({ ...validManifest(payload), created: "now" }, payload),
       error: /manifest created must be a number/,
     },
     {
       name: "sealed seed mismatch",
-      envelope: buildEnvelope({ ...validManifest(payload), seed: new Uint8Array(32) }, payload),
+      document: buildBackupDocument(
+        { ...validManifest(payload), seed: new Uint8Array(32) },
+        payload,
+      ),
       error: /seed must be null for sealed manifests/,
     },
     {
       name: "unsealed missing seed",
-      envelope: buildEnvelope({ ...validManifest(payload), sealed: false, seed: null }, payload),
+      document: buildBackupDocument(
+        { ...validManifest(payload), sealed: false, seed: null },
+        payload,
+      ),
       error: /seed must be 32 bytes for unsealed manifests/,
     },
     {
       name: "input origin invalid",
-      envelope: buildEnvelope({ ...validManifest(payload), input_origin: "archive" }, payload),
+      document: buildBackupDocument(
+        { ...validManifest(payload), input_origin: "archive" },
+        payload,
+      ),
       error: /input_origin must be one of/,
     },
     {
       name: "file input roots must be empty",
-      envelope: buildEnvelope({ ...validManifest(payload), input_roots: ["root"] }, payload),
+      document: buildBackupDocument({ ...validManifest(payload), input_roots: ["root"] }, payload),
       error: /input_roots must be empty when input_origin is file/,
     },
     {
       name: "directory requires roots",
-      envelope: buildEnvelope(
+      document: buildBackupDocument(
         { ...validManifest(payload), input_origin: "directory", input_roots: [] },
         payload,
       ),
@@ -128,7 +140,7 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
     },
     ...["dir/name", "a\\b", ".", "..", "C:notes", "/abs", "bad\u0001"].map((root) => ({
       name: `directory rejects invalid root label ${JSON.stringify(root)}`,
-      envelope: buildEnvelope(
+      document: buildBackupDocument(
         { ...validManifest(payload), input_origin: "directory", input_roots: [root] },
         payload,
       ),
@@ -136,17 +148,20 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
     })),
     {
       name: "path encoding invalid",
-      envelope: buildEnvelope({ ...validManifest(payload), path_encoding: "legacy" }, payload),
+      document: buildBackupDocument(
+        { ...validManifest(payload), path_encoding: "legacy" },
+        payload,
+      ),
       error: /path_encoding must be one of/,
     },
     {
       name: "files required",
-      envelope: buildEnvelope({ ...validManifest(payload), files: [] }, payload),
+      document: buildBackupDocument({ ...validManifest(payload), files: [] }, payload),
       error: /manifest files are required/,
     },
     {
       name: "duplicate paths",
-      envelope: buildEnvelope(
+      document: buildBackupDocument(
         {
           ...validManifest(payload),
           files: [
@@ -160,7 +175,7 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
     },
     {
       name: "prefix table requires prefixes",
-      envelope: buildEnvelope(
+      document: buildBackupDocument(
         { ...validManifest(payload), path_encoding: "prefix_table" },
         payload,
       ),
@@ -168,7 +183,7 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
     },
     {
       name: "prefix table index out of range",
-      envelope: buildEnvelope(
+      document: buildBackupDocument(
         {
           ...validManifest(payload),
           path_encoding: "prefix_table",
@@ -181,7 +196,7 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
     },
     {
       name: "entry hash must be bytes",
-      envelope: buildEnvelope(
+      document: buildBackupDocument(
         {
           ...validManifest(payload),
           files: [["a.txt", payload.length, Uint8Array.of(1), null]],
@@ -192,7 +207,7 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
     },
     {
       name: "entry mtime type",
-      envelope: buildEnvelope(
+      document: buildBackupDocument(
         {
           ...validManifest(payload),
           files: [["a.txt", payload.length, sha256(payload), "123"]],
@@ -203,7 +218,7 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
     },
     {
       name: "gzip payload_raw_len over decompressed bound",
-      envelope: buildEnvelope(
+      document: buildBackupDocument(
         {
           ...validManifest(Uint8Array.of(1)),
           payload_codec: "gzip",
@@ -217,22 +232,22 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
   ];
 
   for (const testCase of cases) {
-    await assert.rejects(() => extractFiles(testCase.envelope), testCase.error, testCase.name);
+    await assert.rejects(() => extractFiles(testCase.document), testCase.error, testCase.name);
   }
 });
 
-test("envelope decoder rejects framing-length and hash mismatches", async () => {
+test("document decoder rejects framing-length and hash mismatches", async () => {
   const payload = Uint8Array.of(1, 2, 3);
   const manifest = validManifest(payload);
   const manifestBytes = encodeCbor(manifest);
 
-  const badMagic = buildEnvelope(manifest, payload);
+  const badMagic = buildBackupDocument(manifest, payload);
   badMagic[0] = 0;
-  await assert.rejects(() => extractFiles(badMagic), /invalid envelope magic/);
+  await assert.rejects(() => extractFiles(badMagic), /invalid document magic/);
 
   const truncatedManifest = concatBytes([
-    Uint8Array.from(ENVELOPE_MAGIC),
-    encodeUvarint(ENVELOPE_VERSION),
+    Uint8Array.from(DOCUMENT_MAGIC),
+    encodeUvarint(LEGACY_BACKUP_DOCUMENT_VERSION),
     encodeUvarint(manifestBytes.length + 10),
     manifestBytes,
     encodeUvarint(payload.length),
@@ -241,8 +256,8 @@ test("envelope decoder rejects framing-length and hash mismatches", async () => 
   await assert.rejects(() => extractFiles(truncatedManifest), /truncated manifest/);
 
   const payloadMismatch = concatBytes([
-    Uint8Array.from(ENVELOPE_MAGIC),
-    encodeUvarint(ENVELOPE_VERSION),
+    Uint8Array.from(DOCUMENT_MAGIC),
+    encodeUvarint(LEGACY_BACKUP_DOCUMENT_VERSION),
     encodeUvarint(manifestBytes.length),
     manifestBytes,
     encodeUvarint(payload.length + 1),
@@ -255,15 +270,40 @@ test("envelope decoder rejects framing-length and hash mismatches", async () => 
     files: [["a.txt", payload.length, sha256(Uint8Array.of(9, 9, 9)), null]],
   };
   await assert.rejects(
-    () => extractFiles(buildEnvelope(digestMismatchManifest, payload)),
+    () => extractFiles(buildBackupDocument(digestMismatchManifest, payload)),
     /sha256 mismatch/,
   );
 
   const extraPayload = Uint8Array.of(1, 2, 3, 4);
   await assert.rejects(
-    () => extractFiles(buildEnvelope(validManifest(payload), extraPayload)),
+    () => extractFiles(buildBackupDocument(validManifest(payload), extraPayload)),
     /payload length does not match manifest sizes/,
   );
+});
+
+test("root manifests reject file and directory conflicts for both path encodings", async () => {
+  for (const paths of [
+    ["a", "a/b"],
+    ["a/b", "a"],
+    ["caf\u00e9", "cafe\u0301/b"],
+  ]) {
+    const payload = Uint8Array.of(1, 2);
+    for (const pathEncoding of ["direct", "prefix_table"]) {
+      const manifest = {
+        ...validManifest(payload),
+        path_encoding: pathEncoding,
+        path_prefixes: [""],
+        files: paths.map((path, index) => {
+          const fields = [path, 1, sha256(payload.slice(index, index + 1)), null];
+          return pathEncoding === "direct" ? fields : [0, ...fields];
+        }),
+      };
+      await assert.rejects(
+        () => extractFiles(buildBackupDocument(manifest, payload)),
+        /file\/directory conflict/u,
+      );
+    }
+  }
 });
 
 test("extractFiles normalizes gzip-coded payloads", async () => {
@@ -274,7 +314,7 @@ test("extractFiles normalizes gzip-coded payloads", async () => {
     payload_codec: "gzip",
     payload_raw_len: rawPayload.length,
   };
-  const extracted = await extractFiles(buildEnvelope(manifest, compressedPayload));
+  const extracted = await extractFiles(buildBackupDocument(manifest, compressedPayload));
   assert.equal(extracted.files.length, 1);
   assert.equal(extracted.files[0].path, "a.txt");
   assert.deepEqual(extracted.files[0].data, rawPayload);
@@ -289,7 +329,7 @@ test("extractFiles rejects gzip payload_raw_len mismatch", async () => {
     payload_raw_len: rawPayload.length + 1,
   };
   await assert.rejects(
-    () => extractFiles(buildEnvelope(manifest, compressedPayload)),
+    () => extractFiles(buildBackupDocument(manifest, compressedPayload)),
     /payload_raw_len must match sum of manifest file sizes/,
   );
 });
@@ -303,7 +343,7 @@ test("extractFiles rejects gzip expansion beyond declared payload_raw_len", asyn
     payload_raw_len: 1,
   };
   await assert.rejects(
-    () => extractFiles(buildEnvelope(manifest, compressedPayload)),
+    () => extractFiles(buildBackupDocument(manifest, compressedPayload)),
     /decoded payload exceeds manifest payload_raw_len/,
   );
 });
@@ -315,7 +355,7 @@ test("extractFiles rejects unsupported manifest payload codecs", async () => {
     payload_codec: "brotli",
   };
   await assert.rejects(
-    () => extractFiles(buildEnvelope(manifest, payload)),
+    () => extractFiles(buildBackupDocument(manifest, payload)),
     /payload_codec must be one of: raw, gzip/,
   );
 });
@@ -369,5 +409,54 @@ test("frame parser rejects invalid auth/key frame invariants", () => {
   assert.throws(
     () => parseAutoPayload(createInitialState(), mainBad),
     /neither valid QR payloads nor valid fallback text/,
+  );
+});
+
+test("current and released documents normalize to the same manifest", async () => {
+  const payload = new TextEncoder().encode("backup contents".repeat(20));
+  for (const sealed of [true, false]) {
+    for (const codec of ["raw", "gzip"]) {
+      for (const pathEncoding of ["direct", "prefix_table"]) {
+        const legacy = validManifest(payload);
+        legacy.sealed = sealed;
+        legacy.seed = sealed ? null : new Uint8Array(32).fill(7);
+        legacy.payload_codec = codec;
+        legacy.path_encoding = pathEncoding;
+        if (codec === "gzip") legacy.payload_raw_len = payload.length;
+        if (pathEncoding === "prefix_table") {
+          legacy.path_prefixes = [""];
+          legacy.files = legacy.files.map(([path, ...rest]) => [0, path, ...rest]);
+        }
+        const current = { ...legacy };
+        delete current.version;
+        delete current.sealed;
+        delete current.payload_raw_len;
+        const stored = codec === "gzip" ? gzipPayload(payload) : payload;
+        assert.deepEqual(
+          await extractFiles(buildBackupDocument(current, stored, DOCUMENT_VERSION)),
+          await extractFiles(buildBackupDocument(legacy, stored)),
+        );
+      }
+    }
+  }
+});
+
+test("current documents reject removed fields and bound gzip by file sizes", async () => {
+  const payload = Uint8Array.of(1, 2, 3);
+  const manifest = validManifest(payload);
+  delete manifest.version;
+  delete manifest.sealed;
+  for (const key of ["version", "sealed", "payload_raw_len"]) {
+    await assert.rejects(
+      () =>
+        extractFiles(buildBackupDocument({ ...manifest, [key]: null }, payload, DOCUMENT_VERSION)),
+      /not allowed/,
+    );
+  }
+  manifest.payload_codec = "gzip";
+  manifest.files[0][1] = 2;
+  await assert.rejects(
+    () => extractFiles(buildBackupDocument(manifest, gzipPayload(payload), DOCUMENT_VERSION)),
+    /exceeds/,
   );
 });

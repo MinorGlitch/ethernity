@@ -1,0 +1,43 @@
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def single_output_folder(paths: tuple[Path, ...]) -> Path | None:
+    parents = {path.parent for path in paths}
+    if len(parents) == 1:
+        return next(iter(parents))
+    try:
+        common = Path(os.path.commonpath(tuple(str(parent) for parent in parents)))
+    except ValueError:
+        return None
+    if str(common) in {"", "."} or common == Path(common.anchor):
+        return None
+    return common
+
+
+def common_output_folder(paths: tuple[Path, ...]) -> str:
+    folder = single_output_folder(paths)
+    if folder is not None:
+        return str(folder)
+    return "Multiple output folders"
+
+
+def open_folder(folder: Path) -> None:
+    open_documents((folder,))
+
+
+def open_documents(paths: tuple[Path, ...]) -> None:
+    """Open generated documents in the system's associated viewer."""
+
+    if not paths:
+        return
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", *(str(path) for path in paths)])
+        return
+    executable = "explorer" if sys.platform.startswith("win") else "xdg-open"
+    for path in paths:
+        subprocess.Popen([executable, str(path)])

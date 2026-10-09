@@ -13,13 +13,15 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Shared layout-debug path helpers."""
+"""Resolve layout-debug output paths."""
 
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath, PureWindowsPath
+
+from ethernity.core.validation import has_windows_drive_prefix
 
 
 def resolve_layout_debug_dir(
@@ -43,14 +45,14 @@ def ensure_layout_debug_dir_allowed(
     *,
     forbidden_dirs: Mapping[str, str | Path] | None = None,
 ) -> None:
-    """Reject debug directories inside managed artifact inventories."""
+    """Reject debug directories inside managed backup directories."""
 
     debug_dir = Path(path).expanduser().resolve()
     for label, raw_dir in (forbidden_dirs or {}).items():
         managed_dir = Path(raw_dir).expanduser().resolve()
         if debug_dir == managed_dir or debug_dir.is_relative_to(managed_dir):
             raise ValueError(
-                "layout debug directory must not be inside managed artifact inventory "
+                "layout debug directory must not be inside a managed backup directory "
                 f"{label}: {managed_dir}"
             )
 
@@ -76,7 +78,7 @@ def ensure_layout_debug_dir_ready(path: str | Path) -> None:
 
 
 def layout_debug_json_path(layout_debug_dir: str | Path | None, stem: str) -> str | None:
-    """Return the JSON sidecar path for one layout-debug artifact."""
+    """Return the JSON sidecar path for one rendered document's layout data."""
 
     if layout_debug_dir is None or not str(layout_debug_dir).strip():
         return None
@@ -84,15 +86,11 @@ def layout_debug_json_path(layout_debug_dir: str | Path | None, stem: str) -> st
     if isinstance(layout_debug_dir, Path):
         return str(layout_debug_dir / filename)
     text = str(layout_debug_dir)
-    if "\\" in text or _has_windows_drive(text):
+    if "\\" in text or has_windows_drive_prefix(text):
         return str(PureWindowsPath(text) / filename)
     if "/" in text:
         return str(PurePosixPath(text) / filename)
     return str(Path(text) / filename)
-
-
-def _has_windows_drive(path: str) -> bool:
-    return len(path) >= 2 and path[1] == ":" and path[0].isalpha()
 
 
 __all__ = [

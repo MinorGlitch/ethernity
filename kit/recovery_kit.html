@@ -26,10 +26,10 @@ If not, see <https://www.gnu.org/licenses/>.
 :root {
   color-scheme: light;
 
-  /* ── Surfaces ── */
+  /* ── Panel backgrounds ── */
   --bg: #eef2f7;
-  --surface: #ffffff;
-  --surface-alt: #f5f8fc;
+  --panel-background: #ffffff;
+  --muted-background: #f5f8fc;
 
   /* ── Text ── */
   --ink: #0f172a;
@@ -73,8 +73,10 @@ If not, see <https://www.gnu.org/licenses/>.
   --secondary-hover-bg: #f4f7fb;
   --ghost-hover-bg: #eef3f9;
 
+  /* ETHERNITY_SCANNER_CSS_START */
   /* ── Scan ── */
   --scan-video-bg: #e5ebf3;
+  /* ETHERNITY_SCANNER_CSS_END */
 
   /* ── Spacing ── */
   --sp-1: 4px;
@@ -220,7 +222,7 @@ h1,h2,h3 { margin: 0; font-weight: 700; }
 
 /* ── Panel ── */
 .panel {
-  background: var(--surface);
+  background: var(--panel-background);
   border: 1px solid var(--line);
   border-radius: var(--r);
   padding: var(--sp-4);
@@ -235,7 +237,7 @@ h1,h2,h3 { margin: 0; font-weight: 700; }
 .online-override-banner .row-between { align-items: center; gap: var(--sp-3); }
 .online-override-banner .sub { max-width: 700px; }
 
-/* ── Layout helpers ── */
+/* ── Layout classes ── */
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-width: 0; }
 .row-between { justify-content: space-between; width: 100%; align-items: flex-start; }
 .actions-secondary { gap: var(--sp-1); }
@@ -268,11 +270,12 @@ h1,h2,h3 { margin: 0; font-weight: 700; }
   color: var(--muted);
 }
 
-/* ── Text helpers ── */
+/* ── Text classes ── */
 .label { color: var(--muted); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: var(--ls-wide); font-weight: 700; line-height: var(--lh-snug); }
 .sub { color: var(--muted); font-size: var(--fs-md); overflow-wrap: break-word; }
 .hint { color: var(--muted); font-size: var(--fs-sm); line-height: var(--lh-normal); overflow-wrap: break-word; }
 
+/* ETHERNITY_SCANNER_CSS_START */
 /* ── Scanner ── */
 .scan-panel {
   display: grid;
@@ -280,7 +283,7 @@ h1,h2,h3 { margin: 0; font-weight: 700; }
   padding: var(--sp-2);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--surface-alt);
+  background: var(--muted-background);
 }
 .scan-video {
   width: 100%;
@@ -309,6 +312,7 @@ h1,h2,h3 { margin: 0; font-weight: 700; }
   pointer-events: none;
 }
 .scan-status { white-space: pre-wrap; }
+/* ETHERNITY_SCANNER_CSS_END */
 
 /* ── Form inputs ── */
 textarea,
@@ -317,7 +321,7 @@ input[type="password"] {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--surface);
+  background: var(--panel-background);
   color: var(--ink);
   padding: 10px 12px;
   font: var(--fs-base)/var(--lh-relaxed) var(--font-mono);
@@ -340,7 +344,7 @@ input[type="number"]:focus {
 textarea::placeholder,
 input[type="text"]::placeholder,
 input[type="password"]::placeholder { color: var(--placeholder); }
-input[readonly], textarea[readonly] { background: var(--surface-alt); }
+input[readonly], textarea[readonly] { background: var(--muted-background); }
 
 /* ── Buttons ── */
 button {
@@ -358,7 +362,7 @@ button {
 button:hover:not(:disabled) { filter: brightness(0.92); }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.secondary {
-  background: var(--surface);
+  background: var(--panel-background);
   color: var(--ink);
   border-color: var(--line);
 }
@@ -387,29 +391,6 @@ button:disabled.ghost {
 }
 
 /* ── Success banner ── */
-.success-banner {
-  border: 2px solid var(--ok-border);
-  border-radius: var(--r);
-  padding: var(--sp-4);
-  background: var(--ok-bg);
-  display: grid;
-  gap: var(--sp-2);
-}
-.success-banner h3 { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-lg); font-weight: 700; }
-.success-banner p { margin: 0; color: var(--muted); font-size: var(--fs-md); }
-.success-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  border: 2px solid var(--ok-border);
-  display: grid;
-  place-items: center;
-  font-size: var(--fs-base);
-  color: var(--ok);
-  font-weight: 700;
-}
-
-/* ── Status & Diagnostics ── */
 .status {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -418,7 +399,7 @@ button:disabled.ghost {
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   padding: var(--sp-3);
-  background: var(--surface);
+  background: var(--panel-background);
   font: var(--fs-base)/var(--lh-relaxed) var(--font-mono);
 }
 .status.ok { border-color: var(--ok-border); background: var(--ok-bg); }

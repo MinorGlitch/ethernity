@@ -16,5 +16,15 @@
 
 set -euo pipefail
 
+KIT_RESOURCE_DIR="src/ethernity/resources/kit"
+
+rm -f "${KIT_RESOURCE_DIR}"/recovery_kit*.bundle.html
+(
+  cd kit
+  npm ci
+  ETHERNITY_KIT_COMPRESSION=gzip ETHERNITY_KIT_VARIANTS=both node build_kit.mjs
+)
+
 uv sync --extra build --frozen
+uv run python -m tooling.release_resources --kit-directory "${KIT_RESOURCE_DIR}"
 uv run pyinstaller --clean --noconfirm ethernity.spec

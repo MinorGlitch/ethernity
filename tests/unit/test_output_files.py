@@ -25,44 +25,17 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.shared.io.outputs import (
-    _ensure_output_dir,
-    _prepare_output_dir,
+from ethernity.workflows.shared.outputs import (
     _safe_join,
     _write_output,
-    _write_recovered_outputs,
+    ensure_directory,
+    prepare_backup_output_dir,
+    write_recovered_outputs,
 )
-
-
-def _home_env(home: Path) -> dict[str, str]:
-    env = {"HOME": str(home), "USERPROFILE": str(home)}
-    drive, tail = os.path.splitdrive(str(home))
-    if drive:
-        env["HOMEDRIVE"] = drive
-        env["HOMEPATH"] = tail or "\\"
-    return env
+from tests.support.environment import home_environment
 
 
 class TestOutputFiles(unittest.TestCase):
-    def test_ensure_output_dir_rejects_existing_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            existing = Path(tmpdir) / "backup-dir"
-            existing.mkdir()
-            with self.assertRaisesRegex(ValueError, "already exists"):
-                _ensure_output_dir(str(existing), "deadbeef")
-
-    def test_ensure_output_dir_uses_existing_directory_as_parent_when_requested(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            parent = Path(tmpdir) / "backups"
-            parent.mkdir()
-            created = _ensure_output_dir(
-                str(parent),
-                "deadbeef",
-                existing_directory_is_parent=True,
-            )
-            self.assertEqual(created, str(parent / "backup-deadbeef"))
-            self.assertTrue((parent / "backup-deadbeef").is_dir())
-
     def test_safe_join_rejects_unsafe_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -83,7 +56,7 @@ class TestOutputFiles(unittest.TestCase):
             home = Path(tmpdir) / "home"
             home.mkdir()
             path = home / "out.bin"
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+            with mock.patch.dict("os.environ", home_environment(home), clear=False):
                 _write_output("~/out.bin", b"payload")
             self.assertEqual(path.read_bytes(), b"payload")
 
@@ -92,7 +65,7 @@ class TestOutputFiles(unittest.TestCase):
             self.skipTest("POSIX-only permission assertion")
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "secure"
-            _ensure_output_dir(str(out_dir), "deadbeef")
+            ensure_directory(out_dir, exist_ok=False)
             out_file = out_dir / "payload.bin"
             _write_output(str(out_file), b"payload")
 
@@ -105,19 +78,18 @@ class TestOutputFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "secure"
             out_file = out_dir / "payload.bin"
-            with mock.patch("ethernity.cli.shared.io.outputs._is_posix", return_value=True):
+            with mock.patch("ethernity.workflows.shared.outputs._is_posix", return_value=True):
                 with mock.patch("pathlib.Path.chmod", side_effect=OSError("denied")):
-                    _ensure_output_dir(str(out_dir), "deadbeef")
+                    ensure_directory(out_dir, exist_ok=False)
                     _write_output(str(out_file), b"payload")
 
-    def test_prepare_output_dir_does_not_harden_existing_parent_permissions(self) -> None:
+    def test_prepare_backup_output_dir_does_not_harden_existing_parent_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             parent = Path(tmpdir)
-            with mock.patch("ethernity.cli.shared.io.outputs._harden_dir_permissions") as harden:
-                final_dir, staging_dir = _prepare_output_dir(
-                    str(parent / "backup-deadbeef"),
+            with mock.patch("ethernity.workflows.shared.outputs._harden_dir_permissions") as harden:
+                final_dir, staging_dir = prepare_backup_output_dir(
+                    parent,
                     "deadbeef",
-                    prefix="backup",
                 )
             self.assertEqual(final_dir, str(parent / "backup-deadbeef"))
             self.assertTrue(Path(staging_dir).is_dir())
@@ -133,7 +105,7 @@ class TestOutputFiles(unittest.TestCase):
 
     def test_write_recovered_outputs_rejects_empty_entries(self) -> None:
         with self.assertRaisesRegex(ValueError, "no payloads to write"):
-            _write_recovered_outputs(None, [])
+            write_recovered_outputs(None, [])
 
     def test_write_recovered_outputs_requires_output_for_multiple_files(self) -> None:
         entries = [
@@ -141,13 +113,13 @@ class TestOutputFiles(unittest.TestCase):
             (types.SimpleNamespace(path="b.txt"), b"B"),
         ]
         with self.assertRaisesRegex(ValueError, "multiple files require --output"):
-            _write_recovered_outputs(None, entries)
+            write_recovered_outputs(None, entries)
 
     def test_write_recovered_outputs_single_entry_writes_target_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "single.bin"
             entries = [(types.SimpleNamespace(path="ignored.txt"), b"single")]
-            _write_recovered_outputs(str(out_path), entries)
+            write_recovered_outputs(str(out_path), entries)
             self.assertEqual(out_path.read_bytes(), b"single")
 
     def test_write_recovered_outputs_single_entry_directory_mode_writes_under_directory(
@@ -156,7 +128,7 @@ class TestOutputFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "vault"
             entries = [(types.SimpleNamespace(path="nested/file.txt"), b"single")]
-            _write_recovered_outputs(
+            write_recovered_outputs(
                 str(out_dir),
                 entries,
                 single_entry_output_is_directory=True,
@@ -170,7 +142,7 @@ class TestOutputFiles(unittest.TestCase):
             out_dir = Path(tmpdir) / "vault"
             out_dir.mkdir()
             entries = [(types.SimpleNamespace(path="payload.bin"), b"single")]
-            _write_recovered_outputs(str(out_dir), entries)
+            write_recovered_outputs(str(out_dir), entries)
             self.assertEqual((out_dir / "payload.bin").read_bytes(), b"single")
 
     def test_write_recovered_outputs_existing_empty_directory_writes_under_directory(
@@ -183,7 +155,7 @@ class TestOutputFiles(unittest.TestCase):
                 (types.SimpleNamespace(path="dir/a.txt"), b"A"),
                 (types.SimpleNamespace(path="b.txt"), b"B"),
             ]
-            _write_recovered_outputs(str(out_dir), entries)
+            write_recovered_outputs(str(out_dir), entries)
             self.assertEqual((out_dir / "dir" / "a.txt").read_bytes(), b"A")
             self.assertEqual((out_dir / "b.txt").read_bytes(), b"B")
 
@@ -194,7 +166,7 @@ class TestOutputFiles(unittest.TestCase):
                 (types.SimpleNamespace(path="dir/a.txt"), b"A"),
                 (types.SimpleNamespace(path="b.txt"), b"B"),
             ]
-            _write_recovered_outputs(str(out_dir), entries)
+            write_recovered_outputs(str(out_dir), entries)
             self.assertEqual((out_dir / "dir" / "a.txt").read_bytes(), b"A")
             self.assertEqual((out_dir / "b.txt").read_bytes(), b"B")
 
@@ -210,7 +182,7 @@ class TestOutputFiles(unittest.TestCase):
             ]
 
             with self.assertRaisesRegex(ValueError, "already exists and is not empty"):
-                _write_recovered_outputs(str(out_dir), entries)
+                write_recovered_outputs(str(out_dir), entries)
 
             self.assertEqual((out_dir / "stale.txt").read_text(encoding="utf-8"), "stale")
             self.assertEqual((out_dir / "kept.txt").read_text(encoding="utf-8"), "old")
@@ -223,7 +195,7 @@ class TestOutputFiles(unittest.TestCase):
                 (types.SimpleNamespace(path="ok.txt"), b"B"),
             ]
             with self.assertRaisesRegex(ValueError, "unsafe output path"):
-                _write_recovered_outputs(str(out_dir), entries)
+                write_recovered_outputs(str(out_dir), entries)
 
     def test_write_recovered_outputs_rejects_case_colliding_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -233,11 +205,11 @@ class TestOutputFiles(unittest.TestCase):
                 (types.SimpleNamespace(path="README.txt"), b"B"),
             ]
             with mock.patch(
-                "ethernity.cli.shared.io.outputs._is_directory_case_sensitive",
+                "ethernity.workflows.shared.outputs._is_directory_case_sensitive",
                 return_value=False,
             ):
                 with self.assertRaisesRegex(ValueError, "collide on this filesystem"):
-                    _write_recovered_outputs(str(out_dir), entries)
+                    write_recovered_outputs(str(out_dir), entries)
 
     def test_write_recovered_outputs_stdout_invokes_callback(self) -> None:
         fake_stdout = types.SimpleNamespace(buffer=io.BytesIO())
@@ -249,7 +221,7 @@ class TestOutputFiles(unittest.TestCase):
             calls.append((getattr(entry, "path", ""), written_path, index, total))
 
         with mock.patch("sys.stdout", new=fake_stdout):
-            _write_recovered_outputs(
+            write_recovered_outputs(
                 None,
                 [(types.SimpleNamespace(path="stdout.bin"), b"stdout-bytes")],
                 on_entry_written=_capture,
@@ -258,13 +230,13 @@ class TestOutputFiles(unittest.TestCase):
         self.assertEqual(fake_stdout.buffer.getvalue(), b"stdout-bytes")
         self.assertEqual(calls, [("stdout.bin", "-", 1, 1)])
 
-    def test_ensure_output_dir_expands_user_path(self) -> None:
+    def test_ensure_directory_expands_user_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
-                out_dir = _ensure_output_dir("~/vault", "deadbeef")
-            self.assertEqual(out_dir, str(home / "vault"))
+            with mock.patch.dict("os.environ", home_environment(home), clear=False):
+                out_dir = ensure_directory("~/vault", exist_ok=False)
+            self.assertEqual(out_dir, home / "vault")
             self.assertTrue((home / "vault").is_dir())
 
 

@@ -25,10 +25,8 @@ from pathlib import Path
 from platformdirs import user_cache_dir, user_config_dir, user_log_dir, user_state_dir
 
 APP_NAME = "ethernity"
-PLAYWRIGHT_CACHE_APP_NAME = "ms-playwright"
 XDG_CONFIG_ENV = "XDG_CONFIG_HOME"
 DEFAULT_CONFIG_FILENAME = "config.toml"
-TEMPLATES_DIRNAME = "templates"
 RUNTIME_DIRNAME = "runtime"
 
 
@@ -50,28 +48,10 @@ def user_config_file_path(filename: str = DEFAULT_CONFIG_FILENAME) -> Path:
     return user_config_dir_path() / filename
 
 
-def user_templates_root_path() -> Path:
-    """Return the user templates root directory under app config."""
-
-    return user_config_dir_path() / TEMPLATES_DIRNAME
-
-
-def user_templates_design_path(design: str) -> Path:
-    """Return the user override directory for a template design."""
-
-    return user_templates_root_path() / design
-
-
 def user_cache_dir_path() -> Path:
     """Return the app-owned cache directory."""
 
     return Path(user_cache_dir(APP_NAME, appauthor=False))
-
-
-def playwright_browsers_cache_dir() -> Path:
-    """Return the Playwright browser cache directory used by the CLI."""
-
-    return Path(user_cache_dir(PLAYWRIGHT_CACHE_APP_NAME, appauthor=False))
 
 
 def user_state_dir_path() -> Path:

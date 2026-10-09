@@ -16,7 +16,7 @@
 import unittest
 from unittest import mock
 
-from ethernity.cli.shared.io.fallback_parser import (
+from ethernity.encoding.fallback_text import (
     _is_valid_zbase32_line,
     detect_fallback_section,
     filter_fallback_lines,
@@ -40,6 +40,7 @@ class TestIsValidZbase32Line(unittest.TestCase):
     def test_invalid_characters(self) -> None:
         self.assertFalse(_is_valid_zbase32_line("ybndr 0123"))  # digits
         self.assertFalse(_is_valid_zbase32_line("ybndr @#$%"))  # special chars
+        self.assertFalse(_is_valid_zbase32_line("\N{KELVIN SIGN}"))
 
 
 class TestFilterFallbackLines(unittest.TestCase):
@@ -54,9 +55,14 @@ class TestFilterFallbackLines(unittest.TestCase):
             filter_fallback_lines(lines)
 
     def test_rendered_line_number_prefix_is_ignored(self) -> None:
-        lines = ["01. ybnr fghj kmnp qrst", "12.ybnr fghj kmnp qrst"]
+        lines = [f"{number}. ybnr fghj kmnp qrst" for number in ("01", "12", "10000", "50000")]
+        lines.append("12.ybnr fghj kmnp qrst")
         filtered = filter_fallback_lines(lines)
-        self.assertEqual(filtered, ["ybnr fghj kmnp qrst", "ybnr fghj kmnp qrst"])
+        self.assertEqual(filtered, ["ybnr fghj kmnp qrst"] * len(lines))
+
+    def test_six_digit_prefix_is_not_treated_as_line_number(self) -> None:
+        with self.assertRaisesRegex(ValueError, "outside the z-base-32 alphabet"):
+            filter_fallback_lines(["100000. ybnr fghj"])
 
     def test_undotted_numeric_prefix_is_not_treated_as_line_number(self) -> None:
         with self.assertRaisesRegex(ValueError, "outside the z-base-32 alphabet"):
@@ -111,16 +117,14 @@ class TestFilterFallbackLines(unittest.TestCase):
 
     def test_parse_fallback_frame_rejects_line_limit_overflow(self) -> None:
         lines = ["ybndr", "fghej", "kmcpq"]
-        with mock.patch("ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_LINES", 2):
+        with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_LINES", 2):
             with self.assertRaisesRegex(ValueError, "MAX_FALLBACK_LINES"):
                 parse_fallback_frame(lines, label="fallback")
 
     def test_parse_fallback_frame_rejects_normalized_char_limit_overflow(self) -> None:
         lines = ["ybnd r", "fghe j"]
-        with mock.patch("ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_LINES", 10):
-            with mock.patch(
-                "ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_NORMALIZED_CHARS", 9
-            ):
+        with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_LINES", 10):
+            with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_NORMALIZED_CHARS", 9):
                 with self.assertRaisesRegex(ValueError, "MAX_FALLBACK_NORMALIZED_CHARS"):
                     parse_fallback_frame(lines, label="fallback")
 
@@ -135,9 +139,9 @@ class TestFilterFallbackLines(unittest.TestCase):
         )
         line = encode_zbase32(encode_frame(frame))
         normalized_chars = len(line.replace(" ", "").replace("-", ""))
-        with mock.patch("ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_LINES", 1):
+        with mock.patch("ethernity.encoding.fallback_text.MAX_FALLBACK_LINES", 1):
             with mock.patch(
-                "ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_NORMALIZED_CHARS",
+                "ethernity.encoding.fallback_text.MAX_FALLBACK_NORMALIZED_CHARS",
                 normalized_chars,
             ):
                 parsed = parse_fallback_frame([line], label="fallback")
@@ -149,6 +153,7 @@ class TestFilterFallbackLines(unittest.TestCase):
         self.assertEqual(detect_fallback_section("Shard Frame"), "key")
         self.assertEqual(detect_fallback_section("Key Frame"), "key")
         self.assertIsNone(detect_fallback_section("zzmain framezz"))
+        self.assertIsNone(detect_fallback_section("\N{KELVIN SIGN}ey Frame"))
 
     def test_split_fallback_sections_rejects_non_empty_content_before_first_header(self) -> None:
         with self.assertRaisesRegex(ValueError, "before the first marked fallback section"):

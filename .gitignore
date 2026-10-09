@@ -35,8 +35,11 @@ htmlcov/
 # Node tooling
 node_modules/
 
-# Kit build outputs (dev only, canonical bundle is in src/ethernity/resources/kit/)
+# Kit build outputs
 kit/dist/
+src/ethernity/resources/kit/recovery_kit*.bundle.html
+src/ethernity/resources/kit/recovery_kit.assembler.html
+test-debug/
 backup-*/
 generated_backups/
 generated_backups_input.txt
@@ -48,3 +51,9 @@ src/ethernity.zip
 
 # Local config overrides
 *.local.toml
+
+# Local previews and recovery smoke-test output
+/tmp/
+/output/pdf/
+/recovery_kit_qr.pdf
+/test-recovered

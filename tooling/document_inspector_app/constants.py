@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from ethernity.encoding.framing import FrameType
 
-from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
-
 MODE_AUTO = "auto"
 MODE_PAYLOADS = "payload"
 MODE_FALLBACK = "fallback"

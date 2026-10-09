@@ -22,3 +22,6 @@ class TestStableV1FrozenBase64(FrozenProfileTestCase):
     __test__ = True
     PROFILE_NAME = "base64"
     QR_PAYLOAD_CODEC = "base64"
+
+    def test_representative_frozen_pdf_backup_recovers(self) -> None:
+        self._verify_representative_frozen_pdf_backup_recovers()

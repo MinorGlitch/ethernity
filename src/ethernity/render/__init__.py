@@ -13,42 +13,52 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-from ethernity.render.pdf_render import render_frames_to_pdf
-from ethernity.render.proofs import (
-    RenderProofError,
-    build_render_artifact_proof,
+from ethernity.render.backend_dispatch import render_frames_to_pdf
+from ethernity.render.checks import (
+    RenderValidationError,
+    build_rendered_document_summary,
     frame_digest,
-    validate_fallback_render_proof,
+    validate_fallback_summary,
     validate_fallback_text_in_pdf,
+    validate_layout_report,
     validate_pdf_has_pages,
-    validate_render_artifact_proof,
+    validate_rendered_document_summary,
     validate_text_in_pdf,
 )
 from ethernity.render.service import RenderService
 from ethernity.render.types import (
+    ComponentLayout,
+    DocumentOrigin,
     FallbackSection,
-    RenderArtifactProof,
-    RenderFallbackProof,
+    FallbackSummary,
+    LayoutReport,
+    PageLayout,
+    RenderedDocumentSummary,
     RenderInputs,
-    RenderLineage,
+    RenderRect,
     RenderResult,
 )
 
 __all__ = [
     "FallbackSection",
-    "RenderArtifactProof",
-    "RenderFallbackProof",
+    "RenderedDocumentSummary",
+    "ComponentLayout",
+    "FallbackSummary",
     "RenderInputs",
-    "RenderLineage",
-    "RenderProofError",
+    "LayoutReport",
+    "DocumentOrigin",
+    "PageLayout",
+    "RenderValidationError",
+    "RenderRect",
     "RenderResult",
     "RenderService",
-    "build_render_artifact_proof",
+    "build_rendered_document_summary",
     "frame_digest",
     "render_frames_to_pdf",
-    "validate_fallback_render_proof",
+    "validate_fallback_summary",
     "validate_fallback_text_in_pdf",
     "validate_pdf_has_pages",
-    "validate_render_artifact_proof",
+    "validate_rendered_document_summary",
+    "validate_layout_report",
     "validate_text_in_pdf",
 ]

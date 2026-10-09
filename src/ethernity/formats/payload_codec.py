@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Envelope payload codec helpers for optional manifest-signaled compression."""
+"""Encode and decode optionally compressed document payloads."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ import zlib
 from typing import Literal
 
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
-from ethernity.formats.envelope_types import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, EnvelopeManifest
+from ethernity.formats.manifest import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, BackupManifest
 
 PAYLOAD_ENCODING_AUTO: Literal["auto"] = "auto"
 PayloadEncodingMode = Literal["auto", "raw", "gzip"]
@@ -31,8 +31,8 @@ PayloadEncodingMode = Literal["auto", "raw", "gzip"]
 
 def encode_payload_for_manifest(
     payload: bytes, *, mode: PayloadEncodingMode = PAYLOAD_ENCODING_AUTO
-) -> tuple[bytes, str, int | None]:
-    """Encode payload bytes for storage and return `(payload, codec, raw_len)`.
+) -> tuple[bytes, str]:
+    """Encode payload bytes for storage and return `(payload, codec)`.
 
     Compression is deterministic. In `auto` mode, gzip is selected only when it is smaller.
     """
@@ -47,24 +47,22 @@ def encode_payload_for_manifest(
         raise ValueError(f"unsupported payload encoding mode: {mode}")
 
     if mode == PAYLOAD_CODEC_RAW:
-        return payload, PAYLOAD_CODEC_RAW, None
+        return payload, PAYLOAD_CODEC_RAW
 
     compressed = gzip.compress(payload, compresslevel=9, mtime=0)
     if mode == PAYLOAD_CODEC_GZIP:
-        return compressed, PAYLOAD_CODEC_GZIP, len(payload)
+        return compressed, PAYLOAD_CODEC_GZIP
 
     if len(compressed) < len(payload):
-        return compressed, PAYLOAD_CODEC_GZIP, len(payload)
-    return payload, PAYLOAD_CODEC_RAW, None
+        return compressed, PAYLOAD_CODEC_GZIP
+    return payload, PAYLOAD_CODEC_RAW
 
 
-def decode_payload_from_manifest(manifest: EnvelopeManifest, payload: bytes) -> bytes:
+def decode_payload_from_manifest(manifest: BackupManifest, payload: bytes) -> bytes:
     """Decode payload bytes according to manifest codec metadata."""
 
     codec = manifest.payload_codec
     if codec == PAYLOAD_CODEC_RAW:
-        if manifest.payload_raw_len is not None:
-            raise ValueError("manifest payload_raw_len must be null for raw payload codec")
         return payload
     if codec != PAYLOAD_CODEC_GZIP:
         raise ValueError(f"unsupported payload codec: {codec}")
@@ -78,10 +76,10 @@ def decode_payload_from_manifest(manifest: EnvelopeManifest, payload: bytes) -> 
             f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {expected_len}"
         )
 
-    expected_from_entries = sum(entry.size for entry in manifest.files)
-    if expected_from_entries != expected_len:
-        raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
+    return _decompress_manifest_payload(payload, expected_len)
 
+
+def _decompress_manifest_payload(payload: bytes, expected_len: int) -> bytes:
     decompressor = zlib.decompressobj(wbits=16 + zlib.MAX_WBITS)
     try:
         decoded = decompressor.decompress(payload, max_length=expected_len + 1)

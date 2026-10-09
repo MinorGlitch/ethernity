@@ -15,49 +15,24 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { cloneShardFrames, cloneShardSets } from "../shard_store.js";
+import { cloneShardSets } from "../shard_store.js";
+import { cloneDocuments } from "../documents/store.js";
+import { readEmbeddedKitMetadata } from "../kit_metadata.js";
 
 export function createBaseState() {
+  readEmbeddedKitMetadata();
   return {
     revision: 0,
     documents: new Map(),
     primaryDocIdHex: null,
-    mainFrames: new Map(),
-    docIdHex: null,
-    total: null,
-    duplicates: 0,
-    conflicts: 0,
     ignored: 0,
     errors: 0,
+    authParseErrors: 0,
     shardSets: new Map(),
     activeShardSetKey: null,
-    shardFrames: new Map(),
-    shardDocIdHex: null,
-    shardVersion: null,
-    shardDocHashHex: null,
-    shardSignPubHex: null,
-    shardSetIdHex: null,
-    shardThreshold: null,
-    shardShares: null,
-    shardKeyType: null,
-    shardSecretLen: null,
-    shardDuplicates: 0,
-    shardConflicts: 0,
     shardErrors: 0,
     recoveredShardSecret: "",
-    authPayload: null,
-    authDocIdHex: null,
-    authDocHashHex: null,
-    authSignPubHex: null,
-    authSignatureHex: null,
-    authStatus: "missing",
-    authDuplicates: 0,
-    authConflicts: 0,
-    authErrors: 0,
-    cipherDocHashHex: null,
-    ciphertext: null,
-    decryptedEnvelope: null,
-    decryptedEnvelopeSource: "",
+    decryptedBackup: null,
     extractedFiles: [],
     frameStatus: { lines: [], type: "" },
     shardStatus: { lines: [], type: "" },
@@ -67,12 +42,14 @@ export function createBaseState() {
     agePassphrase: "",
     extensionTargetText: "latest",
     expectedHeadDocHashText: "",
+    freshnessUnknownAcknowledged: false,
     decryptStatus: { lines: [], type: "" },
     decryptRequestId: 0,
     isDecrypting: false,
+    frameRequestId: 0,
+    shardRequestId: 0,
     isAddingFrames: false,
     isAddingShards: false,
-    recoveryComplete: false,
   };
 }
 
@@ -90,11 +67,7 @@ export function setStatus(state, key, lines, type = "") {
 }
 
 export function resetState(state) {
-  Object.assign(state, createBaseState());
-  setStatus(state, "frameStatus", ["State cleared."]);
-  setStatus(state, "shardStatus", ["Shard state cleared."]);
-  setStatus(state, "extractStatus", []);
-  setStatus(state, "decryptStatus", []);
+  Object.assign(state, createInitialState());
 }
 
 export function bumpError(state, key) {
@@ -102,23 +75,10 @@ export function bumpError(state, key) {
 }
 
 export function cloneState(state) {
-  const shardSets = cloneShardSets(state.shardSets);
-  const activeShardSet = state.activeShardSetKey ? shardSets.get(state.activeShardSetKey) : null;
   return {
     ...state,
-    documents: new Map(
-      Array.from(state.documents.entries(), ([docIdHex, record]) => [
-        docIdHex,
-        {
-          ...record,
-          docId: record.docId.slice(),
-          mainFrames: new Map(record.mainFrames),
-        },
-      ]),
-    ),
-    shardSets,
-    mainFrames: new Map(state.mainFrames),
-    shardFrames: activeShardSet ? activeShardSet.shardFrames : cloneShardFrames(state.shardFrames),
+    documents: cloneDocuments(state.documents),
+    shardSets: cloneShardSets(state.shardSets),
     extractedFiles: state.extractedFiles.slice(),
     frameStatus: { ...state.frameStatus },
     shardStatus: { ...state.shardStatus },

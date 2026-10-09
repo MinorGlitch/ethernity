@@ -14,13 +14,13 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Build render inputs and QR payloads for document rendering flows."""
+"""Build render inputs and QR payloads for document render requests."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from ethernity.config import AppConfig
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS
@@ -30,6 +30,7 @@ from ethernity.encoding.qr_payloads import (
     QrPayloadCodec,
     encode_qr_payload,
 )
+from ethernity.page_sizes import normalize_paper_size_name, resolve_paper_size
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_KIT_INDEX,
@@ -38,21 +39,32 @@ from ethernity.render.doc_types import (
     DOC_TYPE_SHARD,
 )
 from ethernity.render.recovery_meta import RecoveryMeta
-from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 
 @dataclass(frozen=True)
 class RenderService:
-    """Facade for constructing render inputs from config and frames."""
+    """Construct render inputs from config and frames."""
 
     config: AppConfig
+    on_page: Callable[[str, int, int], None] | None = None
 
     def base_context(self, extra: dict[str, object] | None = None) -> dict[str, object]:
-        """Build a template context base and merge caller-provided fields."""
+        """Build a document context and merge caller-provided fields."""
 
-        context: dict[str, object] = {"paper_size": self.config.paper_size}
-        if extra:
-            context.update(extra)
+        paper_size = resolve_paper_size(self.config.paper_size)
+        context: dict[str, object] = dict(extra or {})
+        extra_paper_size = context.get("paper_size")
+        if (
+            isinstance(extra_paper_size, str)
+            and extra_paper_size.strip()
+            and normalize_paper_size_name(extra_paper_size) != paper_size.name
+        ):
+            raise ValueError(
+                "render context cannot override configured paper size: "
+                f"{extra_paper_size!r} != {paper_size.name!r}"
+            )
+        context["paper_size"] = paper_size.name
         return context
 
     def build_qr_payloads(
@@ -90,20 +102,20 @@ class RenderService:
         qr_payloads: Sequence[bytes | str] | None = None,
         context: dict[str, object] | None = None,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Build render inputs for the main QR document."""
 
         return self._build_inputs(
             frames=frames,
-            template_path=self.config.template_path,
             output_path=output_path,
             context=context,
             qr_payloads=qr_payloads,
             render_fallback=False,
             doc_type=DOC_TYPE_MAIN,
+            design_name=self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
         )
 
     def recovery_inputs(
@@ -116,13 +128,12 @@ class RenderService:
         fallback_sections: Sequence[FallbackSection] | None = None,
         context: dict[str, object] | None = None,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Build render inputs for the recovery document."""
 
         return self._build_inputs(
             frames=frames,
-            template_path=self.config.recovery_template_path,
             output_path=output_path,
             context=context,
             render_qr=False,
@@ -130,8 +141,9 @@ class RenderService:
             recovery_meta=recovery_meta,
             fallback_sections=fallback_sections,
             doc_type=DOC_TYPE_RECOVERY,
+            design_name=self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
         )
 
     def shard_inputs(
@@ -143,17 +155,16 @@ class RenderService:
         shard_total: int,
         shard_threshold: int | None = None,
         qr_payloads: Sequence[bytes | str] | None = None,
-        template_path: str | Path | None = None,
         doc_type: str | None = None,
+        design_name: str | None = None,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Build render inputs for a shard or signing-key shard document."""
 
         resolved_doc_type = doc_type or DOC_TYPE_SHARD
         return self._build_inputs(
             frames=[frame],
-            template_path=template_path or self.config.shard_template_path,
             output_path=output_path,
             context=self.base_context(
                 {
@@ -167,8 +178,9 @@ class RenderService:
             qr_payloads=qr_payloads,
             fallback_sections=(FallbackSection(label=None, frame=frame),),
             doc_type=resolved_doc_type,
+            design_name=design_name or self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
         )
 
     def kit_inputs(
@@ -178,23 +190,23 @@ class RenderService:
         *,
         qr_payloads: Sequence[bytes | str],
         context: dict[str, object] | None = None,
-        template_path: str | Path | None = None,
+        design_name: str | None = None,
         doc_type: str = DOC_TYPE_KIT,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Build render inputs for the QR-bearing recovery kit document."""
 
         return self._build_inputs(
             frames=frames,
-            template_path=template_path or self.config.kit_template_path,
             output_path=output_path,
             context=context,
             qr_payloads=qr_payloads,
             render_fallback=False,
             doc_type=doc_type,
+            design_name=design_name or self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
         )
 
     def kit_index_inputs(
@@ -202,11 +214,11 @@ class RenderService:
         output_path: str | Path,
         *,
         context: dict[str, object] | None = None,
-        template_path: str | Path | None = None,
+        design_name: str | None = None,
         qr_page_count: int | None = None,
         qr_chunk_count: int = 0,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Build render inputs for the non-payload recovery kit index document."""
 
@@ -216,22 +228,21 @@ class RenderService:
         index_context.setdefault("kit_qr_chunk_count", qr_chunk_count)
         return self._build_inputs(
             frames=(),
-            template_path=template_path or self.config.kit_template_path,
             output_path=output_path,
             context=index_context,
             qr_payloads=(),
             render_qr=False,
             render_fallback=False,
             doc_type=DOC_TYPE_KIT_INDEX,
+            design_name=design_name or self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
         )
 
     def _build_inputs(
         self,
         *,
         frames: Sequence[Frame],
-        template_path: str | Path,
         output_path: str | Path,
         context: dict[str, object] | None,
         qr_payloads: Sequence[bytes | str] | None = None,
@@ -241,20 +252,21 @@ class RenderService:
         recovery_meta: RecoveryMeta | None = None,
         fallback_sections: Sequence[FallbackSection] | None = None,
         doc_type: str,
+        design_name: str,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage,
+        origin: DocumentOrigin,
     ) -> RenderInputs:
         """Construct a `RenderInputs` object with config defaults applied."""
 
-        if lineage is None:
-            raise ValueError("render lineage is required")
+        if origin is None:
+            raise ValueError("render origin is required")
         resolved_context = self.base_context(context)
         return RenderInputs(
             frames=frames,
-            template_path=template_path,
             output_path=output_path,
             context=resolved_context,
             doc_type=doc_type,
+            design_name=design_name,
             qr_config=self.config.qr_config,
             qr_payloads=qr_payloads,
             render_qr=render_qr,
@@ -262,7 +274,8 @@ class RenderService:
             key_lines=key_lines,
             recovery_meta=recovery_meta,
             fallback_sections=fallback_sections,
-            render_jobs=self.config.cli_defaults.runtime.render_jobs,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage,
+            origin=origin,
+            page_size=resolve_paper_size(self.config.paper_size),
+            on_page=self.on_page,
         )

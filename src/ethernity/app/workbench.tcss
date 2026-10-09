@@ -1,0 +1,661 @@
+/* Workbench navigation, workflow forms and settings. Responsive rules stay with their owner. */
+
+#app-shell {
+    height: 1fr;
+    align-horizontal: center;
+}
+
+#workbench-frame {
+    width: 1fr;
+    max-width: 140;
+    height: 1fr;
+}
+
+Footer {
+    height: 1;
+    background: $footer-background;
+    color: $footer-foreground;
+}
+
+#nav-list {
+    height: auto;
+    border: none;
+    background: transparent;
+    background-tint: transparent;
+}
+
+#nav-list > ListItem {
+    height: auto;
+    width: 1fr;
+}
+
+.nav-row {
+    height: 1;
+    background: transparent;
+}
+
+.nav-row > Label {
+    height: 1;
+}
+
+.nav-row-marker {
+    width: 2;
+    content-align: left middle;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.nav-row-number {
+    width: 3;
+    content-align: left middle;
+    color: $text-muted;
+}
+
+.nav-row-label {
+    width: 1fr;
+    content-align: left middle;
+}
+
+.nav-row-state {
+    width: 3;
+    content-align: center middle;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#canvas-task-workspaces,
+#canvas-settings-workspace {
+    overflow-y: hidden;
+}
+
+#task-workspaces,
+#task-workspace-switcher,
+#settings-form-widget {
+    height: 1fr;
+    width: 1fr;
+    overflow-y: hidden;
+}
+
+#task-action-bar {
+    height: auto;
+    width: 1fr;
+    border-top: solid $border-blurred;
+    background: $background;
+    padding: 1 0;
+}
+
+#canvas-action-row Button,
+#canvas-action-row.settings-mode #canvas-primary {
+    width: auto;
+    min-width: 12;
+}
+
+#canvas-action-row #canvas-primary {
+    width: auto;
+    min-width: 18;
+}
+
+#canvas-action-row #canvas-internals {
+    margin-right: 1;
+}
+
+#task-canvas {
+    width: 1fr;
+    height: 1fr;
+    max-width: 100%;
+}
+
+#app-header-title,
+.guided-loading-label {
+    width: 1fr;
+    height: 1;
+    color: $text-muted;
+}
+
+#app-header-status {
+    width: auto;
+    height: 1;
+    color: $text-muted;
+}
+
+#app-header {
+    height: 3;
+    padding: 1 2;
+}
+
+#app-header-brand {
+    width: 14;
+    color: $text-primary;
+}
+
+#workbench-navigation {
+    height: auto;
+    padding: 0 2;
+    border-bottom: solid $border-blurred;
+}
+
+#workbench-navigation Button {
+    width: auto;
+    min-width: 5;
+    margin-right: 2;
+    background: $background;
+    color: $text-muted;
+}
+
+#workbench-navigation Button.active-task {
+    color: $text-primary;
+    text-style: bold;
+    background: $primary 12%;
+}
+
+#workbench-navigation Button:focus,
+WorkbenchSteps Button:focus {
+    background: $primary;
+    color: $button-color-foreground;
+    text-style: bold;
+}
+
+#nav-menu-anchor {
+    width: 0;
+}
+
+#nav-menu {
+    display: none;
+    overlay: screen;
+    layer: overlay;
+    width: 34;
+}
+
+#workbench-step-title,
+#workbench-summary-title {
+    height: 1;
+    margin-bottom: 1;
+    color: $text-muted;
+}
+
+#workbench-editor {
+    padding: 1 2 0 2;
+    align-horizontal: left;
+}
+
+#task-canvas-shell.settings-mode #workbench-editor {
+    padding: 0;
+}
+
+#canvas-hero,
+#canvas-task-workspaces {
+    width: 1fr;
+}
+
+#canvas-hero {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.workbench-summary-row,
+#workspace-backup-recovery-method,
+.workspace-field-note,
+.workspace-button-row,
+.workspace-choice-set,
+.guided-choice-set,
+.guided-quorum-notice {
+    margin-bottom: 1;
+}
+
+#canvas-title {
+    height: 1;
+    color: $text;
+    text-style: bold;
+}
+
+.workbench-summary-label {
+    height: 1;
+    color: $text-muted;
+}
+
+.workbench-summary-value {
+    color: $text;
+}
+
+InlineNotice.notice-success {
+    color: $text-success;
+    border-left: solid $success;
+    background: $success 10%;
+    padding: 0 1;
+    text-style: bold;
+}
+
+#canvas-progress {
+    width: auto;
+    color: $text-muted;
+    content-align: center middle;
+}
+
+#canvas-action-row #canvas-back {
+    min-width: 8;
+    background: $background;
+}
+
+.canvas-action-spacer {
+    width: 1fr;
+}
+
+.task-workspace {
+    overflow-y: auto;
+    width: 1fr;
+    scrollbar-background: $background;
+    scrollbar-color: $border-blurred;
+    scrollbar-color-hover: $text-muted;
+    scrollbar-color-active: $primary;
+}
+
+.workspace-section-status,
+.workspace-empty-state {
+    min-height: 1;
+    color: $text-muted;
+}
+
+.workspace-status-missing,
+.workspace-status-optional,
+.workspace-status-ready,
+InlineNotice.notice-info {
+    color: $text-muted;
+}
+
+.workspace-status-blocked,
+InlineNotice.notice-error {
+    color: $text-error;
+    text-style: bold;
+    border-left: solid $error;
+    background: $error 10%;
+    padding: 0 1;
+}
+
+.workspace-status-warning,
+InlineNotice.notice-warning {
+    color: $text-warning;
+    text-style: bold;
+    border-left: solid $warning;
+    background: $warning 10%;
+    padding: 0 1;
+}
+
+#settings-save-status.settings-status-pending {
+    color: $text-warning;
+    text-style: bold;
+}
+
+WorkbenchSteps Button.step-warning {
+    color: $text-warning;
+}
+
+.backup-output-summary {
+    max-height: 8;
+    width: 1fr;
+    color: $text-muted;
+}
+
+.workspace-path-selection-list {
+    height: 4;
+    border: none;
+    background: $background;
+}
+
+.workspace-field-note {
+    min-height: 1;
+    color: $text-muted;
+    max-height: 6;
+}
+
+.workspace-choice-empty,
+.guided-choice-empty,
+WorkbenchSummary.empty-summary,
+#task-canvas-shell.settings-mode #workbench-steps,
+#task-canvas-shell.settings-mode #workbench-summary {
+    display: none;
+}
+
+WorkbenchSteps {
+    width: 22;
+    height: 1fr;
+    padding: 1;
+    border-right: solid $border-blurred;
+    overflow-y: auto;
+}
+
+WorkbenchSteps Button {
+    width: 1fr;
+    min-width: 0;
+    padding: 0 1;
+    content-align: left middle;
+    text-align: left;
+    color: $text-muted;
+    background: $background;
+    text-wrap: nowrap;
+}
+
+WorkbenchSteps Button.active-step {
+    background: $primary 15%;
+    color: $text-primary;
+    text-style: bold;
+}
+
+WorkbenchSteps Button.step-error,
+#settings-save-status.settings-status-error {
+    color: $text-error;
+}
+
+WorkbenchSummary {
+    width: 29;
+    height: 1fr;
+    padding: 1 2;
+    border-left: solid $border-blurred;
+    background: $surface;
+}
+
+/* Open sections and a single field layout for every workflow. */
+FormSection {
+    height: auto;
+    border-top: solid $border-blurred;
+    padding-top: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+FormSection.first-section {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+}
+
+.form-section-title {
+    height: 1;
+    margin-bottom: 1;
+    color: $text;
+    text-style: bold;
+}
+
+FormRow {
+    height: auto;
+    margin-bottom: 1;
+}
+
+FormRow:last-child {
+    margin-bottom: 0;
+}
+
+.form-label {
+    width: 18;
+    margin-right: 2;
+    color: $text-muted;
+}
+
+.form-field {
+    width: 1fr;
+    height: auto;
+}
+
+.form-controls {
+    width: 1fr;
+    height: auto;
+}
+
+.form-controls Select {
+    width: 1fr;
+}
+
+.form-controls Button {
+    width: auto;
+    min-width: 10;
+    max-width: 100%;
+    margin-left: 1;
+}
+
+.form-path-value {
+    width: 1fr;
+}
+
+.form-value {
+    width: 1fr;
+    color: $text;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
+.guided-summary,
+.guided-empty,
+.guided-detail,
+.setting-value {
+    width: 1fr;
+    color: $text-muted;
+}
+
+.guided-loading LoadingIndicator {
+    width: 4;
+    height: 1;
+    color: $text-primary;
+}
+
+DestinationEditor Input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+UnlockEditor Input {
+    width: 1fr;
+    max-width: 56;
+}
+
+.guided-path-list {
+    height: auto;
+    max-height: 8;
+    width: 1fr;
+}
+
+InlineNotice {
+    width: 1fr;
+    margin-top: 1;
+    padding: 0 1;
+    border-left: solid $border-blurred;
+}
+
+QuorumEditor Input {
+    width: 10;
+    margin-right: 2;
+}
+
+.setting-switch {
+    width: 12;
+}
+
+.form-controls.stacked-controls {
+    layout: vertical;
+}
+
+.form-controls.stacked-controls Button {
+    margin: 1 0 0 0;
+}
+
+#canvas-action-row.settings-mode Button {
+    width: 12;
+    margin-right: 0;
+}
+
+/* Settings fields own their label, control and issue; categories reuse the workbench rail. */
+#settings-body, #settings-pages {
+    height: 1fr;
+}
+
+#settings-form {
+    width: 1fr;
+    padding: 1 2;
+}
+
+#settings-heading {
+    margin-bottom: 1;
+}
+
+#settings-title {
+    width: 1fr;
+    text-style: bold;
+}
+
+#settings-save-row {
+    dock: bottom;
+    min-height: 3;
+    padding: 0;
+    border-top: solid $border-blurred;
+}
+
+#settings-focus-help {
+    width: 1fr;
+    height: 3;
+    color: $text-muted;
+    margin-right: 2;
+    content-align: left middle;
+}
+
+#settings-save-status {
+    width: auto;
+    min-width: 6;
+    margin-right: 1;
+    content-align: right middle;
+    color: $text-muted;
+}
+
+.settings-section {
+    width: 1fr;
+    margin-bottom: 1;
+    border-top: solid $border-blurred;
+}
+
+.settings-section:first-child {
+    border-top: none;
+}
+
+.settings-section-title, #settings-recovery-summary {
+    height: auto;
+    margin-bottom: 1;
+    color: $text;
+    text-style: bold;
+}
+
+.settings-row {
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+.settings-row .form-label {
+    width: 24;
+}
+
+.setting-marker {
+    width: auto;
+    color: $text-muted;
+    margin-left: 1;
+}
+
+.setting-help {
+    margin-top: 1;
+}
+
+.setting-input {
+    width: 12;
+}
+
+#setting-value-config {
+    margin-bottom: 1;
+}
+
+Screen.-ethernity-narrow #settings-body {
+    layout: vertical;
+}
+
+Screen.-ethernity-narrow #settings-form {
+    padding: 0 1;
+}
+
+Screen.-ethernity-short #settings-focus-help {
+    height: 2;
+    content-align: left top;
+}
+
+Screen.-ethernity-short #canvas-progress {
+    height: 1;
+}
+
+Screen.-ethernity-narrow #workbench-step-title,
+Screen.-ethernity-narrow WorkbenchSummary {
+    display: none;
+}
+
+Screen.-ethernity-narrow #app-header,
+Screen.-ethernity-short #app-header {
+    height: 1;
+    padding: 0 1;
+}
+
+Screen.-ethernity-narrow #workbench-body,
+FormRow.stacked {
+    layout: vertical;
+}
+
+FormRow.stacked .form-label,
+.settings-row FormRow.stacked .form-label {
+    width: 1fr;
+    height: 1;
+    margin: 0;
+}
+
+Screen.-ethernity-narrow .guided-path-list,
+Screen.-ethernity-short .guided-path-list {
+    max-height: 4;
+}
+
+Screen.-ethernity-short #canvas-title {
+    margin-bottom: 0;
+}
+
+Screen.-ethernity-short #workbench-editor {
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+Screen.-ethernity-narrow #workbench-navigation,
+Screen.-ethernity-short #workbench-navigation {
+    padding: 0 1;
+}
+
+Screen.-ethernity-short #task-action-bar {
+    height: 2;
+    padding: 0;
+}
+
+Screen.-ethernity-narrow #workbench-navigation Button {
+    margin-right: 0;
+}
+
+Screen.-ethernity-narrow WorkbenchSteps {
+    layout: horizontal;
+    width: 1fr;
+    height: auto;
+    padding: 0 1;
+    border-right: none;
+    border-bottom: solid $border-blurred;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+Screen.-ethernity-narrow #workbench-editor {
+    padding: 1;
+}
+
+Screen.-ethernity-narrow WorkbenchSteps Button {
+    width: auto;
+    margin: 0;
+    margin-right: 1;
+}
+
+Screen.-ethernity-short .form-section-title {
+    margin-bottom: 0;
+}

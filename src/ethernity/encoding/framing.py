@@ -60,7 +60,7 @@ class Frame:
 
 
 def encode_frame(frame: Frame) -> bytes:
-    """Encode a frame with canonical varints and trailing CRC32."""
+    """Encode a frame with shortest-form varints and trailing CRC32."""
 
     _validate_frame(frame)
 
@@ -158,6 +158,10 @@ def _validate_frame(frame: Frame) -> None:
     if len(frame.doc_id) != DOC_ID_LEN:
         raise ValueError(f"doc_id must be {DOC_ID_LEN} bytes")
 
+    _validate_frame_payload(frame, frame_type_enum)
+
+
+def _validate_frame_payload(frame: Frame, frame_type_enum: FrameType) -> None:
     data_len = len(frame.data)
     if frame_type_enum == FrameType.MAIN_DOCUMENT:
         if frame.total > MAX_MAIN_FRAME_TOTAL:

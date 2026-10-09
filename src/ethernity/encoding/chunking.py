@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES, MAX_MAIN_FRAME_TOTAL
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, decode_frame
@@ -97,25 +97,12 @@ def reassemble_payload(
     total = frames[0].total
     version = frames[0].version
 
-    if len(doc_id) != DOC_ID_LEN:
-        raise ValueError(f"doc_id must be {DOC_ID_LEN} bytes")
-    if total <= 0:
-        raise ValueError("total must be positive")
-
+    _validate_reassembly_header(doc_id, total)
     seen: dict[int, Frame] = {}
     for frame in frames:
-        if frame.doc_id != doc_id:
-            raise ValueError("mismatched doc_id")
-        if frame.frame_type != frame_type:
-            raise ValueError("mismatched frame_type")
-        if frame.total != total:
-            raise ValueError("mismatched total")
-        if frame.version != version:
-            raise ValueError("mismatched version")
-        if frame.index < 0:
-            raise ValueError("index must be non-negative")
-        if frame.index >= total:
-            raise ValueError("index must be < total")
+        _validate_reassembly_frame(
+            frame, doc_id=doc_id, frame_type=frame_type, total=total, version=version
+        )
         if frame.index in seen:
             existing = seen[frame.index]
             if existing.data != frame.data:
@@ -133,6 +120,30 @@ def reassemble_payload(
             f"{len(payload)} bytes"
         )
     return payload
+
+
+def _validate_reassembly_header(doc_id: bytes, total: int) -> None:
+    if len(doc_id) != DOC_ID_LEN:
+        raise ValueError(f"doc_id must be {DOC_ID_LEN} bytes")
+    if total <= 0:
+        raise ValueError("total must be positive")
+
+
+def _validate_reassembly_frame(
+    frame: Frame, *, doc_id: bytes, frame_type: int, total: int, version: int
+) -> None:
+    if frame.doc_id != doc_id:
+        raise ValueError("mismatched doc_id")
+    if frame.frame_type != frame_type:
+        raise ValueError("mismatched frame_type")
+    if frame.total != total:
+        raise ValueError("mismatched total")
+    if frame.version != version:
+        raise ValueError("mismatched version")
+    if frame.index < 0:
+        raise ValueError("index must be non-negative")
+    if frame.index >= total:
+        raise ValueError("index must be < total")
 
 
 def fallback_lines_to_frame(lines: Iterable[str]) -> Frame:

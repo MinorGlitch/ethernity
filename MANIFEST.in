@@ -1,0 +1,3 @@
+include tooling/__init__.py
+include tooling/release_resources.py
+recursive-include tests/fixtures/v1_2/extension_golden/base64/gzip_replacement_chain/chain *.pdf

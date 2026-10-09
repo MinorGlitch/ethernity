@@ -1,29 +1,30 @@
-# Stable v1.2 Extension Golden Fixtures
+# Stable v1.2 extension golden fixtures
 
-Frozen Forge-rendered extension-chain fixtures for the v1.2 golden e2e matrix.
+Forge-rendered extension-chain fixtures for the unreleased v1.2 format. Newly generated
+documents in the `raw` and `base64` folders use their named QR transport codec; the builder verifies
+the active Backup and Add Files settings before generating either profile. The imported frozen v1.0
+root keeps its historical transport bytes, so fixture extraction accepts that mixed-version chain.
 
 ## Matrix
 
-- `base64/large_raw_two_extension_chain` and `raw/large_raw_two_extension_chain`:
-  roughly 40 KiB raw root content plus two raw extension heads.
-- `base64/gzip_replacement_chain` and `raw/gzip_replacement_chain`: gzip root
-  and extension chunks with replacement, inherited files, and an empty file.
-- `raw/extension_local_sharded_chain`: extension-local passphrase shards plus
-  extension signing-key shards.
-- `raw/reuse_root_shards_chain`: root passphrase shards reused by the extension.
-- `raw/loose_scan_append_chain`: renamed scan carriers and a loose append layout
-  without the canonical generated `extensions/<index>` tree.
+- `raw/large_raw_two_extension_chain`: roughly 40 KiB raw root content, root
+  recovery shards, and two raw incremental updates.
+- `base64/gzip_replacement_chain`: gzip root and extension chunks with
+  replacement, inherited files, and an empty file in the default cumulative mode.
 - `base64/v1_0_root_plus_v1_2_extension`: a frozen v1.0 root with one v1.2
   extension appended.
 
-Each scenario commits rendered carriers, scanned payload fixtures, shard payload
-fixtures where applicable, and a semantic `snapshot.json`. The tests compare
-committed artifact hashes and semantic projections; freshly generated encrypted
-PDFs are not compared byte-for-byte.
+Each guarantee appears once in the matrix. Every scenario commits rendered
+documents, scanned payload fixtures, shard payload fixtures where applicable, and
+a `snapshot.json` containing decoded document records and expected file hashes. The tests compare
+committed file hashes and decoded records; freshly generated encrypted PDFs are not compared
+byte-for-byte.
 
-The top-level `index.json` records the SHA-256 of `build_golden.py`. If the
-builder changes, regenerate the fixtures so the committed generator and fixture
-matrix cannot drift silently.
+These fixtures track document v2 for both standalone backups and updates, with explicit backup
+and update kinds. Updates include their required mode. Neither current document contains an inner schema version.
+Regenerate them for intentional v1.2 format or document-layout changes, then review the file
+inventory and prove older root recovery remains covered. The released v1.0 root fixtures must
+remain unchanged.
 
 Regenerate with:
 
@@ -31,5 +32,6 @@ Regenerate with:
 uv run python tests/fixtures/v1_2/extension_golden/build_golden.py
 ```
 
-Generated PDFs and payload files are intentionally committed. Edit the builder and regenerate
-instead of hand-editing fixture artifacts.
+Generated PDFs and payload files are intentionally committed. If a fixture
+version is intentionally replaced, edit the builder and regenerate instead of
+hand-editing fixture files.

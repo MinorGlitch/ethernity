@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 Alex Stoyanov
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with this program.
+# If not, see <https://www.gnu.org/licenses/>.
+
+from __future__ import annotations
+
+from textual.app import ComposeResult
+from textual.containers import HorizontalGroup
+from textual.widget import Widget
+from textual.widgets import Button, Static
+
+
+class TaskActionBar(Widget):
+    """Visible actions for the current task."""
+
+    def compose(self) -> ComposeResult:
+        with HorizontalGroup(id="canvas-action-row"):
+            yield Button(
+                "< Back",
+                id="canvas-back",
+            )
+            yield Static("", classes="canvas-action-spacer")
+            yield Static("", id="canvas-progress", classes="field-text", markup=False)
+            yield Static("", classes="canvas-action-spacer")
+            yield Button(
+                "Diagnostics",
+                id="canvas-internals",
+            )
+            yield Button(
+                "Review",
+                id="canvas-primary",
+                variant="primary",
+            )
+
+    def update_actions(
+        self,
+        *,
+        primary_label: str,
+        primary_enabled: bool,
+        compact: bool,
+        internals_visible: bool,
+        running: bool,
+        running_label: str | None,
+    ) -> None:
+        action_row = self.query_one("#canvas-action-row", HorizontalGroup)
+        action_row.set_class(compact, "settings-mode")
+        internals_button = self.query_one("#canvas-internals", Button)
+        internals_button.display = internals_visible and not compact and not running
+        button = self.query_one("#canvas-primary", Button)
+        button.disabled = running or not primary_enabled
+        button.display = True
+        button.variant = "primary"
+        label = (running_label or "Task in progress") if running else primary_label
+        if str(button.label) != label:
+            button.label = label
+            button.refresh(layout=True)

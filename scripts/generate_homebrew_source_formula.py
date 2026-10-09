@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import operator
 import re
 import tomllib
 import urllib.request
@@ -121,9 +122,12 @@ def _normalize_package_name(name: str) -> str:
 
 def _sha256_from_lock_hash(value: str) -> str:
     prefix = "sha256:"
-    if value.startswith(prefix):
-        return value[len(prefix) :]
-    return value
+    if not value.startswith(prefix):
+        raise ValueError(f"lockfile hash is not SHA-256: {value!r}")
+    digest = value[len(prefix) :]
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise ValueError(f"locked package file has invalid SHA-256 digest: {value!r}")
+    return digest
 
 
 def _wheel_filename(wheel: dict[str, object]) -> str:
@@ -148,50 +152,45 @@ def _choose_wheel(package: dict[str, object], predicate: str) -> dict[str, objec
     return matches[0]
 
 
-def _choose_artifact_for_block(
+def _choose_package_file_for_resource(
     package: dict[str, object], current_url: str
 ) -> tuple[str, str] | None:
     sdist = package.get("sdist")
-    if current_url.endswith(".tar.gz"):
-        if isinstance(sdist, dict):
-            return str(sdist["url"]), _sha256_from_lock_hash(str(sdist["hash"]))
-        return None
+    if not current_url.endswith(".tar.gz"):
+        for pattern in _wheel_patterns_for_resource(current_url):
+            wheel = _choose_wheel(package, pattern)
+            if wheel is not None:
+                return str(wheel["url"]), _sha256_from_lock_hash(str(wheel["hash"]))
+    if isinstance(sdist, dict):
+        return str(sdist["url"]), _sha256_from_lock_hash(str(sdist["hash"]))
+    return None
 
-    wheel: dict[str, object] | None
+
+def _macos_wheel_patterns(current_url: str) -> tuple[str, ...]:
+    universal = r"macosx.*universal2|universal2.*macosx"
+    if "universal2" not in current_url:
+        for architecture in ("arm64", "x86_64"):
+            if architecture in current_url:
+                return (rf"macosx.*{architecture}|{architecture}.*macosx", universal)
+    return (universal, r"macosx")
+
+
+def _wheel_patterns_for_resource(current_url: str) -> tuple[str, ...]:
     if "none-any.whl" in current_url:
-        wheel = _choose_wheel(package, r"none-any\.whl$")
-    elif "macosx" in current_url and "universal2" in current_url:
-        wheel = _choose_wheel(package, r"macosx.*universal2|universal2.*macosx")
-        if wheel is None:
-            wheel = _choose_wheel(package, r"macosx")
-    elif "macosx" in current_url and "arm64" in current_url:
-        wheel = _choose_wheel(package, r"macosx.*arm64|arm64.*macosx")
-        if wheel is None:
-            wheel = _choose_wheel(package, r"macosx.*universal2|universal2.*macosx")
-    elif "macosx" in current_url and "x86_64" in current_url:
-        wheel = _choose_wheel(package, r"macosx.*x86_64|x86_64.*macosx")
-        if wheel is None:
-            wheel = _choose_wheel(package, r"macosx.*universal2|universal2.*macosx")
-    elif "macosx" in current_url:
-        wheel = _choose_wheel(package, r"macosx.*universal2|universal2.*macosx")
-        if wheel is None:
-            wheel = _choose_wheel(package, r"macosx")
-    elif "manylinux" in current_url and ("aarch64" in current_url or "arm64" in current_url):
-        wheel = _choose_wheel(package, r"manylinux.*aarch64|aarch64.*manylinux")
-    elif "manylinux" in current_url and "x86_64" in current_url:
-        wheel = _choose_wheel(package, r"manylinux.*x86_64|x86_64.*manylinux")
-    elif "aarch64" in current_url or "arm64" in current_url:
-        wheel = _choose_wheel(package, r"aarch64|arm64")
-    elif "x86_64" in current_url:
-        wheel = _choose_wheel(package, r"x86_64")
-    else:
-        wheel = _choose_wheel(package, r"\.whl$")
-
-    if wheel is None:
-        if isinstance(sdist, dict):
-            return str(sdist["url"]), _sha256_from_lock_hash(str(sdist["hash"]))
-        return None
-    return str(wheel["url"]), _sha256_from_lock_hash(str(wheel["hash"]))
+        return (r"none-any\.whl$",)
+    if "macosx" in current_url:
+        return _macos_wheel_patterns(current_url)
+    arm = "aarch64" in current_url or "arm64" in current_url
+    if "manylinux" in current_url:
+        if arm:
+            return (r"manylinux.*aarch64|aarch64.*manylinux",)
+        if "x86_64" in current_url:
+            return (r"manylinux.*x86_64|x86_64.*manylinux",)
+    if arm:
+        return (r"aarch64|arm64",)
+    if "x86_64" in current_url:
+        return (r"x86_64",)
+    return (r"\.whl$",)
 
 
 def _load_lock_packages(lock_path: Path) -> dict[str, dict[str, object]]:
@@ -233,67 +232,66 @@ def _version_key(value: str) -> tuple[int, ...]:
 
 
 def _compare_marker_values(left: str, right: str, op: ast.cmpop, *, left_name: str | None) -> bool:
+    if isinstance(op, ast.In):
+        return left in right
+    if isinstance(op, ast.NotIn):
+        return left not in right
+    compare = {
+        ast.Eq: operator.eq,
+        ast.NotEq: operator.ne,
+        ast.Lt: operator.lt,
+        ast.LtE: operator.le,
+        ast.Gt: operator.gt,
+        ast.GtE: operator.ge,
+    }.get(type(op))
+    if compare is None:
+        raise ValueError(f"unsupported marker operator: {ast.dump(op)}")
     if (
         left_name in _VERSION_MARKER_NAMES
         and _is_version_string(left)
         and _is_version_string(right)
     ):
-        left_value: tuple[int, ...] | str = _version_key(left)
-        right_value: tuple[int, ...] | str = _version_key(right)
-    else:
-        left_value = left
-        right_value = right
+        return compare(_version_key(left), _version_key(right))
+    return compare(left, right)
 
-    if isinstance(op, ast.Eq):
-        return left_value == right_value
-    if isinstance(op, ast.NotEq):
-        return left_value != right_value
-    if isinstance(op, ast.Lt):
-        return left_value < right_value
-    if isinstance(op, ast.LtE):
-        return left_value <= right_value
-    if isinstance(op, ast.Gt):
-        return left_value > right_value
-    if isinstance(op, ast.GtE):
-        return left_value >= right_value
-    if isinstance(op, ast.In):
-        return left in right
-    if isinstance(op, ast.NotIn):
-        return left not in right
-    raise ValueError(f"unsupported marker operator: {ast.dump(op)}")
+
+def _evaluate_marker_comparison(node: ast.Compare, environment: dict[str, str]) -> bool:
+    left = _evaluate_marker_node(node.left, environment)
+    left_name = node.left.id if isinstance(node.left, ast.Name) else None
+    if not isinstance(left, str):
+        raise ValueError("marker comparison left operand must be a string value")
+    for op, comparator in zip(node.ops, node.comparators, strict=True):
+        right = _evaluate_marker_node(comparator, environment)
+        if not isinstance(right, str):
+            raise ValueError("marker comparison right operand must be a string value")
+        if not _compare_marker_values(left, right, op, left_name=left_name):
+            return False
+        left = right
+        left_name = comparator.id if isinstance(comparator, ast.Name) else None
+    return True
+
+
+def _evaluate_marker_boolean(node: ast.BoolOp, environment: dict[str, str]) -> bool:
+    values = [_evaluate_marker_node(value, environment) for value in node.values]
+    if not all(isinstance(value, bool) for value in values):
+        raise ValueError("marker boolean expressions must compare boolean values")
+    if isinstance(node.op, ast.And):
+        return all(values)
+    if isinstance(node.op, ast.Or):
+        return any(values)
+    raise ValueError(f"unsupported marker boolean operator: {ast.dump(node.op)}")
 
 
 def _evaluate_marker_node(node: ast.AST, environment: dict[str, str]) -> bool | str:
     if isinstance(node, ast.BoolOp):
-        values = [_evaluate_marker_node(value, environment) for value in node.values]
-        if not all(isinstance(value, bool) for value in values):
-            raise ValueError("marker boolean expressions must compare boolean values")
-        if isinstance(node.op, ast.And):
-            return all(values)
-        if isinstance(node.op, ast.Or):
-            return any(values)
-        raise ValueError(f"unsupported marker boolean operator: {ast.dump(node.op)}")
+        return _evaluate_marker_boolean(node, environment)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
         value = _evaluate_marker_node(node.operand, environment)
         if not isinstance(value, bool):
             raise ValueError("marker 'not' operand must be boolean")
         return not value
     if isinstance(node, ast.Compare):
-        left = _evaluate_marker_node(node.left, environment)
-        left_name = node.left.id if isinstance(node.left, ast.Name) else None
-        if not isinstance(left, str):
-            raise ValueError("marker comparison left operand must be a string value")
-        current_left = left
-        current_left_name = left_name
-        for op, comparator in zip(node.ops, node.comparators, strict=True):
-            right = _evaluate_marker_node(comparator, environment)
-            if not isinstance(right, str):
-                raise ValueError("marker comparison right operand must be a string value")
-            if not _compare_marker_values(current_left, right, op, left_name=current_left_name):
-                return False
-            current_left = right
-            current_left_name = comparator.id if isinstance(comparator, ast.Name) else None
-        return True
+        return _evaluate_marker_comparison(node, environment)
     if isinstance(node, ast.Name):
         if node.id not in environment:
             raise ValueError(f"unsupported marker variable: {node.id}")
@@ -363,22 +361,65 @@ def _required_runtime_resource_names(
     return required
 
 
-def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str, object]]) -> str:
+def _validate_resource_inventory(formula: str, lock_packages: dict[str, dict[str, object]]) -> None:
     resource_names = _resource_package_names(formula)
     formula_dependency_names = _formula_dependency_names(formula)
-    missing_resources = sorted(
-        _required_runtime_resource_names(
-            lock_packages,
-            formula_dependency_names=formula_dependency_names,
-        )
-        - resource_names
+    required_resources = _required_runtime_resource_names(
+        lock_packages,
+        formula_dependency_names=formula_dependency_names,
     )
+    missing_resources = sorted(required_resources - resource_names)
     if missing_resources:
         joined = ", ".join(missing_resources)
         raise ValueError(
             f"formula template is missing resource blocks for runtime packages: {joined}"
         )
+    stale_resources = sorted(resource_names - required_resources)
+    if stale_resources:
+        joined = ", ".join(stale_resources)
+        raise ValueError(f"formula template contains stale runtime resource blocks: {joined}")
 
+
+def _resource_block_fields(lines: list[str], index: int, package_name: str) -> tuple[int, int, int]:
+    block_end = index + 1
+    url_idx = None
+    sha_idx = None
+    while block_end < len(lines):
+        stripped = lines[block_end].strip()
+        if stripped.startswith('url "') and url_idx is None:
+            url_idx = block_end
+        elif stripped.startswith('sha256 "') and sha_idx is None:
+            sha_idx = block_end
+        elif stripped == "end":
+            break
+        block_end += 1
+    if url_idx is None or sha_idx is None or block_end >= len(lines):
+        raise ValueError(f"formula resource block is malformed: {package_name}")
+    return url_idx, sha_idx, block_end
+
+
+def _rewrite_resource_block(
+    lines: list[str], index: int, package_name: str, package: dict[str, object]
+) -> int:
+    url_idx, sha_idx, block_end = _resource_block_fields(lines, index, package_name)
+    current_url_match = re.search(r'url "([^"]+)"', lines[url_idx])
+    if current_url_match is None:
+        raise ValueError(f"formula resource URL is malformed: {package_name}")
+    selected = _choose_package_file_for_resource(package, current_url_match.group(1))
+    if selected is None:
+        raise ValueError(f"no locked package file matches formula resource: {package_name}")
+    new_url, new_sha = selected
+    if not new_url.startswith("https://"):
+        raise ValueError(f"locked package URL is not HTTPS for resource: {package_name}")
+    url_indent = lines[url_idx][: len(lines[url_idx]) - len(lines[url_idx].lstrip())]
+    sha_indent = lines[sha_idx][: len(lines[sha_idx]) - len(lines[sha_idx].lstrip())]
+    lines[url_idx] = f'{url_indent}url "{new_url}"\n'
+    lines[sha_idx] = f'{sha_indent}sha256 "{new_sha}"\n'
+    return block_end + 1
+
+
+def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str, object]]) -> str:
+    _validate_resource_inventory(formula, lock_packages)
     lines = formula.splitlines(keepends=True)
     index = 0
     while index < len(lines):
@@ -386,43 +427,11 @@ def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str,
         if not match:
             index += 1
             continue
-
         package_name = _normalize_package_name(match.group(1))
         package = lock_packages.get(package_name)
         if package is None:
             raise ValueError(f"formula resource package not found in uv.lock: {package_name}")
-
-        block_end = index + 1
-        url_idx = None
-        sha_idx = None
-        while block_end < len(lines):
-            stripped = lines[block_end].strip()
-            if stripped.startswith('url "') and url_idx is None:
-                url_idx = block_end
-            elif stripped.startswith('sha256 "') and sha_idx is None:
-                sha_idx = block_end
-            elif stripped == "end":
-                break
-            block_end += 1
-
-        if url_idx is None or sha_idx is None or block_end >= len(lines):
-            index = block_end + 1
-            continue
-
-        current_url_match = re.search(r'url "([^"]+)"', lines[url_idx])
-        if current_url_match is None:
-            index = block_end + 1
-            continue
-        current_url = current_url_match.group(1)
-        selected = _choose_artifact_for_block(package, current_url)
-        if selected is not None:
-            new_url, new_sha = selected
-            url_indent = lines[url_idx][: len(lines[url_idx]) - len(lines[url_idx].lstrip())]
-            sha_indent = lines[sha_idx][: len(lines[sha_idx]) - len(lines[sha_idx].lstrip())]
-            lines[url_idx] = f'{url_indent}url "{new_url}"\n'
-            lines[sha_idx] = f'{sha_indent}sha256 "{new_sha}"\n'
-
-        index = block_end + 1
+        index = _rewrite_resource_block(lines, index, package_name, package)
 
     return "".join(lines)
 
@@ -445,7 +454,9 @@ def main() -> int:
     template_path = Path(args.template)
     output_path = Path(args.output)
     lock_path = Path(args.lock)
-    source_url = f"https://github.com/{args.repo}/archive/refs/tags/{tag}.tar.gz"
+    source_url = (
+        f"https://github.com/{args.repo}/releases/download/{tag}/ethernity-source-{tag}.tar.gz"
+    )
     source_sha = _sha256_from_url(source_url)
 
     template = template_path.read_text(encoding="utf-8")

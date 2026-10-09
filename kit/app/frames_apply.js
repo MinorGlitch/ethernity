@@ -16,7 +16,7 @@
  */
 
 import { FRAME_TYPE_AUTH, FRAME_TYPE_KEY, FRAME_TYPE_MAIN } from "./constants.js";
-import { addAuthDocumentFrame, addMainDocumentFrame } from "./document_store.js";
+import { addAuthDocumentFrame, addMainDocumentFrame } from "./documents/store.js";
 import { decodeShardPayload } from "./frames_protocol.js";
 import { addShardPayloadFrame } from "./shard_store.js";
 

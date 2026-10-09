@@ -1,0 +1,1 @@
+"""Direct PDF rendering implementations."""

@@ -26,37 +26,6 @@ import { addFrame, addShardFrame } from "./frames_apply.js";
 import { decodeFrame } from "./frames_protocol.js";
 import { bumpError } from "./state/initial.js";
 
-function parsePayloadLinesWith(state, text, addFrameFn, errorKey) {
-  const lines = text.split(/\r?\n/);
-  let added = 0;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const bytes = decodePayloadString(trimmed);
-    if (!bytes) {
-      bumpError(state, errorKey);
-      continue;
-    }
-    try {
-      const frame = decodeFrame(bytes);
-      if (addFrameFn(state, frame)) {
-        added += 1;
-      }
-    } catch {
-      bumpError(state, errorKey);
-    }
-  }
-  return added;
-}
-
-function parsePayloadLines(state, text) {
-  return parsePayloadLinesWith(state, text, addFrame, "errors");
-}
-
-function parseShardPayloadLines(state, text) {
-  return parsePayloadLinesWith(state, text, addShardFrame, "shardErrors");
-}
-
 function getScannedText(input) {
   if (typeof input === "string") return input;
   if (input && typeof input === "object" && typeof input.text === "string") {
@@ -102,35 +71,20 @@ function hasMarker(lines, markers) {
   return lines.some((line) => detectMarker(line, markers));
 }
 
-function allLinesDecodeFrames(lines) {
-  if (!lines.length) return false;
+function decodeFrameLines(lines, shardOnly) {
+  const frames = [];
   for (const line of lines) {
     const bytes = decodePayloadString(line);
-    if (!bytes) return false;
-    try {
-      decodeFrame(bytes);
-    } catch {
-      return false;
-    }
-  }
-  return true;
-}
-
-function allLinesDecodeShardFrames(lines) {
-  if (!lines.length) return false;
-  for (const line of lines) {
-    const bytes = decodePayloadString(line);
-    if (!bytes) return false;
+    if (!bytes) return null;
     try {
       const frame = decodeFrame(bytes);
-      if (frame.frameType !== FRAME_TYPE_KEY) {
-        return false;
-      }
+      if (shardOnly && frame.frameType !== FRAME_TYPE_KEY) return null;
+      frames.push(frame);
     } catch {
-      return false;
+      return null;
     }
   }
-  return true;
+  return frames;
 }
 
 function allLinesLookLikeFallback(lines) {
@@ -222,7 +176,7 @@ function parseFallbackText(state, text) {
         }
       }
     } catch {
-      state.authErrors += 1;
+      state.authParseErrors += 1;
     }
   }
   return added;
@@ -259,102 +213,84 @@ function enforceRecoveryTextLimit(text) {
   }
 }
 
-export function parseAutoPayload(state, text) {
+const BACKUP_INPUT = {
+  add: addFrame,
+  fallback: parseFallbackText,
+  markers: ["main frame", "auth frame"],
+  errorKey: "errors",
+  label: "QR",
+  shardOnly: false,
+};
+const SHARD_INPUT = {
+  add: addShardFrame,
+  fallback: parseShardFallbackText,
+  markers: SHARD_FALLBACK_MARKERS,
+  errorKey: "shardErrors",
+  label: "shard",
+  shardOnly: true,
+};
+
+function parseAuto(state, text, input) {
   enforceRecoveryTextLimit(text);
   const lines = nonEmptyLines(text);
-  if (!lines.length) {
-    throw new Error("no input lines found");
+  if (!lines.length) throw new Error("no input lines found");
+  if (hasMarker(lines, input.markers)) return input.fallback(state, text);
+  const frames = decodeFrameLines(lines, input.shardOnly);
+  if (frames !== null) {
+    let added = 0;
+    for (const frame of frames) {
+      try {
+        if (input.add(state, frame)) added += 1;
+      } catch {
+        bumpError(state, input.errorKey);
+      }
+    }
+    return added;
   }
-  if (hasMarker(lines, ["main frame", "auth frame"])) {
-    return parseFallbackText(state, text);
+  if (allLinesLookLikeFallback(lines)) return input.fallback(state, text);
+  throw new Error(`input is neither valid ${input.label} payloads nor valid fallback text`);
+}
+
+function parseScanned(state, scanned, input) {
+  const text = getScannedText(scanned).trim();
+  const bytes = getScannedBytes(scanned);
+  if (bytes?.length) {
+    try {
+      const frame = decodeFrame(bytes);
+      if (input.shardOnly && frame.frameType !== FRAME_TYPE_KEY) {
+        bumpError(state, input.errorKey);
+        return 0;
+      }
+      return input.add(state, frame) ? 1 : 0;
+    } catch {
+      // Some scanners return the ASCII bytes of a text-encoded QR.
+    }
   }
-  if (allLinesDecodeFrames(lines)) {
-    return parsePayloadLines(state, text);
+  if (text) {
+    try {
+      return parseAuto(state, text, input);
+    } catch {
+      // Count one invalid scan regardless of which representation failed.
+    }
   }
-  if (allLinesLookLikeFallback(lines)) {
-    return parseFallbackText(state, text);
-  }
-  throw new Error("input is neither valid QR payloads nor valid fallback text");
+  bumpError(state, input.errorKey);
+  return 0;
+}
+
+export function parseAutoPayload(state, text) {
+  return parseAuto(state, text, BACKUP_INPUT);
 }
 
 export function parseAutoShard(state, text) {
-  enforceRecoveryTextLimit(text);
-  const lines = nonEmptyLines(text);
-  if (!lines.length) {
-    throw new Error("no input lines found");
-  }
-  if (hasMarker(lines, SHARD_FALLBACK_MARKERS)) {
-    return parseShardFallbackText(state, text);
-  }
-  if (allLinesDecodeShardFrames(lines)) {
-    return parseShardPayloadLines(state, text);
-  }
-  if (allLinesLookLikeFallback(lines)) {
-    return parseShardFallbackText(state, text);
-  }
-  throw new Error("input is neither valid shard payloads nor valid fallback text");
+  return parseAuto(state, text, SHARD_INPUT);
 }
 
 export function parseScannedPayload(state, scanned) {
-  const text = getScannedText(scanned).trim();
-  const bytes = getScannedBytes(scanned);
-
-  if (bytes?.length) {
-    try {
-      const frame = decodeFrame(bytes);
-      return addFrame(state, frame) ? 1 : 0;
-    } catch {
-      if (!text) {
-        bumpError(state, "errors");
-        return 0;
-      }
-    }
-  }
-
-  if (text) {
-    try {
-      return parseAutoPayload(state, text);
-    } catch {
-      bumpError(state, "errors");
-      return 0;
-    }
-  }
-
-  bumpError(state, "errors");
-  return 0;
+  return parseScanned(state, scanned, BACKUP_INPUT);
 }
 
 export function parseScannedShard(state, scanned) {
-  const text = getScannedText(scanned).trim();
-  const bytes = getScannedBytes(scanned);
-
-  if (bytes?.length) {
-    try {
-      const frame = decodeFrame(bytes);
-      if (frame.frameType !== FRAME_TYPE_KEY) {
-        bumpError(state, "shardErrors");
-        return 0;
-      }
-      return addShardFrame(state, frame) ? 1 : 0;
-    } catch {
-      if (!text) {
-        bumpError(state, "shardErrors");
-        return 0;
-      }
-    }
-  }
-
-  if (text) {
-    try {
-      return parseAutoShard(state, text);
-    } catch {
-      bumpError(state, "shardErrors");
-      return 0;
-    }
-  }
-
-  bumpError(state, "shardErrors");
-  return 0;
+  return parseScanned(state, scanned, SHARD_INPUT);
 }
 
 export { detectMarker };

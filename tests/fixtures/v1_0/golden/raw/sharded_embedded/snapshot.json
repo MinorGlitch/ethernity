@@ -1,5 +1,5 @@
 {
-  "artifact_hashes": {
+  "file_hashes": {
     "main_payloads.bin": "14c5a1071468d64d790e073ca0179dcf900f2064f44b383e6d6c8290d8609e17",
     "main_payloads.txt": "8a614a3449f0e8a62236290f0783f39b35330e82b035350441bf856773768715",
     "qr_document.pdf": "cdc708b41b64096a5b0013e3dbb3db5319ac2e0175eae55750712db1de201db4",

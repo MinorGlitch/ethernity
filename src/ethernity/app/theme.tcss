@@ -1,0 +1,404 @@
+/* Shared control skins, text roles and action rows. Geometry belongs to the layout owners. */
+$control-height: 3;
+
+/* Keep the track one cell wide, with two blank cells between it and content. */
+Widget {
+    scrollbar-size: 1 3;
+}
+
+ScrollBar.-ethernity-vertical {
+    padding: 0 0 0 2;
+}
+
+Screen {
+    background: $background;
+    color: $text;
+}
+
+.detail-label {
+    width: 1fr;
+    color: $text-muted;
+}
+
+.detail-value,
+.section-title,
+.detail-heading {
+    width: 1fr;
+    color: $text;
+    text-style: bold;
+}
+
+.detail-text {
+    width: 1fr;
+    color: $text;
+}
+
+.detail-line {
+    width: 1fr;
+    padding-left: 2;
+    color: $text-muted;
+}
+
+.screen-title {
+    height: 1;
+    color: $text;
+    text-style: bold;
+    width: 1fr;
+}
+
+.field-text {
+    height: $control-height;
+    content-align: left middle;
+}
+
+.form-row {
+    min-height: $control-height;
+}
+
+Button,
+Input,
+Select > SelectCurrent,
+Switch,
+Checkbox,
+RadioButton {
+    height: $control-height;
+    padding: 0 1;
+    border: none;
+    background: $surface;
+}
+
+Button {
+    padding: 0;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    min-height: $control-height;
+    color: $text;
+    text-style: none;
+    content-align: center middle;
+    background-tint: transparent;
+    min-width: 10;
+}
+
+Button:hover {
+    background: $surface-active;
+}
+
+Button:focus,
+Input:focus,
+Select:focus > SelectCurrent,
+Switch:focus,
+Checkbox:focus {
+    background: $primary 15%;
+    background-tint: transparent;
+}
+
+Button:focus {
+    text-style: bold;
+}
+
+Button:disabled {
+    background: $surface;
+    color: $text-disabled;
+    text-style: none;
+}
+
+Button.-primary {
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+Button.-success {
+    background: $success;
+    color: $button-color-foreground;
+}
+
+Button.-warning {
+    background: $warning;
+    color: $button-color-foreground;
+}
+
+Button.-error {
+    background: $error;
+    color: $button-color-foreground;
+}
+
+Input,
+Select > SelectCurrent {
+    color: $text;
+    background-tint: transparent;
+}
+
+Input,
+Switch,
+Checkbox,
+RadioButton {
+    padding: 1 1;
+}
+
+Input:focus,
+Select:focus > SelectCurrent {
+    border: none;
+}
+
+Select {
+    height: $control-height;
+    width: 1fr;
+}
+
+Select > SelectCurrent {
+    padding: 1 2;
+}
+
+Select > SelectCurrent > #label {
+    height: 1;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
+.popup-menu,
+Select > FormSelectOverlay {
+    height: auto;
+    padding: 0;
+    border: solid $border;
+    background: $surface;
+    background-tint: transparent;
+    color: $text;
+}
+
+Select > FormSelectOverlay {
+    max-height: 14;
+}
+
+/* The same padding sizes navigation items and measured form options. */
+.popup-choice {
+    padding: 1 1;
+}
+
+.popup-choice,
+Select > FormSelectOverlay > .option-list--option {
+    background: $surface;
+    color: $text;
+}
+
+Select > FormSelectOverlay > .option-list--option {
+    padding: 0;
+}
+
+.popup-choice.-hovered,
+Select > FormSelectOverlay > .option-list--option-hover {
+    background: $surface-active;
+}
+
+.popup-choice.-highlight,
+.popup-choice.-highlight Label,
+Select > FormSelectOverlay > .option-list--option-highlighted {
+    background: $primary;
+    color: $button-color-foreground;
+    text-style: bold;
+}
+
+Select > FormSelectOverlay > .option-list--option-disabled {
+    color: $text-disabled;
+}
+
+Switch {
+    background-tint: transparent;
+}
+
+Switch > .switch--slider,
+Checkbox > .toggle--button {
+    background: $surface;
+    color: $text-muted;
+}
+
+Switch.-on > .switch--slider,
+RadioButton.-on > .toggle--label {
+    color: $text-primary;
+}
+
+Button.text-action {
+    height: 1;
+    min-height: 1;
+    background: transparent;
+    color: $text-primary;
+    padding: 0;
+}
+
+Button.text-action:focus {
+    background: $primary 15%;
+}
+
+RadioSet {
+    height: auto;
+    width: 1fr;
+    padding: 0;
+    border: none;
+    background: transparent;
+    background-tint: transparent;
+}
+
+RadioSet:focus,
+Checkbox:focus {
+    border: none;
+    background-tint: transparent;
+}
+
+RadioButton {
+    width: 1fr;
+    margin-bottom: 1;
+    background: transparent;
+    color: $text;
+}
+
+RadioButton:last-child {
+    margin-bottom: 0;
+}
+
+RadioButton.-on {
+    background: $primary 15%;
+    color: $text-primary;
+}
+
+RadioButton > .toggle--button {
+    background: $surface;
+    color: $text-disabled;
+}
+
+RadioButton.-on > .toggle--button,
+Checkbox.-on > .toggle--button {
+    background: $surface;
+    color: $text-primary;
+}
+
+RadioButton > .toggle--label,
+Checkbox > .toggle--label {
+    background: transparent;
+    color: $text;
+}
+
+RadioSet:focus > RadioButton.-selected {
+    background: $primary 30%;
+    text-style: bold;
+}
+
+RadioSet:focus > RadioButton.-selected > .toggle--label,
+Checkbox:focus > .toggle--label {
+    background: transparent;
+    color: $text-primary;
+    text-style: bold;
+}
+
+RadioSet:blur > RadioButton.-selected > .toggle--label {
+    background: transparent;
+}
+
+Checkbox {
+    color: $text;
+}
+
+TextArea {
+    border: solid $border-blurred;
+    background: $background;
+    color: $text;
+}
+
+TextArea:focus {
+    border: solid $border;
+}
+
+Collapsible {
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+Collapsible > CollapsibleTitle {
+    height: 1;
+    width: 1fr;
+    padding: 0;
+    color: $text-muted;
+    text-style: none;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
+Collapsible > CollapsibleTitle:focus {
+    background: $primary 15%;
+    color: $text-primary;
+    text-style: bold;
+}
+
+Collapsible > Contents {
+    padding: 1 0 0 2;
+    background: transparent;
+}
+
+.modal-action-row.equal-actions,
+.modal-action-row.equal-actions Button {
+    width: 1fr;
+}
+
+.action-gap {
+    width: 1;
+    height: 1;
+}
+
+.modal-action-row {
+    min-height: 1;
+}
+
+.modal-action-spacer {
+    width: 1fr;
+    height: 1;
+}
+
+.modal-action-row Button {
+    width: auto;
+    min-width: 10;
+    max-width: 30;
+}
+
+.responsive-actions {
+    width: 1fr;
+    height: auto;
+    grid-rows: auto;
+    grid-gutter: 1;
+}
+
+.responsive-actions Button {
+    width: 1fr;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0 1;
+}
+
+Screen.-ethernity-short Button,
+Screen.-ethernity-short Input,
+Screen.-ethernity-short Select,
+Screen.-ethernity-short Select > SelectCurrent,
+Screen.-ethernity-short .field-text,
+Screen.-ethernity-short Switch,
+Screen.-ethernity-short Checkbox,
+Screen.-ethernity-short RadioButton {
+    height: 1;
+    min-height: 1;
+    padding: 0 1;
+}
+
+Screen.-ethernity-short Select > SelectCurrent {
+    padding: 0 2;
+}
+
+Screen.-ethernity-short Select,
+Screen.-ethernity-short .field-text,
+Screen.-ethernity-short Button {
+    padding: 0;
+}
+
+Screen.-ethernity-short RadioButton {
+    margin-bottom: 0;
+}
+
+Screen.-ethernity-narrow .detail-value {
+    min-height: 1;
+}

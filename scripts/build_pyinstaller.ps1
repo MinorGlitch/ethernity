@@ -15,5 +15,29 @@
 
 $ErrorActionPreference = "Stop"
 
+$KitResourceDir = "src/ethernity/resources/kit"
+
+Get-ChildItem -Path $KitResourceDir -Filter "recovery_kit*.bundle.html" -File `
+    -ErrorAction SilentlyContinue | Remove-Item -Force
+
+Push-Location kit
+try {
+    npm ci
+    if ($LASTEXITCODE -ne 0) { throw "Kit dependency installation failed" }
+    $env:ETHERNITY_KIT_COMPRESSION = "gzip"
+    $env:ETHERNITY_KIT_VARIANTS = "both"
+    node build_kit.mjs
+    if ($LASTEXITCODE -ne 0) { throw "Recovery-kit generation failed" }
+}
+finally {
+    Remove-Item Env:ETHERNITY_KIT_COMPRESSION -ErrorAction SilentlyContinue
+    Remove-Item Env:ETHERNITY_KIT_VARIANTS -ErrorAction SilentlyContinue
+    Pop-Location
+}
+
 uv sync --extra build --frozen
+if ($LASTEXITCODE -ne 0) { throw "Build dependency installation failed" }
+uv run python -m tooling.release_resources --kit-directory $KitResourceDir
+if ($LASTEXITCODE -ne 0) { throw "Recovery-kit bundle verification failed" }
 uv run pyinstaller --clean --noconfirm ethernity.spec
+if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }

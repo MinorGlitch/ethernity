@@ -28,16 +28,17 @@ import {
 } from "./actions_collect.js";
 import {
   downloadCipher,
-  downloadEnvelope,
+  downloadDecryptedBackup,
   downloadExtract,
   downloadZip,
 } from "./actions_export.js";
-import { clearOutput, decryptCiphertext, extractEnvelope } from "./actions_recover.js";
+import { clearOutput, decryptCiphertext } from "./actions_recover.js";
 import { DecryptSection } from "./components/DecryptSection.jsx";
 import { FrameCollector } from "./components/FrameCollector.jsx";
 import { RecoveredFiles } from "./components/RecoveredFiles.jsx";
 import { ShardCollector } from "./components/ShardCollector.jsx";
 import { StepShell } from "./components/StepShell.jsx";
+import { SCANNER_ENABLED } from "#kit-scanner-runtime";
 import { initialState, reducer } from "./state/reducer.js";
 import {
   selectActionState,
@@ -99,6 +100,8 @@ export function App() {
     updateField(dispatch, getState, "extensionTargetText", event.currentTarget.value);
   const handleExpectedHeadDocHashChange = (event) =>
     updateField(dispatch, getState, "expectedHeadDocHashText", event.currentTarget.value);
+  const handleFreshnessUnknownAcknowledgedChange = (event) =>
+    updateField(dispatch, getState, "freshnessUnknownAcknowledged", event.currentTarget.checked);
 
   const handleAddPayloads = () => addPayloads(dispatch, getState);
   const handleScannedPayload = (scanned) => addScannedPayload(dispatch, getState, scanned);
@@ -111,8 +114,7 @@ export function App() {
   const handleDecrypt = () => decryptCiphertext(dispatch, getState);
   const handleDecryptRootOnly = () =>
     decryptCiphertext(dispatch, getState, { extensionTarget: "root" });
-  const handleExtract = () => extractEnvelope(dispatch, getState);
-  const handleDownloadEnvelope = () => downloadEnvelope(dispatch, getState);
+  const handleDownloadDecryptedBackup = () => downloadDecryptedBackup(dispatch, getState);
   const handleClearOutput = () => clearOutput(dispatch, getState);
   const handleDownloadZip = () => downloadZip(dispatch, getState);
   const handleDownloadFile = (index) => downloadExtract(dispatch, getState, index);
@@ -209,7 +211,12 @@ export function App() {
         </section>
       ) : null}
       <section class="workspace">
-        <StepShell title="Collect backup" summary="Paste backup text or scan QR payloads.">
+        <StepShell
+          title="Collect backup"
+          summary={
+            SCANNER_ENABLED ? "Paste backup text or scan QR payloads." : "Paste backup text."
+          }
+        >
           <FrameCollector
             payloadText={state.payloadText}
             frameStatus={state.frameStatus}
@@ -256,20 +263,21 @@ export function App() {
             decryptStatus={state.decryptStatus}
             extensionTarget={state.extensionTargetText}
             expectedHeadDocHash={state.expectedHeadDocHashText}
+            freshnessUnknownAcknowledged={state.freshnessUnknownAcknowledged}
             onPassphraseChange={handlePassphraseChange}
             onExtensionTargetChange={handleExtensionTargetChange}
             onExpectedHeadDocHashChange={handleExpectedHeadDocHashChange}
+            onFreshnessUnknownAcknowledgedChange={handleFreshnessUnknownAcknowledgedChange}
             onDecrypt={handleDecrypt}
             onDecryptRootOnly={actionState.hasMultipleDocuments ? handleDecryptRootOnly : null}
             canDecrypt={actionState.canDecryptCiphertext}
             canDecryptRootOnly={actionState.canDecryptRootOnly}
-            hasMultipleDocuments={actionState.hasMultipleDocuments}
-            isComplete={actionState.hasOutput || Boolean(state.decryptedEnvelope)}
+            decryptDisabledReason={actionState.decryptDisabledReason}
+            rootOnlyDisabledReason={actionState.rootOnlyDisabledReason}
+            isComplete={actionState.hasOutput || Boolean(state.decryptedBackup)}
             isDecrypting={state.isDecrypting}
-            onExtract={handleExtract}
-            onDownloadEnvelope={handleDownloadEnvelope}
-            canExtract={actionState.canExtractEnvelope}
-            canDownloadEnvelope={actionState.canDownloadEnvelope}
+            onDownloadDecryptedBackup={handleDownloadDecryptedBackup}
+            canDownloadDecryptedBackup={actionState.canDownloadDecryptedBackup}
           >
             <RecoveredFiles
               extractStatus={state.extractStatus}
@@ -279,7 +287,6 @@ export function App() {
               onDownloadZip={handleDownloadZip}
               onDownloadFile={handleDownloadFile}
               hasOutput={actionState.hasOutput}
-              recoveryComplete={state.recoveryComplete}
             />
           </DecryptSection>
         </StepShell>

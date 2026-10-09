@@ -24,6 +24,8 @@ from ethernity.encoding.qr_payloads import (
 )
 from ethernity.qr.codec import QrConfig, make_qr
 
+__all__ = ["choose_frame_chunk_size", "fits_qr_payload"]
+
 
 def choose_frame_chunk_size(
     payload_len: int,
@@ -105,7 +107,7 @@ def _fits_qr_frame(
         data=b"\xff" * data_len,
     )
     qr_payload = encode_qr_payload(encode_frame(frame), codec=payload_codec)
-    return _fits_qr_payload(qr_payload, qr_config)
+    return fits_qr_payload(qr_payload, qr_config)
 
 
 def _max_fitting_frame_data_len(
@@ -151,7 +153,8 @@ def _max_fitting_frame_data_len(
     return lower
 
 
-def _fits_qr_payload(payload: bytes | str, config: QrConfig) -> bool:
+def fits_qr_payload(payload: bytes | str, config: QrConfig) -> bool:
+    """Return whether ``payload`` can be encoded with the configured QR settings."""
     try:
         make_qr(
             payload,

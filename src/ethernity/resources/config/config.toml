@@ -1,23 +1,8 @@
-[templates]
-default_name = "sentinel"
-
-[template]
-name = "sentinel"
-
-[recovery_template]
-name = "sentinel"
-
-[shard_template]
-name = "sentinel"
-
-[signing_key_shard_template]
-name = "sentinel"
-
-[kit_template]
-name = "sentinel"
+[render]
+style = "sentinel"
 
 [page]
-size = "A4" # Supported: A4, Letter
+size = "A4" # Supported sizes are listed by the application.
 
 [qr]
 error = "M"
@@ -31,9 +16,9 @@ light = "#ffffffff"
 chunk_size = 512
 
 [extension.chunking]
-# Content-defined chunking profile for the first extension in a new chain.
-# Existing chains keep their locked profile, regardless of later config edits.
-# Smaller values can improve reuse for text-heavy backups at the cost of more chunk metadata.
+# Advanced FastCDC defaults for the first update in a backup chain.
+# Existing chains keep the profile authenticated by their first update.
+# Smaller chunks can improve reuse after small edits but add more chunk metadata.
 target_size = 16384
 min_size = 4096
 max_size = 65536
@@ -51,6 +36,7 @@ max_size = 65536
 # payload_codec = "auto" # one of: auto | raw | gzip
 # qr_payload_codec = "raw" # required: raw | base64
 base_dir = ""
+# Parent directory; each backup is saved in its own backup-<id> folder inside it.
 output_dir = ""
 shard_threshold = 0
 shard_count = 0
@@ -60,24 +46,11 @@ signing_key_shard_count = 0
 payload_codec = "auto" # one of: auto | raw | gzip
 qr_payload_codec = "raw" # required: raw | base64
 
-[defaults.extend]
-# Extension output policy defaults. Leave as "" or 0 to require explicit CLI/prompt choices
-# or to inherit a compatible published root shard quorum when available.
+[defaults.add_files]
+# Extension input and QR transport defaults.
 # base_dir = "/data/secrets"
-# unlock_policy = "self-contained" # self-contained | reuse-root
-# shard_threshold = 2
-# shard_count = 3
-# signing_key_mode = "sharded" # not-stored | sharded
-# signing_key_shard_threshold = 2
-# signing_key_shard_count = 3
 # qr_payload_codec = "raw" # required: raw | base64
 base_dir = ""
-unlock_policy = ""
-shard_threshold = 0
-shard_count = 0
-signing_key_mode = ""
-signing_key_shard_threshold = 0
-signing_key_shard_count = 0
 qr_payload_codec = "raw" # required: raw | base64
 
 [defaults.recover]
@@ -91,11 +64,8 @@ output = ""
 quiet = false
 no_color = false
 no_animations = false
+show_internals = false
 
 [debug]
 # Set to 0 to unset and fall back to the CLI default (1024).
 max_bytes = 1024
-
-[runtime]
-# "auto" or a positive integer. ETHERNITY_RENDER_JOBS env still takes precedence.
-render_jobs = "auto"

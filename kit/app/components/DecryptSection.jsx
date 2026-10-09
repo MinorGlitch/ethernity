@@ -15,27 +15,28 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ActionsRow, Field, StatusBlock } from "./common.jsx";
+import { ActionsRow, Field, StatusBlock } from "./recovery_controls.jsx";
 
 export function DecryptSection({
   passphrase,
   decryptStatus,
   extensionTarget,
   expectedHeadDocHash,
+  freshnessUnknownAcknowledged,
   onPassphraseChange,
   onExtensionTargetChange,
   onExpectedHeadDocHashChange,
+  onFreshnessUnknownAcknowledgedChange,
   onDecrypt,
   onDecryptRootOnly,
   canDecrypt,
   canDecryptRootOnly,
-  hasMultipleDocuments,
+  decryptDisabledReason,
+  rootOnlyDisabledReason,
   isComplete,
   isDecrypting,
-  onExtract,
-  onDownloadEnvelope,
-  canExtract,
-  canDownloadEnvelope,
+  onDownloadDecryptedBackup,
+  canDownloadDecryptedBackup,
   children,
 }) {
   const decryptActions = [
@@ -43,9 +44,7 @@ export function DecryptSection({
       label: isDecrypting ? "Unlocking..." : "Unlock & extract",
       onClick: onDecrypt,
       disabled: !canDecrypt || isDecrypting,
-      disabledReason: passphrase.trim()
-        ? "Add backup data first (Step 1)."
-        : "Enter your passphrase to unlock.",
+      disabledReason: decryptDisabledReason,
     },
   ];
   if (onDecryptRootOnly) {
@@ -54,30 +53,24 @@ export function DecryptSection({
       className: "secondary",
       onClick: onDecryptRootOnly,
       disabled: !canDecryptRootOnly || isDecrypting,
-      disabledReason: passphrase.trim()
-        ? "Add backup data first (Step 1)."
-        : "Enter your passphrase to unlock.",
+      disabledReason: rootOnlyDisabledReason,
     });
   }
-  const envelopeActions = [
-    {
-      label: "Extract files",
-      onClick: onExtract,
-      disabled: !canExtract,
-      disabledReason: "Unlock the backup first.",
-    },
+  const backupActions = [
     {
       label: "Download raw data",
       className: "secondary",
-      onClick: onDownloadEnvelope,
-      disabled: !canDownloadEnvelope,
+      onClick: onDownloadDecryptedBackup,
+      disabled: !canDownloadDecryptedBackup,
       disabledReason: "Unlock the backup first.",
     },
   ];
   return (
     <div class="step-layout">
       <div
-        class={isComplete && !passphrase.trim() ? "step-section input-collapsed" : "step-section"}
+        class={
+          isComplete && passphrase.length === 0 ? "step-section input-collapsed" : "step-section"
+        }
       >
         <Field
           id="passphrase-input"
@@ -89,31 +82,42 @@ export function DecryptSection({
           autoComplete="off"
           spellCheck="false"
         />
-        {hasMultipleDocuments ? (
-          <Field
-            id="extension-target-input"
-            label="Extension target"
-            value={extensionTarget}
-            placeholder="latest, root, index, or doc hash"
-            onInput={onExtensionTargetChange}
-            spellCheck="false"
-          />
-        ) : null}
-        {hasMultipleDocuments ? (
-          <Field
-            id="expected-head-doc-hash-input"
-            label="Expected head"
-            value={expectedHeadDocHash}
-            placeholder="optional latest doc hash"
-            onInput={onExpectedHeadDocHashChange}
-            spellCheck="false"
-          />
-        ) : null}
+        <Field
+          id="extension-target-input"
+          label="Recovery target"
+          value={extensionTarget}
+          placeholder="latest, root, index, or doc hash"
+          onInput={onExtensionTargetChange}
+          spellCheck="false"
+        />
+        <Field
+          id="expected-head-doc-hash-input"
+          label="Expected head"
+          value={expectedHeadDocHash}
+          placeholder="64-character head hash from your separately kept record"
+          onInput={onExpectedHeadDocHashChange}
+          spellCheck="false"
+        />
+        <div>
+          <label class="freshness-acknowledgement" htmlFor="freshness-unknown-acknowledgement">
+            <input
+              id="freshness-unknown-acknowledgement"
+              type="checkbox"
+              checked={freshnessUnknownAcknowledged}
+              onChange={onFreshnessUnknownAcknowledgedChange}
+            />
+            <span>Recover latest among supplied pages; freshness unknown</span>
+          </label>
+          <div class="sub">
+            A separately kept full fingerprint pins the selected version. Without one, freshness
+            remains unknown beyond the supplied pages.
+          </div>
+        </div>
         <ActionsRow actions={decryptActions} />
       </div>
       <div class="step-section">
         <div class="step-section-label">Status</div>
-        <ActionsRow actions={envelopeActions} className="actions-secondary" />
+        <ActionsRow actions={backupActions} className="actions-secondary" />
         <StatusBlock status={decryptStatus} />
       </div>
       <div class="step-section">{children}</div>

@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import jsQR from "jsqr";
+import jsQR from "jsqr/basic";
 import { normalizeJsQrPayload } from "../../lib/qr_scan_normalize.js";
 
 function centerScanRegion(width, height) {

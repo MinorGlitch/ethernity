@@ -1,0 +1,13 @@
+Public Sans TrueType assets
+
+Source: https://github.com/uswds/public-sans
+Commit: d3df3455fb94643925f816276e81b231bc31619f
+Version: 2.001
+License: SIL Open Font License 1.1 (see PublicSans-OFL.txt)
+
+SHA-256:
+
+- PublicSans-Regular.ttf
+  b577e9bc9887284e90aae5ad0699689ce36b5cd96207efbec68f77f8aed88379
+- PublicSans-Black.ttf
+  1c6a90b862b10c5c07177d243cbf7df4b6d68236221029fa0f75897c3a9bb30d

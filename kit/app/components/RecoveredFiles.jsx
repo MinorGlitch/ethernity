@@ -15,21 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ActionsRow, OutputTable, StatusBlock } from "./common.jsx";
-
-function SuccessBanner({ fileCount }) {
-  return (
-    <div class="success-banner">
-      <h3>
-        <span class="success-icon">✓</span>
-        Recovery Complete
-      </h3>
-      <p>
-        Recovered {fileCount} file{fileCount !== 1 ? "s" : ""}. Download files or ZIP below.
-      </p>
-    </div>
-  );
-}
+import { ActionsRow, OutputTable, StatusBlock } from "./recovery_controls.jsx";
 
 export function RecoveredFiles({
   extractStatus,
@@ -39,7 +25,6 @@ export function RecoveredFiles({
   onDownloadZip,
   onDownloadFile,
   hasOutput,
-  recoveryComplete,
 }) {
   const actions = [
     { label: "Clear", className: "ghost", onClick: onClearOutput, disabled: !hasOutput },
@@ -47,10 +32,11 @@ export function RecoveredFiles({
   ];
   return (
     <div class="step-section">
-      {recoveryComplete && hasOutput && <SuccessBanner fileCount={files.length} />}
       <div class="row row-between">
         <div>
-          <div class="step-section-label">Recovered files</div>
+          <div class="step-section-label">
+            {hasOutput ? "Recovery complete" : "Recovered files"}
+          </div>
           <div class="sub">{outputSubtitle}</div>
         </div>
         <ActionsRow actions={actions} />

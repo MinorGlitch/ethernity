@@ -18,12 +18,14 @@ from ethernity.crypto.passphrases import (
     DEFAULT_PASSPHRASE_WORDS,
     MNEMONIC_WORD_COUNTS,
     generate_passphrase,
+    normalize_valid_bip39_whitespace,
 )
 
 __all__ = [
     "AgeError",
     "DEFAULT_PASSPHRASE_WORDS",
     "MNEMONIC_WORD_COUNTS",
+    "normalize_valid_bip39_whitespace",
     "decrypt_bytes",
     "encrypt_bytes_with_passphrase",
     "generate_passphrase",

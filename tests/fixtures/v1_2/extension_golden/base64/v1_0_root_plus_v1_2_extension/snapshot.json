@@ -1,18 +1,4 @@
 {
-  "artifact_hashes": {
-    "chain/extensions/01/qr_document-01-9df24ac44dbf26e7.pdf": "66e6a6a3ac97f51e6fc2cff76ac36abe98c7820be9a9518669af0cfa42456e26",
-    "chain/extensions/01/recovery_document-01-9df24ac44dbf26e7.pdf": "0613404d506a6a7c71e493c5e39575afc9e0b863ab3d922296ea20c6e51e04d5",
-    "chain/extensions/01/recovery_kit_index-01-9df24ac44dbf26e7.pdf": "c5d631eebec3f44f0c318194cfae844c9b2d843d6699e6c2119d5000a1d2a4c9",
-    "chain/qr_document.pdf": "64ba18c1c48df380d5d0ec13a10f0d3145ca14332cbd19f48c57887778ca1e37",
-    "chain/recovery_document.pdf": "86636c3bb07a80c92c0c5d305a27fa6a5fdd0ec5db3cfb3af6c24a810522a9bc",
-    "chain/recovery_kit_index.pdf": "12f488d02e9539b9135d7a4e9710b67c001d510bce29dea1efb9f560e1d0281e",
-    "chain_payloads.bin": "c7a44551898464c5c5ee2d169a015ee409bd4c831719ce138de220fe2a79980e",
-    "chain_payloads.txt": "a73ed5994818de7dc5418352ff40993fd5386ed0858d3f269d6d305252dda1f1",
-    "extension_01_payloads.bin": "f6578078fae8b8c4c25c91523abe06bcea4db16c48f0891bcde0d9509b609ce8",
-    "extension_01_payloads.txt": "5a4d4ddc9a2a2a800c54e6aace67c98d8fa5d7b8c3afd4d98cb323118b44ad36",
-    "root_payloads.bin": "cea6d6b1d70b76dd6357c1e1f9062b8202a877d2d03bd5acc970933653830f5e",
-    "root_payloads.txt": "976e1678955682d1e975be663d5f1eeca7226acb1e076105577d565e45afde40"
-  },
   "chain_dir": "chain",
   "checks": [
     "frozen v1.0 root compatibility"
@@ -28,8 +14,8 @@
           "stored_len": 29
         }
       ],
-      "doc_hash": "9df24ac44dbf26e7ce2ad2071036ac49cb97165f71567c0242b22ade9e8f3f2a",
-      "doc_id": "9df24ac44dbf26e7",
+      "doc_hash": "6ba58601a11efcd94ed105714f4d465ba9e048d240b2b55eb7060acf3525f9b3",
+      "doc_id": "6ba58601a11efcd9",
       "files": [
         {
           "path": "extension_note.txt",
@@ -45,11 +31,13 @@
       "index": 1,
       "kind": "extension",
       "parent_doc_hash": "b0ef92fe40cbe3a5df673c11a1c25cb3208577c096ccbe96b79c3b5fea61cabe",
-      "root_doc_hash": "b0ef92fe40cbe3a5df673c11a1c25cb3208577c096ccbe96b79c3b5fea61cabe"
+      "root_doc_hash": "b0ef92fe40cbe3a5df673c11a1c25cb3208577c096ccbe96b79c3b5fea61cabe",
+      "update_mode": "cumulative"
     },
     {
       "doc_hash": "b0ef92fe40cbe3a5df673c11a1c25cb3208577c096ccbe96b79c3b5fea61cabe",
       "doc_id": "b0ef92fe40cbe3a5",
+      "document_version": 1,
       "files": [
         {
           "path": "standalone_secret.txt",
@@ -64,7 +52,20 @@
     }
   ],
   "extension_doc_hashes": {
-    "extension_01": "9df24ac44dbf26e7ce2ad2071036ac49cb97165f71567c0242b22ade9e8f3f2a"
+    "extension_01": "6ba58601a11efcd94ed105714f4d465ba9e048d240b2b55eb7060acf3525f9b3"
+  },
+  "file_hashes": {
+    "chain/extensions/01/qr_document-01-6ba58601a11efcd9.pdf": "f67e77ba705f605b59d792a106b222893cc35b96e674c26e6fab0803521792ba",
+    "chain/extensions/01/recovery_document-01-6ba58601a11efcd9.pdf": "289c00aa6d020ab66957eaf5645e88389c417fbf83155a220b5ee01330335a55",
+    "chain/qr_document.pdf": "64ba18c1c48df380d5d0ec13a10f0d3145ca14332cbd19f48c57887778ca1e37",
+    "chain/recovery_document.pdf": "86636c3bb07a80c92c0c5d305a27fa6a5fdd0ec5db3cfb3af6c24a810522a9bc",
+    "chain/recovery_kit_index.pdf": "12f488d02e9539b9135d7a4e9710b67c001d510bce29dea1efb9f560e1d0281e",
+    "chain_payloads.bin": "498d23f8979f03e67777c00d8d6183c2f7eec284ebc376a267423070d4b6a7d0",
+    "chain_payloads.txt": "63beb37bac8dc5bdaf46cd8aaa4ad9726ee2ee59598987f5c848839c019862e1",
+    "extension_01_payloads.bin": "b50d5ec2b530a9991d3634151312089fa9428d6e996f1492e46d08e5fb99823d",
+    "extension_01_payloads.txt": "6924334f74a49ee4d30d8f84f280af8f4c86f656112f2c1f6ee09fbf944a0b25",
+    "root_payloads.bin": "cea6d6b1d70b76dd6357c1e1f9062b8202a877d2d03bd5acc970933653830f5e",
+    "root_payloads.txt": "976e1678955682d1e975be663d5f1eeca7226acb1e076105577d565e45afde40"
   },
   "passphrase": "stable-v1-baseline-passphrase",
   "payload_fixtures": {

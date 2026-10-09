@@ -15,17 +15,26 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import {
+  authOnlyDocumentRecords,
+  completeDocumentRecords,
+  incompleteDocumentRecords,
+  documentCounts,
+  primaryDocumentRecord,
+} from "../documents/store.js";
+import { activeShardSetRecord, shardCounts } from "../shard_store.js";
 import { formatBytes } from "../format.js";
 import { listMissing } from "../frame_list.js";
 import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED } from "../constants.js";
+import { inspectExtensionTarget } from "../extensions/target.js";
 
 const TONE_IDLE = "idle";
 const TONE_OK = "ok";
 const TONE_WARN = "warn";
 const TONE_ERR = "error";
 
-function diagItem(label, value, tone, detail, code = false) {
-  return { label, value, detail, tone, code };
+function diagItem(label, value, tone, detail) {
+  return { label, value, detail, tone };
 }
 
 function countTone(value, warnTone = TONE_WARN) {
@@ -65,7 +74,7 @@ function describeMissingFrames(state) {
       tone: TONE_WARN,
     };
   }
-  const missingList = listMissing(state.total, state.mainFrames);
+  const missingList = listMissing(mainRecords[0].total, mainRecords[0].mainFrames);
   const preview = missingList.slice(0, 8);
   const extra = missingList.length - preview.length;
   const detail = preview.length ? `${preview.join(", ")}${extra > 0 ? ` +${extra}` : ""}` : "";
@@ -77,29 +86,7 @@ function describeMissingFrames(state) {
 }
 
 function mainDocumentRecords(state) {
-  return Array.from(state.documents?.values?.() ?? []).filter((record) => record.total !== null);
-}
-
-function completeMainDocumentRecords(state) {
-  return mainDocumentRecords(state).filter((record) => record.mainFrames.size === record.total);
-}
-
-function incompleteMainDocumentRecords(state) {
-  return mainDocumentRecords(state).filter((record) => record.mainFrames.size !== record.total);
-}
-
-function rootOnlyTargetText(value) {
-  const target = String(value ?? "")
-    .trim()
-    .toLowerCase();
-  return target === "root" || target === "0";
-}
-
-function nonLatestTargetText(value) {
-  const target = String(value ?? "")
-    .trim()
-    .toLowerCase();
-  return rootOnlyTargetText(target) || /^[1-9]\d*$/.test(target) || /^[0-9a-f]{64}$/.test(target);
+  return Array.from(state.documents.values()).filter((record) => record.total !== null);
 }
 
 export function selectFrameCollectionComplete(state) {
@@ -117,7 +104,9 @@ function sumFrameBytes(frames) {
 
 export function selectFrameDiagnostics(state) {
   const missingInfo = describeMissingFrames(state);
-  const documentCount = state.documents?.size ?? 0;
+  const documentCount = state.documents.size;
+  const counts = documentCounts(state);
+  const primary = primaryDocumentRecord(state);
   return [
     diagItem("Missing", missingInfo.value, missingInfo.tone, missingInfo.detail),
     diagItem(
@@ -125,64 +114,60 @@ export function selectFrameDiagnostics(state) {
       documentCount ? `${documentCount}` : "Waiting",
       documentCount ? TONE_OK : TONE_IDLE,
     ),
-    diagItem("Conflicts", `${state.conflicts}`, countTone(state.conflicts, TONE_ERR)),
+    diagItem("Conflicts", `${counts.conflicts}`, countTone(counts.conflicts, TONE_ERR)),
     diagItem("Errors", `${state.errors}`, countTone(state.errors, TONE_ERR)),
-    diagItem("AUTH conflicts", `${state.authConflicts}`, countTone(state.authConflicts, TONE_ERR)),
-    diagItem("AUTH errors", `${state.authErrors}`, countTone(state.authErrors, TONE_ERR)),
-    diagItem("Duplicates", `${state.duplicates}`, countTone(state.duplicates)),
-    diagItem("Ignored", `${state.ignored}`, countTone(state.ignored)),
     diagItem(
-      "Doc ID",
-      state.docIdHex ?? "(unknown)",
-      state.docIdHex ? TONE_OK : TONE_IDLE,
-      undefined,
-      true,
+      "AUTH conflicts",
+      `${counts.authConflicts}`,
+      countTone(counts.authConflicts, TONE_ERR),
     ),
+    diagItem("AUTH errors", `${counts.authErrors}`, countTone(counts.authErrors, TONE_ERR)),
+    diagItem("Duplicates", `${counts.duplicates}`, countTone(counts.duplicates)),
+    diagItem("Ignored", `${state.ignored}`, countTone(state.ignored)),
+    diagItem("Doc ID", primary?.docIdHex ?? "(unknown)", primary ? TONE_OK : TONE_IDLE),
   ];
 }
 
 export function selectShardKeyLabel(state) {
-  if (state.shardKeyType === SHARD_KEY_PASSPHRASE) return "passphrase";
-  if (state.shardKeyType === SHARD_KEY_SIGNING_SEED) return "signing key";
+  const keyType = activeShardSetRecord(state)?.keyType;
+  if (keyType === SHARD_KEY_PASSPHRASE) return "passphrase";
+  if (keyType === SHARD_KEY_SIGNING_SEED) return "signing key";
   return "-";
 }
 
 export function selectRecoveredLabel(state) {
-  if (state.shardKeyType === SHARD_KEY_SIGNING_SEED) {
+  const keyType = activeShardSetRecord(state)?.keyType;
+  if (keyType === SHARD_KEY_SIGNING_SEED) {
     return "Recovered signing key (hex)";
   }
-  if (state.shardKeyType === SHARD_KEY_PASSPHRASE) {
+  if (keyType === SHARD_KEY_PASSPHRASE) {
     return "Recovered passphrase";
   }
   return "Recovered secret";
 }
 
-export function selectShardMatch(state) {
-  if (state.docIdHex && state.shardDocIdHex) {
-    return state.docIdHex === state.shardDocIdHex ? "yes" : "no";
-  }
-  return "-";
-}
-
 export function selectShardInputs(state) {
+  const primary = primaryDocumentRecord(state);
+  const shard = activeShardSetRecord(state);
   return {
-    docIdHex: state.shardDocIdHex || state.docIdHex || state.authDocIdHex || "",
-    docHashHex: state.shardDocHashHex || state.authDocHashHex || state.cipherDocHashHex || "",
-    signPubHex: state.shardSignPubHex || state.authSignPubHex || "",
+    docIdHex: shard?.docIdHex || primary?.docIdHex || "",
+    docHashHex: shard?.docHashHex || primary?.authDocHashHex || primary?.cipherDocHashHex || "",
+    signPubHex: shard?.signPubHex || primary?.authSignPubHex || "",
   };
 }
 
 export function selectShardDiagnostics(state) {
   const shardKeyLabel = selectShardKeyLabel(state);
+  const counts = shardCounts(state);
   return [
     diagItem(
       "Key type",
       shardKeyLabel === "-" ? "Unknown" : shardKeyLabel,
       shardKeyLabel === "-" ? TONE_IDLE : TONE_OK,
     ),
-    diagItem("Conflicts", `${state.shardConflicts}`, countTone(state.shardConflicts, TONE_ERR)),
-    diagItem("Errors", `${state.shardErrors}`, countTone(state.shardErrors, TONE_ERR)),
-    diagItem("Duplicates", `${state.shardDuplicates}`, countTone(state.shardDuplicates)),
+    diagItem("Conflicts", `${counts.conflicts}`, countTone(counts.conflicts, TONE_ERR)),
+    diagItem("Errors", `${counts.errors}`, countTone(counts.errors, TONE_ERR)),
+    diagItem("Duplicates", `${counts.duplicates}`, countTone(counts.duplicates)),
   ];
 }
 
@@ -190,15 +175,15 @@ export function selectCiphertextSource(
   state,
   { allowIncompleteDocuments = false, allowAuthOnlyDocuments = false } = {},
 ) {
-  const hasConflicts = state.conflicts > 0;
-  const hasAuthConflicts = state.authConflicts > 0;
-  const hasAuthErrors = state.authErrors > 0;
-  const documentCount = state.documents?.size ?? 0;
-  const completeRecords = completeMainDocumentRecords(state);
-  const incompleteRecords = incompleteMainDocumentRecords(state);
-  const authOnlyRecords = Array.from(state.documents?.values?.() ?? []).filter(
-    (record) => record.authPayload && record.total === null,
-  );
+  const counts = documentCounts(state);
+  const primary = primaryDocumentRecord(state);
+  const hasConflicts = counts.conflicts > 0;
+  const hasAuthConflicts = counts.authConflicts > 0;
+  const hasAuthErrors = counts.authErrors > 0;
+  const documentCount = state.documents.size;
+  const completeRecords = completeDocumentRecords(state);
+  const incompleteRecords = incompleteDocumentRecords(state);
+  const authOnlyRecords = authOnlyDocumentRecords(state);
   const blockedByIncompleteDocuments = incompleteRecords.length > 0 && !allowIncompleteDocuments;
   const blockedByAuthOnlyDocuments = authOnlyRecords.length > 0 && !allowAuthOnlyDocuments;
   const available =
@@ -207,17 +192,12 @@ export function selectCiphertextSource(
     !hasAuthErrors &&
     !blockedByIncompleteDocuments &&
     !blockedByAuthOnlyDocuments &&
-    (Boolean(state.ciphertext) ||
-      (state.total && state.mainFrames.size === state.total) ||
-      completeRecords.length > 0);
+    completeRecords.length > 0;
   const size = available
-    ? state.ciphertext
-      ? state.ciphertext.length
-      : completeRecords.length > 1
-        ? completeRecords.reduce((sum, record) => sum + sumFrameBytes(record.mainFrames), 0)
-        : sumFrameBytes(state.mainFrames)
+    ? completeRecords.reduce((sum, record) => sum + sumFrameBytes(record.mainFrames), 0)
     : 0;
-  let detail = `Frames ${state.mainFrames.size}/${state.total ?? "?"}`;
+  const frameDetail = `${primary?.mainFrames.size ?? 0}/${primary?.total ?? "?"} frames`;
+  let detail = `Frames ${primary?.mainFrames.size ?? 0}/${primary?.total ?? "?"}`;
   if (hasConflicts) {
     detail = "Conflicts found. Reset and re-add data.";
   } else if (hasAuthConflicts) {
@@ -230,7 +210,7 @@ export function selectCiphertextSource(
     detail = "Complete matching MAIN document or choose a specific target.";
   } else if (available) {
     const docs = documentCount > 1 ? ` | ${documentCount} documents` : "";
-    detail = `${formatBytes(size)} | ${state.mainFrames.size}/${state.total ?? "?"} frames${docs}`;
+    detail = `${formatBytes(size)} | ${frameDetail}${docs}`;
   }
   return {
     label: "Ciphertext",
@@ -247,7 +227,13 @@ export function selectOutputSummary(state) {
 }
 
 export function selectActionState(state) {
-  const allowPartialDocuments = nonLatestTargetText(state.extensionTargetText);
+  const targetInspection = inspectExtensionTarget(
+    state.extensionTargetText,
+    state.expectedHeadDocHashText,
+    state.freshnessUnknownAcknowledged,
+  );
+  const target = targetInspection.target;
+  const allowPartialDocuments = target !== null && target.kind !== "latest";
   const ciphertextSource = selectCiphertextSource(state, {
     allowIncompleteDocuments: allowPartialDocuments,
     allowAuthOnlyDocuments: allowPartialDocuments,
@@ -256,28 +242,44 @@ export function selectActionState(state) {
     allowIncompleteDocuments: true,
     allowAuthOnlyDocuments: true,
   });
-  const hasEnvelope = Boolean(state.decryptedEnvelope);
-  const documentCount = state.documents?.size ?? 0;
+  const hasDecryptedBackup = Boolean(state.decryptedBackup);
+  const documentCount = state.documents.size;
   const hasMultipleDocuments = documentCount > 1;
+  const hasExpectedHead = Boolean(target?.expectedHeadDocHashHex);
+  const freshnessDecisionReady = targetInspection.decision !== null;
+  const freshnessDisabledReason = targetInspection.error?.message ?? "";
+  const primary = primaryDocumentRecord(state);
   const canDownloadCipher =
     !hasMultipleDocuments &&
-    state.total &&
-    state.mainFrames.size === state.total &&
-    state.conflicts === 0;
+    primary !== null &&
+    primary.total !== null &&
+    primary.mainFrames.size === primary.total &&
+    primary.conflicts === 0;
   return {
     canDownloadCipher,
     downloadCipherDisabledReason: hasMultipleDocuments
       ? "Encrypted file download is only available for one backup document."
       : "Add all backup data first.",
-    canDecryptCiphertext: state.agePassphrase.trim().length > 0 && ciphertextSource.available,
+    canDecryptCiphertext:
+      state.agePassphrase.length > 0 && ciphertextSource.available && freshnessDecisionReady,
     canDecryptRootOnly:
-      state.agePassphrase.trim().length > 0 &&
-      hasMultipleDocuments &&
-      rootOnlyCiphertextSource.available,
-    canExtractEnvelope: hasEnvelope,
-    canDownloadEnvelope: hasEnvelope,
+      state.agePassphrase.length > 0 && rootOnlyCiphertextSource.available && hasExpectedHead,
+    decryptDisabledReason:
+      state.agePassphrase.length === 0
+        ? "Enter your passphrase to unlock."
+        : !ciphertextSource.available
+          ? "Add backup data first (Step 1)."
+          : freshnessDisabledReason,
+    rootOnlyDisabledReason:
+      state.agePassphrase.length === 0
+        ? "Enter your passphrase to unlock."
+        : !rootOnlyCiphertextSource.available
+          ? "Add backup data first (Step 1)."
+          : "Enter the expected root head hash.",
+    canDownloadDecryptedBackup: hasDecryptedBackup,
     canCopyResult: Boolean(state.recoveredShardSecret),
     hasMultipleDocuments,
+    freshnessDecisionReady,
     hasOutput: state.extractedFiles.length > 0,
   };
 }

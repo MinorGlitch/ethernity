@@ -1,13 +1,17 @@
+import { concatByteParts as concatBytes } from "../lib/bytes.js";
+import { documentCounts } from "../app/documents/store.js";
+import { activeShardSetRecord } from "../app/shard_store.js";
+import { createTestDocument, createTestShardSet } from "./protocol_test_data.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { extractFiles } from "../app/envelope.js";
+import { extractFiles } from "../app/backup_document.js";
 import {
-  ENVELOPE_MAGIC,
-  ENVELOPE_VERSION,
+  DOCUMENT_MAGIC,
+  LEGACY_BACKUP_DOCUMENT_VERSION,
   FRAME_MAGIC,
   FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
@@ -46,26 +50,15 @@ function encodeUvarint(value) {
   return Uint8Array.from(out);
 }
 
-function concatBytes(parts) {
-  const total = parts.reduce((sum, part) => sum + part.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
-
 function toUnpaddedBase64(bytes) {
   return Buffer.from(bytes).toString("base64").replace(/=+$/u, "");
 }
 
-function buildEnvelope(manifest, payload) {
+function buildBackupDocument(manifest, payload) {
   const manifestBytes = encodeCbor(manifest);
   return concatBytes([
-    Uint8Array.from(ENVELOPE_MAGIC),
-    encodeUvarint(ENVELOPE_VERSION),
+    Uint8Array.from(DOCUMENT_MAGIC),
+    encodeUvarint(LEGACY_BACKUP_DOCUMENT_VERSION),
     encodeUvarint(manifestBytes.length),
     manifestBytes,
     encodeUvarint(payload.length),
@@ -97,25 +90,25 @@ function buildFrame({
   ]);
 }
 
-function nonCanonicalVersionMap(canonicalBytes) {
+function overlongVersionMap(deterministicBytes) {
   const marker = Uint8Array.of(0x67, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x01);
-  for (let idx = 0; idx <= canonicalBytes.length - marker.length; idx += 1) {
+  for (let idx = 0; idx <= deterministicBytes.length - marker.length; idx += 1) {
     let matches = true;
     for (let subIdx = 0; subIdx < marker.length; subIdx += 1) {
-      if (canonicalBytes[idx + subIdx] !== marker[subIdx]) {
+      if (deterministicBytes[idx + subIdx] !== marker[subIdx]) {
         matches = false;
         break;
       }
     }
     if (!matches) continue;
-    const out = new Uint8Array(canonicalBytes.length + 1);
-    out.set(canonicalBytes.slice(0, idx + marker.length - 1), 0);
+    const out = new Uint8Array(deterministicBytes.length + 1);
+    out.set(deterministicBytes.slice(0, idx + marker.length - 1), 0);
     out[idx + marker.length - 1] = 0x18;
     out[idx + marker.length] = 0x01;
-    out.set(canonicalBytes.slice(idx + marker.length), idx + marker.length + 1);
+    out.set(deterministicBytes.slice(idx + marker.length), idx + marker.length + 1);
     return out;
   }
-  throw new Error("unable to locate canonical version marker");
+  throw new Error("unable to locate encoded version marker");
 }
 
 function buildDirectManifestEntries(files) {
@@ -140,7 +133,7 @@ test("extractFiles supports stable-v1 direct manifest entries", async () => {
     files: buildDirectManifestEntries(files),
   };
 
-  const extracted = await extractFiles(buildEnvelope(manifest, payload));
+  const extracted = await extractFiles(buildBackupDocument(manifest, payload));
   assert.equal(extracted.files.length, 2);
   assert.equal(extracted.files[0].path, "docs/a.txt");
   assert.deepEqual(Array.from(extracted.files[0].data), [1, 2, 3]);
@@ -168,7 +161,7 @@ test("extractFiles supports stable-v1 prefix_table manifest entries", async () =
   };
   const payload = concatBytes([aData, bData]);
 
-  const extracted = await extractFiles(buildEnvelope(manifest, payload));
+  const extracted = await extractFiles(buildBackupDocument(manifest, payload));
   assert.deepEqual(
     extracted.files.map((file) => file.path),
     ["docs/a.txt", "docs/sub/b.txt"],
@@ -192,8 +185,8 @@ test("extractFiles rejects gzip payloads with trailing members", async () => {
   const payload = concatBytes([gzipSync(data), gzipSync(new Uint8Array())]);
 
   await assert.rejects(
-    () => extractFiles(buildEnvelope(manifest, payload)),
-    /gzip payload contains trailing data/,
+    () => extractFiles(buildBackupDocument(manifest, payload)),
+    /invalid gzip payload/,
   );
 });
 
@@ -210,29 +203,29 @@ test("extractFiles rejects legacy map-style file entries", async () => {
     path_encoding: "direct",
     files: [{ path: "a.txt", size: 1, hash: sha256(data), mtime: null }],
   };
-  const envelope = buildEnvelope(manifest, data);
-  await assert.rejects(() => extractFiles(envelope), /array encoding/);
+  const document = buildBackupDocument(manifest, data);
+  await assert.rejects(() => extractFiles(document), /array encoding/);
 });
 
-test("extractFiles rejects non-canonical envelope varints", async () => {
-  const envelope = Uint8Array.of(ENVELOPE_MAGIC[0], ENVELOPE_MAGIC[1], 0x81, 0x00, 0x00, 0x00);
-  await assert.rejects(() => extractFiles(envelope), /non-canonical varint/);
+test("extractFiles rejects overlong document varints", async () => {
+  const document = Uint8Array.of(DOCUMENT_MAGIC[0], DOCUMENT_MAGIC[1], 0x81, 0x00, 0x00, 0x00);
+  await assert.rejects(() => extractFiles(document), /overlong varint/);
 });
 
-test("extractFiles rejects non-canonical manifest CBOR", async () => {
-  const nonCanonicalManifest = Uint8Array.of(0x18, 0x01);
-  const envelope = concatBytes([
-    Uint8Array.from(ENVELOPE_MAGIC),
-    encodeUvarint(ENVELOPE_VERSION),
-    encodeUvarint(nonCanonicalManifest.length),
-    nonCanonicalManifest,
+test("extractFiles rejects nondeterministic manifest CBOR", async () => {
+  const nondeterministicManifest = Uint8Array.of(0x18, 0x01);
+  const document = concatBytes([
+    Uint8Array.from(DOCUMENT_MAGIC),
+    encodeUvarint(LEGACY_BACKUP_DOCUMENT_VERSION),
+    encodeUvarint(nondeterministicManifest.length),
+    nondeterministicManifest,
     encodeUvarint(0),
   ]);
-  await assert.rejects(() => extractFiles(envelope), /canonical CBOR encoding/);
+  await assert.rejects(() => extractFiles(document), /deterministic CBOR encoding/);
 });
 
-test("readUvarint rejects overlong canonical forms", () => {
-  assert.throws(() => readUvarint(Uint8Array.of(0x80, 0x00), 0), /non-canonical varint/);
+test("readUvarint rejects overlong encodings", () => {
+  assert.throws(() => readUvarint(Uint8Array.of(0x80, 0x00), 0), /overlong varint/);
 });
 
 test("decodePayloadString accepts only strict unpadded base64", () => {
@@ -254,21 +247,21 @@ test("parseAutoPayload rejects frames above MAX_MAIN_FRAME_TOTAL", () => {
   );
 });
 
-test("parseAutoPayload rejects non-canonical AUTH CBOR payload", () => {
+test("parseAutoPayload rejects nondeterministic AUTH CBOR payload", () => {
   const authPayload = {
     version: 1,
     hash: new Uint8Array(32),
     pub: new Uint8Array(32),
     sig: new Uint8Array(64),
   };
-  const nonCanonical = nonCanonicalVersionMap(encodeCbor(authPayload));
-  const frame = buildFrame({ frameType: FRAME_TYPE_AUTH, data: nonCanonical });
+  const overlongEncoding = overlongVersionMap(encodeCbor(authPayload));
+  const frame = buildFrame({ frameType: FRAME_TYPE_AUTH, data: overlongEncoding });
   const state = createInitialState();
 
   const added = parseAutoPayload(state, toUnpaddedBase64(frame));
   assert.equal(added, 0);
-  assert.equal(state.authErrors, 1);
-  assert.equal(state.authPayload, null);
+  assert.equal(documentCounts(state).authErrors, 1);
+  assert.equal(Array.from(state.documents.values())[0].authPayload, null);
 });
 
 test("parseAutoShard rejects structurally invalid shard payload share lengths", () => {
@@ -290,7 +283,7 @@ test("parseAutoShard rejects structurally invalid shard payload share lengths", 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
   assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
-  assert.equal(state.shardFrames.size, 0);
+  assert.equal(activeShardSetRecord(state)?.shardFrames.size ?? 0, 0);
 });
 
 test("parseAutoShard rejects shard payloads above MAX_SHARD_SHARES", () => {
@@ -312,7 +305,7 @@ test("parseAutoShard rejects shard payloads above MAX_SHARD_SHARES", () => {
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
   assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
-  assert.equal(state.shardFrames.size, 0);
+  assert.equal(activeShardSetRecord(state)?.shardFrames.size ?? 0, 0);
 });
 
 test("parseAutoShard rejects non-32-byte signing-seed shard payloads", () => {
@@ -334,10 +327,10 @@ test("parseAutoShard rejects non-32-byte signing-seed shard payloads", () => {
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
   assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
-  assert.equal(state.shardFrames.size, 0);
+  assert.equal(activeShardSetRecord(state)?.shardFrames.size ?? 0, 0);
 });
 
-test("parseAutoShard rejects non-canonical shard CBOR payload", () => {
+test("parseAutoShard rejects nondeterministic shard CBOR payload", () => {
   const shardPayload = {
     version: 1,
     type: SHARD_KEY_PASSPHRASE,
@@ -350,14 +343,14 @@ test("parseAutoShard rejects non-canonical shard CBOR payload", () => {
     pub: new Uint8Array(32),
     sig: new Uint8Array(64),
   };
-  const nonCanonical = nonCanonicalVersionMap(encodeCbor(shardPayload));
-  const frame = buildFrame({ frameType: FRAME_TYPE_KEY, data: nonCanonical });
+  const overlongEncoding = overlongVersionMap(encodeCbor(shardPayload));
+  const frame = buildFrame({ frameType: FRAME_TYPE_KEY, data: overlongEncoding });
   const state = createInitialState();
 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
   assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
-  assert.equal(state.shardFrames.size, 0);
+  assert.equal(activeShardSetRecord(state)?.shardFrames.size ?? 0, 0);
 });
 
 test("parseAutoPayload rejects fallback input above MAX_FALLBACK_LINES", () => {
@@ -381,11 +374,13 @@ test("parseAutoShard rejects fallback input above MAX_FALLBACK_NORMALIZED_CHARS"
 
 test("autoRecoverShardSecret rejects shard/doc hash mismatch before reconstruction", () => {
   const state = createInitialState();
-  state.total = 1;
-  state.mainFrames.set(0, { data: Uint8Array.of(9, 8, 7) });
-  state.shardThreshold = 1;
-  state.shardDocHashHex = "00".repeat(32);
-  state.shardFrames.set(1, {
+  const document = createTestDocument(state, Uint8Array.of(9, 8, 7));
+  const shards = createTestShardSet(state);
+  document.total = 1;
+  document.mainFrames.set(0, { data: Uint8Array.of(9, 8, 7) });
+  shards.threshold = 1;
+  shards.docHashHex = "00".repeat(32);
+  shards.shardFrames.set(1, {
     version: 1,
     keyType: SHARD_KEY_PASSPHRASE,
     threshold: 1,

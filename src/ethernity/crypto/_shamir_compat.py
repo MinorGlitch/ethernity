@@ -14,18 +14,18 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Compatibility helpers for minting Shamir replacement shares.
+"""Create Shamir replacement shares compatible with the released format.
 
 This module intentionally keeps the GF(2^128) interpolation logic isolated from
 the public sharding API. The arithmetic matches the field used by PyCryptodome's
-public ``Shamir.split``/``Shamir.combine`` helpers so that we can mint shares
+public ``Shamir.split``/``Shamir.combine`` methods so that we can create shares
 for missing indices without importing any underscore-prefixed private symbols.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 BLOCK_SIZE = 16
 _GF128_IRREDUCIBLE = 1 + 2 + 4 + 128 + 2**128

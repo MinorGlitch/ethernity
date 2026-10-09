@@ -15,17 +15,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { bytesEqual } from "./bytes.js";
+
 const SHARD_BLOCK_SIZE = 16;
 const GF128_POLY = (1n << 128n) | 0x87n;
 const GF128_MASK = (1n << 128n) - 1n;
-
-function bytesEqual(left, right) {
-  if (left.length !== right.length) return false;
-  for (let idx = 0; idx < left.length; idx += 1) {
-    if (left[idx] !== right[idx]) return false;
-  }
-  return true;
-}
 
 function shardSetIdsEqual(left, right) {
   if (!left || !right) return left === right;

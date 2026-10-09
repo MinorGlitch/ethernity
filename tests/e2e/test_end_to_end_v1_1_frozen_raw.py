@@ -24,3 +24,15 @@ class TestStableV1_1FrozenRaw(FrozenProfileTestCase):
     PROFILE_NAME = "raw"
     QR_PAYLOAD_CODEC = "raw"
     INCLUDE_SHARD_SET_FIELDS = True
+
+    def test_representative_frozen_pdf_backup_recovers(self) -> None:
+        self._verify_representative_frozen_pdf_backup_recovers()
+
+    def test_replacement_signing_key_shards_support_followup_replacement(self) -> None:
+        self._verify_replacement_signing_key_shards_allow_followup_replacement()
+
+    def test_replacement_signing_key_shards_reject_mixed_sets_at_threshold(self) -> None:
+        self._verify_replacement_signing_key_replacement_shards_reject_exact_threshold_mixed_sets()
+
+    def test_replacement_passphrase_shards_reject_mixed_sets_at_threshold(self) -> None:
+        self._verify_replacement_shards_reject_exact_threshold_mixed_sets()

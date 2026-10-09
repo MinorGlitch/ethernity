@@ -64,6 +64,182 @@ class InspectorApp:
         self.root.rowconfigure(1, weight=1)
         self.mono_font = tkfont.Font(family=self.theme.mono_font_family, size=11)
 
+        self._build_action_bar()
+        # ── Main content (row 1) ──────────────────────────────
+        main = ttk.Panedwindow(self.root, orient="horizontal")
+        main.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
+
+        # Left panel: session notebook (no chrome)
+        left = ttk.Frame(main, style="Panel.TFrame", padding=4)
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(0, weight=1)
+        self.session_notebook = ttk.Notebook(left)
+        self.session_notebook.grid(row=0, column=0, sticky="nsew")
+        self.session_notebook.bind("<<NotebookTabChanged>>", self._on_session_changed)
+        main.add(left, weight=2)
+
+        # Right panel: consolidated output tabs
+        right_shell = ttk.Frame(main, style="Panel.TFrame", padding=4)
+        right_shell.columnconfigure(0, weight=1)
+        right_shell.rowconfigure(0, weight=1)
+        right = ttk.Notebook(right_shell)
+        right.grid(row=0, column=0, sticky="nsew")
+        main.add(right_shell, weight=3)
+
+        self._build_overview_tab(right)
+        self._build_frames_tab(right)
+        self._build_data_tab(right)
+        self._build_secrets_tab(right)
+        self._build_report_tab(right)
+        self._configure_import_capabilities(left)
+        # ── Status bar (row 2) ────────────────────────────────
+        status_frame = ttk.Frame(self.root, style="StatusBar.TFrame", padding=(12, 4, 12, 4))
+        status_frame.grid(row=2, column=0, sticky="ew")
+        status_left = ttk.Frame(status_frame, style="StatusBar.TFrame")
+        status_left.pack(side="left")
+        ttk.Label(
+            status_left,
+            textvariable=self.active_session_var,
+            style="StatusSession.TLabel",
+        ).pack(side="left", padx=(0, 10))
+        ttk.Label(
+            status_left,
+            textvariable=self.active_session_meta_var,
+            style="StatusMeta.TLabel",
+        ).pack(side="left")
+        ttk.Label(
+            status_frame,
+            textvariable=self.status_var,
+            style="StatusBar.TLabel",
+        ).pack(side="right")
+
+    def _build_report_tab(self, right: ttk.Notebook) -> None:
+        # Tab 5: Report (JSON + Batch as sub-tabs)
+        report_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
+        report_tab.columnconfigure(0, weight=1)
+        report_tab.rowconfigure(0, weight=1)
+        report_nb = ttk.Notebook(report_tab)
+        report_nb.grid(row=0, column=0, sticky="nsew")
+        self.report_json_text = self._build_text_tab(report_nb, "JSON")
+        self.batch_text_widget = self._build_text_tab(report_nb, "Batch")
+        self.batch_json_text_widget = self._build_text_tab(report_nb, "Batch JSON")
+        right.add(report_tab, text="Report")
+
+        self._set_default_outputs()
+
+    def _build_secrets_tab(self, right: ttk.Notebook) -> None:
+        # Tab 4: Secrets (tree + detail)
+        secrets_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
+        secrets_tab.columnconfigure(0, weight=1)
+        secrets_tab.rowconfigure(0, weight=2)
+        secrets_tab.rowconfigure(1, weight=3)
+        self.secret_tree = ttk.Treeview(
+            secrets_tab,
+            columns=("label", "status"),
+            show="headings",
+            selectmode="browse",
+        )
+        self.secret_tree.heading("label", text="Secret")
+        self.secret_tree.heading("status", text="Status")
+        self.secret_tree.column("label", width=180, stretch=True)
+        self.secret_tree.column("status", width=140, stretch=False)
+        self.secret_tree.grid(row=0, column=0, sticky="nsew")
+        self.secret_tree.bind("<<TreeviewSelect>>", self._on_secret_selected)
+        self.secret_detail_text = self._build_child_text(secrets_tab)
+        self.secret_detail_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        right.add(secrets_tab, text="Secrets")
+
+    def _build_data_tab(self, right: ttk.Notebook) -> None:
+        # Tab 3: Data (Document, Files, Payloads, Fallback as sub-tabs)
+        data_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
+        data_tab.columnconfigure(0, weight=1)
+        data_tab.rowconfigure(0, weight=1)
+        data_nb = ttk.Notebook(data_tab)
+        data_nb.grid(row=0, column=0, sticky="nsew")
+
+        document_frame = ttk.Frame(data_nb, padding=6, style="NotebookPage.TFrame")
+        document_frame.columnconfigure(0, weight=1)
+        document_frame.rowconfigure(0, weight=3)
+        document_frame.rowconfigure(1, weight=2)
+        self.document_text_widget = self._build_child_text(document_frame)
+        self.document_text_widget.grid(row=0, column=0, sticky="nsew")
+        self.trust_diagnostics_text_widget = self._build_child_text(document_frame)
+        self.trust_diagnostics_text_widget.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        data_nb.add(document_frame, text="Document")
+
+        files_frame = ttk.Frame(data_nb, padding=6, style="NotebookPage.TFrame")
+        files_frame.columnconfigure(0, weight=1)
+        files_frame.rowconfigure(0, weight=2)
+        files_frame.rowconfigure(1, weight=3)
+        self.file_tree = ttk.Treeview(
+            files_frame,
+            columns=("path", "size", "kind"),
+            show="headings",
+            selectmode="browse",
+        )
+        for col, heading, w in (
+            ("path", "Path", 300),
+            ("size", "Size", 80),
+            ("kind", "Preview", 100),
+        ):
+            self.file_tree.heading(col, text=heading)
+            self.file_tree.column(col, width=w, stretch=col == "path")
+        self.file_tree.grid(row=0, column=0, sticky="nsew")
+        self.file_tree.bind("<<TreeviewSelect>>", self._on_file_selected)
+        self.file_preview_text = self._build_child_text(files_frame)
+        self.file_preview_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        data_nb.add(files_frame, text="Files")
+
+        self.payloads_text = self._build_text_tab(data_nb, "Payloads")
+        self.fallback_text_widget = self._build_text_tab(data_nb, "Fallback")
+        right.add(data_tab, text="Data")
+
+    def _build_frames_tab(self, right: ttk.Notebook) -> None:
+        # Tab 2: Frames (tree + detail sub-tabs)
+        frames_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
+        frames_tab.columnconfigure(0, weight=1)
+        frames_tab.rowconfigure(0, weight=2)
+        frames_tab.rowconfigure(1, weight=3)
+        self.frame_tree = ttk.Treeview(
+            frames_tab,
+            columns=("type", "doc_id", "index", "total", "bytes"),
+            show="headings",
+            selectmode="browse",
+        )
+        for col, heading, w in (
+            ("type", "Type", 130),
+            ("doc_id", "doc_id", 150),
+            ("index", "Idx", 60),
+            ("total", "Total", 60),
+            ("bytes", "Bytes", 90),
+        ):
+            self.frame_tree.heading(col, text=heading)
+            self.frame_tree.column(col, width=w, stretch=col == "doc_id")
+        self.frame_tree.grid(row=0, column=0, sticky="nsew")
+        self.frame_tree.bind("<<TreeviewSelect>>", self._on_frame_selected)
+
+        frame_details = ttk.Notebook(frames_tab)
+        frame_details.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        self.frame_detail_text = self._build_text_tab(frame_details, "Detail")
+        self.frame_raw_text = self._build_text_tab(frame_details, "Raw")
+        self.frame_cbor_text = self._build_text_tab(frame_details, "CBOR")
+        self.frame_payload_text = self._build_text_tab(frame_details, "Payload")
+        self.frame_fallback_text = self._build_text_tab(frame_details, "Fallback")
+        right.add(frames_tab, text="Frames")
+
+    def _build_overview_tab(self, right: ttk.Notebook) -> None:
+        # Tab 1: Overview (Summary + Diagnostics stacked)
+        overview_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
+        overview_tab.columnconfigure(0, weight=1)
+        overview_tab.rowconfigure(0, weight=3)
+        overview_tab.rowconfigure(1, weight=2)
+        self.summary_text = self._build_child_text(overview_tab)
+        self.summary_text.grid(row=0, column=0, sticky="nsew")
+        self.diagnostics_text = self._build_child_text(overview_tab)
+        self.diagnostics_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        right.add(overview_tab, text="Overview")
+
+    def _build_action_bar(self) -> None:
         # ── Action bar (row 0) ────────────────────────────────
         bar = ttk.Frame(self.root, style="ActionBar.TFrame", padding=(12, 6, 12, 6))
         bar.grid(row=0, column=0, sticky="ew")
@@ -137,170 +313,6 @@ class InspectorApp:
         self.export_menu_button.configure(menu=self.export_menu)
         self.theme.register_menu(self.export_menu)
 
-        # ── Main content (row 1) ──────────────────────────────
-        main = ttk.Panedwindow(self.root, orient="horizontal")
-        main.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
-
-        # Left panel: session notebook (no chrome)
-        left = ttk.Frame(main, style="Surface.TFrame", padding=4)
-        left.columnconfigure(0, weight=1)
-        left.rowconfigure(0, weight=1)
-        self.session_notebook = ttk.Notebook(left)
-        self.session_notebook.grid(row=0, column=0, sticky="nsew")
-        self.session_notebook.bind("<<NotebookTabChanged>>", self._on_session_changed)
-        main.add(left, weight=2)
-
-        # Right panel: consolidated output tabs
-        right_shell = ttk.Frame(main, style="Surface.TFrame", padding=4)
-        right_shell.columnconfigure(0, weight=1)
-        right_shell.rowconfigure(0, weight=1)
-        right = ttk.Notebook(right_shell)
-        right.grid(row=0, column=0, sticky="nsew")
-        main.add(right_shell, weight=3)
-
-        # Tab 1: Overview (Summary + Diagnostics stacked)
-        overview_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
-        overview_tab.columnconfigure(0, weight=1)
-        overview_tab.rowconfigure(0, weight=3)
-        overview_tab.rowconfigure(1, weight=2)
-        self.summary_text = self._build_child_text(overview_tab)
-        self.summary_text.grid(row=0, column=0, sticky="nsew")
-        self.diagnostics_text = self._build_child_text(overview_tab)
-        self.diagnostics_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
-        right.add(overview_tab, text="Overview")
-
-        # Tab 2: Frames (tree + detail sub-tabs)
-        frames_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
-        frames_tab.columnconfigure(0, weight=1)
-        frames_tab.rowconfigure(0, weight=2)
-        frames_tab.rowconfigure(1, weight=3)
-        self.frame_tree = ttk.Treeview(
-            frames_tab,
-            columns=("type", "doc_id", "index", "total", "bytes"),
-            show="headings",
-            selectmode="browse",
-        )
-        for col, heading, w in (
-            ("type", "Type", 130),
-            ("doc_id", "doc_id", 150),
-            ("index", "Idx", 60),
-            ("total", "Total", 60),
-            ("bytes", "Bytes", 90),
-        ):
-            self.frame_tree.heading(col, text=heading)
-            self.frame_tree.column(col, width=w, stretch=col == "doc_id")
-        self.frame_tree.grid(row=0, column=0, sticky="nsew")
-        self.frame_tree.bind("<<TreeviewSelect>>", self._on_frame_selected)
-
-        frame_details = ttk.Notebook(frames_tab)
-        frame_details.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
-        self.frame_detail_text = self._build_text_tab(frame_details, "Detail")
-        self.frame_raw_text = self._build_text_tab(frame_details, "Raw")
-        self.frame_cbor_text = self._build_text_tab(frame_details, "CBOR")
-        self.frame_payload_text = self._build_text_tab(frame_details, "Payload")
-        self.frame_fallback_text = self._build_text_tab(frame_details, "Fallback")
-        right.add(frames_tab, text="Frames")
-
-        # Tab 3: Data (Document, Files, Payloads, Fallback as sub-tabs)
-        data_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
-        data_tab.columnconfigure(0, weight=1)
-        data_tab.rowconfigure(0, weight=1)
-        data_nb = ttk.Notebook(data_tab)
-        data_nb.grid(row=0, column=0, sticky="nsew")
-
-        document_frame = ttk.Frame(data_nb, padding=6, style="NotebookPage.TFrame")
-        document_frame.columnconfigure(0, weight=1)
-        document_frame.rowconfigure(0, weight=3)
-        document_frame.rowconfigure(1, weight=2)
-        self.document_text_widget = self._build_child_text(document_frame)
-        self.document_text_widget.grid(row=0, column=0, sticky="nsew")
-        self.projection_diagnostics_text_widget = self._build_child_text(document_frame)
-        self.projection_diagnostics_text_widget.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
-        data_nb.add(document_frame, text="Document")
-
-        files_frame = ttk.Frame(data_nb, padding=6, style="NotebookPage.TFrame")
-        files_frame.columnconfigure(0, weight=1)
-        files_frame.rowconfigure(0, weight=2)
-        files_frame.rowconfigure(1, weight=3)
-        self.file_tree = ttk.Treeview(
-            files_frame,
-            columns=("path", "size", "kind"),
-            show="headings",
-            selectmode="browse",
-        )
-        for col, heading, w in (
-            ("path", "Path", 300),
-            ("size", "Size", 80),
-            ("kind", "Preview", 100),
-        ):
-            self.file_tree.heading(col, text=heading)
-            self.file_tree.column(col, width=w, stretch=col == "path")
-        self.file_tree.grid(row=0, column=0, sticky="nsew")
-        self.file_tree.bind("<<TreeviewSelect>>", self._on_file_selected)
-        self.file_preview_text = self._build_child_text(files_frame)
-        self.file_preview_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
-        data_nb.add(files_frame, text="Files")
-
-        self.payloads_text = self._build_text_tab(data_nb, "Payloads")
-        self.fallback_text_widget = self._build_text_tab(data_nb, "Fallback")
-        right.add(data_tab, text="Data")
-
-        # Tab 4: Secrets (tree + detail)
-        secrets_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
-        secrets_tab.columnconfigure(0, weight=1)
-        secrets_tab.rowconfigure(0, weight=2)
-        secrets_tab.rowconfigure(1, weight=3)
-        self.secret_tree = ttk.Treeview(
-            secrets_tab,
-            columns=("label", "status"),
-            show="headings",
-            selectmode="browse",
-        )
-        self.secret_tree.heading("label", text="Secret")
-        self.secret_tree.heading("status", text="Status")
-        self.secret_tree.column("label", width=180, stretch=True)
-        self.secret_tree.column("status", width=140, stretch=False)
-        self.secret_tree.grid(row=0, column=0, sticky="nsew")
-        self.secret_tree.bind("<<TreeviewSelect>>", self._on_secret_selected)
-        self.secret_detail_text = self._build_child_text(secrets_tab)
-        self.secret_detail_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
-        right.add(secrets_tab, text="Secrets")
-
-        # Tab 5: Report (JSON + Batch as sub-tabs)
-        report_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
-        report_tab.columnconfigure(0, weight=1)
-        report_tab.rowconfigure(0, weight=1)
-        report_nb = ttk.Notebook(report_tab)
-        report_nb.grid(row=0, column=0, sticky="nsew")
-        self.report_json_text = self._build_text_tab(report_nb, "JSON")
-        self.batch_text_widget = self._build_text_tab(report_nb, "Batch")
-        self.batch_json_text_widget = self._build_text_tab(report_nb, "Batch JSON")
-        right.add(report_tab, text="Report")
-
-        self._set_default_outputs()
-        self._configure_import_capabilities(left)
-
-        # ── Status bar (row 2) ────────────────────────────────
-        status_frame = ttk.Frame(self.root, style="StatusBar.TFrame", padding=(12, 4, 12, 4))
-        status_frame.grid(row=2, column=0, sticky="ew")
-        status_left = ttk.Frame(status_frame, style="StatusBar.TFrame")
-        status_left.pack(side="left")
-        ttk.Label(
-            status_left,
-            textvariable=self.active_session_var,
-            style="StatusSession.TLabel",
-        ).pack(side="left", padx=(0, 10))
-        ttk.Label(
-            status_left,
-            textvariable=self.active_session_meta_var,
-            style="StatusMeta.TLabel",
-        ).pack(side="left")
-        ttk.Label(
-            status_frame,
-            textvariable=self.status_var,
-            style="StatusBar.TLabel",
-        ).pack(side="right")
-
     def _build_text_tab(self, notebook: ttk.Notebook, title: str) -> ScrolledText:
         frame = ttk.Frame(notebook, padding=6, style="NotebookPage.TFrame")
         frame.columnconfigure(0, weight=1)
@@ -360,7 +372,7 @@ class InspectorApp:
         self.theme.refresh()
         self.mono_font.configure(family=self.theme.mono_font_family, size=11)
 
-    # ── Text helpers ──────────────────────────────────────────
+    # ── Text widgets ──────────────────────────────────────────
 
     def _set_text(self, widget: ScrolledText, text: str, *, editable: bool = False) -> None:
         widget.configure(state="normal")
@@ -380,8 +392,8 @@ class InspectorApp:
         self._set_text(self.frame_fallback_text, "Select a frame to inspect fallback text.\n")
         self._set_text(self.document_text_widget, "No decoded document available.\n")
         self._set_text(
-            self.projection_diagnostics_text_widget,
-            "No projection diagnostics available.\n",
+            self.trust_diagnostics_text_widget,
+            "No trust diagnostics available.\n",
         )
         self._set_text(self.file_preview_text, "No file previews available.\n")
         self._set_text(self.payloads_text, "No normalized payloads available.\n")
@@ -706,8 +718,8 @@ class InspectorApp:
         self._set_text(self.diagnostics_text, result.diagnostics_text)
         self._set_text(self.document_text_widget, result.document_text)
         self._set_text(
-            self.projection_diagnostics_text_widget,
-            result.projection_diagnostics_text,
+            self.trust_diagnostics_text_widget,
+            result.trust_diagnostics_text,
         )
         self._set_text(
             self.payloads_text,
@@ -723,32 +735,7 @@ class InspectorApp:
             for item in tree.get_children():
                 tree.delete(item)
 
-        for index, record in enumerate(result.frame_records):
-            self.frame_tree.insert(
-                "",
-                END,
-                iid=str(index),
-                values=(
-                    frame_type_name(record.frame.frame_type),
-                    record.frame.doc_id.hex(),
-                    record.frame.index,
-                    record.frame.total,
-                    len(record.frame.data),
-                ),
-            )
-        if result.frame_records:
-            self.frame_tree.selection_set("0")
-            self._on_frame_selected()
-        else:
-            for widget, text in (
-                (self.frame_detail_text, "No frames parsed.\n"),
-                (self.frame_raw_text, "No frames parsed.\n"),
-                (self.frame_cbor_text, "No frames parsed.\n"),
-                (self.frame_payload_text, "No frames parsed.\n"),
-                (self.frame_fallback_text, "No frames parsed.\n"),
-            ):
-                self._set_text(widget, text)
-
+        self._display_session_frames(result)
         for index, file_record in enumerate(result.files):
             self.file_tree.insert(
                 "",
@@ -774,6 +761,33 @@ class InspectorApp:
             self._on_secret_selected()
         else:
             self._set_text(self.secret_detail_text, "No reconstructed secrets available.\n")
+
+    def _display_session_frames(self, result: InspectionResult) -> None:
+        for index, record in enumerate(result.frame_records):
+            self.frame_tree.insert(
+                "",
+                END,
+                iid=str(index),
+                values=(
+                    frame_type_name(record.frame.frame_type),
+                    record.frame.doc_id.hex(),
+                    record.frame.index,
+                    record.frame.total,
+                    len(record.frame.data),
+                ),
+            )
+        if result.frame_records:
+            self.frame_tree.selection_set("0")
+            self._on_frame_selected()
+        else:
+            for widget, text in (
+                (self.frame_detail_text, "No frames parsed.\n"),
+                (self.frame_raw_text, "No frames parsed.\n"),
+                (self.frame_cbor_text, "No frames parsed.\n"),
+                (self.frame_payload_text, "No frames parsed.\n"),
+                (self.frame_fallback_text, "No frames parsed.\n"),
+            ):
+                self._set_text(widget, text)
 
     def _on_frame_selected(self, _event=None) -> None:
         session = self._current_session()

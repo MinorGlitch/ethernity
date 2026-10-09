@@ -56,3 +56,24 @@ export function validateManifestPath(path, label = "manifest file path") {
   }
   return normalized;
 }
+
+export function validateManifestRootLabel(value, label = "manifest input_root") {
+  const root = validateManifestPath(value, label);
+  if (root.includes("/") || root.includes("\\")) {
+    throw new Error(`${label} must be a leaf label without path separators`);
+  }
+  return root;
+}
+
+export function validateManifestFileTree(paths, label = "manifest file paths") {
+  const files = new Set(Array.from(paths, (path) => validateManifestPath(path)));
+  for (const path of files) {
+    const segments = path.split("/");
+    for (let index = 1; index < segments.length; index += 1) {
+      const ancestor = segments.slice(0, index).join("/");
+      if (files.has(ancestor)) {
+        throw new Error(`${label} contain a file/directory conflict: ${ancestor} and ${path}`);
+      }
+    }
+  }
+}

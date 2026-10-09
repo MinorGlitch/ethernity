@@ -77,11 +77,6 @@ uv run --python "$NuitkaPython" --with nuitka --with zstandard python -m nuitka 
     --remove-output `
     --output-dir="$OutputDir" `
     --output-filename=ethernity `
-    --include-package=playwright `
-    --include-package=questionary `
-    --include-package=prompt_toolkit `
     --include-package-data=ethernity `
-    --noinclude-data-files=playwright/driver/node `
-    --noinclude-data-files=playwright/driver/node.exe `
     @NuitkaArgs `
     "$mainPackage"

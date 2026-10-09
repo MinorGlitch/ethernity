@@ -1,3 +1,4 @@
+import { activeShardSetRecord } from "../app/shard_store.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -6,15 +7,15 @@ import { fileURLToPath } from "node:url";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { recoverLatestFromEncryptedDocuments } from "../app/extension_recovery.js";
+import { recoverLatestFromEncryptedDocuments } from "../app/extensions/recovery.js";
 import { collectedRecoveryDocuments } from "../app/frames_cipher.js";
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { verifyCollectedShardSignatures } from "../app/shard_auth.js";
 import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
 import { decryptAgePassphrase } from "../lib/age_scrypt.js";
-import { bytesToHex } from "../lib/encoding.js";
-import { ensureAtob } from "./test_helpers.mjs";
+import { bytesToHex } from "../lib/bytes.js";
+import { ensureAtob } from "./protocol_test_data.mjs";
 
 ensureAtob();
 
@@ -43,39 +44,12 @@ function expectedExtensionIndex(stateKey) {
   return Number.parseInt(stateKey.slice("extension_".length), 10);
 }
 
-function scenarioSnapshotPaths(profileName) {
-  const profileRoot = path.join(FIXTURES_ROOT, profileName);
-  const index = readJson(path.join(profileRoot, "index.json"));
-  return index.scenarios.map((scenario) => path.join(profileRoot, scenario.path));
-}
-
 function recoveredFileHashes(files) {
   return Object.fromEntries(
     files
       .map((file) => [file.path, bytesToHex(sha256(file.data))])
       .sort(([left], [right]) => left.localeCompare(right)),
   );
-}
-
-async function restoreScenario(snapshotPath, { extensionTarget = "latest" } = {}) {
-  const scenarioDir = path.dirname(snapshotPath);
-  const snapshot = readJson(snapshotPath);
-  const state = createInitialState();
-  const payloadText = fs.readFileSync(
-    path.join(scenarioDir, snapshot.payload_fixtures.chain.text),
-    "utf8",
-  );
-  const added = parseAutoPayload(state, payloadText);
-  assert.equal(added, snapshot.payload_fixtures.chain.frame_count);
-
-  const documents = collectedRecoveryDocuments(state);
-  const result = await recoverLatestFromEncryptedDocuments(
-    documents,
-    snapshot.passphrase,
-    decryptAgePassphrase,
-    { extensionTarget },
-  );
-  return { result, snapshot };
 }
 
 async function recoverPassphraseFromShardFixture(snapshotPath, { payloadName, shardName }) {
@@ -95,7 +69,7 @@ async function recoverPassphraseFromShardFixture(snapshotPath, { payloadName, sh
   const shardText = fs.readFileSync(path.join(scenarioDir, shardFixture.text), "utf8");
   const addedShards = parseAutoShard(state, shardText);
   assert.equal(addedShards, shardFixture.threshold);
-  assert.equal(state.shardFrames.size, shardFixture.threshold);
+  assert.equal(activeShardSetRecord(state).shardFrames.size, shardFixture.threshold);
 
   const signatures = await verifyCollectedShardSignatures(state);
   assert.equal(signatures.invalid, 0);
@@ -119,105 +93,74 @@ async function restoreScenarioWithPassphrase(snapshotPath, passphrase) {
     documents,
     passphrase,
     decryptAgePassphrase,
+    { freshnessUnknownAcknowledged: true },
   );
+  const extension = snapshot.document_projection.find((document) => document.kind === "extension");
+  assert.equal(extension.schema_version, undefined);
+  assert.equal(result.updateMode, extension.update_mode);
   return { result, snapshot };
 }
 
-test("frozen v1.2 extension fixtures restore latest state in the kit", async (t) => {
-  for (const profileName of ["base64", "raw"]) {
-    for (const snapshotPath of scenarioSnapshotPaths(profileName)) {
-      await t.test(`${profileName}/${path.basename(path.dirname(snapshotPath))}`, async () => {
-        const { result, snapshot } = await restoreScenario(snapshotPath);
-        const latestKey = latestStateKey(snapshot);
-        assert.equal(result.selectedExtensionIndex, expectedExtensionIndex(latestKey));
-        assert.equal(result.selectedExtensionDocHash, snapshot.extension_doc_hashes[latestKey]);
-        assert.deepEqual(recoveredFileHashes(result.files), snapshot.states[latestKey]);
-      });
-    }
-  }
+test("frozen v1.2 root shards unlock and restore an extension chain in the kit", async () => {
+  const item = {
+    name: "raw/large_raw_two_extension_chain",
+    payloadName: "root",
+    shardName: "root",
+  };
+  const snapshotPath = path.join(FIXTURES_ROOT, item.name, "snapshot.json");
+  const passphrase = await recoverPassphraseFromShardFixture(snapshotPath, item);
+  const { result, snapshot } = await restoreScenarioWithPassphrase(snapshotPath, passphrase);
+  const latestKey = latestStateKey(snapshot);
+  assert.equal(result.selectedExtensionIndex, expectedExtensionIndex(latestKey));
+  assert.deepEqual(recoveredFileHashes(result.files), snapshot.states[latestKey]);
 });
 
-test("frozen v1.2 shard fixtures unlock extension chains in the kit", async (t) => {
-  const cases = [
-    {
-      name: "raw/extension_local_sharded_chain",
-      payloadName: "extension_01",
-      shardName: "extension",
-    },
-    {
-      name: "raw/reuse_root_shards_chain",
-      payloadName: "root",
-      shardName: "root",
-    },
-  ];
-  for (const item of cases) {
-    await t.test(item.name, async () => {
-      const snapshotPath = path.join(FIXTURES_ROOT, item.name, "snapshot.json");
-      const passphrase = await recoverPassphraseFromShardFixture(snapshotPath, item);
-      const { result, snapshot } = await restoreScenarioWithPassphrase(snapshotPath, passphrase);
-      const latestKey = latestStateKey(snapshot);
-      assert.equal(result.selectedExtensionIndex, expectedExtensionIndex(latestKey));
-      assert.deepEqual(recoveredFileHashes(result.files), snapshot.states[latestKey]);
-    });
-  }
-});
-
-test("frozen v1.2 extension fixtures allow root-only kit recovery", async (t) => {
-  for (const profileName of ["base64", "raw"]) {
-    for (const snapshotPath of scenarioSnapshotPaths(profileName)) {
-      await t.test(`${profileName}/${path.basename(path.dirname(snapshotPath))}`, async () => {
-        const { result, snapshot } = await restoreScenario(snapshotPath, {
-          extensionTarget: "root",
-        });
-        assert.equal(result.selectedExtensionIndex, null);
-        assert.equal(result.selectedExtensionDocHash, null);
-        assert.deepEqual(recoveredFileHashes(result.files), snapshot.states.root);
-      });
-    }
-  }
-});
-
-test("frozen v1.2 two-extension fixtures allow selected kit recovery heads", async (t) => {
-  for (const profileName of ["base64", "raw"]) {
-    const snapshotPath = path.join(
-      FIXTURES_ROOT,
-      profileName,
-      "large_raw_two_extension_chain",
-      "snapshot.json",
+test("frozen root-bound quorum restores root and an intact prefix when the latest head is absent", async () => {
+  const scenarioDir = path.join(FIXTURES_ROOT, "raw/large_raw_two_extension_chain");
+  const snapshotPath = path.join(scenarioDir, "snapshot.json");
+  const snapshot = readJson(snapshotPath);
+  const passphrase = await recoverPassphraseFromShardFixture(snapshotPath, {
+    payloadName: "root",
+    shardName: "root",
+  });
+  const state = createInitialState();
+  for (const name of ["root", "extension_01"]) {
+    parseAutoPayload(
+      state,
+      fs.readFileSync(path.join(scenarioDir, snapshot.payload_fixtures[name].text), "utf8"),
     );
-    await t.test(`${profileName}/index-1`, async () => {
-      const { result, snapshot } = await restoreScenario(snapshotPath, {
-        extensionTarget: { kind: "index", index: 1 },
-      });
-      assert.equal(result.selectedExtensionIndex, 1);
-      assert.equal(result.selectedExtensionDocHash, snapshot.extension_doc_hashes.extension_01);
-      assert.deepEqual(recoveredFileHashes(result.files), snapshot.states.extension_01);
-    });
-
-    await t.test(`${profileName}/doc-hash-1`, async () => {
-      const snapshot = readJson(snapshotPath);
-      const { result } = await restoreScenario(snapshotPath, {
-        extensionTarget: {
-          kind: "doc_hash",
-          docHashHex: snapshot.extension_doc_hashes.extension_01,
-        },
-      });
-      assert.equal(result.selectedExtensionIndex, 1);
-      assert.deepEqual(recoveredFileHashes(result.files), snapshot.states.extension_01);
-    });
-
-    await t.test(`${profileName}/stale-expected-head`, async () => {
-      const snapshot = readJson(snapshotPath);
-      await assert.rejects(
-        () =>
-          restoreScenario(snapshotPath, {
-            extensionTarget: {
-              kind: "latest",
-              expectedHeadDocHashHex: snapshot.extension_doc_hashes.extension_01,
-            },
-          }),
-        /validated extension head doc_hash does not match expected head/,
-      );
-    });
   }
+  const documents = collectedRecoveryDocuments(state);
+  const decrypted = new Map();
+  const decrypt = async (ciphertext, secret, options) => {
+    const key = bytesToHex(ciphertext);
+    if (!decrypted.has(key)) {
+      decrypted.set(key, await decryptAgePassphrase(ciphertext, secret, options));
+    }
+    return decrypted.get(key);
+  };
+  for (const [extensionTarget, stateKey] of [
+    [{ kind: "root", expectedHeadDocHashHex: snapshot.root_doc_hash }, "root"],
+    [
+      { kind: "latest", expectedHeadDocHashHex: snapshot.extension_doc_hashes.extension_01 },
+      "extension_01",
+    ],
+  ]) {
+    const result = await recoverLatestFromEncryptedDocuments(documents, passphrase, decrypt, {
+      extensionTarget,
+    });
+    assert.deepEqual(recoveredFileHashes(result.files), snapshot.states[stateKey]);
+    assert.equal(result.trustBasis, "matched_expected_head");
+    assert.equal(result.signingKeyVerified, true);
+  }
+  await assert.rejects(
+    () =>
+      recoverLatestFromEncryptedDocuments(documents, passphrase, decrypt, {
+        extensionTarget: {
+          kind: "latest",
+          expectedHeadDocHashHex: snapshot.extension_doc_hashes.extension_02,
+        },
+      }),
+    /does not match expected head/u,
+  );
 });
