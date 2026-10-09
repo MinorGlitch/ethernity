@@ -24,11 +24,11 @@ Verify each Sigstore bundle before using its archive.
 Packages include the template fonts and their license notices. PDFs embed subsets of those fonts;
 users do not need to install matching system fonts to view or print them.
 
-SBOMs are platform-specific. The release workflow scans each final, signed archive with the
+SBOMs are platform-specific. The release workflow scans each final archive with the
 repository-pinned Anchore SBOM action and Syft version. It does not reuse a dependency manifest as
 the SBOM for multiple release files.
 
-## Release authorization and signing
+## Release authorization
 
 A release tag must resolve to a commit on `origin/master`, and that exact commit must have a
 successful `push` run of `ci.yml` on `master`. Pull-request and manually dispatched CI runs do not
@@ -39,22 +39,17 @@ Required repository settings:
 
 - protect `v*` tags against updates and deletion
 - enable immutable GitHub Releases
-- configure the `release` environment with required reviewers
+- configure the `release` environment without required reviewers or self-approval restrictions
 - restrict deployment branches/tags for that environment to the release policy
 
-Only the protected `release` environment can sign or publish files. macOS and Windows packaging
-refuses to run unless these environment secrets exist:
+Each platform job builds, smoke-tests, and packages its binaries without release credentials.
+The release does not apply Developer ID signing, macOS notarization, or Windows Authenticode
+signing. No Apple or Windows signing certificates are required.
 
-- macOS: `MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`,
-  `MACOS_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`
-- Windows: `WINDOWS_CODE_SIGNING_CERTIFICATE_PFX` and
-  `WINDOWS_CODE_SIGNING_CERTIFICATE_PASSWORD`
-
-Certificate values are base64-encoded PKCS#12/PFX files. macOS executables are Developer-ID signed
-and notarized. Windows executables and packaged native libraries are Authenticode signed and
-timestamped. Sigstore bundles then bind each final archive and its archive-derived SBOM to the
-release job identity. The `.sigstore.json` bundle contains the data needed to verify the signature.
-The release does not publish separate `.sig` and `.pem` files.
+The `release` environment publishes the files and creates keyless Sigstore signatures using the
+GitHub Actions job identity. These signatures verify the archives and their SBOMs; they do not
+sign the executables for macOS or Windows. Each `.sigstore.json` bundle contains the data needed
+to verify its file. The release does not publish separate `.sig` and `.pem` files.
 
 The `signatures` job uploads these bundles as `release-signatures`. The `release` job downloads
 them with the archives and SBOMs before publication.
@@ -70,8 +65,8 @@ repaired in place.
 Homebrew publication consumes only an already-published stable `vX.Y.Z` source release. It stages
 one formula, validates that exact formula on Intel macOS, Apple silicon, and Linux, and assembles
 the three bottles before updating the tap. Builders receive no tap credential. The
-`homebrew-production` environment is restricted to `master` and `v*`, requires a reviewer other
-than the job initiator, and is the only job allowed to read `HOMEBREW_TAP_TOKEN`.
+`homebrew-production` environment is restricted to `master` and `v*` and is the only job allowed
+to read `HOMEBREW_TAP_TOKEN`. It has no required reviewers or self-approval restrictions.
 
 `HOMEBREW_TAP_REPO` is the configured GitHub repository name, for example
 `MinorGlitch/homebrew-tap`. The workflow derives the Homebrew tap name, `MinorGlitch/tap`, from
