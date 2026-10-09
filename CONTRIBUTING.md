@@ -64,8 +64,9 @@ The full Python suite needs the generated kit bundles and installed npm dependen
 The [CI workflow](.github/workflows/ci.yml) defines the platform matrix, coverage thresholds, E2E
 tests, packaging checks, and dependency audits. Local checks do not replace those gates.
 The full unit, UI, rendering and integration suites run on macOS and Windows with Python 3.11,
-and on Linux with Python 3.13. The Linux run collects application and document-inspector coverage together,
-then checks them separately against the 85% and 45% thresholds. Reporting does not rerun tests.
+and on Linux with Python 3.14. The Linux run collects application and document-inspector coverage
+together, then checks them separately against the 85% and 45% thresholds. Python 3.14 lets coverage
+use `sys.monitoring` for both lines and branches. Reporting does not rerun tests.
 Python lint, formatting, type checking, and spelling share one CI job with separate result steps.
 Each platform, E2E, and terminal snapshot run reports its 30 slowest tests and uploads JUnit
 timings for seven days. Failed terminal snapshots also upload their received SVGs.
