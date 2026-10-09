@@ -15,11 +15,12 @@ async def wait_for_condition(
     timeout: float = 5.0,
 ) -> None:
     deadline = monotonic() + timeout
+    # Settle once before inspecting state, including previously rendered content.
+    await pilot.pause()
     while monotonic() < deadline:
-        # Process queued changes even when previously rendered content is present.
-        await pilot.pause(0.05)
         if condition():
             return
+        await pilot.pause(0.05)
     screen = pilot.app.screen
     focused = screen.focused
     raise AssertionError(

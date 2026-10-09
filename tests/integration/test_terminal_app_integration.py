@@ -90,7 +90,6 @@ def test_textual_app_backup_and_restore_round_trip(tmp_path: Path) -> None:
             )
             async with run_app_test(restore_app, size=(140, 40)) as pilot:
                 await pilot.press("2")
-                await pilot.pause()
                 await _run_final_review(restore_app, pilot)
 
         assert (backup_dir / "qr_document.pdf").read_bytes().startswith(b"%PDF")

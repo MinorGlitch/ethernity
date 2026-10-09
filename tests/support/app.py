@@ -8,13 +8,14 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from typing import TypeVar
-from weakref import WeakSet
+from weakref import WeakKeyDictionary, WeakSet
 
 from textual import events, messages
 from textual.app import App
 from textual.message import Message
 from textual.message_pump import MessagePump
 from textual.pilot import Pilot
+from textual.screen import Screen
 
 from tests.support.pilot import wait_for_condition
 
@@ -24,17 +25,25 @@ Result = TypeVar("Result")
 @dataclass
 class _Barrier:
     done: asyncio.Event = field(default_factory=asyncio.Event)
+    remaining: int = 1
 
     def __call__(self) -> None:
-        self.done.set()
+        self.remaining -= 1
+        if not self.remaining:
+            self.done.set()
 
 
 @dataclass
 class _Activity:
     generation: int = 0
     last_message: str = ""
+    resized_screens: WeakKeyDictionary[Screen, tuple[int, int]] = field(
+        default_factory=WeakKeyDictionary
+    )
 
-    def observe(self, message: Message) -> None:
+    def observe(self, node: MessagePump, message: Message) -> None:
+        if isinstance(node, Screen) and isinstance(message, events.Resize):
+            self.resized_screens[node] = message.size
         # Queue wakeups and cursor/progress repaints are not input work.
         # Await rendering separately so they cannot keep a session busy forever.
         if message.no_dispatch or isinstance(message, (events.Timer, messages.Update)):
@@ -65,41 +74,60 @@ class AppPilot(Pilot[Result]):
     async def pause(self, delay: float | None = None) -> None:
         if delay is not None:
             await asyncio.sleep(delay)
+        # Use the same failure signal as Textual's Pilot. A failed message handler
+        # can leave an unfinished queue; run_test will re-raise the original error.
+        if self.app._exception_event.is_set():
+            return
+        settled = asyncio.create_task(self._settle())
+        failed = asyncio.create_task(self.app._exception_event.wait())
         try:
-            # Match Pilot's queue-drain timeout; large layouts on shared CI
-            # runners can take longer than the five-second condition polling cap.
-            async with asyncio.timeout(30):
-                while True:
-                    generation = self._activity.generation
-                    await self._drain_messages()
-                    rendered = _Barrier()
-                    self.app.call_after_refresh(rendered)
-                    await rendered.done.wait()
-                    await self.app.animator.wait_until_complete()
-                    await self._drain_messages()
-                    # Button press feedback uses a timer and suppresses another
-                    # press until it clears; it is not an Animator animation.
-                    if generation == self._activity.generation and not self.app.screen.query(
-                        "Button.-active"
-                    ):
-                        return
+            done, _ = await asyncio.wait(
+                (settled, failed), timeout=30, return_when=asyncio.FIRST_COMPLETED
+            )
+            if not done:
+                raise TimeoutError
+            if settled in done:
+                settled.result()
         except TimeoutError as error:
             raise AssertionError(
                 "UI did not settle. "
                 f"Screen={type(self.app.screen).__name__}, focus={self.app.focused!r}, "
                 f"last message={self._activity.last_message}."
             ) from error
+        finally:
+            for task in (settled, failed):
+                task.cancel()
+            await asyncio.gather(settled, failed, return_exceptions=True)
+
+    async def _settle(self) -> None:
+        while True:
+            generation = self._activity.generation
+            await self._drain_messages()
+            rendered = _Barrier()
+            self.app.call_after_refresh(rendered)
+            await rendered.done.wait()
+            await self.app.animator.wait_until_complete()
+            await self._drain_messages()
+            # Button feedback is timer-driven, separate from Animator animations.
+            if generation == self._activity.generation and not self.app.screen.query(
+                "Button.-active"
+            ):
+                return
 
     async def _drain_messages(self) -> None:
-        barriers = []
+        barrier = _Barrier(remaining=0)
         for node in (self.app, *self.app.screen.walk_children(with_self=True)):
             if node not in self._observed:
-                node.message_signal.subscribe(self.app, self._activity.observe, immediate=True)
+                node.message_signal.subscribe(
+                    self.app, partial(self._activity.observe, node), immediate=True
+                )
                 self._observed.add(node)
-            barrier = _Barrier()
             if node.call_later(barrier):
-                barriers.append(barrier.done.wait())
-        await asyncio.gather(*barriers)
+                barrier.remaining += 1
+        # One event for the pass, rather than a separate event and asyncio task
+        # for every widget. Barriers still include handlers already in flight.
+        if barrier.remaining:
+            await barrier.done.wait()
 
     async def press(self, *keys: str) -> None:
         await self.pause()
@@ -109,10 +137,11 @@ class AppPilot(Pilot[Result]):
 
     async def resize_terminal(self, width: int, height: int) -> None:
         await super().resize_terminal(width, height)
-        # Textual delays terminal resize delivery with a timer.
+        # Screen.size reflects the driver immediately. Wait for the delayed
+        # Resize handler to finish before checking the resulting widget layout.
         await wait_for_condition(
             self,
-            lambda: self.app.screen.size == (width, height),
+            lambda: self._activity.resized_screens.get(self.app.screen) == (width, height),
             f"terminal resize to {width}x{height}",
         )
 
