@@ -112,8 +112,10 @@ timing, which differs between platforms. Tests for rapid input should send actio
 intervening pause, as the navigation regression does.
 `press()` already settles each key, so an immediate extra `pause()` is unnecessary. The helper
 waits for in-flight handlers and deferred layout callbacks, and interrupts its wait when the app
-fails. Resizing waits for the screen's resize handler, since the requested size changes before
-layout catches up. Do not replace these guarantees with fixed sleeps.
+fails. Resizing waits for the screen's resize handler and the child updates it produces, since
+the requested size changes before layout catches up. Timer-driven resize and button feedback
+waits resume on UI activity and recheck timer state without repeatedly draining every widget.
+Do not replace these guarantees with fixed sleeps.
 
 For background workers and future timers, use the bounded waits in `tests/support/pilot.py`.
 Wait for the state change the test needs, such as a completed worker. Use the `set_home` fixture

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from functools import partial
 from typing import TypeVar
-from weakref import WeakKeyDictionary, WeakSet
+from weakref import WeakKeyDictionary, WeakSet, ref
 
 from textual import events, messages
 from textual.app import App
@@ -16,8 +16,6 @@ from textual.message import Message
 from textual.message_pump import MessagePump
 from textual.pilot import Pilot
 from textual.screen import Screen
-
-from tests.support.pilot import wait_for_condition
 
 Result = TypeVar("Result")
 
@@ -37,16 +35,20 @@ class _Barrier:
 class _Activity:
     generation: int = 0
     last_message: str = ""
+    changed: asyncio.Event = field(default_factory=asyncio.Event)
     resized_screens: WeakKeyDictionary[Screen, tuple[int, int]] = field(
         default_factory=WeakKeyDictionary
     )
 
-    def observe(self, node: MessagePump, message: Message) -> None:
-        if isinstance(node, Screen) and isinstance(message, events.Resize):
-            self.resized_screens[node] = message.size
+    def observe_resize(self, screen_ref: ref[Screen], message: Message) -> None:
+        screen = screen_ref()
+        if screen is not None and isinstance(message, events.Resize):
+            self.resized_screens[screen] = message.size
+
+    def observe(self, message: Message) -> None:
         # Queue wakeups and cursor/progress repaints are not input work.
         # Await rendering separately so they cannot keep a session busy forever.
-        if message.no_dispatch or isinstance(message, (events.Timer, messages.Update)):
+        if message.no_dispatch:
             return
         if isinstance(message, (events.Callback, messages.InvokeLater)):
             callback = message.callback
@@ -54,6 +56,9 @@ class _Activity:
                 callback = callback.func
             if isinstance(callback, _Barrier):
                 return
+        self.changed.set()
+        if isinstance(message, (events.Timer, messages.Update)):
+            return
         self.generation += 1
         self.last_message = type(message).__qualname__
 
@@ -70,6 +75,7 @@ class AppPilot(Pilot[Result]):
         super().__init__(app)
         self._activity = activity
         self._observed: WeakSet[MessagePump] = WeakSet()
+        self._requested_size: tuple[int, int] | None = None
 
     async def pause(self, delay: float | None = None) -> None:
         if delay is not None:
@@ -108,19 +114,45 @@ class AppPilot(Pilot[Result]):
             await rendered.done.wait()
             await self.app.animator.wait_until_complete()
             await self._drain_messages()
-            # Button feedback is timer-driven, separate from Animator animations.
-            if generation == self._activity.generation and not self.app.screen.query(
-                "Button.-active"
-            ):
+            if generation != self._activity.generation:
+                continue
+            if self._timers_finished():
                 return
+            # Resize delivery and button feedback use timers, not Animator.
+            # Wait for their messages instead of continuously posting barriers to
+            # every widget. Each wake must pass through the same drain/render
+            # cycle, including the child work produced by a screen resize.
+            await self._wait_for_timer_activity()
+
+    async def _wait_for_timer_activity(self) -> None:
+        self._activity.changed.clear()
+        while not self._activity.changed.is_set() and not self._timers_finished():
+            # A timer may change state without a redraw (for example, when
+            # a button's active style is identical). Recheck readiness, but
+            # do not post another round of widget callbacks until it changes.
+            with suppress(TimeoutError):
+                async with asyncio.timeout(0.05):
+                    await self._activity.changed.wait()
+
+    def _timers_finished(self) -> bool:
+        resized = self._requested_size is None or (
+            self._activity.resized_screens.get(self.app.screen) == self._requested_size
+        )
+        active_buttons = any(
+            button.is_on_screen and button.visible
+            for button in self.app.screen.query("Button.-active")
+        )
+        return resized and not active_buttons
 
     async def _drain_messages(self) -> None:
         barrier = _Barrier(remaining=0)
         for node in (self.app, *self.app.screen.walk_children(with_self=True)):
             if node not in self._observed:
-                node.message_signal.subscribe(
-                    self.app, partial(self._activity.observe, node), immediate=True
-                )
+                node.message_signal.subscribe(self.app, self._activity.observe, immediate=True)
+                if isinstance(node, Screen):
+                    node.message_signal.subscribe(
+                        self.app, partial(self._activity.observe_resize, ref(node)), immediate=True
+                    )
                 self._observed.add(node)
             if node.call_later(barrier):
                 barrier.remaining += 1
@@ -136,17 +168,13 @@ class AppPilot(Pilot[Result]):
             await self.pause()
 
     async def resize_terminal(self, width: int, height: int) -> None:
-        await super().resize_terminal(width, height)
-        # Screen.size reflects the driver immediately. Wait for the delayed
-        # Resize handler to finish before checking the resulting widget layout.
-        await wait_for_condition(
-            self,
-            lambda: self._activity.resized_screens.get(self.app.screen) == (width, height),
-            f"terminal resize to {width}x{height}",
-        )
-        # The screen handler posts Resize to its children. Its completion can
-        # arrive while wait_for_condition is returning, after its last drain.
-        await self.pause()
+        # Pilot updates the driver, posts Resize, and calls our pause(). The
+        # driver's size changes before the screen and child handlers run.
+        self._requested_size = (width, height)
+        try:
+            await super().resize_terminal(width, height)
+        finally:
+            self._requested_size = None
 
 
 @asynccontextmanager
