@@ -144,6 +144,9 @@ class AppPilot(Pilot[Result]):
             lambda: self._activity.resized_screens.get(self.app.screen) == (width, height),
             f"terminal resize to {width}x{height}",
         )
+        # The screen handler posts Resize to its children. Its completion can
+        # arrive while wait_for_condition is returning, after its last drain.
+        await self.pause()
 
 
 @asynccontextmanager

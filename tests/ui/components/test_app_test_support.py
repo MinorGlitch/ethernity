@@ -10,7 +10,9 @@ from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
+from tests.support import app as app_support
 from tests.support.app import run_app_test
+from tests.support.pilot import wait_for_condition
 
 
 class DeferredEditor(VerticalGroup):
@@ -84,6 +86,27 @@ def test_session_preserves_application_exceptions() -> None:
         asyncio.run(run())
     # An exception must interrupt synchronization, not wait out its 30-second cap.
     assert monotonic() - started < 5
+
+
+def test_resize_finishes_work_queued_at_the_screen_completion_boundary(monkeypatch) -> None:
+    async def screen_resized(pilot, condition, description):
+        await wait_for_condition(pilot, condition, description)
+        # A screen resize can finish after the condition wait's last drain.
+        # Deliver a child update at that boundary, with real deferred handlers.
+        pilot.app.query_one(Input).value = "Resized"
+
+    monkeypatch.setattr(app_support, "wait_for_condition", screen_resized)
+
+    async def run() -> None:
+        app = DeferredApp()
+        async with run_app_test(app) as pilot:
+            await pilot.resize_terminal(100, 30)
+            assert app.value == "Resized"
+            assert app.focus_callbacks == 0
+            assert "Resized" in app.query_one("#result").render_line(0).text
+            assert app.focused is app.query_one(Button)
+
+    asyncio.run(run())
 
 
 def test_pause_follows_callbacks_in_a_screen_mounted_by_the_test() -> None:
