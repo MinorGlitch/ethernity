@@ -314,7 +314,11 @@ jobs:
         working-directory: kit
         run: npm test
 
-      - name: Smoke generated recovery kits in Chrome
+      - name: Install browser test engines
+        working-directory: kit
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Smoke generated recovery kits in Chromium and WebKit
         working-directory: kit
         run: npm run test:browser
 

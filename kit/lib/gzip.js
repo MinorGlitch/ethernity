@@ -32,8 +32,19 @@ export async function gunzipBytesBounded(
   if (typeof DecompressionStream !== "function") {
     throw new Error(unsupported);
   }
+  // WebKit cannot read Blob streams inside workers started from local HTML files.
+  // Feed bounded chunks so the reader can check output size between writes.
+  let offset = 0;
+  const input = new ReadableStream({
+    pull(controller) {
+      const end = Math.min(offset + 64 * 1024, bytes.length);
+      controller.enqueue(bytes.subarray(offset, end));
+      offset = end;
+      if (offset === bytes.length) controller.close();
+    },
+  });
   // DecompressionStream validates gzip framing, checksums, and the single-member boundary.
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const stream = input.pipeThrough(new DecompressionStream("gzip"));
   const reader = stream.getReader();
   const chunks = [];
   let total = 0;

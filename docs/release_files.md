@@ -120,9 +120,9 @@ Homebrew installs the locked platform wheel so page validation works without a s
 Wheels and PyInstaller distributions must also include `resources/designs/_shared/*.json`.
 The built-in A5 layouts use these files together with each design's `design.json` and `style.json`.
 
-The generated default bundles must support extensions and pass the Chrome tests for page loading
-and recovery worker execution before release. Offline browser recovery kit bundles are generated during
-the release build.
+The generated default bundles must support extensions and pass the Chromium and WebKit tests for
+local-file loading and recovery worker execution before release. Offline browser recovery kit
+bundles are generated during the release build.
 
 The local `scripts/build_pyinstaller.sh` and `scripts/build_pyinstaller.ps1` wrappers run `npm ci`,
 generate both default gzip bundles, reject missing or extra packaged HTML bundles, and then run

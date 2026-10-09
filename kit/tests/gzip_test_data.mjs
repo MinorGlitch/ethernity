@@ -34,6 +34,16 @@ export function gzipCases() {
   add("dynamic Huffman blocks", dynamic, dynamicData.length, null, dynamicData);
   add("empty payload", gzipSync(new Uint8Array()), 0, null, new Uint8Array());
 
+  // Incompressible data exercises streaming across multiple input chunks and a partial tail.
+  let random = 0x12345678;
+  const largeData = Uint8Array.from({ length: 128 * 1024 + 17 }, () => {
+    random ^= random << 13;
+    random ^= random >>> 17;
+    random ^= random << 5;
+    return random & 255;
+  });
+  add("large compressed input", gzipSync(largeData), largeData.length, null, largeData);
+
   const header = Uint8Array.from([
     ...gzip.subarray(0, 10),
     3,

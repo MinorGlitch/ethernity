@@ -15,7 +15,7 @@
   },
   "scripts": {
     "test": "node scripts/run_tests.mjs",
-    "test:browser": "node scripts/smoke_generated_bundle_chrome.mjs",
+    "test:browser": "node scripts/smoke_generated_bundles.mjs",
     "lint": "biome lint --error-on-warnings .",
     "format:check": "biome check --linter-enabled=false --assist-enabled=false .",
     "format": "biome format --write ."
@@ -29,6 +29,7 @@
     "@gfx/zopfli": "1.0.15",
     "esbuild": "0.28.0",
     "html-minifier-terser": "7.2.0",
+    "playwright": "1.61.1",
     "roadroller": "2.1.0",
     "terser": "^5.48.0"
   },

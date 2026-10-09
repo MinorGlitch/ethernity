@@ -137,9 +137,11 @@ npm run format:check
 npm test
 ```
 
-When checking the generated browser app or packaging, rebuild with `node build_kit.mjs`, then run
-`npm run test:browser`. That test needs Chrome or a supported Chromium installation; see the
-[browser test script](kit/scripts/smoke_generated_bundle_chrome.mjs) for executable overrides.
+When checking the generated browser app or packaging, rebuild with `node build_kit.mjs`. Install
+the test browsers with `npx playwright install --with-deps chromium webkit`, then run
+`npm run test:browser`. The shared smoke tests open local HTML files in both engines and restore
+frozen older backups and a compressed update chain. To check another engine, install it with
+`npx playwright install firefox` and run `npm run test:browser -- firefox`.
 
 The build creates the default and scanner bundles under `src/ethernity/resources/kit/`.
 Do not edit or commit these generated HTML files. CI generates them for packages and releases.

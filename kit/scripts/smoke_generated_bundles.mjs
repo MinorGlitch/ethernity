@@ -1,9 +1,8 @@
 import { concatByteParts as concatBytes } from "../lib/bytes.js";
-import { constants as fsConstants } from "node:fs";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -13,6 +12,7 @@ import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { scrypt } from "@noble/hashes/scrypt.js";
 import { minify as terserMinify } from "terser";
+import { chromium, firefox, webkit } from "playwright";
 import { FRAME_TYPE_AUTH, FRAME_TYPE_MAIN } from "../app/constants.js";
 import { blake2b256 } from "../lib/blake2b.js";
 import { encodeCbor } from "../lib/cbor.js";
@@ -99,7 +99,7 @@ async function checkBundleInteractions(backups) {
     document.getElementById("freshness-unknown-acknowledgement").click();
     await tick();
     await click("Unlock & extract");
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    for (let attempt = 0; attempt < 2400; attempt += 1) {
       if (document.querySelector("tbody")?.textContent.includes(backup.path)) break;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
@@ -133,7 +133,7 @@ async function checkBundleInteractions(backups) {
 function smokeBackup(updateMode = null) {
   const path = "generated-kit-smoke.txt";
   const passphrase = "generated-kit-smoke";
-  const data = textEncoder.encode("recovered in Chrome");
+  const data = textEncoder.encode("recovered in browser");
   const rootFiles = [{ path, data }];
   const ciphertexts = [buildFastAgeCiphertext(buildRootPlaintext(rootFiles), passphrase)];
   if (updateMode) {
@@ -180,7 +180,7 @@ function smokeBackup(updateMode = null) {
   return { path, passphrase, payload, updateMode };
 }
 
-async function smokeRenderer(chrome) {
+async function smokeRenderer(browser) {
   const workDir = await mkdtemp(resolve(tmpdir(), "ethernity-renderer-smoke-"));
   try {
     const output = resolve(workDir, "renderer.js");
@@ -207,7 +207,7 @@ async function smokeRenderer(chrome) {
       htmlPath,
       `<!doctype html><body>waiting<script>${await readFile(output, "utf8")}</script></body>`,
     );
-    await waitForPageState(chrome, pathToFileURL(htmlPath).href, resolve(workDir, "profile"), {
+    await waitForPageState(browser, pathToFileURL(htmlPath).href, {
       attempts: 100,
       isReady: ({ text }) => text === "renderer-ok",
       failureForState: ({ text }) => (text.startsWith("renderer-error:") ? text : null),
@@ -218,19 +218,7 @@ async function smokeRenderer(chrome) {
   }
 }
 
-async function firstExecutable(paths) {
-  for (const path of paths.filter(Boolean)) {
-    try {
-      await access(path, fsConstants.X_OK);
-      return path;
-    } catch {
-      // Try the next supported Chrome location.
-    }
-  }
-  return null;
-}
-
-async function smokeBundle(chrome, bundlePath) {
+async function smokeBundle(browser, bundlePath, backups) {
   const loaderHtml = await readFile(bundlePath, "utf8");
   if (
     !printedKitDirectory &&
@@ -238,34 +226,19 @@ async function smokeBundle(chrome, bundlePath) {
   ) {
     throw new Error(`${bundlePath} is not the default gzip recovery kit`);
   }
-  const profileDir = await mkdtemp(resolve(tmpdir(), "ethernity-chrome-smoke-"));
-  try {
-    await waitForPageState(chrome, pathToFileURL(bundlePath).href, profileDir, {
-      attempts: 300,
-      isReady: ({ html }) => html.includes(">Emergency override</button>"),
-      failureForState: ({ text }) =>
-        text.includes("Recovery kit cannot open here")
-          ? `${bundlePath} rendered the unsupported-loader fallback in Chrome`
-          : null,
-      timeoutMessage: `${bundlePath} did not boot the recovery app in Chrome`,
-      async onReady(client, sessionId) {
-        const result = await client.send(
-          "Runtime.evaluate",
-          {
-            expression: `(${checkBundleInteractions.toString()})(${JSON.stringify([null, "incremental", "cumulative"].map(smokeBackup))})`,
-            awaitPromise: true,
-            returnByValue: true,
-          },
-          sessionId,
-        );
-        if (result.exceptionDetails || result.result?.value !== "ui-ok") {
-          throw new Error(`Kit interaction check failed: ${JSON.stringify(result)}`);
-        }
-      },
-    });
-  } finally {
-    await rm(profileDir, { recursive: true, force: true, maxRetries: 3 });
-  }
+  await waitForPageState(browser, pathToFileURL(bundlePath).href, {
+    attempts: 300,
+    isReady: ({ html }) => html.includes(">Emergency override</button>"),
+    failureForState: ({ text }) =>
+      text.includes("Recovery kit cannot open here")
+        ? `${bundlePath} rendered the unsupported-loader fallback`
+        : null,
+    timeoutMessage: `${bundlePath} did not boot the recovery app`,
+    async onReady(page) {
+      const result = await page.evaluate(checkBundleInteractions, backups);
+      if (result !== "ui-ok") throw new Error(`Kit interaction check failed: ${result}`);
+    },
+  });
 }
 
 function base64NoPad(bytes) {
@@ -306,126 +279,68 @@ function requireSuccessfulCommand(result, label) {
   }
 }
 
-function devToolsPipeClient(child) {
-  const pending = new Map();
-  let nextId = 1;
-  let buffered = "";
-  child.stdio[4].on("data", (chunk) => {
-    buffered += chunk.toString();
-    while (buffered.includes("\0")) {
-      const separator = buffered.indexOf("\0");
-      const rawMessage = buffered.slice(0, separator);
-      buffered = buffered.slice(separator + 1);
-      if (!rawMessage) continue;
-      const message = JSON.parse(rawMessage);
-      const request = pending.get(message.id);
-      if (!request) continue;
-      pending.delete(message.id);
-      if (message.error) {
-        request.reject(new Error(message.error.message));
-      } else {
-        request.resolve(message.result);
-      }
-    }
-  });
-  child.once("exit", (code) => {
-    for (const request of pending.values()) {
-      request.reject(new Error(`Chrome DevTools pipe closed (${code})`));
-    }
-    pending.clear();
-  });
-  return {
-    send(method, params = {}, sessionId = undefined) {
-      const id = nextId;
-      nextId += 1;
-      return new Promise((resolveRequest, rejectRequest) => {
-        pending.set(id, { resolve: resolveRequest, reject: rejectRequest });
-        child.stdio[3].write(`${JSON.stringify({ id, method, params, sessionId })}\0`);
-      });
-    },
-  };
-}
-
 async function waitForPageState(
-  chrome,
+  browser,
   pageUrl,
-  profileDir,
   { attempts, isReady, failureForState, timeoutMessage, onReady },
 ) {
-  const child = spawn(
-    chrome,
-    [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--allow-file-access-from-files",
-      "--remote-debugging-pipe",
-      `--user-data-dir=${profileDir}`,
-      pageUrl,
-    ],
-    { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
-  );
-  child.stderr.resume();
-  const client = devToolsPipeClient(child);
+  const page = await browser.newPage();
   try {
-    let page = null;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const targets = await client.send("Target.getTargets");
-      page = targets.targetInfos.find((target) => target.type === "page" && target.url === pageUrl);
-      if (page) break;
-      await delay(50);
-    }
-    if (!page) {
-      throw new Error("Chrome page target was not available");
-    }
-    const attached = await client.send("Target.attachToTarget", {
-      targetId: page.targetId,
-      flatten: true,
-    });
+    // Local-file loading is intentional: WebKit workers have different Blob behavior here.
+    await page.goto(pageUrl);
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const result = await client.send(
-        "Runtime.evaluate",
-        {
-          expression:
-            "({html: document.body?.innerHTML ?? '', text: document.body?.textContent ?? ''})",
-          returnByValue: true,
-        },
-        attached.sessionId,
-      );
-      const state = result.result?.value ?? { html: "", text: "" };
+      const state = await page.evaluate(() => ({
+        html: document.body?.innerHTML ?? "",
+        text: document.body?.textContent ?? "",
+      }));
       const failure = failureForState(state);
-      if (failure) {
-        throw new Error(failure);
-      }
+      if (failure) throw new Error(failure);
       if (isReady(state)) {
-        await onReady?.(client, attached.sessionId);
-        return state;
+        await onReady?.(page);
+        return;
       }
       await delay(100);
     }
     throw new Error(timeoutMessage);
   } finally {
-    child.kill("SIGTERM");
-    await delay(100);
-    if (child.exitCode === null) {
-      child.kill("SIGKILL");
-    }
+    await page.close();
   }
 }
 
-async function waitForWorkerResult(chrome, htmlPath, profileDir) {
-  await waitForPageState(chrome, pathToFileURL(htmlPath).href, profileDir, {
-    attempts: 300,
-    isReady: ({ text }) => text.trim() === "worker-ok",
-    failureForState: ({ text }) =>
-      text.trim().startsWith("worker-error:")
-        ? `Chrome recovery worker failed: ${text.trim()}`
-        : null,
-    timeoutMessage: "Chrome recovery worker did not complete within 30 seconds",
+async function frozenBackups() {
+  const fixtures = resolve(kitDir, "..", "tests", "fixtures");
+  const cases = [];
+  for (const [release, scenario] of [
+    ["v1_0", "file_no_shard"],
+    ["v1_1", "sharded_embedded"],
+  ]) {
+    const directory = resolve(fixtures, release, "golden", "raw", scenario);
+    const snapshot = JSON.parse(await readFile(resolve(directory, "snapshot.json"), "utf8"));
+    cases.push({
+      path: Object.keys(snapshot.expected_file_sha256)[0],
+      payload: await readFile(resolve(directory, "main_payloads.txt"), "utf8"),
+      passphrase: snapshot.passphrase,
+      expectedHashes: snapshot.expected_file_sha256,
+    });
+  }
+  const directory = resolve(
+    fixtures,
+    "v1_2",
+    "extension_golden",
+    "base64",
+    "gzip_replacement_chain",
+  );
+  const snapshot = JSON.parse(await readFile(resolve(directory, "snapshot.json"), "utf8"));
+  cases.push({
+    path: "alpha.txt",
+    payload: await readFile(resolve(directory, "chain_payloads.txt"), "utf8"),
+    passphrase: snapshot.passphrase,
+    expectedHashes: snapshot.states.extension_01,
   });
+  return cases;
 }
 
-async function smokeRecoveryWorker(chrome) {
+async function smokeRecoveryWorker(browser, cases) {
   const workDir = await mkdtemp(resolve(tmpdir(), "ethernity-recovery-smoke-"));
   try {
     const appOutput = resolve(workDir, "app.js");
@@ -447,28 +362,6 @@ async function smokeRecoveryWorker(chrome) {
       ),
       "recovery smoke app build",
     );
-    const cases = [null, "incremental", "cumulative"].map(smokeBackup);
-    for (const [release, scenario] of [
-      ["v1_0", "file_no_shard"],
-      ["v1_1", "sharded_embedded"],
-    ]) {
-      const directory = resolve(
-        kitDir,
-        "..",
-        "tests",
-        "fixtures",
-        release,
-        "golden",
-        "raw",
-        scenario,
-      );
-      const snapshot = JSON.parse(await readFile(resolve(directory, "snapshot.json"), "utf8"));
-      cases.push({
-        payload: await readFile(resolve(directory, "main_payloads.txt"), "utf8"),
-        passphrase: snapshot.passphrase,
-        expectedHashes: snapshot.expected_file_sha256,
-      });
-    }
     const fixtures = Buffer.from(JSON.stringify(cases)).toString("base64");
     const gzipFixtures = Buffer.from(JSON.stringify(gzipCases())).toString("base64");
     const bundledAppSource = await readFile(appOutput, "utf8");
@@ -485,37 +378,45 @@ async function smokeRecoveryWorker(chrome) {
       `<!doctype html><body data-fixtures="${fixtures}" data-gzip="${gzipFixtures}">waiting<script>${minifiedApp.code}</script></body>`,
       "utf8",
     );
-    await waitForWorkerResult(chrome, htmlPath, resolve(workDir, "chrome-profile"));
+    await waitForPageState(browser, pathToFileURL(htmlPath).href, {
+      attempts: 1200,
+      isReady: ({ text }) => text.trim() === "worker-ok",
+      failureForState: ({ text }) => (text.trim().startsWith("worker-error:") ? text.trim() : null),
+      timeoutMessage: "Recovery worker did not complete within 120 seconds",
+    });
   } finally {
     await rm(workDir, { recursive: true, force: true, maxRetries: 3 });
   }
 }
 
-const chrome = await firstExecutable([
-  process.env.CHROME_BIN,
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/usr/bin/google-chrome",
-  "/usr/bin/google-chrome-stable",
-  "/usr/bin/chromium",
-  "/usr/bin/chromium-browser",
-]);
-if (!chrome) {
-  throw new Error(
-    "Chrome executable not found; set CHROME_BIN to run the generated-kit smoke test",
-  );
+const engines = { chromium, firefox, webkit };
+const requestedBrowsers = process.argv.slice(2);
+const browserNames = requestedBrowsers.length ? requestedBrowsers : ["chromium", "webkit"];
+for (const name of browserNames) {
+  if (!Object.hasOwn(engines, name)) throw new Error(`Unknown browser: ${name}`);
 }
+const backups = [
+  ...[null, "incremental", "cumulative"].map(smokeBackup),
+  ...(await frozenBackups()),
+];
 const bundleSmokeCount =
   process.env.ETHERNITY_KIT_BROWSER_SMOKE_WORKER_ONLY === "1" ? 0 : bundlePaths.length;
-if (bundleSmokeCount) {
-  for (const bundlePath of bundlePaths) {
-    process.stdout.write(`Booting ${bundlePath} in Chrome...\n`);
-    await smokeBundle(chrome, bundlePath);
+for (const name of browserNames) {
+  const browser = await engines[name].launch({ headless: true });
+  try {
+    if (bundleSmokeCount) {
+      for (const bundlePath of bundlePaths) {
+        process.stdout.write(`Booting ${bundlePath} in ${name}...\n`);
+        await smokeBundle(browser, bundlePath, backups);
+      }
+    }
+    await smokeRenderer(browser);
+    process.stdout.write(`${name}: DOM identity and renderer lifecycle checks passed.\n`);
+    await smokeRecoveryWorker(browser, backups);
+    process.stdout.write(
+      `${name}: ${printedKitDirectory ? "reconstructed printed" : "generated gzip"} kits passed: ${bundleSmokeCount}; recovery worker passed\n`,
+    );
+  } finally {
+    await browser.close();
   }
 }
-await smokeRenderer(chrome);
-process.stdout.write("DOM identity and renderer lifecycle checks passed.\n");
-process.stdout.write("Running the Chrome recovery Worker smoke...\n");
-await smokeRecoveryWorker(chrome);
-process.stdout.write(
-  `${printedKitDirectory ? "Reconstructed printed" : "Generated gzip"} recovery kits booted in Chrome: ${bundleSmokeCount}; recovery worker passed\n`,
-);

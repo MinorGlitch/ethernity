@@ -44,6 +44,8 @@ const SCANNER_ONLY_CSS_RE =
   /\s*\/\* ETHERNITY_SCANNER_CSS_START \*\/[\s\S]*?\/\* ETHERNITY_SCANNER_CSS_END \*\//gu;
 const IDENTIFIER_LIKE_PROPERTY_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const PROPERTY_MANGLE_RESERVED = [
+  // ReadableStream invokes this callback by name outside the bundled code.
+  "pull",
   // The printed loader supplies these fields outside the JavaScript bundle.
   "capability",
   "supported_document_versions",

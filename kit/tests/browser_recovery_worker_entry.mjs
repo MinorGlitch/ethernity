@@ -58,12 +58,12 @@ async function run() {
         const result = await recover();
         check(
           result.files.length === Object.keys(sample.expectedHashes).length,
-          "Legacy file count",
+          "Frozen backup file count",
         );
         for (const file of result.files) {
           check(
             bytesToHex(sha256(file.data)) === sample.expectedHashes[file.path],
-            "Legacy file bytes",
+            "Frozen backup file bytes",
           );
         }
         continue;
@@ -78,7 +78,7 @@ async function run() {
       const result = await recover();
       check(result.files[0].data instanceof Uint8Array, "File bytes lost their type in transit");
       check(
-        new TextDecoder().decode(result.files[0].data) === "recovered in Chrome",
+        new TextDecoder().decode(result.files[0].data) === "recovered in browser",
         "Recovered root file bytes differ",
       );
       if (sample.updateMode) {
