@@ -154,6 +154,7 @@ ignore-missing-imports = ["*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+junit_duration_report = "total"
 markers = ["portability: fast native-platform filesystem, process, and UI checks"]
 
 [tool.coverage.run]

@@ -1,1 +1,0 @@
-"""App widget unit tests."""

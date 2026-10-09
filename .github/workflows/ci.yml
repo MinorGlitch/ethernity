@@ -82,6 +82,10 @@ jobs:
             --rasterize never
       - name: Verify terminal snapshots
         run: uv run pytest tests/visual -n 2 -v --durations=30 --junitxml=test-results/visual.xml
+      - name: Summarize test timings
+        if: always()
+        shell: bash
+        run: uv run python scripts/summarize_test_timings.py test-results >> "$GITHUB_STEP_SUMMARY"
       - name: Upload snapshot results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -103,7 +107,11 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check Linux portability on minimum Python
-        run: uv run pytest tests/unit -m portability -q
+        run: uv run pytest tests/unit tests/ui tests/rendering tests/integration -m portability -q --junitxml=test-results/portability.xml
+      - name: Summarize test timings
+        if: always()
+        shell: bash
+        run: uv run python scripts/summarize_test_timings.py test-results >> "$GITHUB_STEP_SUMMARY"
 
   test:
     needs: kit-bundles
@@ -149,14 +157,14 @@ jobs:
         working-directory: kit
         run: npm ci
 
-      - name: Run unit and integration tests
+      - name: Run Python tests
         if: matrix.os != 'ubuntu-latest'
-        run: uv run pytest tests/unit tests/integration -n 2 --dist loadfile -v --durations=30 --junitxml=test-results/python.xml
-      - name: Run unit and integration tests with coverage
+        run: uv run pytest tests/unit tests/ui tests/rendering tests/integration -n 2 --dist loadfile -v --durations=30 --junitxml=test-results/python.xml
+      - name: Run Python tests with coverage
         id: coverage-tests
         if: matrix.os == 'ubuntu-latest'
         run: |
-          uv run pytest tests/unit tests/integration -n 2 --dist loadfile \
+          uv run pytest tests/unit tests/ui tests/rendering tests/integration -n 2 --dist loadfile \
             --cov=ethernity \
             --cov=tooling.document_inspector_app \
             --cov-report= --durations=30 --junitxml=test-results/python.xml
@@ -167,6 +175,10 @@ jobs:
         if: ${{ !cancelled() && steps.coverage-tests.outcome == 'success' }}
         run: uv run coverage report --include='tooling/document_inspector_app/*' --fail-under=45
 
+      - name: Summarize test timings
+        if: always()
+        shell: bash
+        run: uv run python scripts/summarize_test_timings.py test-results >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test timings
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -193,6 +205,10 @@ jobs:
         env:
           ETHERNITY_TEST_CLI_TIMEOUT_SECONDS: "300"
         run: uv run pytest tests/e2e -n 2 --dist loadfile -v --durations=30 --junitxml=test-results/e2e.xml
+      - name: Summarize test timings
+        if: always()
+        shell: bash
+        run: uv run python scripts/summarize_test_timings.py test-results >> "$GITHUB_STEP_SUMMARY"
       - name: Upload end-to-end test timings
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

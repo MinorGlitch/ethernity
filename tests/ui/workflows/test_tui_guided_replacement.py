@@ -1,0 +1,294 @@
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+from textual.widgets import Button, Input, RadioSet
+
+from ethernity.app.application import EthernityApp
+from ethernity.app.widgets.workbench import WorkbenchSteps
+from ethernity.app.widgets.workflow.controls import InlineNotice
+from ethernity.app.widgets.workflow.options import QuorumEditor
+from ethernity.app.workflow_registry import build_guided_workflow
+from ethernity.app.workflow_state import WorkflowUiState
+from ethernity.tasks.presentation.models import (
+    CompositeBodyPresentation,
+    OptionsBodyPresentation,
+    QuorumBodyPresentation,
+    SummaryPresentation,
+)
+from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
+from tests.support.app import run_app_test
+from tests.support.pilot import wait_for_condition
+
+
+def test_replacement_recovery_default_is_visible_and_custom_quorum_stays_collapsed() -> None:
+    state = ReplaceRecoveryDocsTaskState()
+    ui_state = WorkflowUiState.start("source", "unlock", "recovery", "output")
+    workflow = build_guided_workflow(
+        task="replace_recovery_docs",
+        state=state,
+        validation=state.validate_task(),
+        ui_state=ui_state,
+        review_summary=_empty_summary(),
+        review_label="Review replacement sheets",
+    )
+
+    assert workflow is not None
+    recovery = workflow.steps[2].body
+    assert isinstance(recovery, CompositeBodyPresentation)
+    quorum = recovery.parts[1].body
+    assert isinstance(quorum, QuorumBodyPresentation)
+    assert not quorum.visible
+    modes = recovery.parts[0].body
+    assert isinstance(modes, OptionsBodyPresentation)
+    choices = modes.choices
+    assert any(choice.key == "recommended" and choice.selected for choice in choices)
+
+
+def test_replacement_custom_quorum_updates_live_and_can_return_to_recommended() -> None:
+    async def run() -> None:
+        app = EthernityApp(
+            replace_recovery_docs_state=ReplaceRecoveryDocsTaskState(
+                source_paths=[Path("scan.pdf")],
+                allow_stale_head=True,
+                passphrase="secret",
+                output_dir=Path("replacement"),
+            )
+        )
+        async with run_app_test(app, size=(120, 36)) as pilot:
+            await pilot.press("5")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
+            await pilot.pause()
+
+            modes = app.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-mode-choices",
+                RadioSet,
+            )
+            modes.focus()
+            await pilot.press("right", "space")
+
+            quorum = app.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-quorum",
+                QuorumEditor,
+            )
+            assert quorum.display
+            quorum.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-quorum-count",
+                Input,
+            ).value = "5"
+            await pilot.pause()
+            quorum.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-quorum-threshold",
+                Input,
+            ).value = "3"
+            await pilot.pause()
+
+            assert app.replace_recovery_docs_state.recovery_threshold == 3
+            assert app.replace_recovery_docs_state.recovery_document_count == 5
+
+            modes.focus()
+            await pilot.press("left", "space")
+
+            assert app.replace_recovery_docs_state.recovery_threshold == 2
+            assert app.replace_recovery_docs_state.recovery_document_count == 3
+            assert not quorum.display
+
+    asyncio.run(run())
+
+
+def test_replacement_invalid_quorum_blocks_review_and_stays_visible_at_80x24() -> None:
+    async def run() -> None:
+        app = EthernityApp(
+            replace_recovery_docs_state=ReplaceRecoveryDocsTaskState(
+                source_paths=[Path("scan.pdf")],
+                allow_stale_head=True,
+                passphrase="secret",
+                output_dir=Path("replacement"),
+            )
+        )
+        async with run_app_test(app, size=(80, 24)) as pilot:
+            await pilot.press("5")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
+            await pilot.pause()
+
+            modes = app.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-mode-choices",
+                RadioSet,
+            )
+            modes.focus()
+            await pilot.press("right", "space")
+
+            quorum = app.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-quorum",
+                QuorumEditor,
+            )
+            threshold = quorum.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-quorum-threshold",
+                Input,
+            )
+            count = quorum.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-quorum-count",
+                Input,
+            )
+            notice = quorum.query_one(InlineNotice)
+            primary = app.query_one("#canvas-primary", Button)
+            action_bar = app.query_one("#task-action-bar")
+            ui_state = app.workflow_ui_states["replace_recovery_docs"]
+
+            threshold.focus()
+            threshold.value = ""
+            await wait_for_condition(
+                pilot,
+                lambda: ui_state.draft_values.get("recovery") == {"threshold": "", "count": "3"},
+                "quorum validation to update",
+            )
+
+            assert ui_state.has_invalid_draft("recovery")
+            assert ui_state.draft_values["recovery"] == {"threshold": "", "count": "3"}
+            assert "Enter both" in str(notice.content)
+            assert primary.disabled
+            assert app.replace_recovery_docs_state.recovery_threshold == 2
+            assert app.replace_recovery_docs_state.recovery_document_count == 3
+
+            threshold.value = "6"
+            await wait_for_condition(
+                pilot,
+                lambda: ui_state.draft_values.get("recovery") == {"threshold": "6", "count": "3"},
+                "quorum validation to update",
+            )
+
+            assert ui_state.draft_values["recovery"] == {"threshold": "6", "count": "3"}
+            assert "cannot exceed" in str(notice.content)
+            assert primary.disabled
+            assert app.replace_recovery_docs_state.recovery_threshold == 2
+            assert app.replace_recovery_docs_state.recovery_document_count == 3
+            assert threshold.region.bottom <= action_bar.region.y
+            assert notice.region.bottom <= action_bar.region.y
+
+            await app.action_primary()
+            await pilot.pause()
+
+            assert ui_state.active_step == "recovery"
+
+            count.value = "7"
+            await wait_for_condition(
+                pilot,
+                lambda: app.replace_recovery_docs_state.recovery_document_count == 7,
+                "valid quorum to reach task state",
+            )
+
+            assert not ui_state.has_invalid_draft("recovery")
+            assert not primary.disabled
+            assert app.replace_recovery_docs_state.recovery_threshold == 6
+            assert app.replace_recovery_docs_state.recovery_document_count == 7
+
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
+            await pilot.pause()
+
+            assert app.screen.query_one("#review-modal")
+            assert ui_state.active_step == "recovery"
+
+    asyncio.run(run())
+
+
+def test_existing_replacement_destination_blocks_review_and_focuses_output(tmp_path) -> None:
+    async def run() -> None:
+        output = tmp_path / "replacement"
+        output.mkdir()
+        state = ReplaceRecoveryDocsTaskState(
+            source_paths=[Path("scan.pdf")],
+            allow_stale_head=True,
+            passphrase="secret",
+            output_dir=output,
+        )
+        app = EthernityApp(replace_recovery_docs_state=state)
+        async with run_app_test(app, size=(120, 32)) as pilot:
+            await pilot.press("5")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
+            await pilot.pause()
+
+            assert not app.screen.query("#review-modal")
+            assert app.workflow_ui_states["replace_recovery_docs"].active_step == "output"
+            await app.action_primary()
+            await pilot.pause()
+            assert app.workflow_ui_states["replace_recovery_docs"].active_step == "output"
+            assert any(
+                "choose a new folder" in str(notice.content) for notice in app.query(InlineNotice)
+            )
+            issue = next(
+                issue for issue in state.validate_task().issues if issue.section == "output"
+            )
+            assert issue.code == "REPLACE_RECOVERY_OUTPUT_EXISTS"
+            assert output.is_dir()
+
+            app._apply_replace_recovery_output(str(output / "new-sheets"))
+            await pilot.pause()
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
+            await pilot.pause()
+
+            assert app.screen.query_one("#review-execute", Button).disabled is False
+            assert app.replace_recovery_docs_state.output_dir == output / "new-sheets"
+            assert not (output / "new-sheets").exists()
+
+    asyncio.run(run())
+
+
+def test_replacement_guided_inputs_use_workspace_traversal_and_keep_radio_arrows() -> None:
+    async def run() -> None:
+        app = EthernityApp(
+            replace_recovery_docs_state=ReplaceRecoveryDocsTaskState(
+                source_paths=[Path("scan.pdf")],
+                allow_stale_head=True,
+                passphrase="secret",
+                output_dir=Path("replacement"),
+            )
+        )
+        async with run_app_test(app, size=(100, 30)) as pilot:
+            await pilot.press("5")
+            await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
+            await pilot.pause()
+
+            modes = app.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-mode-choices",
+                RadioSet,
+            )
+            modes.focus()
+            await pilot.press("right")
+            assert app.screen.focused is modes
+
+            await pilot.press("space")
+            quorum = app.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-quorum",
+                QuorumEditor,
+            )
+            threshold = quorum.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-quorum-threshold",
+                Input,
+            )
+            count = quorum.query_one(
+                "#workflow-replace_recovery_docs-recovery-body-quorum-count",
+                Input,
+            )
+
+            threshold.focus()
+            await pilot.press("j")
+            assert app.screen.focused is count
+
+            await pilot.press("k")
+            assert app.screen.focused is threshold
+
+    asyncio.run(run())
+
+
+def test_replacement_quorum_domain_update_avoids_invalid_intermediate_state() -> None:
+    state = ReplaceRecoveryDocsTaskState(recovery_threshold=4, recovery_document_count=6)
+
+    state.set_recovery_quorum(2, 3)
+
+    assert state.recovery_threshold == 2
+    assert state.recovery_document_count == 3
+
+
+def _empty_summary() -> SummaryPresentation:
+    return SummaryPresentation(title="", items=(), blockers=(), warnings=())

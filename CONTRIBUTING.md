@@ -57,18 +57,38 @@ uv run ruff format --check src tests tooling
 uv run pylint src/ethernity tooling
 uv run pyrefly check
 uv run typos .
-uv run pytest tests/unit tests/integration -q
+uv run pytest tests/unit tests/ui tests/rendering tests/integration -q
 ```
 
 The full Python suite needs the generated kit bundles and installed npm dependencies from setup.
 The [CI workflow](.github/workflows/ci.yml) defines the platform matrix, coverage thresholds, E2E
 tests, packaging checks, and dependency audits. Local checks do not replace those gates.
-The full unit and integration suites run on macOS and Windows with Python 3.11, and on Linux
-with Python 3.13. The Linux run collects application and document-inspector coverage together,
+The full unit, UI, rendering and integration suites run on macOS and Windows with Python 3.11,
+and on Linux with Python 3.13. The Linux run collects application and document-inspector coverage together,
 then checks them separately against the 85% and 45% thresholds. Reporting does not rerun tests.
 Python lint, formatting, type checking, and spelling share one CI job with separate result steps.
 Each platform, E2E, and terminal snapshot run reports its 30 slowest tests and uploads JUnit
 timings for seven days. Failed terminal snapshots also upload their received SVGs.
+Job summaries group test time by subsystem and list the slowest cases. These totals include setup
+and teardown and are summed across workers, so they can exceed elapsed time. To read a downloaded
+JUnit report locally, run `uv run python scripts/summarize_test_timings.py <report-directory>`.
+
+Choose the smallest suite that exercises the change:
+
+| Directory | What it tests |
+| --- | --- |
+| `tests/unit` | Core rules, parsers, crypto and individual services |
+| `tests/ui/components` | Controls and dialogs using production styles |
+| `tests/ui/workflows` | Navigation, editing, review and execution wiring in the full app |
+| `tests/rendering` | PDF generation, layout, printed content and scan validation |
+| `tests/integration` | Backup/recovery workflows and Python/browser integration |
+| `tests/e2e` | Command-line round trips and frozen released-backup compatibility |
+| `tests/visual` | Terminal screenshots and responsive layout checks |
+
+Keep a control's behavior matrix in a small component app. Use `WidgetApp` from
+`tests/support/widgets.py` when it needs Ethernity's themes, styles and breakpoints. Full workflow
+tests should cover the control's connection to task state. Shared render cases must retain their
+content, geometry, decoding and appearance checks; tests that damage a PDF need private copies.
 
 Tests should fail when the behavior they protect breaks. Check output content, state changes,
 or failure handling; avoid tests that only construct a dataclass, repeat source code, or check
@@ -78,7 +98,7 @@ Released-backup fixtures must remain unchanged.
 For a quick check of native paths, file publication, worker limits, and UI event handling, run:
 
 ```sh
-uv run pytest tests/unit -m portability -q
+uv run pytest tests/unit tests/ui tests/rendering tests/integration -m portability -q
 ```
 
 CI runs this selection separately on Linux with Python 3.11 to check the minimum supported Python
@@ -90,6 +110,10 @@ UI tests use `run_app_test` from `tests/support/app.py`. It drains event chains,
 and animations, and finishes each key before sending the next. This avoids relying on CPU-idle
 timing, which differs between platforms. Tests for rapid input should send actions without an
 intervening pause, as the navigation regression does.
+`press()` already settles each key, so an immediate extra `pause()` is unnecessary. The helper
+waits for in-flight handlers and deferred layout callbacks, and interrupts its wait when the app
+fails. Resizing waits for the screen's resize handler, since the requested size changes before
+layout catches up. Do not replace these guarantees with fixed sleeps.
 
 For background workers and future timers, use the bounded waits in `tests/support/pilot.py`.
 Wait for the state change the test needs, such as a completed worker. Use the `set_home` fixture
@@ -159,13 +183,13 @@ For PDF layout changes, run:
 
 ```sh
 uv run python scripts/render_visual_baselines.py --output-dir ./tmp/render-review --rasterize never
-uv run pytest tests/unit/test_render_visual_baselines.py -n 2 -v
+uv run pytest tests/rendering/test_render_visual_baselines.py -n 2 -v
 ```
 
 Inspect the generated PDFs. For terminal layout changes, run `uv run pytest tests/visual -n 2 -v` and
 follow the [visual review workflow](tests/visual/README.md#review-workflow). Update visual baselines
 only after reviewing the intended change. The `render-visual` CI job checks the PDF review matrix
-and terminal snapshots against the reviewed baselines. PDF unit tests run in the platform suites;
+and terminal snapshots against the reviewed baselines. PDF rendering tests run in the platform suites;
 the Linux job installs Poppler so tests that scan composited PDF pages cannot skip for its absence.
 Python/browser interoperability tests also run in the platform suites. The `kit-verify` job runs
 the JavaScript tests and generated-bundle browser checks.

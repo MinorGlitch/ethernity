@@ -196,7 +196,7 @@ per-design builders, branches on design names, or another renderer alongside thi
 Run the template and output contracts:
 
 ```sh
-uv run pytest tests/unit/test_design_style.py tests/unit/test_template_engine.py tests/unit/test_render_output_validation.py
+uv run pytest tests/unit/test_design_style.py tests/rendering/test_template_engine.py tests/rendering/test_render_output_validation.py
 ```
 
 These cover all built-in document types, supported page geometries, maximum-size sheets, long
@@ -219,7 +219,7 @@ line boxes retained. Font files, license texts, and the pinned upstream source a
 allows the same visual references to run on macOS, Linux, and Windows.
 
 ```sh
-uv run pytest tests/unit/test_original_render_designs.py
+uv run pytest tests/rendering/test_original_render_designs.py
 ```
 
 Keep older backup-format fixtures and recovery tests intact. A renderer refactor is not a reason

@@ -165,10 +165,12 @@ iteration, then broader gates before handoff when risk is high.
 - Type check: `uv run pyrefly check`
 - Typos: `uv run typos .`
 - Unit tests: `uv run pytest tests/unit -v`
+- UI component and workflow tests: `uv run pytest tests/ui -v`
+- PDF rendering tests: `uv run pytest tests/rendering -v`
 - Integration tests: `uv run pytest tests/integration -v`
 - E2E tests: `uv run pytest tests/e2e -v`
 - Coverage gate:
-  `uv run pytest tests/unit tests/integration --cov=ethernity --cov-report=term-missing`
+  `uv run pytest tests/unit tests/ui tests/rendering tests/integration --cov=ethernity --cov-report=term-missing`
 - CLI help: `uv run ethernity --help` and `uv run ethernity run --help`
 - Kit lint: run `npm run lint` from `kit/`
 - Kit format check: run `npm run format:check` from `kit/`

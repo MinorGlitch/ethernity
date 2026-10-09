@@ -1,0 +1,637 @@
+from __future__ import annotations
+
+import asyncio
+import threading
+from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
+
+import pytest
+from textual.containers import VerticalScroll
+from textual.widgets import Button, Collapsible, OptionList, RichLog, Static
+from textual.worker import WorkerState
+
+from ethernity.app.application import EthernityApp
+from ethernity.app.execution import (
+    ReviewedTask,
+    execution_failure_section,
+    normalize_execution_outcome,
+)
+from ethernity.app.output_paths import common_output_folder, single_output_folder
+from ethernity.app.screens.task_result import TaskResultScreen
+from ethernity.app.widgets.settings_form import SettingsForm
+from ethernity.config import apply_config_patch, load_app_config
+from ethernity.config.paths import DEFAULT_CONFIG_PATH
+from ethernity.tasks.add_files import AddFilesTaskState
+from ethernity.tasks.backup import BackupTaskState
+from ethernity.tasks.models import TaskExecutionPlan, TaskExecutionResult
+from ethernity.tasks.presentation.registry import build_review_details
+from ethernity.tasks.rebuild import RebuildTaskState
+from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
+from ethernity.tasks.settings import SettingsTaskState
+from tests.support.app import run_app_test
+from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_widget
+
+
+def test_review_details_use_plain_security_and_policy_language() -> None:
+    plan = TaskExecutionPlan(summary="Review")
+
+    backup_details = {
+        detail.label: detail.value
+        for detail in build_review_details(
+            "backup",
+            BackupTaskState(input_paths=[Path("secret.txt")]),
+            plan,
+        )
+    }
+    assert backup_details["Signing key"] == "Encrypted in the backup documents"
+
+    default_details = {
+        detail.label: detail.value
+        for detail in build_review_details(
+            "add_files",
+            AddFilesTaskState(source_paths=[Path("backup")], input_paths=[Path("new.txt")]),
+            plan,
+        )
+    }
+    assert default_details["Recovery sheets"] == "No new recovery sheets"
+
+    recovery_details = {
+        detail.label: detail.value
+        for detail in build_review_details(
+            "add_files",
+            AddFilesTaskState(
+                source_paths=[Path("backup")],
+                input_paths=[Path("new.txt")],
+                create_recovery_sheets=True,
+                recovery_threshold=3,
+                recovery_sheet_count=5,
+            ),
+            plan,
+        )
+    }
+    assert recovery_details["Recovery sheets"] == ("5 new recovery sheets, 3 needed to restore")
+
+    rebuild_details = {
+        detail.label: detail.value
+        for detail in build_review_details(
+            "rebuild",
+            RebuildTaskState(backup_folder=Path("backup"), allow_stale_head=True),
+            plan,
+        )
+    }
+    assert rebuild_details["Source version"] == "Latest loaded version accepted"
+
+
+def _screen_text(app: EthernityApp) -> str:
+    lines = [str(widget.content) for widget in app.screen.query(Static)]
+    for log in app.screen.query(RichLog):
+        lines.extend(line.text for line in log.lines)
+    return "\n".join(lines)
+
+
+def test_reviewed_task_keeps_an_isolated_snapshot(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
+    state = BackupTaskState(
+        input_paths=[Path("secrets.txt")],
+        output_dir=Path("reviewed-output"),
+        config_path=config_path,
+    )
+
+    reviewed_task = ReviewedTask.capture("backup", state)
+    state.output_dir = Path("edited-output")
+    execution_state = cast(BackupTaskState, reviewed_task.execution_state())
+    execution_state.output_dir = Path("attempt-only-output")
+
+    assert cast(BackupTaskState, reviewed_task.state_snapshot).output_dir == Path("reviewed-output")
+    assert reviewed_task.plan.output_paths == (Path("reviewed-output/backup-<id>"),)
+    details = {detail.label: detail.value for detail in reviewed_task.review_details}
+    assert details["Files"] == "1 file"
+    assert details["Destination"] == str(Path("reviewed-output/backup-<id>").absolute())
+    assert cast(BackupTaskState, reviewed_task.execution_state()).output_dir == Path(
+        "reviewed-output"
+    )
+    assert reviewed_task.reviewed_config.contents == DEFAULT_CONFIG_PATH.read_bytes()
+
+
+def test_reviewed_task_rejects_a_missing_explicit_config(tmp_path: Path) -> None:
+    missing_config = tmp_path / "missing.toml"
+    state = BackupTaskState(
+        input_paths=[Path("secrets.txt")],
+        output_dir=Path("reviewed-output"),
+        config_path=missing_config,
+    )
+
+    with pytest.raises(FileNotFoundError, match="config file not found"):
+        ReviewedTask.capture("backup", state)
+
+
+def test_execution_outcomes_normalize_every_terminal_worker_state() -> None:
+    success = TaskExecutionResult(status="succeeded", message="Done.")
+    reported_failure = TaskExecutionResult(status="failed", message="Could not write.")
+
+    assert normalize_execution_outcome(WorkerState.SUCCESS, value=success).result is success
+    assert (
+        normalize_execution_outcome(WorkerState.SUCCESS, value=reported_failure).result
+        is reported_failure
+    )
+
+    wrong_type = normalize_execution_outcome(WorkerState.SUCCESS, value={"ok": True})
+    assert not wrong_type.result.ok
+    assert wrong_type.result.message == "Ethernity received an invalid task result."
+    assert wrong_type.error_detail == "Expected TaskExecutionResult, got dict."
+
+    exception = normalize_execution_outcome(
+        WorkerState.ERROR,
+        error=RuntimeError("Output is read-only."),
+        phase="write",
+    )
+    assert not exception.result.ok
+    assert exception.result.message == "The task failed."
+    assert exception.error_message == "Output is read-only."
+    assert exception.error_detail == "RuntimeError: Output is read-only."
+    assert execution_failure_section("backup", exception) == "output"
+
+    cancelled = normalize_execution_outcome(WorkerState.CANCELLED)
+    assert not cancelled.result.ok
+    assert not cancelled.allow_retry
+    assert "write thread has stopped" in (cancelled.error_detail or "")
+
+
+def test_review_preparation_is_visible_and_locks_the_workspace_at_80_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def prepare_review(self: AddFilesTaskState, *, force: bool = False) -> None:
+        del self, force
+        started.set()
+        release.wait(timeout=5)
+
+    monkeypatch.setattr(AddFilesTaskState, "prepare_review", prepare_review)
+
+    async def run() -> None:
+        app = EthernityApp(
+            add_files_state=AddFilesTaskState(
+                source_paths=[Path("backup")],
+                output_dir=Path("update-out"),
+                allow_stale_head=True,
+                input_paths=[Path("new.txt")],
+                passphrase="secret",
+            )
+        )
+        async with run_app_test(app, size=(80, 24)) as pilot:
+            await pilot.press("3")
+            review_task = asyncio.create_task(app.action_review())
+            try:
+                await wait_for_condition(pilot, started.is_set, "review preparation to start")
+                assert started.is_set()
+                assert str(app.query_one("#canvas-primary", Button).label) == "Preparing review..."
+                assert app.query_one("#canvas-primary", Button).disabled
+                assert app.query_one("#task-workspaces").disabled
+                assert str(app.query_one("#canvas-title", Static).content) == "Add files to backup"
+            finally:
+                release.set()
+            await review_task
+            await wait_for_widget(pilot, "#review-close")
+
+    asyncio.run(run())
+
+
+def test_background_write_identity_remains_visible_on_a_narrow_workflow() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with run_app_test(app, size=(80, 24)) as pilot:
+            app.execution_controller._running_task = "backup"
+            await pilot.press("2", "ctrl+p", "?")
+
+            assert str(app.query_one("#canvas-title", Static).content) == "Restore files"
+            action = app.query_one("#canvas-primary", Button)
+            assert str(action.label) == "Backup in progress"
+            assert action.disabled
+            assert action.region.width > 0
+            assert not app.query("#canvas-instruction")
+
+    asyncio.run(run())
+
+
+def test_background_write_identity_remains_visible_on_settings() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with run_app_test(app, size=(80, 24)) as pilot:
+            app.execution_controller._running_task = "backup"
+            await pilot.press("7")
+
+            assert app.query_one("#task-action-bar").display
+            assert str(app.query_one("#canvas-primary", Button).label) == "Backup in progress"
+
+    asyncio.run(run())
+
+
+def test_failure_result_prioritizes_remediation_and_reviewed_destination(tmp_path: Path) -> None:
+    async def run() -> None:
+        destination = tmp_path / "restored"
+        partial = destination / "partial.txt"
+        screen = TaskResultScreen(
+            task="restore",
+            title="Restore files",
+            result=TaskExecutionResult(
+                status="failed",
+                message="Could not write restored files.",
+                output_paths=(partial,),
+            ),
+            reviewed_plan=TaskExecutionPlan(
+                summary="Restore files",
+                output_paths=(destination,),
+            ),
+            return_section="output",
+        )
+        app = EthernityApp()
+        async with run_app_test(app, size=(120, 32)) as pilot:
+            await app.push_screen(screen)
+            await pilot.pause()
+
+            remediation = screen.query_one("#result-remediation")
+            actions = screen.query_one("#result-context-actions")
+            output = screen.query_one("#result-output")
+            assert remediation.region.y < actions.region.y < output.region.y
+            assert str(screen.query_one("#result-reviewed-destination", Static).content).endswith(
+                str(Path("/") / "restored")
+            )
+            assert str(screen.query_one("#result-return", Button).label) == ("Edit destination")
+
+    asyncio.run(run())
+
+
+def test_progress_locks_navigation_and_failure_returns_to_live_workflow(monkeypatch) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    calls: list[BackupTaskState] = []
+    exit_calls: list[None] = []
+
+    def fake_execute(self: BackupTaskState) -> TaskExecutionResult:
+        calls.append(self.model_copy(deep=True))
+        started.set()
+        release.wait(timeout=5)
+        return TaskExecutionResult(status="failed", message="First attempt was rejected.")
+
+    def fake_exit(self: EthernityApp, *args: object, **kwargs: object) -> None:
+        exit_calls.append(None)
+
+    monkeypatch.setattr(BackupTaskState, "execute", fake_execute)
+    monkeypatch.setattr(EthernityApp, "exit", fake_exit)
+
+    async def run() -> None:
+        app = EthernityApp(
+            backup_state=BackupTaskState(
+                input_paths=[Path("secrets.txt")],
+                output_dir=Path("reviewed-output"),
+            )
+        )
+        async with run_app_test(app, size=(120, 32)) as pilot:
+            await pilot.press("ctrl+r")
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_condition(pilot, started.is_set, "worker to start")
+            assert started.is_set()
+
+            await pilot.press("2", "ctrl+p", "?")
+            app.backup_state.input_paths = []
+            app.backup_state.output_dir = Path("edited-while-running")
+
+            assert app.active_task == "backup"
+            assert app.screen.query_one("#progress-modal").display
+
+            await pilot.press("q")
+            assert exit_calls == []
+            assert app.running_task == "backup"
+
+            release.set()
+            await wait_for_widget(pilot, "#result-close")
+            assert app.running_task is None
+            failure_text = _screen_text(app)
+            assert "First attempt was rejected." in failure_text
+            assert "Choose at least one file or folder" not in failure_text
+
+            await click_when_ready(pilot, "#result-return")
+            await pilot.pause()
+
+            assert app.active_task == "backup"
+            assert not list(app.query("#review-modal"))
+            assert len(calls) == 1
+            assert app.backup_state.input_paths == []
+            assert app.backup_state.output_dir == Path("edited-while-running")
+
+    asyncio.run(run())
+
+
+def test_wrong_worker_result_is_presented_and_clears_running_state(monkeypatch) -> None:
+    def fake_execute(self: BackupTaskState) -> object:
+        return {"ok": True}
+
+    monkeypatch.setattr(BackupTaskState, "execute", fake_execute)
+
+    async def run() -> None:
+        app = EthernityApp(
+            backup_state=BackupTaskState(
+                input_paths=[Path("secrets.txt")],
+                output_dir=Path("backup-out"),
+            )
+        )
+        async with run_app_test(app, size=(100, 28)) as pilot:
+            await pilot.press("ctrl+r")
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_widget(pilot, "#result-close")
+
+            assert app.running_task is None
+            assert not list(app.query("#canvas-loading"))
+            assert "Ethernity received an invalid task result." in _screen_text(app)
+            app.screen.query_one("#result-details-panel", Collapsible).collapsed = False
+            await wait_for_condition(
+                pilot,
+                lambda: "Expected TaskExecutionResult, got dict." in _screen_text(app),
+                "expanded error log to render",
+            )
+            assert "Expected TaskExecutionResult, got dict." in _screen_text(app)
+            assert app.screen.query_one("#result-return", Button)
+
+    asyncio.run(run())
+
+
+def test_return_and_new_review_capture_current_config_contents(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
+    apply_config_patch(config_path, {"values": {"qr": {"chunk_size": 640}}})
+    settings = SettingsTaskState.from_current(config_path)
+    started = threading.Event()
+    allow_config_read = threading.Event()
+    observed_chunk_sizes: list[int] = []
+
+    def fake_execute(self: BackupTaskState) -> TaskExecutionResult:
+        if not observed_chunk_sizes:
+            started.set()
+            allow_config_read.wait(timeout=5)
+        observed_chunk_sizes.append(load_app_config(self.config_path).qr_chunk_size)
+        if len(observed_chunk_sizes) == 1:
+            return TaskExecutionResult(status="failed", message="Retry with the reviewed settings.")
+        return TaskExecutionResult(status="succeeded", message="Reviewed settings preserved.")
+
+    monkeypatch.setattr(BackupTaskState, "execute", fake_execute)
+
+    async def run() -> None:
+        app = EthernityApp(
+            backup_state=BackupTaskState(
+                input_paths=[Path("secrets.txt")],
+                output_dir=Path("backup-out"),
+            ),
+            settings_state=settings,
+        )
+        async with run_app_test(app, size=(120, 32)) as pilot:
+            await pilot.press("ctrl+r")
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_condition(pilot, started.is_set, "worker to start")
+            assert started.is_set()
+
+            apply_config_patch(config_path, {"values": {"qr": {"chunk_size": 1024}}})
+            allow_config_read.set()
+            await wait_for_widget(pilot, "#result-close")
+            await pilot.pause()
+
+            apply_config_patch(config_path, {"values": {"qr": {"chunk_size": 2048}}})
+            await click_when_ready(pilot, "#result-return")
+            await pilot.press("ctrl+r")
+            await wait_for_widget(pilot, "#review-close")
+            await pilot.pause()
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_condition(
+                pilot, lambda: len(observed_chunk_sizes) == 2, "second execution to read its config"
+            )
+            assert len(observed_chunk_sizes) == 2, (
+                app.running_task,
+                type(app.screen).__name__,
+            )
+            await wait_for_widget(pilot, "#result-close")
+
+            assert observed_chunk_sizes == [640, 2048]
+            assert load_app_config(config_path).qr_chunk_size == 2048
+            assert "Reviewed settings preserved" in _screen_text(app)
+
+    asyncio.run(run())
+
+
+def test_settings_persistence_is_locked_while_a_write_is_running(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
+    settings = SettingsTaskState.from_current(config_path)
+    original_chunk_size = load_app_config(config_path).qr_chunk_size
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_execute(self: BackupTaskState) -> TaskExecutionResult:
+        started.set()
+        release.wait(timeout=5)
+        return TaskExecutionResult(status="succeeded", message="Write complete.")
+
+    monkeypatch.setattr(BackupTaskState, "execute", fake_execute)
+
+    async def run() -> None:
+        app = EthernityApp(
+            backup_state=BackupTaskState(
+                input_paths=[Path("secrets.txt")],
+                output_dir=Path("backup-out"),
+            ),
+            settings_state=settings,
+        )
+        async with run_app_test(app, size=(120, 32)) as pilot:
+            await app.action_show_task("settings")
+            settings_form = app.query_one(SettingsForm)
+            await app.action_show_task("backup")
+            await pilot.press("ctrl+r")
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_condition(pilot, started.is_set, "worker to start")
+            assert started.is_set()
+
+            await pilot.press("7")
+            assert settings_form.disabled
+            assert app.screen.query_one("#progress-modal").display
+            assert not app.settings_controller.apply_text("qr_chunk_size", "2048")
+
+            assert load_app_config(config_path).qr_chunk_size == original_chunk_size
+            assert app.settings_state.setting_value("qr_chunk_size") == original_chunk_size
+            assert app.settings_state.save_status == "Locked while task runs"
+
+            release.set()
+            await wait_for_widget(pilot, "#result-close")
+            assert not settings_form.disabled
+
+    asyncio.run(run())
+
+
+def test_cancelled_worker_keeps_write_lock_until_thread_returns(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
+    settings = SettingsTaskState.from_current(config_path)
+    started = threading.Event()
+    release = threading.Event()
+    physically_finished = threading.Event()
+    execution_calls: list[None] = []
+    exit_calls: list[None] = []
+
+    def fake_execute(self: BackupTaskState) -> TaskExecutionResult:
+        execution_calls.append(None)
+        started.set()
+        release.wait(timeout=5)
+        physically_finished.set()
+        return TaskExecutionResult(status="succeeded", message="Ignored after cancellation.")
+
+    def fake_exit(self: EthernityApp, *args: object, **kwargs: object) -> None:
+        exit_calls.append(None)
+
+    monkeypatch.setattr(BackupTaskState, "execute", fake_execute)
+    monkeypatch.setattr(EthernityApp, "exit", fake_exit)
+
+    async def run() -> None:
+        app = EthernityApp(
+            backup_state=BackupTaskState(
+                input_paths=[Path("secrets.txt")],
+                output_dir=Path("backup-out"),
+            ),
+            settings_state=settings,
+        )
+        async with run_app_test(app, size=(120, 32)) as pilot:
+            await pilot.press("ctrl+r")
+            await click_when_ready(pilot, "#review-execute")
+            await wait_for_condition(pilot, started.is_set, "worker to start")
+            assert started.is_set()
+            worker = app.execution_controller.running_worker
+            assert worker is not None
+
+            worker.cancel()
+            await wait_for_condition(
+                pilot, lambda: worker.state == WorkerState.CANCELLED, "worker cancellation"
+            )
+
+            assert worker.state == WorkerState.CANCELLED
+            assert app.running_task == "backup"
+            assert app.execution_controller.running_worker is worker
+            assert not physically_finished.is_set()
+            assert not list(app.screen.query("#result-modal"))
+
+            await pilot.press("q")
+            assert exit_calls == []
+
+            retry_task = ReviewedTask.capture("backup", app.backup_state)
+            app.execution_controller.start(retry_task)
+            await pilot.pause()
+            assert execution_calls == [None]
+            assert app.execution_controller.running_worker is worker
+
+            release.set()
+            await wait_for_widget(pilot, "#result-close")
+
+            assert physically_finished.is_set()
+            assert app.running_task is None
+            assert app.execution_controller.running_worker is None
+            assert "The write was cancelled before completion." in _screen_text(app)
+            assert not list(app.screen.query("#result-return"))
+
+    asyncio.run(run())
+
+
+def test_large_result_paths_scroll_while_actions_stay_visible() -> None:
+    output_paths = tuple(Path("output") / f"document-{index:03}.pdf" for index in range(50))
+
+    async def run(size: tuple[int, int]) -> None:
+        app = EthernityApp()
+        async with run_app_test(app, size=size) as pilot:
+            app.push_screen(
+                TaskResultScreen(
+                    task="backup",
+                    title="Create backup",
+                    result=TaskExecutionResult(
+                        status="succeeded",
+                        message="Backup complete.",
+                        output_paths=output_paths,
+                    ),
+                )
+            )
+            await pilot.pause()
+
+            modal = app.screen.query_one("#result-modal")
+            body = app.screen.query_one("#result-body", VerticalScroll)
+            actions = app.screen.query_one("#result-actions")
+            paths = app.screen.query_one("#result-output-paths", OptionList)
+
+            assert paths.option_count == len(output_paths)
+            assert paths.max_scroll_y > 0
+            paths.focus()
+            await pilot.press("end")
+            assert paths.highlighted == len(output_paths) - 1
+            assert paths.scroll_offset.y > 0
+            assert body.region.bottom <= actions.region.y
+            assert actions.region.bottom <= modal.region.bottom
+            assert app.screen.query_one("#result-close", Button).region.bottom <= app.size.height
+
+    asyncio.run(run((80, 24)))
+    asyncio.run(run((60, 20)))
+
+
+def test_replacement_result_reports_only_files_in_the_output_folder(monkeypatch) -> None:
+    def fake_execute_replacement_recovery(request: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            shard_paths=(
+                Path("replacement-docs/passphrase-1.pdf"),
+                Path("replacement-docs/passphrase-2.pdf"),
+            ),
+            signing_key_shard_paths=(Path("replacement-docs/signing-key-1.pdf"),),
+        )
+
+    monkeypatch.setattr(
+        "ethernity.tasks.replace_recovery_docs.execute_replacement_recovery",
+        fake_execute_replacement_recovery,
+    )
+    state = ReplaceRecoveryDocsTaskState(
+        source_paths=[Path("scan.pdf")],
+        passphrase="secret",
+        allow_stale_head=True,
+        output_dir=Path("replacement-docs"),
+        create_signing_key_recovery=True,
+    )
+
+    result = state.execute()
+
+    assert result.output_paths == (
+        Path("replacement-docs/passphrase-1.pdf"),
+        Path("replacement-docs/passphrase-2.pdf"),
+        Path("replacement-docs/signing-key-1.pdf"),
+    )
+    assert single_output_folder(result.output_paths) == Path("replacement-docs")
+
+    screen = TaskResultScreen(
+        task="replace_recovery_docs",
+        title="Create replacement sheets",
+        result=result,
+    )
+    assert screen._open_folder_path() == Path("replacement-docs")
+    assert screen._destination_summary() == "replacement-docs"
+
+
+def test_output_paths_report_the_nearest_meaningful_common_folder() -> None:
+    paths = (
+        Path("/archive/restored/photos/family.jpg"),
+        Path("/archive/restored/records/birth-certificate.pdf"),
+    )
+
+    assert single_output_folder(paths) == Path("/archive/restored")
+    assert common_output_folder(paths) == str(Path("/archive/restored"))
+    assert single_output_folder((Path("/one/file.pdf"), Path("/two/file.pdf"))) is None
