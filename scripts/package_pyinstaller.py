@@ -23,6 +23,8 @@ import zipfile
 from pathlib import Path
 from typing import Final
 
+from tooling.release.inventory import TARGETS
+
 PACKAGER_EXPECTED: Final = "pyinstaller"
 PACKAGE_MODE_EXPECTED: Final = "onedir"
 DIST_DIR: Final = Path("dist")
@@ -86,7 +88,17 @@ def _ensure_dist_layout() -> None:
 
 
 def _archive_root_name(release_tag: str, target_os: str, target_arch: str) -> str:
-    return f"ethernity-{release_tag}-{target_os}-{target_arch}"
+    target = next(
+        (
+            target
+            for target in TARGETS
+            if (target.target_os, target.target_arch) == (target_os, target_arch)
+        ),
+        None,
+    )
+    if target is None:
+        raise ValueError(f"unsupported release target: {target_os}/{target_arch}")
+    return target.stem(release_tag)
 
 
 def _create_zip(output: Path, archive_root: str) -> None:
@@ -136,7 +148,7 @@ def main() -> None:
 
     _ensure_dist_layout()
     archive_root = _archive_root_name(release_tag, target_os, target_arch)
-    base_name = f"ethernity-{release_tag}-{target_os}-{target_arch}"
+    base_name = archive_root
     if target_os == "windows":
         output = Path(f"{base_name}.zip")
         _create_zip(output, archive_root)

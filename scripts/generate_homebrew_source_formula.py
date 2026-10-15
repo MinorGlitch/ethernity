@@ -445,6 +445,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--template", required=True, help="Path to formula template file.")
     parser.add_argument("--output", required=True, help="Output formula file path.")
     parser.add_argument("--lock", default="uv.lock", help="Path to uv.lock dependency lockfile.")
+    parser.add_argument("--source-archive", type=Path, help="Hash a local CI source archive.")
     return parser.parse_args()
 
 
@@ -457,7 +458,11 @@ def main() -> int:
     source_url = (
         f"https://github.com/{args.repo}/releases/download/{tag}/ethernity-source-{tag}.tar.gz"
     )
-    source_sha = _sha256_from_url(source_url)
+    if args.source_archive:
+        with args.source_archive.open("rb") as stream:
+            source_sha = hashlib.file_digest(stream, "sha256").hexdigest()
+    else:
+        source_sha = _sha256_from_url(source_url)
 
     template = template_path.read_text(encoding="utf-8")
     rendered = _render_formula(template, source_url, source_sha)
