@@ -378,7 +378,10 @@ dependencies = [
 
 [package.optional-dependencies]
 build = [
+    { name = "packaging" },
     { name = "pyinstaller" },
+    { name = "setuptools" },
+    { name = "wheel" },
 ]
 dev = [
     { name = "coverage" },
@@ -419,6 +422,7 @@ requires-dist = [
     { name = "fpdf2", specifier = ">=2.8.7" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.151.9" },
     { name = "markdown-it-py", specifier = ">=4.0.0,<5.0.0" },
+    { name = "packaging", marker = "extra == 'build'", specifier = ">=25" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.10.0" },
     { name = "platformdirs", specifier = ">=4.10.0" },
@@ -438,9 +442,11 @@ requires-dist = [
     { name = "rich", specifier = ">=15.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.2" },
     { name = "segno", specifier = ">=1.6.6" },
+    { name = "setuptools", marker = "extra == 'build'", specifier = ">=68" },
     { name = "textual", specifier = ">=8.2.8,<9.0.0" },
     { name = "tkinterdnd2", marker = "extra == 'dev'", specifier = ">=0.4.3" },
     { name = "typos", marker = "extra == 'dev'", specifier = ">=1.44.0" },
+    { name = "wheel", marker = "extra == 'build'" },
     { name = "zxing-cpp", specifier = "==3.1.0" },
 ]
 provides-extras = ["build", "dev"]
@@ -1713,6 +1719,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ed/54/809199edc537dbace273495ac0884d13df26436e910a5ed4d0ec0a69806b/virtualenv-20.39.0.tar.gz", hash = "sha256:a15f0cebd00d50074fd336a169d53422436a12dfe15149efec7072cfe817df8b", size = 5869141, upload-time = "2026-02-23T18:09:13.349Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f7/b4/8268da45f26f4fe84f6eae80a6ca1485ffb490a926afecff75fc48f61979/virtualenv-20.39.0-py3-none-any.whl", hash = "sha256:44888bba3775990a152ea1f73f8e5f566d49f11bbd1de61d426fd7732770043e", size = 5839121, upload-time = "2026-02-23T18:09:11.173Z" },
+]
+
+[[package]]
+name = "wheel"
+version = "0.48.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d0/20/50ed6bdf27dec98b568a8ae25dc599f35baa3d9709f9e83fd1edb56b9a90/wheel-0.48.0.tar.gz", hash = "sha256:94800765601e9171bf5d58d066e640662842bcedcbab982b2c90787a2c987322", size = 66471, upload-time = "2026-08-11T22:02:27.327Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2e/29/69cfbb602cd91690c55d38ba9fe53e6a7e76a6fa647bf38f19c138d25449/wheel-0.48.0-py3-none-any.whl", hash = "sha256:3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab", size = 33320, upload-time = "2026-08-11T22:02:26.1Z" },
 ]
 
 [[package]]

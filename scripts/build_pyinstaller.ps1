@@ -35,9 +35,9 @@ finally {
     Pop-Location
 }
 
-uv sync --extra build --frozen
+uv sync --extra build --locked
 if ($LASTEXITCODE -ne 0) { throw "Build dependency installation failed" }
-uv run python -m tooling.release_resources --kit-directory $KitResourceDir
+uv run --locked python -m tooling.release_resources --kit-directory $KitResourceDir
 if ($LASTEXITCODE -ne 0) { throw "Recovery-kit bundle verification failed" }
-uv run pyinstaller --clean --noconfirm ethernity.spec
+uv run --locked pyinstaller --clean --noconfirm ethernity.spec
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
