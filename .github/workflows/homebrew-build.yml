@@ -93,6 +93,13 @@ jobs:
             mkdir -p "$(dirname "$cached_source")"
             cp "${source_files[0]}" "$cached_source"
           fi
+          # Hosted runners also contain python.org installations. Give the formula's
+          # Homebrew Python ownership of its links on these disposable build machines.
+          python_formula="$(brew deps --direct "$formula_ref" | sed -n '/^python@/p')"
+          [[ -n "$python_formula" && "$python_formula" != *$'\n'* ]]
+          brew install --overwrite "$python_formula"
+          brew link --overwrite "$python_formula"
+          "$(brew --prefix "$python_formula")/bin/${python_formula/@/}" -m pip --version
           brew uninstall --ignore-dependencies "${formula_ref}" || true
           brew install --build-bottle "${formula_ref}"
           brew test "${formula_ref}"

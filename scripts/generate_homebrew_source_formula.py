@@ -26,6 +26,15 @@ import urllib.request
 from pathlib import Path
 
 _ROOT_LOCK_PACKAGE_NAME = "ethernity-paper"
+_HOMEBREW_PYTHON_MINOR = 13
+_HOMEBREW_PYTHON_TAG = f"cp3{_HOMEBREW_PYTHON_MINOR}"
+# The formula uses ordinary CPython, not a free-threaded or debug interpreter.
+_HOMEBREW_WHEEL_PYTHON_ABIS = (
+    {(_HOMEBREW_PYTHON_TAG, _HOMEBREW_PYTHON_TAG), (_HOMEBREW_PYTHON_TAG, "none")}
+    | {(f"cp3{minor}", "abi3") for minor in range(2, _HOMEBREW_PYTHON_MINOR + 1)}
+    | {(f"py3{minor}", "none") for minor in range(_HOMEBREW_PYTHON_MINOR + 1)}
+    | {("py3", "none")}
+)
 _VERSION_MARKER_NAMES = frozenset(
     {"python_full_version", "python_version", "implementation_version"}
 )
@@ -37,8 +46,8 @@ _HOMEBREW_MARKER_ENVIRONMENTS = (
         "platform_machine": "arm64",
         "platform_python_implementation": "CPython",
         "implementation_name": "cpython",
-        "python_full_version": "3.13.0",
-        "python_version": "3.13",
+        "python_full_version": f"3.{_HOMEBREW_PYTHON_MINOR}.0",
+        "python_version": f"3.{_HOMEBREW_PYTHON_MINOR}",
     },
     {
         "sys_platform": "darwin",
@@ -47,8 +56,8 @@ _HOMEBREW_MARKER_ENVIRONMENTS = (
         "platform_machine": "x86_64",
         "platform_python_implementation": "CPython",
         "implementation_name": "cpython",
-        "python_full_version": "3.13.0",
-        "python_version": "3.13",
+        "python_full_version": f"3.{_HOMEBREW_PYTHON_MINOR}.0",
+        "python_version": f"3.{_HOMEBREW_PYTHON_MINOR}",
     },
     {
         "sys_platform": "linux",
@@ -57,8 +66,8 @@ _HOMEBREW_MARKER_ENVIRONMENTS = (
         "platform_machine": "x86_64",
         "platform_python_implementation": "CPython",
         "implementation_name": "cpython",
-        "python_full_version": "3.13.0",
-        "python_version": "3.13",
+        "python_full_version": f"3.{_HOMEBREW_PYTHON_MINOR}.0",
+        "python_version": f"3.{_HOMEBREW_PYTHON_MINOR}",
     },
     {
         "sys_platform": "linux",
@@ -67,8 +76,8 @@ _HOMEBREW_MARKER_ENVIRONMENTS = (
         "platform_machine": "aarch64",
         "platform_python_implementation": "CPython",
         "implementation_name": "cpython",
-        "python_full_version": "3.13.0",
-        "python_version": "3.13",
+        "python_full_version": f"3.{_HOMEBREW_PYTHON_MINOR}.0",
+        "python_version": f"3.{_HOMEBREW_PYTHON_MINOR}",
     },
 )
 
@@ -135,6 +144,15 @@ def _wheel_filename(wheel: dict[str, object]) -> str:
     return url.rsplit("/", 1)[-1]
 
 
+def _supports_homebrew_python(filename: str) -> bool:
+    _, python_tags, abi_tags, _ = filename.removesuffix(".whl").rsplit("-", 3)
+    return any(
+        (python_tag, abi_tag) in _HOMEBREW_WHEEL_PYTHON_ABIS
+        for python_tag in python_tags.split(".")
+        for abi_tag in abi_tags.split(".")
+    )
+
+
 def _choose_wheel(package: dict[str, object], predicate: str) -> dict[str, object] | None:
     wheels = package.get("wheels", [])
     if not isinstance(wheels, list):
@@ -144,11 +162,16 @@ def _choose_wheel(package: dict[str, object], predicate: str) -> dict[str, objec
         if not isinstance(wheel, dict):
             continue
         filename = _wheel_filename(wheel)
-        if re.search(predicate, filename):
+        if re.search(predicate, filename) and _supports_homebrew_python(filename):
             matches.append(wheel)
     if not matches:
         return None
-    matches.sort(key=lambda wheel: ("cp313" not in _wheel_filename(wheel), _wheel_filename(wheel)))
+    matches.sort(
+        key=lambda wheel: (
+            _HOMEBREW_PYTHON_TAG not in _wheel_filename(wheel),
+            _wheel_filename(wheel),
+        )
+    )
     return matches[0]
 
 

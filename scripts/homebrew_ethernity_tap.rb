@@ -9,7 +9,6 @@ class Ethernity < Formula
 
   depends_on "pkgconf" => :build
   depends_on "rust" => :build
-  depends_on "pillow"
   depends_on "python@3.13"
 
   resource "cbor2" do
@@ -50,6 +49,28 @@ class Ethernity < Formula
   resource "mdurl" do
     url "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl"
     sha256 "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8"
+  end
+
+  if OS.mac? && Hardware::CPU.arm?
+    resource "pillow" do
+      url "https://files.pythonhosted.org/packages/10/76/8803c13605b763d33d156c4678fc77f8443389c0c51c8aef707bb02015f4/pillow-12.3.0-cp313-cp313-macosx_11_0_arm64.whl"
+      sha256 "d69141514cc30b774ceea5e3ed3a6635c8d8a96edf664689b890f4089111fb35"
+    end
+  elsif OS.mac?
+    resource "pillow" do
+      url "https://files.pythonhosted.org/packages/42/92/2fc3ffad878ae8dd5469ec1bc8eb83b71f48e13efdf68f02709003982a32/pillow-12.3.0-cp313-cp313-macosx_10_13_x86_64.whl"
+      sha256 "7a743ff716f746fc19a9557f60dab1600d4613255f8a7aeb3cdde4db7eb15a66"
+    end
+  elsif Hardware::CPU.arm?
+    resource "pillow" do
+      url "https://files.pythonhosted.org/packages/1f/01/e18aff37cb0b4aac47ac90f016d347a49aca667ef97f190b06ac2aabc928/pillow-12.3.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl"
+      sha256 "f7401aebd7f581d7f83a439d87d474999317ee099218e5ad25d125290990ba65"
+    end
+  else
+    resource "pillow" do
+      url "https://files.pythonhosted.org/packages/f7/62/de5bdd77d935331f4f802edc11e4d82950f642caad6cb2f949837b8560e2/pillow-12.3.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+      sha256 "0847a763afefb695bc912d7c131e7e0632d4edc1d8698f58ddabec8e46b8b6d3"
+    end
   end
 
   resource "platformdirs" do
