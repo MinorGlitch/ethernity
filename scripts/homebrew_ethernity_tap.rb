@@ -196,12 +196,9 @@ class Ethernity < Formula
     end
 
     venv.pip_install_and_link buildpath
-    smoke_root = "tests/fixtures/v1_2/extension_golden/base64/gzip_replacement_chain/chain/" \
-      "qr_document.pdf"
-    smoke_extension = Dir[
-      "tests/fixtures/v1_2/extension_golden/base64/gzip_replacement_chain/chain/" \
-        "extensions/01/qr_document-01-*.pdf"
-    ].first
+    smoke_dir = buildpath/"tests/fixtures/v1_2/extension_golden/base64/gzip_replacement_chain/chain"
+    smoke_root = smoke_dir/"qr_document.pdf"
+    smoke_extension = Dir[smoke_dir/"extensions/01/qr_document-01-*.pdf"].first
     odie "missing extension smoke fixture" if smoke_extension.nil?
     pkgshare.install smoke_root => "smoke/extension-root.pdf"
     pkgshare.install smoke_extension => "smoke/extension-01.pdf"
