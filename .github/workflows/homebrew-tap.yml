@@ -32,6 +32,8 @@ jobs:
       formula_artifact: ${{ steps.meta.outputs.formula_artifact }}
       publication_artifact: ${{ steps.meta.outputs.publication_artifact }}
       expected_tap_base: ${{ steps.tap-base.outputs.expected_tap_base }}
+      reuse: ${{ steps.tap-base.outputs.reuse }}
+      source_sha: ${{ steps.source.outputs.commit }}
     steps:
       - name: Resolve and validate release metadata
         id: meta
@@ -104,6 +106,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout selected release tag
+        id: source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ steps.meta.outputs.tag }}
@@ -129,22 +132,28 @@ jobs:
               raise SystemExit(f"release tag {tag!r} does not match project version {version!r}")
           PY
 
-      - name: Capture expected tap base
+      - name: Inspect prior publication and capture current tap base
         id: tap-base
-        shell: bash
+        working-directory: workflow-tools
         env:
+          GH_TOKEN: ${{ github.token }}
           TAP_REPO: ${{ steps.meta.outputs.tap_repo }}
-        run: |
-          set -euo pipefail
-          remote_ref="$(git ls-remote "https://github.com/${TAP_REPO}.git" refs/heads/master)"
-          expected_base="${remote_ref%%[[:space:]]*}"
-          if [[ ! "${expected_base}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "could not resolve tap master commit for ${TAP_REPO}" >&2
-            exit 1
-          fi
-          echo "expected_tap_base=${expected_base}" >> "${GITHUB_OUTPUT}"
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          SOURCE_SHA: ${{ steps.source.outputs.commit }}
+          PUBLICATION_DIR: ${{ runner.temp }}/homebrew-publication
+        run: python3 -m tooling.release.homebrew prepare
+
+      - name: Preserve validated publication for retries
+        if: steps.tap-base.outputs.reuse == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.meta.outputs.publication_artifact }}
+          path: ${{ runner.temp }}/homebrew-publication
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Generate staged formula from tag-bound inputs
+        if: steps.tap-base.outputs.reuse != 'true'
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.meta.outputs.tag }}
@@ -162,99 +171,32 @@ jobs:
           cp workflow-tools/scripts/update_homebrew_bottle_block.py "${STAGE_DIR}/tooling/"
 
       - name: Upload staged formula
+        if: steps.tap-base.outputs.reuse != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.meta.outputs.formula_artifact }}
           path: ${{ runner.temp }}/homebrew-stage
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 30
 
   validate-and-build:
+    if: needs.prepare.outputs.reuse != 'true'
     needs: prepare
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15-intel
-            id: macos-15-intel
-          - runner: macos-14
-            id: macos-14
-          - runner: ubuntu-24.04
-            id: ubuntu-24.04
-    steps:
-      - name: Download exact staged formula
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.prepare.outputs.formula_artifact }}
-          path: ${{ runner.temp }}/homebrew-stage
-
-      - name: Configure Homebrew (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "/home/linuxbrew/.linuxbrew/bin" >> "${GITHUB_PATH}"
-          echo "/home/linuxbrew/.linuxbrew/sbin" >> "${GITHUB_PATH}"
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          brew --version
-
-      - name: Create local read-only tap
-        shell: bash
-        env:
-          STAGE_DIR: ${{ runner.temp }}/homebrew-stage
-          LOCAL_TAP: ${{ runner.temp }}/local-tap
-          TAP_NAME: ${{ needs.prepare.outputs.tap_name }}
-        run: |
-          set -euo pipefail
-          mkdir -p "${LOCAL_TAP}/Formula"
-          cp "${STAGE_DIR}/Formula/ethernity.rb" "${LOCAL_TAP}/Formula/ethernity.rb"
-          git -C "${LOCAL_TAP}" init --initial-branch=master
-          git -C "${LOCAL_TAP}" add Formula/ethernity.rb
-          git -C "${LOCAL_TAP}" \
-            -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
-            commit -m "staged formula"
-          brew untap "${TAP_NAME}" || true
-          brew tap "${TAP_NAME}" "file://${LOCAL_TAP}"
-
-      - name: Install, test, and build bottle from staged formula
-        shell: bash
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
-          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
-          TAP_NAME: ${{ needs.prepare.outputs.tap_name }}
-          BOTTLE_DIR: ${{ runner.temp }}/bottles
-        run: |
-          set -euo pipefail
-          formula_ref="${TAP_NAME}/ethernity"
-          brew style "${formula_ref}"
-          brew audit --strict "${formula_ref}"
-          brew uninstall --ignore-dependencies "${formula_ref}" || true
-          brew install --build-bottle "${formula_ref}"
-          brew test "${formula_ref}"
-          mkdir -p "${BOTTLE_DIR}"
-          cd "${BOTTLE_DIR}"
-          brew bottle --json --no-rebuild "${formula_ref}"
-          compgen -G 'ethernity--*.bottle.tar.gz' >/dev/null
-          compgen -G 'ethernity--*.bottle.json' >/dev/null
-
-      - name: Upload validated bottle files
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: bottles-${{ matrix.id }}
-          path: |
-            ${{ runner.temp }}/bottles/ethernity--*.bottle.tar.gz
-            ${{ runner.temp }}/bottles/ethernity--*.bottle.json
-          if-no-files-found: error
-          retention-days: 3
+    uses: ./.github/workflows/homebrew-build.yml
+    with:
+      formula_artifact: ${{ needs.prepare.outputs.formula_artifact }}
+      tap_name: ${{ needs.prepare.outputs.tap_name }}
 
   assemble-publication:
     needs: [prepare, validate-and-build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: master
+          persist-credentials: false
+
       - name: Download exact staged formula
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -275,6 +217,9 @@ jobs:
           BOTTLE_DIR: ${{ runner.temp }}/bottles
           PUBLICATION_DIR: ${{ runner.temp }}/homebrew-publication
           TAP_REPO: ${{ needs.prepare.outputs.tap_repo }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_TAP_BASE: ${{ needs.prepare.outputs.expected_tap_base }}
         run: |
           set -euo pipefail
           mapfile -t bottle_files < <(
@@ -311,11 +256,7 @@ jobs:
             --release-tag "${BOTTLE_RELEASE_TAG}" \
             "${bottle_args[@]}"
 
-          mkdir -p "${PUBLICATION_DIR}/Formula" "${PUBLICATION_DIR}/bottles"
-          cp "${STAGE_DIR}/Formula/ethernity.rb" "${PUBLICATION_DIR}/Formula/ethernity.rb"
-          for bottle_file in "${bottle_files[@]}"; do
-            cp "${bottle_file}" "${PUBLICATION_DIR}/bottles/"
-          done
+          python3 -m tooling.release.homebrew assemble
 
       - name: Upload immutable publication payload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -323,10 +264,11 @@ jobs:
           name: ${{ needs.prepare.outputs.publication_artifact }}
           path: ${{ runner.temp }}/homebrew-publication
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 30
 
   publish:
     needs: [prepare, assemble-publication]
+    if: always() && needs.prepare.result == 'success' && (needs.prepare.outputs.reuse == 'true' || needs.assemble-publication.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: homebrew-production
@@ -356,160 +298,20 @@ jobs:
           ref: master
           path: tap
 
-      - name: Verify tap has not changed since validation
-        shell: bash
-        env:
-          EXPECTED_TAP_BASE: ${{ needs.prepare.outputs.expected_tap_base }}
-        run: |
-          set -euo pipefail
-          actual_base="$(git -C tap rev-parse HEAD)"
-          if [[ "${actual_base}" != "${EXPECTED_TAP_BASE}" ]]; then
-            echo "tap master changed during validation" >&2
-            echo "expected ${EXPECTED_TAP_BASE}, found ${actual_base}" >&2
-            exit 1
-          fi
+      - name: Checkout trusted publication tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: master
+          path: workflow-tools
+          persist-credentials: false
 
-      - name: Verify or create immutable bottle assets
-        shell: bash
+      - name: Publish validated bottles and formula
         env:
-          BOTTLE_RELEASE_TAG: ${{ needs.prepare.outputs.bottle_release_tag }}
-          EXPECTED_TAP_BASE: ${{ needs.prepare.outputs.expected_tap_base }}
+          PYTHONPATH: workflow-tools
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          PUBLICATION_DIR: ${{ runner.temp }}/homebrew-publication
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           TAP_REPO: ${{ needs.prepare.outputs.tap_repo }}
-        run: |
-          set -euo pipefail
-          mapfile -t bottle_files < <(
-            find "${PUBLICATION_DIR}/bottles" -maxdepth 1 -type f \
-              -name 'ethernity--*.bottle.tar.gz' | sort
-          )
-          if [[ "${#bottle_files[@]}" -ne 3 ]]; then
-            echo "publication payload must contain exactly three bottles" >&2
-            exit 1
-          fi
-
-          release_is_draft=true
-          if gh release view "${BOTTLE_RELEASE_TAG}" --repo "${TAP_REPO}" >/dev/null 2>&1; then
-            release_is_draft="$(
-              gh release view "${BOTTLE_RELEASE_TAG}" --repo "${TAP_REPO}" \
-                --json isDraft --jq '.isDraft'
-            )"
-            existing_assets="$(
-              gh release view "${BOTTLE_RELEASE_TAG}" --repo "${TAP_REPO}" \
-                --json assets --jq '.assets[].name'
-            )"
-          else
-            gh release create "${BOTTLE_RELEASE_TAG}" \
-              --repo "${TAP_REPO}" \
-              --draft \
-              --title "Ethernity bottles ${RELEASE_TAG}" \
-              --target "${EXPECTED_TAP_BASE}" \
-              --notes "Validated Homebrew bottle assets for ${RELEASE_TAG}."
-            existing_assets=""
-          fi
-
-          remote_tag="$(
-            git ls-remote "https://github.com/${TAP_REPO}.git" \
-              "refs/tags/${BOTTLE_RELEASE_TAG}"
-          )"
-          remote_tag_sha="${remote_tag%%[[:space:]]*}"
-          if [[ "${remote_tag_sha}" != "${EXPECTED_TAP_BASE}" ]]; then
-            echo "bottle release tag does not resolve to the validated tap base" >&2
-            exit 1
-          fi
-
-          verify_dir="${RUNNER_TEMP}/existing-bottles"
-          mkdir -p "${verify_dir}"
-          declare -A expected_assets=()
-          for bottle_file in "${bottle_files[@]}"; do
-            expected_assets["$(basename "${bottle_file}")"]=1
-          done
-          while IFS= read -r existing_name; do
-            if [[ -n "${existing_name}" && -z "${expected_assets[${existing_name}]:-}" ]]; then
-              echo "unexpected existing bottle asset: ${existing_name}" >&2
-              exit 1
-            fi
-          done <<< "${existing_assets}"
-
-          missing_assets=()
-          for bottle_file in "${bottle_files[@]}"; do
-            bottle_name="$(basename "${bottle_file}")"
-            if grep -Fqx "${bottle_name}" <<<"${existing_assets}"; then
-              rm -f "${verify_dir}/${bottle_name}"
-              gh release download "${BOTTLE_RELEASE_TAG}" \
-                --repo "${TAP_REPO}" \
-                --pattern "${bottle_name}" \
-                --dir "${verify_dir}"
-              if ! cmp --silent "${bottle_file}" "${verify_dir}/${bottle_name}"; then
-                echo "refusing to clobber mismatched bottle asset: ${bottle_name}" >&2
-                exit 1
-              fi
-            else
-              missing_assets+=("${bottle_file}")
-            fi
-          done
-          if [[ "${#missing_assets[@]}" -gt 0 ]]; then
-            if [[ "${release_is_draft}" != "true" ]]; then
-              echo "published bottle release is incomplete; refusing to mutate it" >&2
-              exit 1
-            fi
-            gh release upload "${BOTTLE_RELEASE_TAG}" "${missing_assets[@]}" \
-              --repo "${TAP_REPO}"
-          fi
-
-          mapfile -t final_assets < <(
-            gh release view "${BOTTLE_RELEASE_TAG}" --repo "${TAP_REPO}" \
-              --json assets --jq '.assets[].name'
-          )
-          if (( ${#final_assets[@]} != ${#bottle_files[@]} )); then
-            echo "bottle release asset set is incomplete after upload" >&2
-            exit 1
-          fi
-          for asset_name in "${final_assets[@]}"; do
-            if [[ -z "${expected_assets[${asset_name}]:-}" ]]; then
-              echo "unexpected bottle asset after upload: ${asset_name}" >&2
-              exit 1
-            fi
-          done
-
-          final_remote_tag="$(
-            git ls-remote "https://github.com/${TAP_REPO}.git" \
-              "refs/tags/${BOTTLE_RELEASE_TAG}"
-          )"
-          final_remote_tag_sha="${final_remote_tag%%[[:space:]]*}"
-          if [[ "${final_remote_tag_sha}" != "${EXPECTED_TAP_BASE}" ]]; then
-            echo "bottle release tag moved during asset upload" >&2
-            exit 1
-          fi
-
-          if [[ "${release_is_draft}" == "true" ]]; then
-            gh release edit "${BOTTLE_RELEASE_TAG}" \
-              --repo "${TAP_REPO}" \
-              --draft=false
-          else
-            echo "Immutable bottle release already contains the exact expected assets."
-          fi
-
-      - name: Publish validated formula
-        shell: bash
-        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           EXPECTED_TAP_BASE: ${{ needs.prepare.outputs.expected_tap_base }}
           PUBLICATION_DIR: ${{ runner.temp }}/homebrew-publication
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        run: |
-          set -euo pipefail
-          if [[ "$(git -C tap rev-parse HEAD)" != "${EXPECTED_TAP_BASE}" ]]; then
-            echo "tap checkout no longer matches expected base" >&2
-            exit 1
-          fi
-          cp "${PUBLICATION_DIR}/Formula/ethernity.rb" tap/Formula/ethernity.rb
-          git -C tap add Formula/ethernity.rb
-          if git -C tap diff --staged --quiet -- Formula/ethernity.rb; then
-            echo "Validated formula is already published."
-            exit 0
-          fi
-          git -C tap config user.name "github-actions[bot]"
-          git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C tap commit -m "ethernity ${RELEASE_TAG}"
-          git -C tap push origin HEAD:master
+        run: python3 -m tooling.release.homebrew publish

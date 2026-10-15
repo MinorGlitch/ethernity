@@ -1,0 +1,113 @@
+name: Verify Homebrew bottles
+
+on:
+  workflow_call:
+    inputs:
+      formula_artifact:
+        required: true
+        type: string
+      tap_name:
+        required: true
+        type: string
+      source_artifact:
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bottles:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            id: macos-15-intel
+          - runner: macos-14
+            id: macos-14
+          - runner: ubuntu-24.04
+            id: ubuntu-24.04
+    steps:
+      - name: Download exact staged formula
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.formula_artifact }}
+          path: ${{ runner.temp }}/homebrew-stage
+
+      - name: Download unpublished source for rehearsal
+        if: inputs.source_artifact != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.source_artifact }}
+          path: ${{ runner.temp }}/rehearsal-source
+
+      - name: Configure Homebrew (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "${GITHUB_PATH}"
+          echo "/home/linuxbrew/.linuxbrew/sbin" >> "${GITHUB_PATH}"
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew --version
+
+      - name: Create local read-only tap
+        shell: bash
+        env:
+          STAGE_DIR: ${{ runner.temp }}/homebrew-stage
+          LOCAL_TAP: ${{ runner.temp }}/local-tap
+          TAP_NAME: ${{ inputs.tap_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${LOCAL_TAP}/Formula"
+          cp "${STAGE_DIR}/Formula/ethernity.rb" "${LOCAL_TAP}/Formula/ethernity.rb"
+          git -C "${LOCAL_TAP}" init --initial-branch=master
+          git -C "${LOCAL_TAP}" add Formula/ethernity.rb
+          git -C "${LOCAL_TAP}" \
+            -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -m "staged formula"
+          brew untap "${TAP_NAME}" || true
+          brew tap "${TAP_NAME}" "file://${LOCAL_TAP}"
+
+      - name: Install, test, and build bottle from staged formula
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+          TAP_NAME: ${{ inputs.tap_name }}
+          BOTTLE_DIR: ${{ runner.temp }}/bottles
+          REHEARSAL_SOURCE: ${{ inputs.source_artifact }}
+        run: |
+          set -euo pipefail
+          formula_ref="${TAP_NAME}/ethernity"
+          brew style "${formula_ref}"
+          brew audit --strict "${formula_ref}"
+          if [[ -n "$REHEARSAL_SOURCE" ]]; then
+            source_files=("${RUNNER_TEMP}"/rehearsal-source/*.tar.gz)
+            [[ "${#source_files[@]}" -eq 1 ]]
+            cached_source="$(brew --cache --build-from-source "$formula_ref")"
+            mkdir -p "$(dirname "$cached_source")"
+            cp "${source_files[0]}" "$cached_source"
+          fi
+          brew uninstall --ignore-dependencies "${formula_ref}" || true
+          brew install --build-bottle "${formula_ref}"
+          brew test "${formula_ref}"
+          mkdir -p "${BOTTLE_DIR}"
+          cd "${BOTTLE_DIR}"
+          brew bottle --json --no-rebuild "${formula_ref}"
+          compgen -G 'ethernity--*.bottle.tar.gz' >/dev/null
+          compgen -G 'ethernity--*.bottle.json' >/dev/null
+
+      - name: Upload validated bottle files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bottles-${{ matrix.id }}
+          path: |
+            ${{ runner.temp }}/bottles/ethernity--*.bottle.tar.gz
+            ${{ runner.temp }}/bottles/ethernity--*.bottle.json
+          if-no-files-found: error
+          retention-days: 30

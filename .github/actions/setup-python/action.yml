@@ -10,6 +10,10 @@ inputs:
     description: Extra dependencies to install (comma-separated)
     required: false
     default: "dev"
+  dependency-groups:
+    description: Install default dependency groups
+    required: false
+    default: "true"
   uv-version:
     description: Exact uv version to install
     required: false
@@ -34,10 +38,15 @@ runs:
     - name: Install dependencies
       shell: bash
       env:
+        INSTALL_GROUPS: ${{ inputs.dependency-groups }}
         EXTRAS_RAW: ${{ inputs.extras }}
       run: |
         set -euo pipefail
-        cmd=(uv sync --frozen)
+        cmd=(uv sync --locked)
+        if [[ "$INSTALL_GROUPS" == "false" ]]; then
+          cmd+=(--no-default-groups)
+        fi
+        echo "UV_LOCKED=true" >> "$GITHUB_ENV"
         extras_raw="$EXTRAS_RAW"
         IFS=',' read -r -a extras <<< "$extras_raw"
         for extra in "${extras[@]}"; do

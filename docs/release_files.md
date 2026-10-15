@@ -54,9 +54,10 @@ to verify its file. The release does not publish separate `.sig` and `.pem` file
 The `signatures` job uploads these bundles as `release-signatures`. The `release` job downloads
 them with the archives and SBOMs before publication.
 
-Publication starts as a draft and never overwrites files. A retry byte-compares every existing file
-with the newly produced file, uploads only missing files to a draft, and stops on any mismatch or
-unexpected file. The job publishes the release only after the exact archive, SBOM, and
+Publication starts as a draft and never overwrites files. Retrying a failed publication job
+byte-compares existing files with the saved build artifacts and uploads only missing files to the
+draft. A fresh run for an already-published release downloads and verifies every signature instead
+of rebuilding the release. Missing, unexpected, or mismatched files stop publication. The job publishes the release only after the exact archive, SBOM, and
 Sigstore-bundle set is present. A partial published release is treated as an integrity failure, not
 repaired in place.
 
@@ -75,6 +76,46 @@ there are no extras, then publishes the release before pushing the validated for
 normal fast-forward update. Enable immutable releases on the tap repository as well as the source
 repository. Existing release files are reused only after a byte-for-byte match and are never
 replaced.
+
+The binary release explicitly dispatches the Homebrew workflow after stable publication.
+A GitHub release event created with `GITHUB_TOKEN` does not start another workflow. Dispatch uses
+`actions: write` in a separate job, without granting that permission to builders.
+
+Each bottle release also stores the validated formula and `publication.json`, which records the
+source commit, original tap base, and file checksums. A fresh retry reuses those files. The original
+bottle tag stays fixed while the formula push checks the current tap base separately. Retries can
+finish a failed formula push, but cannot downgrade a newer formula or overwrite changed assets.
+
+## CI and packaging rehearsal
+
+Linux, macOS, and Windows still run the full Python test suite. Linux collects branch coverage in
+that same run. Browser, visual, portability, compatibility, and audit gates remain separate.
+
+`native-packages.yml` builds the same five native archives for CI and releases. On pull requests,
+documentation-only changes skip native builds. `homebrew-build.yml` runs the same formula audit,
+source install, test, and bottle build on all three Homebrew platforms. Pull requests run it when
+packaging, dependency, workflow, script, or packaged-resource files change. Master push, scheduled,
+and manual CI runs perform the full packaging rehearsal. None of these CI builds publish files.
+
+CI also builds and installs a wheel from the actual release source archive. The Homebrew rehearsal
+uses that archive from the workflow artifact cache, with the formula's normal URL and checksum.
+This checks installation before the public release exists.
+
+Python commands use `UV_LOCKED=true`; setup rejects an outdated `uv.lock`. Source and wheel builds
+use the locked build dependencies without a second, unpinned build environment. Kit and packaging
+artifacts remain available for 30 days so failed jobs can be retried with the same files.
+Workflow syntax is checked with a pinned, checksum-verified actionlint binary.
+
+The native matrix and asset inventory live in `tooling/release/inventory.py`. Shared publication
+code validates exact file sets, handles draft retries, and refuses replacements. Its tests exercise
+failed uploads, moved tags, stale tap branches, prereleases, and completed-release retries.
+
+## Linux binary baseline
+
+Both Linux architectures build and smoke-test on Ubuntu 22.04. The package job checks every bundled
+ELF file and rejects requirements newer than glibc 2.35. Ubuntu 22.04 is the tested minimum; this is
+not a promise that every distribution with the same glibc version has all required system libraries.
+The native smoke test restores a frozen root and update using the packaged executable.
 
 ## Extension compatibility checks
 
@@ -137,12 +178,24 @@ python -m tooling.release_resources dist/*.whl dist/*.tar.gz
 ## Verification example
 
 ```sh
+tag=v1.2.0
+file="ethernity-${tag}-linux-x64.tar.gz"
 cosign verify-blob \
-  --bundle ethernity-vX.Y.Z-linux-x64.tar.gz.sigstore.json \
-  ethernity-vX.Y.Z-linux-x64.tar.gz
+  --certificate-identity "https://github.com/MinorGlitch/ethernity/.github/workflows/pyinstaller.yml@refs/tags/${tag}" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --bundle "${file}.sigstore.json" \
+  "$file"
 ```
 
-Use the archive and bundle from the same tag and variant.
+Use the archive and bundle from the same tag and variant. For a release created by manually
+dispatching the workflow from master, use this exact certificate identity instead:
+`https://github.com/MinorGlitch/ethernity/.github/workflows/pyinstaller.yml@refs/heads/master`.
+Keep the issuer check in both cases. Apply the same command to the SBOM and its bundle.
+The signing job verifies each new signature against its own workflow identity before upload.
+
+Python prereleases such as `v1.2.0rc1`, `v1.3.0b1`, and `v1.3.0.dev1` are always marked as
+prereleases. Manual dispatch can also mark a final version as a prerelease. Homebrew publication
+accepts only published stable tags of the form `vX.Y.Z`.
 
 ## Do not run an unverified download
 
