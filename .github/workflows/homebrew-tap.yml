@@ -91,12 +91,14 @@ jobs:
           fi
           tap_name="${tap_owner}/${BASH_REMATCH[1]}"
 
-          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
-          echo "tap_repo=${tap_repo}" >> "${GITHUB_OUTPUT}"
-          echo "tap_name=${tap_name}" >> "${GITHUB_OUTPUT}"
-          echo "bottle_release_tag=ethernity-${tag}" >> "${GITHUB_OUTPUT}"
-          echo "formula_artifact=homebrew-formula-${tag}" >> "${GITHUB_OUTPUT}"
-          echo "publication_artifact=homebrew-publication-${tag}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "tag=${tag}"
+            echo "tap_repo=${tap_repo}"
+            echo "tap_name=${tap_name}"
+            echo "bottle_release_tag=ethernity-${tag}"
+            echo "formula_artifact=homebrew-formula-${tag}"
+            echo "publication_artifact=homebrew-publication-${tag}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Checkout trusted publication tooling
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6

@@ -41,6 +41,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color
       - name: Ruff lint
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: uv run ruff check src tests tooling
       - name: Pylint duplication and nesting
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
@@ -288,7 +289,10 @@ jobs:
           name: release-source
           path: source-dist
       - name: Build wheel from the verified release source archive
-        run: uv build --no-build-isolation --wheel source-dist/*.tar.gz --out-dir dist
+        run: |
+          mkdir source-tree
+          tar -xzf source-dist/*.tar.gz -C source-tree
+          uv build --no-build-isolation --wheel source-tree/* --out-dir dist
       - name: Verify wheel and source contents
         run: python3 -m tooling.release_resources dist/*.whl source-dist/*.tar.gz
       - name: Install built wheel with locked dependencies
