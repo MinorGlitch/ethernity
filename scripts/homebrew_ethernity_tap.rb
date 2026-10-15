@@ -221,8 +221,8 @@ class Ethernity < Formula
     smoke_root = smoke_dir/"qr_document.pdf"
     smoke_extension = Dir[smoke_dir/"extensions/01/qr_document-01-*.pdf"].first
     odie "missing extension smoke fixture" if smoke_extension.nil?
-    pkgshare.install smoke_root => "smoke/extension-root.pdf"
-    pkgshare.install smoke_extension => "smoke/extension-01.pdf"
+    (pkgshare/"smoke").install smoke_root => "extension-root.pdf"
+    (pkgshare/"smoke").install smoke_extension => "extension-01.pdf"
   end
 
   test do
