@@ -25,16 +25,16 @@
   "license": "GPL-3.0-or-later",
   "description": "",
   "devDependencies": {
-    "@biomejs/biome": "2.4.11",
+    "@biomejs/biome": "2.5.8",
     "@gfx/zopfli": "1.0.15",
-    "esbuild": "0.28.0",
+    "esbuild": "0.28.2",
     "html-minifier-terser": "7.2.0",
     "playwright": "1.61.1",
     "roadroller": "2.1.0",
     "terser": "^5.48.0"
   },
   "dependencies": {
-    "@noble/ciphers": "^2.1.1",
+    "@noble/ciphers": "^2.3.0",
     "@noble/ed25519": "^3.1.0",
     "@noble/hashes": "^2.0.1",
     "jsqr": "https://github.com/MinorGlitch/jsQR/archive/3fd85b9f977186b036a25cf05c8fb89607c06f3e.tar.gz"
