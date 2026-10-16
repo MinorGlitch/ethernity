@@ -365,20 +365,21 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Python
         uses: ./.github/actions/setup-python
-      - name: Export locked runtime dependencies
+      - name: Export locked runtime, development, and build dependencies
         run: |
           uv export \
             --locked \
-            --no-dev \
+            --all-extras \
+            --all-groups \
             --no-emit-project \
             --format requirements-txt \
-            --output-file "${RUNNER_TEMP}/runtime-requirements.txt"
-      - name: Audit locked runtime dependencies
+            --output-file "${RUNNER_TEMP}/audit-requirements.txt"
+      - name: Audit locked dependencies
         run: |
           uv run pip-audit \
             --require-hashes \
-            --no-deps \
-            --requirement "${RUNNER_TEMP}/runtime-requirements.txt"
+            --disable-pip \
+            --requirement "${RUNNER_TEMP}/audit-requirements.txt"
 
   npm-audit:
     runs-on: ubuntu-latest
@@ -394,7 +395,7 @@ jobs:
           cache-dependency-path: kit/package-lock.json
       - name: Audit npm dependencies
         working-directory: kit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=low
 
   ci-gate:
     if: ${{ always() }}

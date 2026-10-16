@@ -63,6 +63,9 @@ uv run pytest tests/unit tests/ui tests/rendering tests/integration -q
 The full Python suite needs the generated kit bundles and installed npm dependencies from setup.
 The [CI workflow](.github/workflows/ci.yml) defines the platform matrix, coverage thresholds, E2E
 tests, packaging checks, and dependency audits. Local checks do not replace those gates.
+Dependency audits cover the locked runtime, development, and build packages and fail on any known
+vulnerability. The Python audit reads a fully resolved, hashed uv export without installing it
+again. Dependabot updates `uv.lock` and groups security fixes separately from routine updates.
 The full unit, UI, rendering and integration suites run on macOS and Windows with Python 3.11,
 and on Linux with Python 3.14. The Linux run collects application and document-inspector coverage
 together, then checks them separately against the 85% and 45% thresholds. Python 3.14 lets coverage
