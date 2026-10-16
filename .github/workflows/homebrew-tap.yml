@@ -101,7 +101,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Checkout trusted publication tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
           path: workflow-tools
@@ -109,7 +109,7 @@ jobs:
 
       - name: Checkout selected release tag
         id: source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.meta.outputs.tag }}
           path: release-source
@@ -147,7 +147,7 @@ jobs:
 
       - name: Preserve validated publication for retries
         if: steps.tap-base.outputs.reuse == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.meta.outputs.publication_artifact }}
           path: ${{ runner.temp }}/homebrew-publication
@@ -174,7 +174,7 @@ jobs:
 
       - name: Upload staged formula
         if: steps.tap-base.outputs.reuse != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.meta.outputs.formula_artifact }}
           path: ${{ runner.temp }}/homebrew-stage
@@ -194,19 +194,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
           persist-credentials: false
 
       - name: Download exact staged formula
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.prepare.outputs.formula_artifact }}
           path: ${{ runner.temp }}/homebrew-stage
 
       - name: Download validated bottles
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: bottles-*
           path: ${{ runner.temp }}/bottles
@@ -261,7 +261,7 @@ jobs:
           python3 -m tooling.release.homebrew assemble
 
       - name: Upload immutable publication payload
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ needs.prepare.outputs.publication_artifact }}
           path: ${{ runner.temp }}/homebrew-publication
@@ -287,13 +287,13 @@ jobs:
           fi
 
       - name: Download immutable publication payload
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.prepare.outputs.publication_artifact }}
           path: ${{ runner.temp }}/homebrew-publication
 
       - name: Checkout expected tap branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ needs.prepare.outputs.tap_repo }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -301,7 +301,7 @@ jobs:
           path: tap
 
       - name: Checkout trusted publication tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
           path: workflow-tools
