@@ -36,7 +36,7 @@
   "dependencies": {
     "@noble/ciphers": "^2.3.0",
     "@noble/ed25519": "^3.1.0",
-    "@noble/hashes": "^2.0.1",
+    "@noble/hashes": "^2.3.0",
     "jsqr": "https://github.com/MinorGlitch/jsQR/archive/3fd85b9f977186b036a25cf05c8fb89607c06f3e.tar.gz"
   }
 }
