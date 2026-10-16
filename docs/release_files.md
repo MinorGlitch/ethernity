@@ -71,7 +71,9 @@ to read `HOMEBREW_TAP_TOKEN`. It has no required reviewers or self-approval rest
 
 The formula generator resolves Python resources from the release's `uv.lock`, including their
 SHA-256 checksums. It selects compatible wheels for each platform and uses the locked source
-archive only when no matching wheel exists. Selection checks the CPython version and ABI,
+archive when no matching wheel exists or a wheel cannot be relocated by Homebrew.
+On macOS, `cbor2` is built from source because its wheels lack space for Homebrew to rewrite
+the library path. Other compatible wheels remain in use. Selection checks the CPython version and ABI,
 architecture, and minimum platform version: macOS 13 or glibc 2.35. These wheel limits do not
 extend the operating systems covered by the bottle tests. Shared and universal wheels are reused
 where applicable; Intel macOS, Apple silicon, and Linux still have separate bottles and tests.

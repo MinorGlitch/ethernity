@@ -134,6 +134,28 @@ class TestGenerateHomebrewSourceFormula(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "exactly one locked resource placeholder"):
                     _MODULE._render_resources_from_lock(formula, {})
 
+    def test_cbor2_uses_locked_source_for_mac_bottle_relocation(self) -> None:
+        source = {"url": "https://example.com/cbor2-6.1.3.tar.gz", "hash": "sha256:" + "a" * 64}
+        mac_wheel = _wheel("cp313-cp313-macosx_11_0_universal2")
+        linux_wheel = _wheel("cp313-cp313-manylinux_2_17_x86_64.manylinux_2_17_aarch64")
+        package = {"name": "cbor2", "sdist": source, "wheels": [mac_wheel, linux_wheel]}
+        for target in _MODULE._HOMEBREW_TARGETS:
+            with self.subTest(target=target):
+                expected = source if target.system == "darwin" else linux_wheel
+                self.assertEqual(
+                    _MODULE._choose_package_file_for_resource(package, target),
+                    (expected["url"], expected["hash"].removeprefix("sha256:")),
+                )
+        rendered = _MODULE._render_resource("cbor2", package)
+        self.assertNotIn(mac_wheel["url"], rendered)
+        self.assertEqual(rendered.count(source["url"]), 1)
+        self.assertIn(linux_wheel["url"], rendered)
+
+    def test_cbor2_does_not_fall_back_to_unrelocatable_wheel_without_source(self) -> None:
+        package = {"name": "cbor2", "wheels": [_wheel("cp313-cp313-macosx_11_0_universal2")]}
+        with self.assertRaisesRegex(ValueError, "cbor2 on darwin/arm64"):
+            _MODULE._render_resource("cbor2", package)
+
     def test_resource_generation_fails_when_target_has_no_locked_file(self) -> None:
         with self.assertRaisesRegex(ValueError, "example on darwin/x86_64"):
             _MODULE._render_resource(
@@ -266,10 +288,7 @@ class TestGenerateHomebrewSourceFormula(unittest.TestCase):
                     url, sha = _MODULE._choose_package_file_for_resource(
                         lock_packages[name], target
                     )
-                    source_only = name == "cbor2" and (target.system, target.architecture) == (
-                        "darwin",
-                        "x86_64",
-                    )
+                    source_only = name == "cbor2" and target.system == "darwin"
                     self.assertTrue(url.endswith(".tar.gz" if source_only else ".whl"), url)
                     files = [*lock_packages[name]["wheels"], lock_packages[name]["sdist"]]
                     self.assertIn(

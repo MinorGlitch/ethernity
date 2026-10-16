@@ -170,6 +170,11 @@ def _supports_platform(tag: str, target: HomebrewTarget) -> bool:
 
 
 def _choose_wheel(package: dict[str, object], target: HomebrewTarget) -> dict[str, object] | None:
+    # cbor2's macOS wheels lack the Mach-O header space Homebrew needs to
+    # relocate their dylib IDs. Build from the locked source with Homebrew's
+    # linker flags; ABI/platform compatibility alone does not make a bottle safe.
+    if target.system == "darwin" and package.get("name") == "cbor2":
+        return None
     wheels = package.get("wheels", [])
     if not isinstance(wheels, list):
         return None
