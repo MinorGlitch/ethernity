@@ -5,7 +5,7 @@ from __future__ import annotations
 from pypdf import PdfReader, _cmap
 from pypdf.generic import ByteStringObject, TextStringObject
 
-from ethernity.render.checks import RenderValidationError
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.types import LayoutReport, RenderRect
 
 _POINT_TO_MM = 25.4 / 72.0

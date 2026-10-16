@@ -18,7 +18,7 @@ from pypdf import PdfReader
 from ethernity.core.bounds import MAX_SHARD_CBOR_BYTES
 from ethernity.encoding.framing import FrameType
 from ethernity.page_sizes import PaperSize
-from ethernity.render import render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
 from ethernity.render.checks import (
     frame_digest,
     validate_fallback_text_in_pdf,

@@ -32,7 +32,7 @@ from ethernity.config import AppConfig, apply_render_style, load_app_config
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.qr.capacity import fits_qr_payload
 from ethernity.qr.codec import QrConfig
-from ethernity.render import render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
 from ethernity.render.service import RenderService
 from ethernity.render.types import DocumentOrigin, RenderInputs, RenderResult
 from ethernity.render.validation import validate_rendered_pdf_document

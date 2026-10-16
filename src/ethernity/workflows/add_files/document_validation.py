@@ -32,11 +32,11 @@ from ethernity.encoding.frame_sets import (
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.recovery import resolve_required_auth_payload
 from ethernity.render.checks import (
-    RenderValidationError,
     validate_fallback_summary,
     validate_fallback_text_in_pdf,
     validate_pdf_has_pages,
 )
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.fallback_labels import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.render.types import FallbackSection, FallbackSummary
 from ethernity.workflows.add_files.errors import AddFilesWorkflowError

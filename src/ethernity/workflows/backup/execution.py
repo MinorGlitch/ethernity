@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ethernity import render as render_module
 from ethernity.config import AppConfig
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan, SigningSeedMode
@@ -45,7 +44,8 @@ from ethernity.formats.manifest import BackupFile
 from ethernity.publication import PublicationDurability
 from ethernity.qr.capacity import choose_frame_chunk_size
 from ethernity.qr.scan import scan_qr_payloads
-from ethernity.render.checks import RenderValidationError
+from ethernity.render import backend_dispatch
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.fallback_labels import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.render.layout_debug import (
     layout_debug_json_path,
@@ -58,7 +58,7 @@ from ethernity.render.recovery_kit_index import (
 from ethernity.render.recovery_lines import append_signing_key_lines
 from ethernity.render.recovery_meta import RecoveryMeta, build_recovery_meta
 from ethernity.render.service import RenderService
-from ethernity.render.types import DocumentOrigin, RenderInputs, RenderResult
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs, RenderResult
 from ethernity.render.validation import validate_rendered_pdf_document
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import (
@@ -235,7 +235,7 @@ def _render_all_documents(
         )
 
     for inputs, label, kind, expected_text in documents:
-        result = render_module.render_frames_to_pdf(inputs)
+        result = backend_dispatch.render_frames_to_pdf(inputs)
         validate_rendered_pdf_document(
             inputs=inputs,
             result=result,
@@ -496,8 +496,8 @@ def run_backup(
             data=ciphertext,
         )
         fallback_sections = [
-            render_module.FallbackSection(label=AUTH_FALLBACK_LABEL, frame=auth_frame),
-            render_module.FallbackSection(label=MAIN_FALLBACK_LABEL, frame=main_fallback_frame),
+            FallbackSection(label=AUTH_FALLBACK_LABEL, frame=auth_frame),
+            FallbackSection(label=MAIN_FALLBACK_LABEL, frame=main_fallback_frame),
         ]
         recovery_inputs = render_service.recovery_inputs(
             frames,

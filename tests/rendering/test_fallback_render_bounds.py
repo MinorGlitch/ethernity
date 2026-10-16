@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from ethernity.core.bounds import MAX_FALLBACK_LINES, MAX_MAIN_FRAME_DATA_BYTES
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.page_sizes import PaperSize, resolve_paper_size
-from ethernity.render import render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
 from ethernity.render.designs import list_design_definitions
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY
 from ethernity.render.recovery_meta import build_recovery_meta

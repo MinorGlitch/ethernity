@@ -14,7 +14,7 @@ from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.qr.codec import QrConfig
-from ethernity.render.checks import RenderValidationError
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.backup import execution
 from ethernity.workflows.rebuild.service import execute_rebuild_operation

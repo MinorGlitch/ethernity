@@ -20,13 +20,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ethernity import render as render_module
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.render.fallback_labels import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.render.recovery_lines import append_signing_key_lines
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
-from ethernity.render.types import DocumentOrigin, RenderInputs
+from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 
 from .models import (
     ExtensionOutputSettings,
@@ -53,8 +52,8 @@ def build_recovery_inputs(
         quorum_label="Root Backup Recovery",
     )
     fallback_sections = [
-        render_module.FallbackSection(label=AUTH_FALLBACK_LABEL, frame=auth_frame),
-        render_module.FallbackSection(
+        FallbackSection(label=AUTH_FALLBACK_LABEL, frame=auth_frame),
+        FallbackSection(
             label=MAIN_FALLBACK_LABEL,
             frame=Frame(
                 version=VERSION,

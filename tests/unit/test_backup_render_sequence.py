@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from ethernity.crypto import sharding
-from ethernity.render.checks import RenderValidationError
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.types import (
     DocumentOrigin,
     RenderedDocumentSummary,
@@ -63,7 +63,7 @@ def render_sequence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             tmp_path / f"{shard.key_type}-{shard.share_index}.pdf"
         )
     )
-    monkeypatch.setattr(execution.render_module, "render_frames_to_pdf", renderer)
+    monkeypatch.setattr(execution.backend_dispatch, "render_frames_to_pdf", renderer)
     monkeypatch.setattr(execution, "validate_rendered_pdf_document", validator)
     monkeypatch.setattr(shard_rendering, "render_shard_document", shard_renderer)
     return SimpleNamespace(

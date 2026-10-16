@@ -21,7 +21,6 @@ from ethernity.core.bounds import MAX_FALLBACK_LINES
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.render.checks import (
-    RenderValidationError,
     build_rendered_document_summary,
     frame_digest,
     qr_payload_digest,
@@ -30,6 +29,7 @@ from ethernity.render.checks import (
     validate_layout_report,
     validate_rendered_document_summary,
 )
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.fallback_text import format_zbase32_lines
 from ethernity.render.types import (
     DocumentOrigin,

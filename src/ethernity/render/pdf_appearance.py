@@ -12,7 +12,7 @@ import pypdfium2.raw as pdfium_raw
 import zxingcpp
 from PIL import Image, ImageChops
 
-from ethernity.render.checks import RenderValidationError
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.types import LayoutReport, PageLayout, RenderRect
 from ethernity.security.resource_worker import (
     DisposableWorkerError,

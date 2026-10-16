@@ -7,7 +7,7 @@ from pypdf import PdfReader
 from scripts.render_visual_baselines import VisualBaselineCase, build_sample_inputs
 
 from ethernity.page_sizes import resolve_paper_size
-from ethernity.render import render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
 from ethernity.render.copy_catalog import build_copy_bundle, build_instruction_copy
 from ethernity.render.design_style import load_page_template
 from ethernity.render.validation import validate_rendered_pdf_document

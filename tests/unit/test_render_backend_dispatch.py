@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.page_sizes import PaperSize
-from ethernity.render import render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
 from ethernity.render.designs import list_design_definitions
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,

@@ -9,7 +9,7 @@ from scripts.render_visual_baselines import VisualBaselineCase, build_sample_inp
 
 from ethernity.formats.extension_mode import UpdateMode
 from ethernity.page_sizes import resolve_paper_size
-from ethernity.render import render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
 from ethernity.render.design_style import load_page_template
 from ethernity.render.types import DocumentOrigin
 from ethernity.render.validation import validate_rendered_pdf_document

@@ -30,7 +30,7 @@ from ethernity.page_sizes import (
     resolve_paper_size,
 )
 from ethernity.qr.scan import scan_qr_payloads
-from ethernity.render import render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
 from ethernity.render.checks import validate_fallback_summary
 from ethernity.render.design_style import load_page_template
 from ethernity.render.designs import list_design_definitions

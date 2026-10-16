@@ -27,7 +27,6 @@ from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from ethernity import render as render_module
 from ethernity.extensions.staging import (
     preflight_extension_publish_target,
     validate_staged_extension_dir,
@@ -37,6 +36,7 @@ from ethernity.publication import (
     open_directory_fd,
     publish_staged_directory,
 )
+from ethernity.render import backend_dispatch
 from ethernity.render.layout_debug import layout_debug_json_path
 from ethernity.workflows.add_files import (
     output_settings as add_files_output_settings,
@@ -109,7 +109,7 @@ def _publish_staged_extension(
         rendered = add_files_rendering.render_extension_documents(
             plan,
             output_settings=output_settings,
-            render_frames_to_pdf=render_module.render_frames_to_pdf,
+            render_frames_to_pdf=backend_dispatch.render_frames_to_pdf,
             layout_debug_json_path=layout_debug_json_path,
         )
         reporter.progress(

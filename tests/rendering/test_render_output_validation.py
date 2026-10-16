@@ -17,15 +17,12 @@ from ethernity.crypto.signing import generate_signing_keypair
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.qr.codec import QrConfig, qr_bytes
-from ethernity.render import render_frames_to_pdf
-from ethernity.render.checks import (
-    RenderValidationError,
-    build_rendered_document_summary,
-    extract_pdf_text,
-)
+from ethernity.render.backend_dispatch import render_frames_to_pdf
+from ethernity.render.checks import build_rendered_document_summary, extract_pdf_text
 from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.direct_pdf.surface import FpdfSurface
 from ethernity.render.direct_pdf.types import TextStyle
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 from ethernity.render.validation import validate_rendered_pdf_document

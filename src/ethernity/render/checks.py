@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +34,7 @@ from ethernity.core.bounds import (
 from ethernity.encoding.chunking import fallback_lines_to_frame
 from ethernity.encoding.framing import Frame, encode_frame
 from ethernity.encoding.zbase32 import ZBASE32_ALPHABET, encode_zbase32
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.types import (
     FallbackSection,
     FallbackSummary,
@@ -58,14 +59,6 @@ _MAX_EXTRACTED_PDF_LINES = MAX_FALLBACK_LINES * 4
 _PDF_TEXT_LINE_BREAKS = frozenset(
     {"\n", "\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"}
 )
-
-
-class RenderValidationError(ValueError):
-    """Raised when a rendered document does not match its recorded summary."""
-
-    def __init__(self, message: str, *, details: Mapping[str, object] | None = None) -> None:
-        super().__init__(message)
-        self.details = dict(details or {})
 
 
 def frame_digest(frame: Frame) -> str:

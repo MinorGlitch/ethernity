@@ -28,7 +28,7 @@ from ethernity.workflows.shared.shard_rendering import render_shard_document
 
 class TestShardRendering(unittest.TestCase):
     @mock.patch("ethernity.workflows.shared.shard_rendering.validate_rendered_pdf_document")
-    @mock.patch("ethernity.workflows.shared.shard_rendering.render_module.render_frames_to_pdf")
+    @mock.patch("ethernity.workflows.shared.shard_rendering.backend_dispatch.render_frames_to_pdf")
     @mock.patch(
         "ethernity.workflows.shared.shard_rendering.sharding_module.encode_shard_payload",
         return_value=b"encoded-shard",

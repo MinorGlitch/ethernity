@@ -14,7 +14,7 @@ from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.extensions.recovery import ChainRecoveryResult, ValidatedRecoveryHead
 from ethernity.formats.manifest import BackupManifest
 from ethernity.qr.codec import QrConfig
-from ethernity.render.checks import RenderValidationError
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.types import RenderInputs, RenderResult
 from ethernity.workflows.recovery.planning import RecoveryPlan
 from ethernity.workflows.recovery.source_state import recovery_source_fields
@@ -124,7 +124,7 @@ def replacement_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Replacem
         return RenderResult()
 
     monkeypatch.setattr(service, "_recover_replacement_chain", lambda *_args, **_kwargs: run.chain)
-    monkeypatch.setattr(shard_rendering.render_module, "render_frames_to_pdf", render)
+    monkeypatch.setattr(shard_rendering.backend_dispatch, "render_frames_to_pdf", render)
     monkeypatch.setattr(shard_rendering, "validate_rendered_pdf_document", run.validator)
     return run
 

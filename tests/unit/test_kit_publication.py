@@ -8,7 +8,7 @@ from pypdf import PdfReader
 
 from ethernity.config import AppConfig
 from ethernity.qr.codec import QrConfig
-from ethernity.render.checks import RenderValidationError
+from ethernity.render.errors import RenderValidationError
 from ethernity.workflows.kit.service import render_kit_qr_document
 from ethernity.workflows.shared import events
 from ethernity.workflows.shared.execution_control import (

@@ -15,8 +15,7 @@ from ethernity.core.bounds import MAX_SHARD_CBOR_BYTES
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ethernity.page_sizes import PaperSize
 from ethernity.qr.scan import scan_qr_payloads
-from ethernity.render import render_frames_to_pdf
-from ethernity.render.backend_dispatch import plan_document_summary
+from ethernity.render.backend_dispatch import plan_document_summary, render_frames_to_pdf
 from ethernity.render.checks import extract_pdf_text
 from ethernity.render.design_style import load_design_style, load_page_template
 from ethernity.render.designs import list_design_definitions

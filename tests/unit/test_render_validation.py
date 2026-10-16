@@ -19,7 +19,8 @@ import unittest
 from unittest import mock
 
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
-from ethernity.render.checks import RenderValidationError, frame_digest, qr_payload_digest
+from ethernity.render.checks import frame_digest, qr_payload_digest
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.types import (
     DocumentOrigin,
     FallbackSection,

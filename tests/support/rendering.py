@@ -9,7 +9,7 @@ from shutil import copyfile
 import pytest
 from scripts.render_visual_baselines import VisualBaselineCase, build_sample_inputs
 
-from ethernity.render import render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
 from ethernity.render.direct_pdf import document_inputs
 from ethernity.render.types import RenderInputs, RenderResult
 

@@ -21,7 +21,6 @@ from collections import Counter
 
 from ethernity.encoding.framing import encode_frame
 from ethernity.render.checks import (
-    RenderValidationError,
     validate_fallback_summary,
     validate_fallback_text_in_pdf,
     validate_layout_report,
@@ -30,6 +29,7 @@ from ethernity.render.checks import (
     validate_text_in_pdf,
 )
 from ethernity.render.doc_types import DOC_TYPE_KIT
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.pdf_appearance import validate_pdf_appearance
 from ethernity.render.pdf_content import validate_painted_content
 from ethernity.render.recovery_meta import (

@@ -8,7 +8,7 @@ import pytest
 from PIL import Image, ImageChops
 from scripts.render_visual_baselines import VisualBaselineCase, build_sample_inputs
 
-from ethernity.render import render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
 
 pytestmark = pytest.mark.usefixtures("reuse_qr_images")
 

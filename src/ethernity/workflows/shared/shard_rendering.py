@@ -21,11 +21,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from ethernity import render as render_module
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.sharding import ShardPayload
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_RAW, QrPayloadCodec
+from ethernity.render import backend_dispatch
 from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
 from ethernity.render.layout_debug import layout_debug_json_path as debug_output_path
 from ethernity.render.service import RenderService
@@ -82,7 +82,7 @@ def render_shard_document(
         layout_debug_json_path=layout_debug_json_path,
         origin=origin,
     )
-    render_result = render_module.render_frames_to_pdf(shard_inputs)
+    render_result = backend_dispatch.render_frames_to_pdf(shard_inputs)
     validate_rendered_pdf_document(
         inputs=shard_inputs,
         result=render_result,

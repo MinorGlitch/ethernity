@@ -21,7 +21,8 @@ from pathlib import Path
 from pypdf import PdfReader
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
-from ethernity.render import DocumentOrigin, RenderInputs, render_frames_to_pdf
+from ethernity.render.backend_dispatch import render_frames_to_pdf
+from ethernity.render.types import DocumentOrigin, RenderInputs
 
 
 class TestPdfPageCount(unittest.TestCase):

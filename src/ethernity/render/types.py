@@ -21,9 +21,8 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from ethernity.encoding.framing import Frame
 from ethernity.formats.extension_mode import UpdateMode
 from ethernity.page_sizes import (
     DEFAULT_PAPER_SIZE_NAME,
@@ -31,8 +30,11 @@ from ethernity.page_sizes import (
     normalize_paper_size_name,
     resolve_paper_size,
 )
-from ethernity.qr.codec import QrConfig
-from ethernity.render.recovery_meta import RecoveryMeta
+
+if TYPE_CHECKING:
+    from ethernity.encoding.framing import Frame
+    from ethernity.qr.codec import QrConfig
+    from ethernity.render.recovery_meta import RecoveryMeta
 
 
 @dataclass(frozen=True)

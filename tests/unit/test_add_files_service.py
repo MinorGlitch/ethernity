@@ -34,7 +34,7 @@ from ethernity.extensions.chain import (
 )
 from ethernity.extensions.staging import extension_output_directory_name
 from ethernity.formats.extension_mode import UpdateMode
-from ethernity.render.checks import RenderValidationError
+from ethernity.render.errors import RenderValidationError
 from ethernity.render.fallback_labels import AUTH_FALLBACK_LABEL
 from ethernity.render.types import FallbackSummary
 from ethernity.workflows.add_files.document_validation import (
