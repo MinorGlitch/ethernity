@@ -156,6 +156,15 @@ jobs:
       - name: Setup kit dependencies
         uses: ./.github/actions/setup-kit
 
+      - name: Record Windows runner hardware
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_Processor |
+            Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed |
+            Format-List
+          Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory | Format-List
+
       - name: Run Python tests
         if: matrix.os != 'ubuntu-latest'
         run: uv run pytest tests/unit tests/ui tests/rendering tests/integration -n 2 --dist loadfile -v --durations=30 --junitxml=test-results/python.xml
