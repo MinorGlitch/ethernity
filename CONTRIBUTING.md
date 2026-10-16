@@ -126,8 +126,9 @@ tasks, so tests must open a workspace before querying its controls.
 
 Layout suites can opt into `reuse_qr_images` to reuse identical payload/configuration images.
 `rendered_sample` supplies a private copy of a shared sample PDF for output-validation tests.
-Keep these fixtures out of codec tests and tests that change rendering internals. The existing
-decoding, appearance, and content assertions still run.
+Keep the image cache out of codec tests. Tests that alter the renderer must render a fresh PDF
+instead of using `rendered_sample`. Decoding, appearance, and content assertions still run on
+every output.
 
 Golden and visual suites can run in two worker processes:
 

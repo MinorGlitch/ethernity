@@ -31,6 +31,7 @@ from ethernity.render.types import DocumentOrigin, FallbackSection, RenderInputs
 from ethernity.render.validation import validate_rendered_pdf_document
 
 _DESIGNS = ("archive", "forge", "ledger", "maritime", "sentinel")
+pytestmark = pytest.mark.usefixtures("reuse_qr_images")
 
 
 def test_shared_sample_copies_do_not_share_pdf_mutations(rendered_sample) -> None:
