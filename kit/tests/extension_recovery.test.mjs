@@ -313,7 +313,7 @@ test("browser recovery rejects extension replay from sealed roots", async () => 
       recoverLatestFromPlaintextDocuments([root, extension], {
         verifySignature: verifiedSignature,
       }),
-    /extension replay requires an unsealed root backup with its signing seed/,
+    /These updates need the original backup with its signing key/,
   );
 });
 

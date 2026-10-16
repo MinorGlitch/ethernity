@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { detectWithJsQr } from "../app/hooks/jsqr_runtime_core.js";
+import { detectWithJsQr } from "../app/scanner/decoder.js";
 
 test("detectWithJsQr falls back to a full-frame scan and enables inversion retries", () => {
   const video = { videoWidth: 200, videoHeight: 100 };

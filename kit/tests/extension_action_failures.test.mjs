@@ -81,7 +81,7 @@ test("browser decrypt action does not apply stale results after reset", async ()
   const finalState = store.getState();
   assert.equal(finalState.extractedFiles.length > 0, false);
   assert.deepEqual(finalState.extractedFiles, []);
-  assert.deepEqual(finalState.frameStatus.lines, ["State cleared."]);
+  assert.deepEqual(finalState.frameStatus.lines, []);
 });
 
 test("browser reset aborts active scrypt work", async () => {
@@ -111,7 +111,7 @@ test("browser reset aborts active scrypt work", async () => {
 
   assert.equal(observedSignal?.aborted, true);
   assert.equal(store.getState().extractedFiles.length > 0, false);
-  assert.deepEqual(store.getState().frameStatus.lines, ["State cleared."]);
+  assert.deepEqual(store.getState().frameStatus.lines, []);
 });
 
 test("browser decrypt action preserves supplied-document decrypt failures", async () => {
@@ -138,7 +138,7 @@ test("browser decrypt action preserves supplied-document decrypt failures", asyn
   assert.equal(finalState.extractedFiles.length > 0, false);
   assert.equal(finalState.decryptStatus.type, "error");
   assert.match(
-    finalState.decryptStatus.lines[0],
+    finalState.decryptStatus.details[0],
     /one or more supplied backup documents could not be decrypted/,
   );
 });
@@ -178,7 +178,7 @@ test("browser decrypt action rejects latest target with stale expected head doc 
   assert.equal(finalState.decryptStatus.type, "error");
   assert.match(
     finalState.decryptStatus.lines[0],
-    /validated extension head doc_hash does not match expected head/,
+    /The recovered version does not match your expected fingerprint/,
   );
 });
 
@@ -199,7 +199,10 @@ test("browser decrypt action rejects invalid extension target input before decry
   const finalState = store.getState();
   assert.equal(finalState.extractedFiles.length > 0, false);
   assert.equal(finalState.decryptStatus.type, "error");
-  assert.match(finalState.decryptStatus.lines[0], /extension target/);
+  assert.match(
+    finalState.decryptStatus.lines[0],
+    /Choose latest, root, an update number, or a full backup fingerprint/,
+  );
 });
 
 test("browser decrypt action rejects conflicting AUTH payloads", async () => {
@@ -233,7 +236,8 @@ test("browser decrypt action rejects conflicting AUTH payloads", async () => {
 
   const finalState = store.getState();
   assert.equal(finalState.decryptStatus.type, "error");
-  assert.equal(finalState.decryptStatus.lines[0], "conflicting AUTH frames detected");
+  assert.match(finalState.decryptStatus.lines[0], /Two AUTH sections/);
+  assert.deepEqual(finalState.decryptStatus.details, ["conflicting AUTH frames detected"]);
 });
 
 test("browser decrypt action rejects malformed AUTH payloads", async () => {
@@ -267,7 +271,8 @@ test("browser decrypt action rejects malformed AUTH payloads", async () => {
   const finalState = store.getState();
   assert.equal(documentCounts(finalState).authErrors, 1);
   assert.equal(finalState.decryptStatus.type, "error");
-  assert.equal(finalState.decryptStatus.lines[0], "invalid AUTH frames detected");
+  assert.match(finalState.decryptStatus.lines[0], /An AUTH section could not be read/);
+  assert.deepEqual(finalState.decryptStatus.details, ["invalid AUTH frames detected"]);
 });
 
 test("mixed document failures retain their cause and cannot trigger passphrase retry", async () => {
@@ -288,5 +293,41 @@ test("mixed document failures retain their cause and cannot trigger passphrase r
   });
   assert.equal(attempts, 2);
   assert.equal(store.getState().decryptStatus.code, "DOCUMENT_INTEGRITY_FAILED");
-  assert.equal(store.getState().decryptStatus.lines[0], "decrypt password invalid passphrase");
+  assert.match(store.getState().decryptStatus.lines[0], /integrity check/);
+  assert.deepEqual(store.getState().decryptStatus.details, ["decrypt password invalid passphrase"]);
+});
+
+test("a pre-reset decrypt completion cannot replace a newer running recovery", async () => {
+  const store = createStore();
+  const plaintext = buildRootPlaintext([
+    { path: "recovered.txt", data: new TextEncoder().encode("root") },
+  ]);
+  let announceStart;
+  const options = {
+    decrypt() {
+      return new Promise((resolve) => announceStart(() => resolve(plaintext)));
+    },
+    verifySignature: verifiedSignature,
+  };
+  const start = async () => {
+    store.getState().agePassphrase = "pw";
+    store.getState().freshnessUnknownAcknowledged = true;
+    addSingleFrameDocument(store.getState(), { ciphertext: Uint8Array.of(0x49) });
+    const started = new Promise((resolve) => {
+      announceStart = resolve;
+    });
+    const task = decryptCiphertext(store.dispatch, store.getState, options);
+    return { task, finish: await started };
+  };
+  const first = await start();
+  resetAll(store.dispatch);
+  const second = await start();
+  first.finish();
+  await first.task;
+  assert.equal(store.getState().isDecrypting, true);
+  assert.equal(store.getState().extractedFiles.length, 0);
+  second.finish();
+  await second.task;
+  assert.equal(store.getState().isDecrypting, false);
+  assert.equal(store.getState().extractedFiles[0].path, "recovered.txt");
 });

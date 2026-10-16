@@ -397,7 +397,7 @@ test("autoRecoverShardSecret rejects shard/doc hash mismatch before reconstructi
   assert.equal(recovered, false);
   assert.equal(state.recoveredShardSecret, "");
   assert.equal(state.shardStatus.type, "error");
-  assert.match(state.shardStatus.lines.join("\n"), /does not match collected ciphertext/);
+  assert.match(state.shardStatus.lines.join("\n"), /do not match the added backup/);
 });
 
 test("makeZip rejects unsafe traversal paths", () => {

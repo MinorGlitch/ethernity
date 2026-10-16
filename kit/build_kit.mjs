@@ -30,7 +30,7 @@ import {
   DEFAULT_KIT_COMPRESSION,
   selectedCompressions,
 } from "./lib/build_compression.mjs";
-import { scannerHookPathForMode, selectedVariants } from "./lib/build_variants.mjs";
+import { scannerPathForMode, selectedVariants } from "./lib/build_variants.mjs";
 import { buildCompressedLoaderHtml } from "./lib/loader_html.js";
 import { buildAssemblerTemplate } from "./lib/assembler_html.mjs";
 import { packKitHtml } from "./lib/pack_kit.mjs";
@@ -56,9 +56,6 @@ const PROPERTY_MANGLE_RESERVED = [
   "autofocus",
   "capture",
   "checked",
-  "children",
-  "class",
-  "className",
   "colSpan",
   "cols",
   "currentTarget",
@@ -68,25 +65,12 @@ const PROPERTY_MANGLE_RESERVED = [
   "for",
   "hidden",
   "href",
-  "htmlFor",
   "id",
-  "key",
   "multiple",
   "name",
-  "onBlur",
-  "onChange",
-  "onClick",
-  "onError",
-  "onFocus",
-  "onInput",
-  "onKeyDown",
-  "onKeyUp",
-  "onLoad",
-  "onSubmit",
   "placeholder",
   "preventScroll",
   "readOnly",
-  "ref",
   "required",
   "role",
   "rows",
@@ -336,13 +320,10 @@ const distDir = resolve(kitDir, "dist");
 const packageDir = resolve(kitDir, "..", "src", "ethernity", "resources", "kit");
 const html = await readFile(inputPath, "utf8");
 const scriptTagRe = /<script\b[^>]*>[\s\S]*?<\/script>/g;
-const entryPoint = resolve(kitDir, "app", "index.jsx");
-const microactIndexPath = resolve(kitDir, "lib", "microact", "index.js");
-const microactHooksPath = resolve(kitDir, "lib", "microact", "hooks.js");
-const microactJsxRuntimePath = resolve(kitDir, "lib", "microact", "jsx-runtime.js");
-const scannerRuntimeImport = "#kit-scanner-runtime";
-const scannerHookLeanPath = resolve(kitDir, "app", "hooks", "useQrScannerRuntime.js");
-const scannerHookJsqrPath = resolve(kitDir, "app", "hooks", "useQrScannerRuntime_jsqr.js");
+const entryPoint = resolve(kitDir, "app", "index.js");
+const scannerRuntimeImport = "#kit-scanner";
+const scannerLeanPath = resolve(kitDir, "app", "scanner", "disabled.js");
+const scannerJsqrPath = resolve(kitDir, "app", "scanner", "panel.js");
 
 await mkdir(distDir, { recursive: true });
 await mkdir(packageDir, { recursive: true });
@@ -352,28 +333,18 @@ async function buildBundleVariant(variant, workDir) {
   const rawOutputPath = resolve(distDir, rawBundleName);
   const tmpBase = resolve(workDir, variant.id);
   const tmpOut = `${tmpBase}.min.js`;
-  const scannerHookPath = scannerHookPathForMode(
-    variant.scannerMode,
-    scannerHookLeanPath,
-    scannerHookJsqrPath,
-  );
+  const scannerPath = scannerPathForMode(variant.scannerMode, scannerLeanPath, scannerJsqrPath);
   const esbuildArgs = [
     entryPoint,
     "--bundle",
     "--format=iife",
     "--platform=browser",
-    "--jsx=automatic",
-    "--jsx-import-source=microact",
     "--target=es2020",
     "--minify",
     "--tree-shaking=true",
     "--legal-comments=none",
     '--define:process.env.NODE_ENV="production"',
-    `--alias:microact=${microactIndexPath}`,
-    `--alias:microact/hooks=${microactHooksPath}`,
-    `--alias:microact/jsx-runtime=${microactJsxRuntimePath}`,
-    `--alias:microact/jsx-dev-runtime=${microactJsxRuntimePath}`,
-    `--alias:${scannerRuntimeImport}=${scannerHookPath}`,
+    `--alias:${scannerRuntimeImport}=${scannerPath}`,
     `--outfile=${tmpOut}`,
   ];
   const result = spawnSync("npx", ["--no-install", "esbuild", ...esbuildArgs], {

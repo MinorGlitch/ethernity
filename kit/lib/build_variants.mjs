@@ -15,6 +15,6 @@ export function selectedVariants(requested = "both") {
   throw new Error("ETHERNITY_KIT_VARIANTS must be one of: both, lean, scanner");
 }
 
-export function scannerHookPathForMode(scannerMode, scannerHookLeanPath, scannerHookJsqrPath) {
-  return scannerMode === "jsqr" ? scannerHookJsqrPath : scannerHookLeanPath;
+export function scannerPathForMode(scannerMode, scannerLeanPath, scannerJsqrPath) {
+  return scannerMode === "jsqr" ? scannerJsqrPath : scannerLeanPath;
 }

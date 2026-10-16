@@ -103,7 +103,7 @@ export async function recoverLatestFromPlaintextDocuments(
     if (!rootOnly && target.kind !== "latest") {
       throw new RecoveryError(
         "RECOVERY_TARGET_INVALID",
-        "requested extension target was not supplied",
+        "The chosen update has not been added. Add its pages and the original backup.",
       );
     }
     ensureExpectedHeadSatisfied(target, root.document.docHashHex);
@@ -420,7 +420,7 @@ function ensureExpectedHeadSatisfied(target, actualHeadDocHashHex) {
   if (actualHeadDocHashHex !== target.expectedHeadDocHashHex) {
     throw new RecoveryError(
       "RECOVERY_TARGET_INVALID",
-      `validated extension head doc_hash does not match expected head ${target.expectedHeadDocHashHex}; latest supplied head is ${actualHeadDocHashHex}`,
+      `The recovered version does not match your expected fingerprint. Check the fingerprint and add the matching pages. Expected: ${target.expectedHeadDocHashHex}. Found: ${actualHeadDocHashHex}.`,
     );
   }
 }
@@ -448,7 +448,7 @@ function deriveRootSigningPublicKey(manifest) {
   if (!manifest?.signingSeed) {
     throw new RecoveryError(
       "AUTH_REQUIRED",
-      "extension replay requires an unsealed root backup with its signing seed",
+      "These updates need the original backup with its signing key. The added original is sealed and cannot be used to recover updates.",
     );
   }
   return deriveSigningPublicKey(manifest.signingSeed);
@@ -472,7 +472,7 @@ function selectLatestSuppliedChain(extensions) {
     if (existing && existing.docHashHex !== extension.docHashHex) {
       throw new RecoveryError(
         "RECOVERY_TARGET_INVALID",
-        `content import contains multiple authenticated extensions for index ${index}`,
+        `Two signed updates have the same number (${index}) but different contents. Start over with one matching set of update pages.`,
       );
     }
     byIndex.set(index, extension);
@@ -494,7 +494,7 @@ function selectSuppliedChainForTarget(extensions, target) {
     if (!latest || latest.header.index !== target.index) {
       throw new RecoveryError(
         "RECOVERY_TARGET_INVALID",
-        `extension index target was not supplied: ${target.index}`,
+        `Update ${target.index} has not been added. Add its pages and any earlier updates.`,
       );
     }
     return selected;
@@ -506,14 +506,17 @@ function selectSuppliedChainForTarget(extensions, target) {
     if (!targetExtension) {
       throw new RecoveryError(
         "RECOVERY_TARGET_INVALID",
-        `extension doc_hash target was not supplied: ${target.docHashHex}`,
+        `No added update matches this fingerprint: ${target.docHashHex}. Check the fingerprint and add the matching pages.`,
       );
     }
     return selectLatestSuppliedChain(
       extensions.filter((extension) => extension.header.index <= targetExtension.header.index),
     );
   }
-  throw new RecoveryError("RECOVERY_TARGET_INVALID", "unknown extension recovery target");
+  throw new RecoveryError(
+    "RECOVERY_TARGET_INVALID",
+    "Choose latest, root, an update number, or a full backup fingerprint.",
+  );
 }
 
 async function documentHasVerifiedRootSignature(document, expectedSignPub, verifySignature) {

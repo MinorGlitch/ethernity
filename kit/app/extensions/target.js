@@ -18,7 +18,7 @@ export function normalizeExpectedHeadDocHash(value) {
   if (!DOC_HASH_PATTERN.test(hash)) {
     throw new RecoveryError(
       "RECOVERY_TARGET_INVALID",
-      "expected head doc hash must be 64 hex characters",
+      "The expected backup fingerprint must contain 64 hexadecimal characters.",
     );
   }
   return hash;
@@ -50,19 +50,16 @@ export function inspectExtensionTarget(
   expectedHeadValue = null,
   freshnessUnknownAcknowledged = false,
 ) {
+  let target = null;
   try {
-    const target = normalizeExtensionTarget(value, expectedHeadValue);
-    try {
-      return {
-        target,
-        decision: requireFreshnessDecision(target, freshnessUnknownAcknowledged),
-        error: null,
-      };
-    } catch (error) {
-      return { target, decision: null, error };
-    }
+    target = normalizeExtensionTarget(value, expectedHeadValue);
+    return {
+      target,
+      decision: requireFreshnessDecision(target, freshnessUnknownAcknowledged),
+      error: null,
+    };
   } catch (error) {
-    return { target: null, decision: null, error };
+    return { target, decision: null, error };
   }
 }
 
@@ -100,7 +97,7 @@ function targetFromObject(value) {
     if (!Number.isInteger(value.index) || value.index < 0) {
       throw new RecoveryError(
         "RECOVERY_TARGET_INVALID",
-        "extension index target must be a non-negative integer",
+        "Use a whole update number, or 0 for the original backup.",
       );
     }
     target = value.index === 0 ? { kind: "root" } : { kind: "index", index: value.index };
@@ -109,7 +106,7 @@ function targetFromObject(value) {
     if (!DOC_HASH_PATTERN.test(docHashHex)) {
       throw new RecoveryError(
         "RECOVERY_TARGET_INVALID",
-        "extension doc_hash target must be 64 hex characters",
+        "The backup fingerprint must contain 64 hexadecimal characters.",
       );
     }
     target = { kind: "doc_hash", docHashHex };
@@ -124,7 +121,7 @@ function attachExpectedHead(target, expectedHeadDocHashHex) {
   if (target.expectedHeadDocHashHex && target.expectedHeadDocHashHex !== expectedHeadDocHashHex) {
     throw new RecoveryError(
       "RECOVERY_TARGET_INVALID",
-      "expected head doc hash conflicts with extension recovery target",
+      "The version and expected fingerprint fields specify different fingerprints. Check both entries.",
     );
   }
   return { ...target, expectedHeadDocHashHex };
@@ -133,7 +130,7 @@ function attachExpectedHead(target, expectedHeadDocHashHex) {
 function invalidTargetError() {
   return new RecoveryError(
     "RECOVERY_TARGET_INVALID",
-    "extension target must be latest, latest:<doc hash>, root, an extension index, or a doc hash",
+    "Choose latest, root, an update number, or a full backup fingerprint.",
   );
 }
 
@@ -147,11 +144,11 @@ export function requireFreshnessDecision(target, freshnessUnknownAcknowledged) {
   if (target.kind === "latest") {
     throw new RecoveryError(
       "RECOVERY_TARGET_INVALID",
-      "latest recovery requires an expected head hash or explicit freshness-unknown acknowledgement",
+      "Enter the expected backup fingerprint, or confirm that newer updates may be missing.",
     );
   }
   throw new RecoveryError(
     "RECOVERY_TARGET_INVALID",
-    "selected recovery target requires an expected head hash",
+    "Enter the expected backup fingerprint to recover this version.",
   );
 }

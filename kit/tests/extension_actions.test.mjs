@@ -59,18 +59,18 @@ test("browser decrypt action recovers latest supplied extension status", async (
     [["a.txt", "extension"]],
   );
   assert.equal(
-    finalState.decryptStatus.lines.includes("Replay target: latest supplied extension 1."),
-    true,
-  );
-  assert.equal(
     finalState.decryptStatus.lines.includes(
-      "Freshness: unknown beyond supplied pages; explicit acknowledgement used.",
+      "Recovered update 1, the newest update among the pages you added.",
     ),
     true,
   );
   assert.equal(
+    finalState.decryptStatus.lines.includes("Newer updates may exist outside the pages you added."),
+    true,
+  );
+  assert.equal(
     finalState.decryptStatus.lines.includes(
-      "Trust: Internally consistent; no independently trusted fingerprint matched.",
+      "The pages passed their checks, but were not matched to a separately kept fingerprint.",
     ),
     true,
   );
@@ -242,10 +242,12 @@ test("browser decrypt action can recover root only from multiple supplied docume
     finalState.extractedFiles.map((file) => [file.path, new TextDecoder().decode(file.data)]),
     [["a.txt", "root"]],
   );
-  assert.equal(finalState.decryptStatus.lines.includes("Replay target: root backup only."), true);
+  assert.equal(finalState.decryptStatus.lines.includes("Recovered the original backup."), true);
   assert.equal(
-    finalState.decryptStatus.lines.includes("Freshness scope: supplied carriers only."),
-    false,
+    finalState.decryptStatus.lines.includes(
+      "A matching fingerprint does not rule out a newer update.",
+    ),
+    true,
   );
 });
 
@@ -284,9 +286,11 @@ test("browser decrypt action can recover root only with incomplete extension fra
   const finalState = store.getState();
   assert.equal(finalState.extractedFiles.length > 0, true);
   assert.equal(finalState.decryptStatus.type, "ok");
-  assert.equal(finalState.decryptStatus.lines.includes("Replay target: root backup only."), true);
+  assert.equal(finalState.decryptStatus.lines.includes("Recovered the original backup."), true);
   assert.equal(
-    finalState.decryptStatus.lines.includes("Ignored 1 incomplete non-root backup document(s)."),
+    finalState.decryptStatus.lines.includes(
+      `Skipped incomplete documents: ${bytesToHex(EXT1_DOC_ID)}.`,
+    ),
     true,
   );
 });
@@ -330,7 +334,9 @@ test("browser decrypt action reports ignored AUTH-only frames for root-only reco
   assert.equal(finalState.extractedFiles.length > 0, true);
   assert.equal(finalState.decryptStatus.type, "ok");
   assert.equal(
-    finalState.decryptStatus.lines.includes("Ignored 1 AUTH-only non-root backup document(s)."),
+    finalState.decryptStatus.lines.includes(
+      `Skipped documents with only an AUTH section: ${bytesToHex(EXT1_DOC_ID)}.`,
+    ),
     true,
   );
 });
@@ -382,12 +388,11 @@ test("browser decrypt action can recover selected extension with incomplete late
   const finalState = store.getState();
   assert.equal(finalState.extractedFiles.length > 0, true);
   assert.equal(finalState.decryptStatus.type, "ok");
+  assert.equal(finalState.decryptStatus.lines.includes("Recovered update 1."), true);
   assert.equal(
-    finalState.decryptStatus.lines.includes("Replay target: supplied extension 1."),
-    true,
-  );
-  assert.equal(
-    finalState.decryptStatus.lines.includes("Ignored 1 incomplete non-root backup document(s)."),
+    finalState.decryptStatus.lines.includes(
+      `Skipped incomplete documents: ${bytesToHex(EXT2_DOC_ID)}.`,
+    ),
     true,
   );
   assert.deepEqual(
@@ -438,10 +443,7 @@ test("browser decrypt action accepts extension target input by index", async () 
   const finalState = store.getState();
   assert.equal(finalState.extractedFiles.length > 0, true);
   assert.equal(finalState.decryptStatus.type, "ok");
-  assert.equal(
-    finalState.decryptStatus.lines.includes("Replay target: supplied extension 1."),
-    true,
-  );
+  assert.equal(finalState.decryptStatus.lines.includes("Recovered update 1."), true);
   assert.deepEqual(
     finalState.extractedFiles.map((file) => [file.path, new TextDecoder().decode(file.data)]),
     [["a.txt", "one"]],
@@ -482,7 +484,7 @@ test("browser decrypt action accepts extension target input by doc hash", async 
   assert.equal(finalState.extractedFiles.length > 0, true);
   assert.equal(finalState.decryptStatus.type, "ok");
   assert.equal(
-    finalState.decryptStatus.lines.includes(`Extension doc hash: ${extDocHashHex}.`),
+    finalState.decryptStatus.details.includes(`Selected update fingerprint: ${extDocHashHex}`),
     true,
   );
   assert.deepEqual(
@@ -517,7 +519,7 @@ test("browser decrypt action preserves selected doc hash decrypt errors", async 
   assert.equal(finalState.extractedFiles.length > 0, false);
   assert.equal(finalState.decryptStatus.type, "error");
   assert.match(
-    finalState.decryptStatus.lines[0],
+    finalState.decryptStatus.details[0],
     /selected extension doc_hash .* could not be decrypted: damaged age payload/,
   );
 });
@@ -557,18 +559,20 @@ test("browser decrypt action accepts dedicated expected head doc hash", async ()
   assert.equal(finalState.extractedFiles.length > 0, true);
   assert.equal(finalState.decryptStatus.type, "ok");
   assert.equal(
-    finalState.decryptStatus.lines.includes("Replay target: latest supplied extension 1."),
-    true,
-  );
-  assert.equal(
     finalState.decryptStatus.lines.includes(
-      "Freshness: matched the manually entered expected head hash.",
+      "Recovered update 1, the newest update among the pages you added.",
     ),
     true,
   );
   assert.equal(
     finalState.decryptStatus.lines.includes(
-      "Trust: Matched expected fingerprint; root identity, signing key, and selected head are bound.",
+      "A matching fingerprint does not rule out a newer update.",
+    ),
+    true,
+  );
+  assert.equal(
+    finalState.decryptStatus.lines.includes(
+      "The fingerprint you supplied matches. It verifies the original backup, signing key, and selected version.",
     ),
     true,
   );
@@ -596,7 +600,7 @@ test("browser sealed recovery status states the manual fingerprint signing-key l
     store
       .getState()
       .decryptStatus.lines.includes(
-        "Trust: Matched expected fingerprint; backup identity is bound. The sealed backup hash does not bind its signing key.",
+        "The fingerprint you supplied matches. It verifies the backup, but not its signing key.",
       ),
   );
 });
@@ -621,12 +625,12 @@ test("browser unlock action also extracts the root document", async () => {
   );
 });
 
-for (const [code, message] of [
-  [null, "invalid passphrase: password decrypt"],
-  ["DOCUMENT_INTEGRITY_FAILED", "invalid passphrase: password decrypt"],
-  ["RECOVERY_RESOURCE_LIMIT", "invalid passphrase: password decrypt"],
-  ["AUTH_SIGNATURE_INVALID", "invalid passphrase: password decrypt"],
-  ["PASSPHRASE_AUTH_FAILED", "a different explanation"],
+for (const [code, message, expectedHint] of [
+  [null, "invalid passphrase: password decrypt", /format this kit cannot read/],
+  ["DOCUMENT_INTEGRITY_FAILED", "invalid passphrase: password decrypt", /integrity check/],
+  ["RECOVERY_RESOURCE_LIMIT", "invalid passphrase: password decrypt", /size or processing limits/],
+  ["AUTH_SIGNATURE_INVALID", "invalid passphrase: password decrypt", /signature is invalid/],
+  ["PASSPHRASE_AUTH_FAILED", "a different explanation", /passphrase did not unlock/],
 ]) {
   test(`browser retry and hint depend on code ${code}, not wording`, async () => {
     const store = createStore();
@@ -643,10 +647,8 @@ for (const [code, message] of [
     });
     const status = store.getState().decryptStatus;
     assert.equal(attempts, code === "PASSPHRASE_AUTH_FAILED" ? 2 : 1);
-    assert.equal(
-      status.lines[0],
-      code === "PASSPHRASE_AUTH_FAILED" ? "Incorrect passphrase." : message,
-    );
+    assert.match(status.lines[0], expectedHint);
+    assert.deepEqual(status.details, [message]);
     assert.equal(status.code, code ?? "DOCUMENT_INVALID");
     assert.equal(
       status.stage,

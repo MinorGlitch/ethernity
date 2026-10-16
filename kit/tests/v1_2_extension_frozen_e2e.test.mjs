@@ -161,6 +161,6 @@ test("frozen root-bound quorum restores root and an intact prefix when the lates
           expectedHeadDocHashHex: snapshot.extension_doc_hashes.extension_02,
         },
       }),
-    /does not match expected head/u,
+    /does not match your expected fingerprint/u,
   );
 });

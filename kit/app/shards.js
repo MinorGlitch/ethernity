@@ -21,6 +21,7 @@ import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED, textDecoder } from "./con
 import { completeDocumentRecords } from "./documents/store.js";
 import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 import { setStatus } from "./state/initial.js";
+import { setErrorStatus } from "./state_actions.js";
 
 function setShardStatus(state, statusPrefix, line, type) {
   const lines = statusPrefix.length ? [...statusPrefix, line] : [line];
@@ -39,7 +40,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     setShardStatus(
       state,
       statusPrefix,
-      "Shard recovery blocked: shard payload hash is missing.",
+      "A recovery sheet is missing its backup fingerprint. Try another copy of that sheet.",
       "error",
     );
     return false;
@@ -49,14 +50,20 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
   try {
     documentBindings = collectedDocumentBindings(state);
   } catch (err) {
-    setShardStatus(state, statusPrefix, `Shard recovery blocked: ${String(err)}`, "error");
+    setErrorStatus(
+      state,
+      "shardStatus",
+      err,
+      "The backup could not be checked. Try another copy of its pages before using these recovery sheets.",
+    );
+    state.shardStatus.lines.unshift(...statusPrefix);
     return false;
   }
   if (!documentBindings.size) {
     setShardStatus(
       state,
       statusPrefix,
-      "Shard recovery blocked: collect main frames to derive ciphertext hash.",
+      "Add all backup pages first so the kit can check that these recovery sheets belong to them.",
       "warn",
     );
     return false;
@@ -73,7 +80,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     setShardStatus(
       state,
       statusPrefix,
-      "Shard recovery blocked: shard hash does not match collected ciphertext.",
+      "These recovery sheets do not match the added backup. Check the document IDs.",
       "error",
     );
     return false;
@@ -88,7 +95,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     setShardStatus(
       state,
       statusPrefix,
-      "Shard recovery blocked: shard signing key does not match verified document AUTH.",
+      "The recovery sheets use a different signing key from the backup. Check that they belong together.",
       "error",
     );
     return false;
@@ -102,7 +109,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     setShardStatus(
       state,
       statusPrefix,
-      "Shard recovery blocked: conflicting shard frames for the selected shard set.",
+      "Two copies of the same recovery sheet contain different data. Start over with one matching set.",
       "error",
     );
     return false;
@@ -116,7 +123,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     setShardStatus(
       state,
       statusPrefix,
-      "Shard recovery blocked: shard frame doc_id does not match shard hash.",
+      "A recovery sheet has an incorrect document ID. Try another copy of that sheet.",
       "error",
     );
     return false;
@@ -132,7 +139,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     setShardStatus(
       state,
       statusPrefix,
-      "Shard recovery blocked: verify shard signatures first.",
+      "The recovery sheets have not passed their signature checks. Try adding them again or use another browser.",
       "warn",
     );
     return false;
@@ -153,9 +160,16 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     } else {
       state.recoveredShardSecret = bytesToHex(secretBytes);
     }
-    setShardStatus(state, statusPrefix, "Recovered shard secret from shard documents.", "ok");
+    const recovered = record.keyType === SHARD_KEY_PASSPHRASE ? "passphrase" : "signing key";
+    setShardStatus(state, statusPrefix, `Recovered your ${recovered}.`, "ok");
   } catch (err) {
-    setShardStatus(state, statusPrefix, String(err), "error");
+    setErrorStatus(
+      state,
+      "shardStatus",
+      err,
+      "The recovery sheets could not be combined. Check that they belong to the same set and try another copy.",
+    );
+    state.shardStatus.lines.unshift(...statusPrefix);
     return false;
   }
   return true;
