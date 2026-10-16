@@ -39,8 +39,7 @@ from tests.support.pilot import (
 
 
 async def type_text(pilot, value: str) -> None:
-    for character in value:
-        await pilot.press("space" if character == " " else character)
+    await pilot.press(*("space" if character == " " else character for character in value))
 
 
 async def choose_picker_paths(app: EthernityApp, pilot, *paths: Path) -> None:

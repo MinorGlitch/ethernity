@@ -36,9 +36,18 @@ class _Activity:
     generation: int = 0
     last_message: str = ""
     changed: asyncio.Event = field(default_factory=asyncio.Event)
+    handling: WeakSet[asyncio.Task] = field(default_factory=WeakSet)
+    completed: WeakSet[asyncio.Task] = field(default_factory=WeakSet)
     resized_screens: WeakKeyDictionary[Screen, tuple[int, int]] = field(
         default_factory=WeakKeyDictionary
     )
+
+    def dispatch(self, message: Message) -> None:
+        # run_test's hook runs in the receiving pump's task, before its handler.
+        # An empty queue alone does not mean an async handler has finished.
+        task = asyncio.current_task()
+        if task is not None:
+            self.handling.add(task)
 
     def observe_resize(self, screen_ref: ref[Screen], message: Message) -> None:
         screen = screen_ref()
@@ -46,16 +55,21 @@ class _Activity:
             self.resized_screens[screen] = message.size
 
     def observe(self, message: Message) -> None:
-        # Queue wakeups and cursor/progress repaints are not input work.
-        # Await rendering separately so they cannot keep a session busy forever.
-        if message.no_dispatch:
-            return
+        task = asyncio.current_task()
+        if task is not None:
+            self.handling.discard(task)
         if isinstance(message, (events.Callback, messages.InvokeLater)):
             callback = message.callback
             while isinstance(callback, partial):
                 callback = callback.func
             if isinstance(callback, _Barrier):
                 return
+        if task is not None:
+            self.completed.add(task)
+        # A queue wakeup can start async idle callbacks after publication. Fence
+        # that pump too, without treating wakeups or repaints as new input work.
+        if message.no_dispatch:
+            return
         self.changed.set()
         if isinstance(message, (events.Timer, messages.Update)):
             return
@@ -146,6 +160,7 @@ class AppPilot(Pilot[Result]):
 
     async def _drain_messages(self) -> None:
         barrier = _Barrier(remaining=0)
+        new_nodes: set[MessagePump] = set()
         for node in (self.app, *self.app.screen.walk_children(with_self=True)):
             if node not in self._observed:
                 node.message_signal.subscribe(self.app, self._activity.observe, immediate=True)
@@ -154,10 +169,27 @@ class AppPilot(Pilot[Result]):
                         self.app, partial(self._activity.observe_resize, ref(node)), immediate=True
                     )
                 self._observed.add(node)
+                new_nodes.add(node)
+        # Include previously observed screens and hidden widgets: their handlers
+        # can still update application state. New pumps need an initial fence,
+        # since their first messages may predate the completion subscription.
+        for node in self._observed:
+            if not node.is_running:
+                continue
+            task = node.task
+            if (
+                node not in new_nodes
+                and not node.message_queue_size
+                and task not in self._activity.handling
+                and task not in self._activity.completed
+            ):
+                continue
+            self._activity.completed.discard(task)
             if node.call_later(barrier):
                 barrier.remaining += 1
-        # One event for the pass, rather than a separate event and asyncio task
-        # for every widget. Barriers still include handlers already in flight.
+        # Completed handlers also need a fence: Textual may already have removed
+        # the next message from its queue, or still be running idle callbacks.
+        # Idle pumps receive no callbacks and cannot amplify synchronization work.
         if barrier.remaining:
             await barrier.done.wait()
 
@@ -191,6 +223,7 @@ async def run_app_test(
         size=size,
         tooltips=tooltips,
         notifications=notifications,
+        message_hook=activity.dispatch,
     ):
         pilot = AppPilot(app, activity)
         await pilot.pause()

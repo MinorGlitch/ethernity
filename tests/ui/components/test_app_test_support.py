@@ -13,6 +13,8 @@ from textual.widgets import Button, Input, Static
 
 from tests.support.app import run_app_test
 
+pytestmark = pytest.mark.portability
+
 
 class DeferredEditor(VerticalGroup):
     class Changed(Message):
@@ -177,5 +179,73 @@ def test_pause_follows_callbacks_in_a_screen_mounted_by_the_test() -> None:
             await pilot.pause()
             assert remaining == 0
             assert "Finished" in screen.query_one(Static).render_line(0).text
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("hidden", [False, True])
+@pytest.mark.parametrize("idle_callback", [False, True])
+def test_pause_waits_for_in_flight_handlers_with_empty_queues(
+    hidden: bool, idle_callback: bool
+) -> None:
+    class BusyWidget(Static):
+        class Work(Message):
+            pass
+
+        async def on_busy_widget_work(self, event: Work) -> None:
+            event.stop()
+            await self.finish()
+
+        async def finish(self) -> None:
+            started.set()
+            await asyncio.sleep(0.1)
+            self.app.query_one("#result", Static).update("Finished")
+
+    class BusyApp(App[None]):
+        def compose(self) -> ComposeResult:
+            yield BusyWidget(id="busy")
+            yield Static("Waiting", id="result")
+
+    async def run() -> None:
+        app = BusyApp()
+        async with run_app_test(app) as pilot:
+            widget = app.query_one(BusyWidget)
+            widget.display = not hidden
+            await pilot.pause()
+            if idle_callback:
+                widget.call_next(widget.finish)
+            else:
+                widget.post_message(BusyWidget.Work())
+            async with asyncio.timeout(5):
+                await started.wait()
+            assert widget.message_queue_size == 0
+            await pilot.pause()
+            assert "Finished" in app.query_one("#result").render_line(0).text
+
+    started = asyncio.Event()
+    asyncio.run(run())
+
+
+def test_idle_widgets_do_not_receive_synchronization_callbacks() -> None:
+    class IdleWidget(Static):
+        callbacks = 0
+
+        def on_callback(self, _event: events.Callback) -> None:
+            self.callbacks += 1
+
+    class IdleApp(App[None]):
+        def compose(self) -> ComposeResult:
+            for index in range(200):
+                yield IdleWidget(str(index))
+
+    async def run() -> None:
+        app = IdleApp()
+        async with run_app_test(app) as pilot:
+            widgets = app.query(IdleWidget)
+            for widget in widgets:
+                widget.callbacks = 0
+            await pilot.pause()
+            await pilot.pause()
+            assert sum(widget.callbacks for widget in widgets) == 0
 
     asyncio.run(run())
