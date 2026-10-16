@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import io
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from PIL import ImageGrab
 
-from ethernity.cli.shared.io.frames import _frame_from_scanned_payload
 from ethernity.encoding.framing import Frame
 from ethernity.qr.scan import QrScanError, _load_decoder, scan_qr_payloads
+from ethernity.workflows.recovery.frame_inputs import frame_from_scanned_payload
 
-from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
 from .constants import SCAN_SUFFIXES
 from .formatting import payload_lines_from_frames
 
@@ -22,7 +21,7 @@ def _frames_from_scanned_payloads(
     errors: list[str] = []
     for index, payload in enumerate(payloads, start=1):
         try:
-            frames.append(_frame_from_scanned_payload(payload))
+            frames.append(frame_from_scanned_payload(payload))
         except ValueError as exc:
             errors.append(f"#{index}: {exc}")
     if not frames:
@@ -67,6 +66,10 @@ def _payload_text_from_clipboard_image(*, allow_missing: bool) -> tuple[str, lis
             return None
         raise ValueError("clipboard does not contain an image")
 
+    return _payload_text_from_image(clipboard_object)
+
+
+def _payload_text_from_image(clipboard_object) -> tuple[str, list[str]]:
     image_buffer = io.BytesIO()
     clipboard_object.save(image_buffer, format="PNG")
     decoder = _load_decoder()

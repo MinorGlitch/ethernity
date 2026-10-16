@@ -15,44 +15,29 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { bytesEqual, concatByteParts } from "./bytes.js";
+
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 const CBOR_FLOAT_BOX = Symbol("cborFloatBox");
 
 export function decodeCbor(bytes) {
-  const result = decodeCborItem(bytes, 0);
-  if (result.offset !== bytes.length) {
-    throw new Error("extra CBOR data");
-  }
-  return result.value;
+  return decodeCborWithOptions(bytes);
 }
 
-export function decodeCanonicalCbor(bytes, label, options = {}) {
-  const typed = decodeCborWithOptions(bytes, {
-    preserveFloatType: true,
-    preserveMapType: Boolean(options.preserveMapType),
-  });
-  const encoded = encodeCbor(typed);
-  if (!bytesEqual(encoded, bytes)) {
-    throw new Error(
-      `${label} must use canonical CBOR encoding (indefinite-length items are not allowed)`,
-    );
-  }
-  if (options.preserveFloatType) {
-    return typed;
-  }
-  return stripCborFloatBoxes(typed);
+export function decodeDeterministicCbor(bytes, label, options = {}) {
+  return decodeCborWithOptions(bytes, { ...options, deterministicLabel: label });
 }
 
 export function encodeCbor(value) {
   const chunks = [];
   encodeCborItem(value, chunks);
-  return concatChunks(chunks);
+  return concatByteParts(chunks);
 }
 
 function encodeCborItem(value, chunks) {
   if (isCborFloatBox(value)) {
-    chunks.push(encodeCanonicalFloat(value.value));
+    chunks.push(encodeShortestFloat(value.value));
     return;
   }
   if (value instanceof Uint8Array) {
@@ -73,27 +58,12 @@ function encodeCborItem(value, chunks) {
     }
     return;
   }
-  if (value instanceof Map) {
-    const entries = [];
-    for (const [key, item] of value.entries()) {
-      entries.push({ keyBytes: encodeCbor(key), value: item });
-    }
-    entries.sort((left, right) => compareBytes(left.keyBytes, right.keyBytes));
-    chunks.push(encodeMajorLength(5, entries.length));
-    for (const entry of entries) {
-      chunks.push(entry.keyBytes);
-      encodeCborItem(entry.value, chunks);
-    }
-    return;
-  }
   if (value !== null && typeof value === "object") {
-    const entries = [];
-    for (const [key, item] of Object.entries(value)) {
-      if (typeof key !== "string") {
-        throw new Error("unsupported CBOR map key");
-      }
-      entries.push({ keyBytes: encodeCbor(key), value: item });
-    }
+    const items = value instanceof Map ? value.entries() : Object.entries(value);
+    const entries = Array.from(items, ([key, item]) => ({
+      keyBytes: encodeCbor(key),
+      value: item,
+    }));
     entries.sort((left, right) => compareBytes(left.keyBytes, right.keyBytes));
     chunks.push(encodeMajorLength(5, entries.length));
     for (const entry of entries) {
@@ -111,7 +81,7 @@ function encodeCborItem(value, chunks) {
     return;
   }
   if (typeof value === "number" && Number.isFinite(value)) {
-    chunks.push(encodeCanonicalFloat(value));
+    chunks.push(encodeShortestFloat(value));
     return;
   }
   if (value === null) {
@@ -135,30 +105,6 @@ function isCborFloatBox(value) {
 
 function cborFloatBox(value) {
   return { [CBOR_FLOAT_BOX]: true, value };
-}
-
-function stripCborFloatBoxes(value) {
-  if (isCborFloatBox(value)) {
-    return value.value;
-  }
-  if (Array.isArray(value)) {
-    return value.map(stripCborFloatBoxes);
-  }
-  if (value instanceof Map) {
-    const out = new Map();
-    for (const [key, item] of value.entries()) {
-      out.set(key, stripCborFloatBoxes(item));
-    }
-    return out;
-  }
-  if (value instanceof Uint8Array || value === null || typeof value !== "object") {
-    return value;
-  }
-  const out = {};
-  for (const [key, item] of Object.entries(value)) {
-    out[key] = stripCborFloatBoxes(item);
-  }
-  return out;
 }
 
 function compareBytes(left, right) {
@@ -210,18 +156,7 @@ function encodeMajorLength(major, length) {
   throw new Error("CBOR length too large");
 }
 
-function concatChunks(chunks) {
-  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
-}
-
-function encodeCanonicalFloat(value) {
+function encodeShortestFloat(value) {
   const float16Bits = encodeFloat16Exact(value);
   if (float16Bits !== null) {
     return Uint8Array.of(0xf9, (float16Bits >> 8) & 0xff, float16Bits & 0xff);
@@ -241,73 +176,21 @@ function encodeCanonicalFloat(value) {
 }
 
 function isExactFloat32(value) {
-  const bytes = new Uint8Array(4);
-  const view = new DataView(bytes.buffer, bytes.byteOffset, 4);
-  view.setFloat32(0, value);
-  return Object.is(view.getFloat32(0), value);
+  return Object.is(Math.fround(value), value);
 }
 
 function encodeFloat16Exact(value) {
-  const bits = floatToHalfBits(value);
-  if (bits === null) {
-    return null;
+  const magnitude = Math.abs(value);
+  if (!Number.isFinite(value) || magnitude > 65504) return null;
+  const sign = value < 0 || Object.is(value, -0) ? 0x8000 : 0;
+  // Subnormals use a fixed step; normal values have ten fraction bits.
+  if (magnitude < 2 ** -14) {
+    const fraction = magnitude * 2 ** 24;
+    return Number.isInteger(fraction) ? sign | fraction : null;
   }
-  return Object.is(decodeHalfFloat(bits), value) ? bits : null;
-}
-
-function floatToHalfBits(value) {
-  if (!Number.isFinite(value)) {
-    return null;
-  }
-  const f32Bytes = new Uint8Array(4);
-  const f32View = new DataView(f32Bytes.buffer, f32Bytes.byteOffset, 4);
-  f32View.setFloat32(0, value);
-  const x = f32View.getUint32(0);
-  const sign = (x >>> 16) & 0x8000;
-  let mantissa = x & 0x007fffff;
-  let exp = (x >>> 23) & 0xff;
-
-  if (exp === 0xff) {
-    return null;
-  }
-  if (exp === 0) {
-    return sign;
-  }
-
-  exp = exp - 127 + 15;
-  if (exp >= 0x1f) {
-    return sign | 0x7c00;
-  }
-  if (exp <= 0) {
-    if (exp < -10) {
-      return sign;
-    }
-    mantissa |= 0x00800000;
-    const shift = 14 - exp;
-    let halfMantissa = mantissa >> shift;
-    const roundBit = 1 << (shift - 1);
-    const roundMask = roundBit - 1;
-    const remainder = mantissa & roundMask;
-    const tie = mantissa & roundBit;
-    if (tie && (remainder || halfMantissa & 1)) {
-      halfMantissa += 1;
-    }
-    return sign | halfMantissa;
-  }
-
-  let halfMantissa = mantissa >> 13;
-  const remainder = mantissa & 0x1fff;
-  if (remainder > 0x1000 || (remainder === 0x1000 && halfMantissa & 1)) {
-    halfMantissa += 1;
-    if (halfMantissa === 0x400) {
-      halfMantissa = 0;
-      exp += 1;
-      if (exp >= 0x1f) {
-        return sign | 0x7c00;
-      }
-    }
-  }
-  return sign | (exp << 10) | halfMantissa;
+  const exponent = Math.floor(Math.log2(magnitude));
+  const fraction = magnitude / 2 ** (exponent - 10) - 1024;
+  return Number.isInteger(fraction) ? sign | ((exponent + 15) << 10) | fraction : null;
 }
 
 function decodeHalfFloat(bits) {
@@ -329,135 +212,108 @@ function decodeHalfFloat(bits) {
   return sign * (1 + mantissa / 1024) * 2 ** (exp - 15);
 }
 
-function bytesEqual(left, right) {
-  if (left.length !== right.length) {
-    return false;
-  }
-  for (let idx = 0; idx < left.length; idx += 1) {
-    if (left[idx] !== right[idx]) {
-      return false;
-    }
-  }
-  return true;
-}
-
 function decodeCborWithOptions(bytes, options = {}) {
-  const result = decodeCborItem(bytes, 0, options);
-  if (result.offset !== bytes.length) {
-    throw new Error("extra CBOR data");
-  }
-  return result.value;
-}
+  let offset = 0;
+  const deterministic = "deterministicLabel" in options;
+  const rejectEncoding = () => {
+    throw new Error(
+      `${options.deterministicLabel} must use deterministic CBOR encoding (indefinite-length items are not allowed)`,
+    );
+  };
 
-function decodeCborItem(bytes, offset, options = {}) {
-  if (offset >= bytes.length) throw new Error("CBOR truncated");
-  const first = bytes[offset++];
-  const major = first >> 5;
-  const addl = first & 0x1f;
-  if (major === 7) {
-    if (addl === 20) return { value: false, offset };
-    if (addl === 21) return { value: true, offset };
-    if (addl === 22) return { value: null, offset };
-    if (addl === 25) {
-      if (offset + 2 > bytes.length) throw new Error("CBOR float truncated");
-      const bits = (bytes[offset] << 8) | bytes[offset + 1];
-      const value = decodeHalfFloat(bits);
-      return { value: options.preserveFloatType ? cborFloatBox(value) : value, offset: offset + 2 };
-    }
-    if (addl === 26) {
-      if (offset + 4 > bytes.length) throw new Error("CBOR float truncated");
-      const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 4);
-      const value = view.getFloat32(0);
-      return { value: options.preserveFloatType ? cborFloatBox(value) : value, offset: offset + 4 };
-    }
-    if (addl === 27) {
-      if (offset + 8 > bytes.length) throw new Error("CBOR float truncated");
-      const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 8);
-      const value = view.getFloat64(0);
-      return { value: options.preserveFloatType ? cborFloatBox(value) : value, offset: offset + 8 };
-    }
-    throw new Error("unsupported CBOR simple value");
-  }
-
-  const lengthInfo = readCborLength(bytes, offset, addl);
-  const length = lengthInfo.value;
-  offset = lengthInfo.offset;
-  switch (major) {
-    case 0:
-      return { value: length, offset };
-    case 1:
-      return { value: -1 - length, offset };
-    case 2: {
-      const end = offset + length;
-      if (end > bytes.length) throw new Error("CBOR bytes truncated");
-      return { value: bytes.slice(offset, end), offset: end };
-    }
-    case 3: {
-      const end = offset + length;
-      if (end > bytes.length) throw new Error("CBOR text truncated");
-      const text = textDecoder.decode(bytes.slice(offset, end));
-      return { value: text, offset: end };
-    }
-    case 4: {
-      const arr = [];
-      for (let i = 0; i < length; i += 1) {
-        const item = decodeCborItem(bytes, offset, options);
-        arr.push(item.value);
-        offset = item.offset;
-      }
-      return { value: arr, offset };
-    }
-    case 5: {
-      if (options.preserveMapType) {
-        const map = new Map();
-        for (let i = 0; i < length; i += 1) {
-          const keyItem = decodeCborItem(bytes, offset, options);
-          offset = keyItem.offset;
-          const valItem = decodeCborItem(bytes, offset, options);
-          offset = valItem.offset;
-          map.set(keyItem.value, valItem.value);
-        }
-        return { value: map, offset };
-      }
-      const obj = {};
-      for (let i = 0; i < length; i += 1) {
-        const keyItem = decodeCborItem(bytes, offset, options);
-        offset = keyItem.offset;
-        const valItem = decodeCborItem(bytes, offset, options);
-        offset = valItem.offset;
-        obj[String(keyItem.value)] = valItem.value;
-      }
-      return { value: obj, offset };
-    }
-    default:
-      throw new Error("unsupported CBOR type");
-  }
-}
-
-function readCborLength(bytes, offset, addl) {
-  if (addl < 24) return { value: addl, offset };
-  if (addl === 24) {
-    if (offset >= bytes.length) throw new Error("CBOR length truncated");
-    return { value: bytes[offset], offset: offset + 1 };
-  }
-  if (addl === 25) {
-    if (offset + 2 > bytes.length) throw new Error("CBOR length truncated");
-    const value = (bytes[offset] << 8) | bytes[offset + 1];
-    return { value, offset: offset + 2 };
-  }
-  if (addl === 26) {
-    if (offset + 4 > bytes.length) throw new Error("CBOR length truncated");
-    const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 4);
-    return { value: view.getUint32(0), offset: offset + 4 };
-  }
-  if (addl === 27) {
-    if (offset + 8 > bytes.length) throw new Error("CBOR length truncated");
-    const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 8);
-    const high = view.getUint32(0);
-    const low = view.getUint32(4);
-    const value = high * 2 ** 32 + low;
+  function readLength(addl) {
+    if (addl < 24) return addl;
+    if (addl > 27) throw new Error("indefinite CBOR lengths not supported");
+    const width = 2 ** (addl - 24);
+    if (offset + width > bytes.length) throw new Error("CBOR length truncated");
+    let value = 0;
+    for (let i = 0; i < width; i += 1) value = value * 256 + bytes[offset++];
     if (value > Number.MAX_SAFE_INTEGER) throw new Error("CBOR integer too large");
-    return { value, offset: offset + 8 };
+    if (deterministic && value < [24, 0x100, 0x10000, 0x100000000][addl - 24]) {
+      rejectEncoding();
+    }
+    return value;
   }
-  throw new Error("indefinite CBOR lengths not supported");
+
+  function read(preserveFloatType = options.preserveFloatType) {
+    if (offset >= bytes.length) throw new Error("CBOR truncated");
+    const start = offset;
+    const first = bytes[offset++];
+    const major = first >> 5;
+    const addl = first & 0x1f;
+    if (major === 7) {
+      if (addl === 20) return false;
+      if (addl === 21) return true;
+      if (addl === 22) return null;
+      if (addl < 25 || addl > 27) throw new Error("unsupported CBOR simple value");
+      const width = 2 ** (addl - 24);
+      if (offset + width > bytes.length) throw new Error("CBOR float truncated");
+      const view = new DataView(bytes.buffer, bytes.byteOffset + offset, width);
+      const value =
+        width === 2
+          ? decodeHalfFloat(view.getUint16(0))
+          : width === 4
+            ? view.getFloat32(0)
+            : view.getFloat64(0);
+      offset += width;
+      if (deterministic && !bytesEqual(encodeShortestFloat(value), bytes.subarray(start, offset))) {
+        rejectEncoding();
+      }
+      return preserveFloatType ? cborFloatBox(value) : value;
+    }
+
+    const length = readLength(addl);
+    switch (major) {
+      case 0:
+        return length;
+      case 1:
+        return -1 - length;
+      case 2:
+      case 3: {
+        const end = offset + length;
+        if (end > bytes.length) {
+          throw new Error(major === 2 ? "CBOR bytes truncated" : "CBOR text truncated");
+        }
+        const data = bytes.subarray(offset, end);
+        offset = end;
+        if (major === 2) return data.slice();
+        const text = textDecoder.decode(data);
+        // Preserve the existing UTF-8 checks without re-encoding the containing document.
+        if (deterministic && !bytesEqual(textEncoder.encode(text), data)) rejectEncoding();
+        return text;
+      }
+      case 4: {
+        const array = [];
+        for (let i = 0; i < length; i += 1) array.push(read(preserveFloatType));
+        return array;
+      }
+      case 5: {
+        const map = options.preserveMapType ? new Map() : {};
+        let previousKey = null;
+        for (let i = 0; i < length; i += 1) {
+          const keyStart = offset;
+          // Map keys retain their wire type, including floating-point keys.
+          const key = read(deterministic || preserveFloatType);
+          const keyBytes = bytes.subarray(keyStart, offset);
+          if (deterministic) {
+            if (previousKey && compareBytes(previousKey, keyBytes) >= 0) rejectEncoding();
+            if (!options.preserveMapType && (typeof key !== "string" || key === "__proto__")) {
+              rejectEncoding();
+            }
+          }
+          previousKey = keyBytes;
+          const value = read(preserveFloatType);
+          if (options.preserveMapType) map.set(key, value);
+          else map[String(key)] = value;
+        }
+        return map;
+      }
+      default:
+        throw new Error("unsupported CBOR type");
+    }
+  }
+
+  const value = read();
+  if (offset !== bytes.length) throw new Error("extra CBOR data");
+  return value;
 }

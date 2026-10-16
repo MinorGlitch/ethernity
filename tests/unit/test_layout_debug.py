@@ -29,7 +29,7 @@ class TestLayoutDebug(unittest.TestCase):
             managed = root / "out"
             debug = managed / "debug"
 
-            with self.assertRaisesRegex(ValueError, "managed artifact inventory"):
+            with self.assertRaisesRegex(ValueError, "managed backup directory"):
                 resolve_layout_debug_dir(debug, forbidden_dirs={"output": managed})
 
     def test_layout_debug_json_path_builds_sidecar_path(self) -> None:

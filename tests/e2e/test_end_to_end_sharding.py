@@ -18,8 +18,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.cli import run_recover_command
-from ethernity.cli.shared.types import RecoverArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
@@ -28,8 +26,10 @@ from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.encoding.zbase32 import encode_zbase32
-from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
+from ethernity.formats.document_codec import build_single_file_manifest, encode_backup_document
 from ethernity.render.fallback_text import format_zbase32_lines
+from ethernity.workflows.recovery.service import execute_recover_plan, prepare_recover_plan
+from ethernity.workflows.shared.requests import RecoveryRequest
 from tests.test_support import suppress_output
 
 TEST_SIGNING_SEED = b"\x11" * 32
@@ -48,6 +48,11 @@ def _auth_frame(*, doc_id: bytes, doc_hash: bytes, sign_priv: bytes, sign_pub: b
     )
 
 
+def _run_recover(args: RecoveryRequest) -> None:
+    plan = prepare_recover_plan(args)
+    execute_recover_plan(plan, quiet=args.quiet)
+
+
 class TestEndToEndSharding(unittest.TestCase):
     def test_recover_with_shard_frames(self) -> None:
         payload = b"end-to-end shard recovery"
@@ -58,8 +63,8 @@ class TestEndToEndSharding(unittest.TestCase):
                 payload,
                 signing_seed=TEST_SIGNING_SEED,
             )
-            envelope = encode_envelope(payload, manifest)
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            backup_document = encode_backup_document(payload, manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             sign_priv = TEST_SIGNING_SEED
@@ -112,21 +117,20 @@ class TestEndToEndSharding(unittest.TestCase):
             )
 
             output_path = tmp_path / "recovered.bin"
-            args = RecoverArgs(
-                config=str(_CONFIG_PATH),
-                fallback_file=None,
+            args = RecoveryRequest(
+                config_path=str(_CONFIG_PATH),
+                recovery_text_file=None,
                 payloads_file=str(frames_path),
-                scan=[],
+                scan_paths=[],
                 passphrase=None,
-                shard_fallback_file=[],
-                shard_payloads_file=[str(shard_frames_path)],
-                output=str(output_path),
+                shard_text_files=[],
+                shard_payload_files=[str(shard_frames_path)],
+                output_path=str(output_path),
                 allow_unsigned=False,
-                assume_yes=True,
                 quiet=True,
             )
             with suppress_output():
-                run_recover_command(args)
+                _run_recover(args)
             self.assertEqual(output_path.read_bytes(), payload)
 
     def test_recover_with_shard_fallback(self) -> None:
@@ -138,8 +142,8 @@ class TestEndToEndSharding(unittest.TestCase):
                 payload,
                 signing_seed=TEST_SIGNING_SEED,
             )
-            envelope = encode_envelope(payload, manifest)
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            backup_document = encode_backup_document(payload, manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(backup_document, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             sign_priv = TEST_SIGNING_SEED
@@ -195,21 +199,20 @@ class TestEndToEndSharding(unittest.TestCase):
                 shard_paths.append(str(shard_path))
 
             output_path = tmp_path / "recovered.bin"
-            args = RecoverArgs(
-                config=str(_CONFIG_PATH),
-                fallback_file=None,
+            args = RecoveryRequest(
+                config_path=str(_CONFIG_PATH),
+                recovery_text_file=None,
                 payloads_file=str(frames_path),
-                scan=[],
+                scan_paths=[],
                 passphrase=None,
-                shard_fallback_file=shard_paths,
-                shard_payloads_file=[],
-                output=str(output_path),
+                shard_text_files=shard_paths,
+                shard_payload_files=[],
+                output_path=str(output_path),
                 allow_unsigned=False,
-                assume_yes=True,
                 quiet=True,
             )
             with suppress_output():
-                run_recover_command(args)
+                _run_recover(args)
             self.assertEqual(output_path.read_bytes(), payload)
 
 

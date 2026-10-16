@@ -15,10 +15,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useState } from "microact/hooks";
 import { CollectorStep } from "./CollectorStep.jsx";
-import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
-import { QrScannerPanel } from "./QrScannerPanel.jsx";
+import { DiagnosticsList, Field, StatusBlock } from "./recovery_controls.jsx";
+import { QrScannerPanel } from "#kit-scanner-panel";
+import { SCANNER_ENABLED } from "#kit-scanner-runtime";
+import { useCollectorInput } from "../hooks/useCollectorInput.js";
 
 export function ShardCollector({
   shardPayloadText,
@@ -38,49 +39,19 @@ export function ShardCollector({
   isAdding,
 }) {
   const showDetails = shardDiagnostics.some((item) => item.tone === "error");
-  const [pasteHint, setPasteHint] = useState("");
-  const handlePaste = (event) => {
-    const text = event.clipboardData?.getData("text/plain") ?? "";
-    const lines = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    if (lines.length) {
-      setPasteHint(`Pasted ${lines.length} line(s). Click Add.`);
-    }
-  };
-  const handleShardChange = (event) => {
-    setPasteHint("");
-    onShardPayloadChange(event);
-  };
-  const handleAddShards = () => {
-    setPasteHint("");
-    onAddShardPayloads();
-  };
-  const handleScanPayload = (scannedPayload) => {
-    const hasBytes =
-      scannedPayload &&
-      scannedPayload.bytes instanceof Uint8Array &&
-      scannedPayload.bytes.length > 0;
-    if (hasBytes && typeof onScannedShardPayload === "function") {
-      onScannedShardPayload(scannedPayload);
-      setPasteHint("Scanned 1 shard frame. Added automatically.");
-      return;
-    }
-
-    const lines = String(scannedPayload?.text ?? "")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    if (!lines.length) {
-      setPasteHint("Scanned QR was empty.");
-      return;
-    }
-    const prefix = shardPayloadText && !shardPayloadText.endsWith("\n") ? "\n" : "";
-    const nextValue = `${shardPayloadText ?? ""}${prefix}${lines.join("\n")}`;
-    onShardPayloadChange({ currentTarget: { value: nextValue } });
-    setPasteHint(`Scanned ${lines.length} line(s). Click Add.`);
-  };
+  const {
+    pasteHint,
+    handlePaste,
+    handleChange: handleShardChange,
+    handleAdd: handleAddShards,
+    handleScanPayload,
+  } = useCollectorInput({
+    value: shardPayloadText,
+    onChange: onShardPayloadChange,
+    onAdd: onAddShardPayloads,
+    onScannedPayload: onScannedShardPayload,
+    scannedItemLabel: "shard frame",
+  });
   const input = {
     body: (
       <>
@@ -94,7 +65,7 @@ export function ShardCollector({
           as="textarea"
           spellCheck="false"
         />
-        <QrScannerPanel onScanPayload={handleScanPayload} />
+        {SCANNER_ENABLED ? <QrScannerPanel onScanPayload={handleScanPayload} /> : null}
         {pasteHint ? <div class="hint">{pasteHint}</div> : null}
         <div class="hint">Skip if you have the full passphrase.</div>
       </>

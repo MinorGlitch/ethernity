@@ -17,7 +17,7 @@
 
 import { readUvarint } from "../lib/encoding.js";
 import { crc32 } from "../lib/crc32.js";
-import { decodeCanonicalCbor } from "../lib/cbor.js";
+import { decodeDeterministicCbor } from "../lib/cbor.js";
 import {
   FRAME_MAGIC,
   FRAME_VERSION,
@@ -136,7 +136,7 @@ export function decodeFrame(payload) {
 }
 
 export function decodeShardPayload(bytes) {
-  const decoded = decodeCanonicalCbor(bytes, "shard payload", { preserveFloatType: true });
+  const decoded = decodeDeterministicCbor(bytes, "shard payload", { preserveFloatType: true });
   if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
     throw new Error("shard payload must be a map");
   }
@@ -250,7 +250,7 @@ export function decodeShardPayload(bytes) {
 }
 
 export function decodeAuthPayload(bytes) {
-  const decoded = decodeCanonicalCbor(bytes, "auth payload", { preserveFloatType: true });
+  const decoded = decodeDeterministicCbor(bytes, "auth payload", { preserveFloatType: true });
   if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
     throw new Error("auth payload must be a map");
   }

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Ed25519 signing helpers for auth and shard payloads."""
+"""Sign and verify auth and shard payloads with Ed25519."""
 
 from __future__ import annotations
 
@@ -35,7 +35,8 @@ from ethernity.core.validation import (
     require_non_negative_int,
     require_positive_int,
 )
-from ethernity.encoding.cbor import dumps_canonical, loads_canonical
+from ethernity.crypto.document_identity import DOC_HASH_LEN
+from ethernity.encoding.cbor import dumps_deterministic, loads_deterministic
 
 AUTH_VERSION = 1
 AUTH_DOMAIN = b"ETHERNITY-AUTH-V1"
@@ -45,8 +46,21 @@ ED25519_PUB_DER_PREFIX = bytes.fromhex("302a300506032b6570032100")
 ED25519_PUB_LEN = 32
 ED25519_SEED_LEN = 32
 ED25519_SIG_LEN = 64
-DOC_HASH_LEN = 32
 SHARD_SET_ID_LEN = 16
+
+
+@dataclass(frozen=True)
+class ShardSigningFields:
+    """Metadata authenticated by a shard signature, excluding the signature itself."""
+
+    share_index: int
+    threshold: int
+    share_count: int
+    key_type: str
+    share: bytes
+    secret_len: int
+    doc_hash: bytes
+    sign_pub: bytes
 
 
 @dataclass(frozen=True)
@@ -77,7 +91,7 @@ def derive_public_key(sign_priv: bytes) -> bytes:
 
 
 def _encode_auth_signed_payload(doc_hash: bytes, *, sign_pub: bytes) -> bytes:
-    """Encode the canonical auth payload body that is signed and verified."""
+    """Encode the deterministic auth payload body that is signed and verified."""
 
     doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="doc_hash")
     sign_pub = require_bytes(sign_pub, ED25519_PUB_LEN, label="sign_pub")
@@ -86,7 +100,7 @@ def _encode_auth_signed_payload(doc_hash: bytes, *, sign_pub: bytes) -> bytes:
         "hash": doc_hash,
         "pub": sign_pub,
     }
-    return dumps_canonical(payload)
+    return dumps_deterministic(payload)
 
 
 def sign_auth(doc_hash: bytes, *, sign_pub: bytes, sign_priv: bytes) -> bytes:
@@ -176,7 +190,7 @@ def verify_shard(
 
 
 def encode_auth_payload(doc_hash: bytes, *, sign_pub: bytes, signature: bytes) -> bytes:
-    """Encode an auth payload as canonical CBOR."""
+    """Encode an auth payload as deterministic CBOR."""
 
     doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="doc_hash")
     sign_pub = require_bytes(sign_pub, ED25519_PUB_LEN, label="sign_pub")
@@ -187,13 +201,13 @@ def encode_auth_payload(doc_hash: bytes, *, sign_pub: bytes, signature: bytes) -
         "pub": sign_pub,
         "sig": signature,
     }
-    return dumps_canonical(payload)
+    return dumps_deterministic(payload)
 
 
 def decode_auth_payload(data: bytes) -> AuthPayload:
-    """Decode and validate an auth payload from canonical CBOR."""
+    """Decode and validate an auth payload from deterministic CBOR."""
 
-    decoded = require_dict(loads_canonical(data, label="auth payload"), label="auth payload")
+    decoded = require_dict(loads_deterministic(data, label="auth payload"), label="auth payload")
     require_keys(decoded, ("version", "hash", "pub", "sig"), label="auth payload")
     version = decoded["version"]
     doc_hash = decoded["hash"]
@@ -240,7 +254,7 @@ def _encode_shard_signed_payload(
     shard_set_id: bytes | None,
     sign_pub: bytes,
 ) -> bytes:
-    """Encode the canonical shard payload body that is signed and verified."""
+    """Encode the deterministic shard payload body that is signed and verified."""
 
     doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="doc_hash")
     sign_pub = require_bytes(sign_pub, ED25519_PUB_LEN, label="sign_pub")
@@ -255,17 +269,17 @@ def _encode_shard_signed_payload(
         raise ValueError("share_index cannot exceed share_count")
     secret_len = require_positive_int(secret_len, label="secret_len")
     share = require_non_empty_bytes(share, label="share")
-    payload = {
-        "version": shard_version,
-        "type": key_type,
-        "threshold": threshold,
-        "share_count": share_count,
-        "share_index": share_index,
-        "length": secret_len,
-        "share": share,
-        "hash": doc_hash,
-        "pub": sign_pub,
-    }
+    fields = ShardSigningFields(
+        share_index=share_index,
+        threshold=threshold,
+        share_count=share_count,
+        key_type=key_type,
+        share=share,
+        secret_len=secret_len,
+        doc_hash=doc_hash,
+        sign_pub=sign_pub,
+    )
+    payload = shard_signed_fields(fields, version=shard_version)
     if shard_version == 1:
         if shard_set_id is not None:
             raise ValueError("shard_set_id is not supported for shard version 1")
@@ -273,7 +287,7 @@ def _encode_shard_signed_payload(
         payload["set_id"] = require_bytes(shard_set_id, SHARD_SET_ID_LEN, label="shard_set_id")
     else:
         raise ValueError(f"unsupported shard_version: {shard_version}")
-    return dumps_canonical(payload)
+    return dumps_deterministic(payload)
 
 
 def _sign_message(message: bytes, *, sign_priv: bytes) -> bytes:
@@ -292,3 +306,18 @@ def _verify_message(message: bytes, *, sign_pub: bytes, signature: bytes) -> boo
     except (ValueError, TypeError):
         return False
     return True
+
+
+def shard_signed_fields(fields: ShardSigningFields, *, version: int) -> dict[str, object]:
+    """Canonical signed fields, after the caller has validated their values."""
+    return {
+        "version": version,
+        "type": fields.key_type,
+        "threshold": fields.threshold,
+        "share_count": fields.share_count,
+        "share_index": fields.share_index,
+        "length": fields.secret_len,
+        "share": fields.share,
+        "hash": fields.doc_hash,
+        "pub": fields.sign_pub,
+    }

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""BIP-39-style mnemonic passphrase generation and validation helpers."""
+"""Generate and validate BIP-39-style mnemonic passphrases."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ _WORDSET = frozenset(_WORDLIST)
 
 
 def normalize_bip39_mnemonic(passphrase: str) -> str:
-    """Collapse BIP-39 whitespace to the canonical single-space form."""
+    """Collapse BIP-39 whitespace to a single space between words."""
 
     words = passphrase.strip().split()
     if len(words) not in MNEMONIC_WORD_COUNTS:
@@ -99,3 +99,16 @@ def validate_mnemonic_checksum_if_bip39(passphrase: str) -> None:
     expected_checksum = h[0] >> (8 - checksum_bits)
     if checksum != expected_checksum:
         raise ValueError("invalid BIP-39 mnemonic checksum")
+
+
+def normalize_valid_bip39_whitespace(passphrase: str) -> str:
+    """Normalize whitespace only for checksum-valid BIP-39 text."""
+
+    normalized = normalize_bip39_mnemonic(passphrase)
+    if not looks_like_bip39_mnemonic(normalized):
+        return passphrase
+    try:
+        validate_mnemonic_checksum_if_bip39(normalized)
+    except ValueError:
+        return passphrase
+    return normalized

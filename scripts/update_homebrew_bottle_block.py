@@ -23,7 +23,7 @@ import re
 from pathlib import Path
 
 _BOTTLE_BLOCK_PATTERN = re.compile(r"(?ms)^  bottle do\n.*?^  end\n")
-_BOTTLE_TAG_PATTERN = re.compile(r"^ethernity-.+\.(?P<tag>[^.]+)\.bottle\.tar\.gz$")
+_BOTTLE_TAG_PATTERN = re.compile(r"^ethernity--.+\.(?P<tag>[^.]+)\.bottle\.tar\.gz$")
 
 
 def _sha256_for_file(path: Path) -> str:
@@ -44,15 +44,23 @@ def _extract_bottle_tag(path: Path) -> str:
     return match.group("tag")
 
 
-def _read_cellar_from_json(json_files: list[Path]) -> str:
+def _read_cellars_by_tag(json_files: list[Path]) -> dict[str, str]:
+    cellars: dict[str, str] = {}
     for json_file in json_files:
         data = json.loads(json_file.read_text(encoding="utf-8"))
         for formula_data in data.values():
             bottle = formula_data.get("bottle", {})
-            cellar = bottle.get("cellar", "")
-            if cellar:
-                return cellar
-    return ":any_skip_relocation"
+            cellar = bottle.get("cellar")
+            tags = bottle.get("tags")
+            if not isinstance(cellar, str) or not cellar:
+                raise ValueError(f"bottle JSON has no cellar metadata: {json_file}")
+            if not isinstance(tags, dict) or not tags:
+                raise ValueError(f"bottle JSON has no tag metadata: {json_file}")
+            for tag in tags:
+                if tag in cellars:
+                    raise ValueError(f"duplicate bottle JSON metadata for tag: {tag}")
+                cellars[tag] = cellar
+    return cellars
 
 
 def _format_cellar(cellar: str) -> str:
@@ -74,7 +82,14 @@ def _build_bottle_block(
         tag = _extract_bottle_tag(bottle_file)
         entries[tag] = _sha256_for_file(bottle_file)
 
-    cellar = _format_cellar(_read_cellar_from_json(json_files))
+    cellars = _read_cellars_by_tag(json_files)
+    missing_cellars = sorted(set(entries) - set(cellars))
+    unexpected_cellars = sorted(set(cellars) - set(entries))
+    if missing_cellars or unexpected_cellars:
+        raise ValueError(
+            "bottle files and JSON tags do not match: "
+            f"missing cellar metadata={missing_cellars}, unexpected metadata={unexpected_cellars}"
+        )
     max_tag_width = max(len(tag) for tag in entries)
 
     lines = [
@@ -83,6 +98,7 @@ def _build_bottle_block(
     ]
     for tag in sorted(entries):
         tag_field = f"{tag}:".ljust(max_tag_width + 1)
+        cellar = _format_cellar(cellars[tag])
         lines.append(f'    sha256 cellar: {cellar}, {tag_field} "{entries[tag]}"')
     lines.append("  end")
     return "\n".join(lines) + "\n"

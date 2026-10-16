@@ -13,9 +13,9 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Content-first extension recovery helpers.
+"""Recover extension chains from carrier content.
 
-Recovery does not rely on extension directory names or artifact filenames. Scanned content is
+Recovery does not rely on extension directory names or document filenames. Scanned content is
 grouped by frame/doc identity, then authenticated and ordered using ciphertext hashes and decrypted
 headers.
 """
@@ -26,25 +26,56 @@ import hmac
 from dataclasses import dataclass
 from typing import Protocol
 
-from ethernity.crypto import decrypt_bytes
+from ethernity.core.bounds import (
+    MAX_CIPHERTEXT_BYTES,
+    MAX_RECOVERY_DECODED_CHUNK_BYTES,
+)
+from ethernity.crypto import decrypt_bytes, normalize_valid_bip39_whitespace
+from ethernity.crypto.age_policy import RecoveryResourceLimitError
+from ethernity.crypto.age_runtime import (
+    AgeError,
+    PassphraseAuthenticationError,
+    decrypt_bytes_with_exact_passphrase,
+)
+from ethernity.crypto.document_identity import (
+    doc_id_and_hash_from_ciphertext,
+    parse_doc_hash_hex,
+)
 from ethernity.crypto.signing import (
     AuthPayload,
     decode_auth_payload,
-    derive_public_key,
     verify_auth,
 )
 from ethernity.encoding.chunking import reassemble_payload
+from ethernity.encoding.frame_sets import (
+    deduplicate_frame_slots,
+    split_main_and_auth_frames,
+)
 from ethernity.encoding.framing import Frame, FrameType
-from ethernity.extensions import errors as extension_errors
+from ethernity.extensions import errors as extension_errors, validation
 from ethernity.extensions.chain import (
     AuthenticatedExtensionChainLink,
-    LogicalFileState,
-    reconstruct_authenticated_latest_logical_state,
+    ExtensionReplayError,
+    ReconstructedFile,
+    ValidatedChainState,
 )
-from ethernity.extensions.identity import doc_id_and_hash_from_ciphertext
-from ethernity.formats.envelope_codec import decode_any_envelope, extract_payloads
-from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
-from ethernity.formats.extension_envelope import ExtensionChunkingProfile, ExtensionEnvelope
+from ethernity.extensions.resources import require_chain_resource_limits
+from ethernity.extensions.validation import (
+    RootSigningKeyBinding,
+    resolve_root_signing_key_binding,
+    validate_root_signing_key_binding,
+)
+from ethernity.formats.document_codec import (
+    decode_document,
+    extract_payloads,
+)
+from ethernity.formats.document_constants import DocumentKind
+from ethernity.formats.document_header import read_document_header
+from ethernity.formats.extension_document import (
+    ExtensionDecodedChunkBudgetError,
+    ExtensionDocument,
+)
+from ethernity.formats.manifest import BackupManifest, ManifestFile
 
 RECONSTRUCTED_STATE_INPUT_ORIGIN = "directory"
 RECONSTRUCTED_STATE_INPUT_ROOTS = ("reconstructed-state",)
@@ -59,42 +90,89 @@ class ImportedRecoveryDocument:
     ciphertext: bytes
     auth_frames: tuple[Frame, ...]
     source_label: str
-    extension_index: int | None = None
-    extension_dir_name: str | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.ciphertext, (bytes, bytearray)) or not self.ciphertext:
+            raise ValueError("imported recovery document ciphertext must be non-empty bytes")
+        ciphertext = bytes(self.ciphertext)
+        if len(ciphertext) > MAX_CIPHERTEXT_BYTES:
+            raise ValueError(
+                "imported recovery document ciphertext exceeds MAX_CIPHERTEXT_BYTES "
+                f"({MAX_CIPHERTEXT_BYTES})"
+            )
         if not isinstance(self.doc_id, (bytes, bytearray)) or len(self.doc_id) != 8:
             raise ValueError("imported recovery document doc_id must be 8 bytes")
         if not isinstance(self.doc_hash, (bytes, bytearray)) or len(self.doc_hash) != 32:
             raise ValueError("imported recovery document doc_hash must be 32 bytes")
-        if self.extension_index is not None and (
-            isinstance(self.extension_index, bool)
-            or not isinstance(self.extension_index, int)
-            or self.extension_index <= 0
-        ):
-            raise ValueError("published extension index must be a positive integer")
-        if self.extension_dir_name is not None and (
-            not isinstance(self.extension_dir_name, str) or not self.extension_dir_name
-        ):
-            raise ValueError("published extension directory name must be non-empty")
-        object.__setattr__(self, "doc_id", bytes(self.doc_id))
-        object.__setattr__(self, "doc_hash", bytes(self.doc_hash))
-        object.__setattr__(self, "ciphertext", bytes(self.ciphertext))
+        doc_id = bytes(self.doc_id)
+        doc_hash = bytes(self.doc_hash)
+        derived_doc_id, derived_doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
+        if doc_hash != derived_doc_hash:
+            raise ValueError("imported recovery document doc_hash does not match ciphertext")
+        if doc_id != derived_doc_id:
+            raise ValueError("imported recovery document doc_id does not match ciphertext")
+        object.__setattr__(self, "doc_id", doc_id)
+        object.__setattr__(self, "doc_hash", doc_hash)
+        object.__setattr__(self, "ciphertext", ciphertext)
         object.__setattr__(self, "auth_frames", tuple(self.auth_frames))
 
-    @property
-    def doc_id_hex(self) -> str:
-        return self.doc_id.hex()
+    @classmethod
+    def from_ciphertext(
+        cls,
+        ciphertext: bytes,
+        *,
+        auth_frames: tuple[Frame, ...] | list[Frame],
+        source_label: str,
+    ) -> ImportedRecoveryDocument:
+        raw_ciphertext = bytes(ciphertext)
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(raw_ciphertext)
+        return cls(
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            ciphertext=raw_ciphertext,
+            auth_frames=tuple(auth_frames),
+            source_label=source_label,
+        )
 
-    @property
-    def index(self) -> int:
-        if self.extension_index is None:
-            raise ValueError("recovery document is not a published extension")
-        return self.extension_index
 
-    @property
-    def dir_name(self) -> str:
-        return self.extension_dir_name or self.source_label
+@dataclass(frozen=True)
+class _DecodedImportEntry:
+    doc_hash: bytes
+    plaintext: bytes | None
+    error: str | None
+    passphrase_auth_failed: bool = False
+
+
+@dataclass(frozen=True)
+class DecodedImportSession:
+    """One bounded decrypt pass shared by import classification and chain replay."""
+
+    root_document: ImportedRecoveryDocument
+    entries: tuple[_DecodedImportEntry, ...]
+    locked_passphrase: str
+
+    def plaintext_for(self, document: ImportedRecoveryDocument) -> bytes:
+        """Return cached plaintext, or replay the cached decrypt failure without more KDF work."""
+
+        for entry in self.entries:
+            if entry.doc_hash != document.doc_hash:
+                continue
+            if entry.plaintext is not None:
+                return entry.plaintext
+            if entry.passphrase_auth_failed:
+                raise PassphraseAuthenticationError(
+                    AgeError(backend="pyrage", detail="Decryption failed")
+                )
+            raise ValueError(entry.error or "cached import decryption failed")
+        raise ValueError("import document is not part of the decoded import session")
+
+
+class _ImportSessionSelectionError(ValueError):
+    """Root classification failed for one locked passphrase candidate."""
+
+    def __init__(self, message: str, *, normalized_retry_allowed: bool) -> None:
+        super().__init__(message)
+        self.normalized_retry_allowed = normalized_retry_allowed
 
 
 @dataclass(frozen=True)
@@ -102,68 +180,39 @@ class DecodedExtensionLink:
     link: AuthenticatedExtensionChainLink
     auth_payload: AuthPayload | None
     auth_status: str
-    root_authority_verified: bool
+    root_signing_key_verified: bool
+
+
+@dataclass(frozen=True)
+class ValidatedRecoveryHead:
+    doc_id: bytes
+    doc_hash: bytes
+    ciphertext: bytes
+    auth_payload: AuthPayload | None
+    auth_status: str
+    extension_index: int | None
 
 
 @dataclass(frozen=True)
 class ChainRecoveryResult:
-    manifest: EnvelopeManifest
+    manifest: BackupManifest
     extracted: tuple[tuple[ManifestFile, bytes], ...]
-    selected_extension_index: int | None
-    selected_extension_doc_hash: str | None
+    head: ValidatedRecoveryHead
+    validated_chain: ValidatedChainState | None
+    root_payload: bytes | None = None
+
+    @property
+    def selected_extension_index(self) -> int | None:
+        return self.head.extension_index
+
+    @property
+    def selected_extension_doc_hash(self) -> str | None:
+        if self.head.extension_index is None:
+            return None
+        return self.head.doc_hash.hex()
 
 
-@dataclass(frozen=True)
-class RootManifestAuthority:
-    embedded_sign_pub: bytes | None
-    mismatch: bool
-
-
-@dataclass(frozen=True)
-class RecoveryReplayFailure:
-    stage: str
-    message: str
-    head_index: int | None = None
-    head_doc_hash: str | None = None
-    head_dir_name: str | None = None
-
-
-@dataclass(frozen=True)
-class RecoveryHeadTrustRefusal:
-    code: str
-    message: str
-    details: dict[str, object]
-
-
-@dataclass(frozen=True)
-class RecoveryExtensionInventory:
-    """Published extension inventory assembled from recovery document content."""
-
-    extensions: tuple[ImportedRecoveryDocument, ...]
-    explicit_selection: bool = False
-    requested_head_index: int | None = None
-    requested_head_doc_hash: str | None = None
-    requested_target_matched: bool = False
-    latest_head_index: int | None = None
-    latest_head_doc_hash: str | None = None
-    latest_head_dir_name: str | None = None
-    failure: RecoveryReplayFailure | None = None
-
-
-@dataclass(frozen=True)
-class RecoveryChainInspection:
-    inventory: RecoveryExtensionInventory
-    links: tuple[DecodedExtensionLink, ...]
-    latest_state: tuple[LogicalFileState, ...] | None
-    locked_chunking: ExtensionChunkingProfile | None
-    refusal: RecoveryHeadTrustRefusal | None
-    validated_head_index: int
-    validated_head_doc_hash: str
-    validated_head_auth_status: str | None
-    validated_head_root_authority_verified: bool | None
-
-
-class RecoveryPlanLike(Protocol):
+class ChainRecoveryInputs(Protocol):
     @property
     def ciphertext(self) -> bytes: ...
 
@@ -197,49 +246,16 @@ class RecoveryPlanLike(Protocol):
     @property
     def import_documents(self) -> tuple[ImportedRecoveryDocument, ...]: ...
 
+    @property
+    def decoded_import_session(self) -> DecodedImportSession | None: ...
+
 
 @dataclass(frozen=True)
 class _DecodedExtensionCandidate:
     document: ImportedRecoveryDocument
-    decoded: ExtensionEnvelope
+    decoded: ExtensionDocument
     auth_payload: AuthPayload
     auth_status: str
-
-
-def _dedupe_frames(frames: list[Frame]) -> list[Frame]:
-    """Deduplicate frames by type/index/doc_id, rejecting conflicts."""
-
-    seen: dict[tuple[int, int, bytes], Frame] = {}
-    deduped: list[Frame] = []
-    for frame in frames:
-        key = (int(frame.frame_type), int(frame.index), frame.doc_id)
-        existing = seen.get(key)
-        if existing:
-            if existing.data != frame.data or existing.total != frame.total:
-                raise ValueError("conflicting duplicate frames detected")
-            continue
-        seen[key] = frame
-        deduped.append(frame)
-    return deduped
-
-
-def _split_main_and_auth_frames(frames: list[Frame]) -> tuple[list[Frame], list[Frame]]:
-    """Split decoded frames into MAIN and AUTH lists."""
-
-    main_frames: list[Frame] = []
-    auth_frames: list[Frame] = []
-    for frame in frames:
-        if frame.frame_type == FrameType.MAIN_DOCUMENT:
-            main_frames.append(frame)
-        elif frame.frame_type == FrameType.AUTH:
-            auth_frames.append(frame)
-        else:
-            raise ValueError("unexpected frame type in main document QR payloads")
-    if not main_frames:
-        raise ValueError(
-            "no main document payloads provided; check the MAIN QR payloads or recovery text"
-        )
-    return main_frames, auth_frames
 
 
 def imported_documents_from_recovery_frames(
@@ -249,26 +265,26 @@ def imported_documents_from_recovery_frames(
 ) -> tuple[ImportedRecoveryDocument, ...]:
     """Group MAIN/AUTH recovery frames into independently recoverable documents."""
 
-    deduped = _dedupe_frames(frames)
-    pre_main_doc_ids = {
+    deduped = deduplicate_frame_slots(frames)
+    main_doc_ids = {
         frame.doc_id for frame in deduped if frame.frame_type == FrameType.MAIN_DOCUMENT
     }
-    pre_auth_doc_ids = {frame.doc_id for frame in deduped if frame.frame_type == FrameType.AUTH}
-    pre_orphan_auth_doc_ids = sorted(pre_auth_doc_ids - pre_main_doc_ids)
-    if pre_orphan_auth_doc_ids:
-        preview = ", ".join(doc_id.hex() for doc_id in pre_orphan_auth_doc_ids[:3])
-        raise ValueError(f"{source_label} contains AUTH frame(s) without matching MAIN: {preview}")
-    main_frames, auth_frames = _split_main_and_auth_frames(deduped)
+    auth_doc_ids = {frame.doc_id for frame in deduped if frame.frame_type == FrameType.AUTH}
+    orphan_auth_doc_ids = tuple(sorted(auth_doc_ids - main_doc_ids))
+    if orphan_auth_doc_ids:
+        raise extension_errors.OrphanAuthFramesError(orphan_auth_doc_ids, source_label=source_label)
+    main_frames, auth_frames = split_main_and_auth_frames(deduped)
+    require_chain_resource_limits(
+        document_count=len({frame.doc_id for frame in main_frames}),
+        total_ciphertext_bytes=sum(len(frame.data) for frame in main_frames),
+        operation=source_label,
+    )
     main_by_doc_id: dict[bytes, list[Frame]] = {}
     auth_by_doc_id: dict[bytes, list[Frame]] = {}
     for frame in main_frames:
         main_by_doc_id.setdefault(frame.doc_id, []).append(frame)
     for frame in auth_frames:
         auth_by_doc_id.setdefault(frame.doc_id, []).append(frame)
-    orphan_auth_doc_ids = sorted(set(auth_by_doc_id) - set(main_by_doc_id))
-    if orphan_auth_doc_ids:
-        preview = ", ".join(doc_id.hex() for doc_id in orphan_auth_doc_ids[:3])
-        raise ValueError(f"{source_label} contains AUTH frame(s) without matching MAIN: {preview}")
 
     documents: list[ImportedRecoveryDocument] = []
     for doc_id in sorted(main_by_doc_id):
@@ -280,9 +296,7 @@ def imported_documents_from_recovery_frames(
         if derived_doc_id != doc_id:
             raise ValueError("MAIN frame doc_id does not match recovered ciphertext")
         documents.append(
-            ImportedRecoveryDocument(
-                doc_id=doc_id,
-                doc_hash=doc_hash,
+            ImportedRecoveryDocument.from_ciphertext(
                 ciphertext=ciphertext,
                 auth_frames=tuple(auth_by_doc_id.get(doc_id, ())),
                 source_label=f"{source_label}:{doc_id.hex()}",
@@ -308,108 +322,260 @@ def select_root_import_document(
     passphrase: str,
     debug: bool,
 ) -> ImportedRecoveryDocument:
-    """Pick exactly one V1 root backup from imported content."""
+    """Pick exactly one supported standalone root backup from imported content."""
+
+    return select_root_import_session(
+        documents,
+        passphrase=passphrase,
+        debug=debug,
+    ).root_document
+
+
+def select_root_import_session(
+    documents: tuple[ImportedRecoveryDocument, ...],
+    *,
+    passphrase: str,
+    debug: bool,
+) -> DecodedImportSession:
+    """Classify imports with one passphrase candidate locked across the whole session."""
+
+    require_chain_resource_limits(
+        document_count=len(documents),
+        total_ciphertext_bytes=sum(len(document.ciphertext) for document in documents),
+        operation="content import",
+    )
+
+    try:
+        return _select_root_import_session_candidate(
+            documents,
+            passphrase=passphrase,
+            debug=debug,
+        )
+    except _ImportSessionSelectionError as exact_error:
+        normalized = normalize_valid_bip39_whitespace(passphrase)
+        if normalized == passphrase or not exact_error.normalized_retry_allowed:
+            raise ValueError(str(exact_error)) from exact_error
+        try:
+            return _select_root_import_session_candidate(
+                documents,
+                passphrase=normalized,
+                debug=debug,
+            )
+        except _ImportSessionSelectionError as normalized_error:
+            raise ValueError(str(normalized_error)) from normalized_error
+
+
+def _select_root_import_session_candidate(
+    documents: tuple[ImportedRecoveryDocument, ...],
+    *,
+    passphrase: str,
+    debug: bool,
+) -> DecodedImportSession:
+    """Classify all imports using exactly one already-selected passphrase candidate."""
 
     roots: list[ImportedRecoveryDocument] = []
+    decoded_entries: list[_DecodedImportEntry] = []
     extension_count = 0
     decode_errors: list[str] = []
+    passphrase_auth_failures = 0
+    non_passphrase_failures = 0
     for document in documents:
+        entry = _decode_import_entry(document, passphrase=passphrase, debug=debug)
+        decoded_entries.append(entry)
+        if entry.error is not None:
+            passphrase_auth_failures += int(entry.passphrase_auth_failed)
+            non_passphrase_failures += int(not entry.passphrase_auth_failed)
+            decode_errors.append(f"{document.doc_id.hex()}: {entry.error}")
+            continue
+        assert entry.plaintext is not None
+        plaintext = entry.plaintext
         try:
-            plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
-            version, decoded = decode_any_envelope(plaintext)
+            header = read_document_header(plaintext)
+            decoded = decode_document(plaintext)[1] if header.kind == DocumentKind.BACKUP else None
+        except ExtensionDecodedChunkBudgetError:
+            raise
         except Exception as exc:
+            non_passphrase_failures += 1
             decode_errors.append(f"{document.doc_id.hex()}: {exc}")
             continue
-        if version == 1 and isinstance(decoded, tuple) and len(decoded) == 2:
+        if isinstance(decoded, tuple) and len(decoded) == 2:
             roots.append(document)
-        elif version == 2 and isinstance(decoded, ExtensionEnvelope):
+        elif header.kind == DocumentKind.UPDATE:
             extension_count += 1
 
     if len(roots) == 1:
-        return roots[0]
+        return DecodedImportSession(
+            root_document=roots[0],
+            entries=tuple(decoded_entries),
+            locked_passphrase=passphrase,
+        )
     if not roots:
         detail = "; ".join(decode_errors[:3])
         suffix = f" ({detail})" if detail else ""
-        raise ValueError(f"content import did not contain a decryptable root backup{suffix}")
-    raise ValueError(
+        raise _ImportSessionSelectionError(
+            f"content import did not contain a decryptable root backup{suffix}",
+            normalized_retry_allowed=(
+                passphrase_auth_failures > 0 and non_passphrase_failures == 0
+            ),
+        )
+    raise _ImportSessionSelectionError(
         "content import contains multiple root backups; provide one root backup per "
-        "recovery session "
-        f"({len(roots)} roots, {extension_count} extensions)"
+        f"recovery session ({len(roots)} roots, {extension_count} extensions)",
+        normalized_retry_allowed=False,
     )
 
 
-def recover_chain_entries(
-    plan: RecoveryPlanLike,
+def _decode_import_entry(
+    document: ImportedRecoveryDocument, *, passphrase: str, debug: bool
+) -> _DecodedImportEntry:
+    try:
+        plaintext = _decrypt_import_session_candidate(
+            document.ciphertext, passphrase=passphrase, debug=debug
+        )
+    except RecoveryResourceLimitError:
+        raise
+    except PassphraseAuthenticationError as exc:
+        return _DecodedImportEntry(
+            doc_hash=document.doc_hash, plaintext=None, error=str(exc), passphrase_auth_failed=True
+        )
+    except Exception as exc:
+        return _DecodedImportEntry(doc_hash=document.doc_hash, plaintext=None, error=str(exc))
+    return _DecodedImportEntry(doc_hash=document.doc_hash, plaintext=plaintext, error=None)
+
+
+def _decrypt_import_session_candidate(
+    ciphertext: bytes,
     *,
-    quiet: bool,
+    passphrase: str,
+    debug: bool,
+) -> bytes:
+    """Decrypt one session member without allowing an implicit second candidate."""
+
+    if normalize_valid_bip39_whitespace(passphrase) == passphrase:
+        return decrypt_bytes(ciphertext, passphrase=passphrase, debug=debug)
+    try:
+        return decrypt_bytes_with_exact_passphrase(ciphertext, passphrase=passphrase)
+    except AgeError:
+        if debug:
+            raise
+        raise ValueError("decryption failed") from None
+
+
+def recover_chain_entries(
+    plan: ChainRecoveryInputs,
+    *,
     debug: bool = False,
 ) -> ChainRecoveryResult:
     if plan.import_documents:
-        return recover_imported_chain_entries(plan, quiet=quiet, debug=debug)
+        return recover_imported_chain_entries(plan, debug=debug)
 
     root_manifest, payload = decode_root_manifest(
         ciphertext=plan.ciphertext,
         passphrase=plan.passphrase,
         debug=debug,
     )
-    validate_root_manifest_authority(root_manifest, plan.auth_payload, doc_hash=plan.doc_hash)
+    validate_root_signing_key_binding(root_manifest, plan.auth_payload, doc_hash=plan.doc_hash)
     _ensure_expected_head_satisfied(
         plan,
         selected_extension_index=None,
         selected_extension_doc_hash=None,
     )
-    return ChainRecoveryResult(
-        manifest=root_manifest,
-        extracted=tuple(extract_payloads(root_manifest, payload)),
-        selected_extension_index=None,
-        selected_extension_doc_hash=None,
-    )
+    return _root_chain_recovery_result(plan, root_manifest, payload)
 
 
 def recover_imported_chain_entries(
-    plan: RecoveryPlanLike, *, quiet: bool, debug: bool = False
+    plan: ChainRecoveryInputs, *, debug: bool = False
 ) -> ChainRecoveryResult:
-    _ = quiet
+    decoded_import_session = getattr(plan, "decoded_import_session", None)
+    normalized = normalize_valid_bip39_whitespace(plan.passphrase)
+    if (
+        decoded_import_session is None
+        and len(plan.import_documents) > 1
+        and normalized != plan.passphrase
+    ):
+        decoded_import_session = select_root_import_session(
+            tuple(plan.import_documents),
+            passphrase=plan.passphrase,
+            debug=debug,
+        )
+
+    try:
+        return _recover_imported_chain_entries_with_session(
+            plan,
+            debug=debug,
+            decoded_import_session=decoded_import_session,
+        )
+    except PassphraseAuthenticationError as exact_error:
+        if (
+            decoded_import_session is None
+            or decoded_import_session.locked_passphrase != plan.passphrase
+            or normalized == plan.passphrase
+        ):
+            raise ValueError("content import decryption failed") from exact_error
+        try:
+            normalized_session = _select_root_import_session_candidate(
+                tuple(plan.import_documents),
+                passphrase=normalized,
+                debug=debug,
+            )
+            return _recover_imported_chain_entries_with_session(
+                plan,
+                debug=debug,
+                decoded_import_session=normalized_session,
+            )
+        except (PassphraseAuthenticationError, _ImportSessionSelectionError) as normalized_error:
+            raise ValueError(
+                "content import cannot be decrypted with one consistent passphrase candidate"
+            ) from normalized_error
+
+
+def _recover_imported_chain_entries_with_session(
+    plan: ChainRecoveryInputs,
+    *,
+    debug: bool,
+    decoded_import_session: DecodedImportSession | None,
+) -> ChainRecoveryResult:
+    require_chain_resource_limits(
+        document_count=len(plan.import_documents),
+        total_ciphertext_bytes=sum(len(document.ciphertext) for document in plan.import_documents),
+        operation="content import",
+    )
     if plan.extension_index is not None and plan.extension_doc_hash is not None:
         raise ValueError("use either --extension-index or --extension-doc-hash, not both")
 
-    root_manifest, payload = decode_root_manifest(
-        ciphertext=plan.ciphertext,
-        passphrase=plan.passphrase,
-        debug=debug,
-    )
+    if decoded_import_session is None:
+        root_manifest, payload = decode_root_manifest(
+            ciphertext=plan.ciphertext,
+            passphrase=plan.passphrase,
+            debug=debug,
+        )
+    else:
+        root_manifest, payload = decode_imported_root_manifest(
+            _selected_root_import_document(plan),
+            decoded_import_session=decoded_import_session,
+        )
     if len(plan.import_documents) <= 1:
         _ensure_root_selector_satisfied(
             root_doc_hash=plan.doc_hash,
             requested_index=plan.extension_index,
             requested_doc_hash=plan.extension_doc_hash,
         )
-        validate_root_manifest_authority(root_manifest, plan.auth_payload, doc_hash=plan.doc_hash)
+        validate_root_signing_key_binding(root_manifest, plan.auth_payload, doc_hash=plan.doc_hash)
         _ensure_expected_head_satisfied(
             plan,
             selected_extension_index=None,
             selected_extension_doc_hash=None,
         )
-        return ChainRecoveryResult(
-            manifest=root_manifest,
-            extracted=tuple(extract_payloads(root_manifest, payload)),
-            selected_extension_index=None,
-            selected_extension_doc_hash=None,
-        )
+        return _root_chain_recovery_result(plan, root_manifest, payload)
 
     if plan.extension_index == 0:
-        validate_root_manifest_authority(root_manifest, plan.auth_payload, doc_hash=plan.doc_hash)
+        validate_root_signing_key_binding(root_manifest, plan.auth_payload, doc_hash=plan.doc_hash)
         _ensure_expected_head_satisfied(
             plan,
             selected_extension_index=None,
             selected_extension_doc_hash=None,
         )
-        return ChainRecoveryResult(
-            manifest=root_manifest,
-            extracted=tuple(extract_payloads(root_manifest, payload)),
-            selected_extension_index=None,
-            selected_extension_doc_hash=None,
-        )
+        return _root_chain_recovery_result(plan, root_manifest, payload)
 
     if plan.allow_unsigned:
         raise extension_errors.ExtensionRecoveryError(
@@ -426,33 +592,15 @@ def recover_imported_chain_entries(
             },
         )
 
-    if plan.auth_payload is None or plan.auth_status != "verified":
-        raise extension_errors.ExtensionRecoveryError(
-            code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
-            message="extension import recovery requires verified root AUTH",
-            details={
-                "stage": "auth",
-                "root_auth_status": plan.auth_status,
-                "validated_head_index": 0,
-                "validated_head_doc_hash": plan.doc_hash.hex(),
-            },
-        )
-
-    root_sign_pub = validate_root_manifest_authority(
+    root_validation = validation.inspect_root_validation(
         root_manifest,
         plan.auth_payload,
         doc_hash=plan.doc_hash,
+        auth_status=plan.auth_status,
+        require_signing_key=True,
     )
-    if root_sign_pub is None:
-        raise extension_errors.ExtensionRecoveryError(
-            code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
-            message="extension import recovery requires an unsealed root signing authority",
-            details={
-                "stage": "auth",
-                "validated_head_index": 0,
-                "validated_head_doc_hash": plan.doc_hash.hex(),
-            },
-        )
+    root_sign_pub = root_validation.require_valid()
+    assert root_sign_pub is not None
 
     decoded_links = _decode_imported_extension_links(
         tuple(plan.import_documents),
@@ -462,6 +610,7 @@ def recover_imported_chain_entries(
         expected_sign_pub=root_sign_pub,
         requested_index=plan.extension_index,
         requested_doc_hash=plan.extension_doc_hash,
+        decoded_import_session=decoded_import_session,
         debug=debug,
     )
     selected_links = _select_imported_chain_links(
@@ -476,39 +625,38 @@ def recover_imported_chain_entries(
             selected_extension_index=None,
             selected_extension_doc_hash=None,
         )
-        return ChainRecoveryResult(
-            manifest=root_manifest,
-            extracted=tuple(extract_payloads(root_manifest, payload)),
-            selected_extension_index=None,
-            selected_extension_doc_hash=None,
-        )
+        return _root_chain_recovery_result(plan, root_manifest, payload)
 
     try:
-        latest_state = reconstruct_authenticated_latest_logical_state(
+        validated_chain = validation.inspect_chain_validation(
             root_manifest,
             payload,
             root_doc_hash=plan.doc_hash,
-            expected_sign_pub=root_sign_pub,
+            root_auth_payload=plan.auth_payload,
+            root_auth_status=plan.auth_status,
             extensions=tuple(item.link for item in selected_links),
-        )
-    except ValueError as exc:
+        ).require_state()
+    except ExtensionReplayError as exc:
         raise _chain_replay_head_untrusted_error(
             exc,
             plan=plan,
             decoded_links=decoded_links,
             selected_links=selected_links,
-            root_manifest=root_manifest,
-            payload=payload,
-            expected_sign_pub=root_sign_pub,
         ) from exc
     latest_manifest = _synthetic_manifest_from_state(
         root_manifest,
-        latest_state,
+        validated_chain.files,
     )
-    state_by_path = {item.path: item.data for item in latest_state}
+    state_by_path = {item.path: item.data for item in validated_chain.files}
     extracted = tuple((entry, state_by_path[entry.path]) for entry in latest_manifest.files)
-    selected_extension_index = selected_links[-1].link.document.header.index
-    selected_extension_doc_hash = selected_links[-1].link.doc_hash.hex()
+    selected_head = selected_links[-1]
+    selected_document = next(
+        document
+        for document in plan.import_documents
+        if document.doc_hash == selected_head.link.doc_hash
+    )
+    selected_extension_index = selected_head.link.document.header.index
+    selected_extension_doc_hash = selected_document.doc_hash.hex()
     _ensure_expected_head_satisfied(
         plan,
         selected_extension_index=selected_extension_index,
@@ -517,13 +665,41 @@ def recover_imported_chain_entries(
     return ChainRecoveryResult(
         manifest=latest_manifest,
         extracted=extracted,
-        selected_extension_index=selected_extension_index,
-        selected_extension_doc_hash=selected_extension_doc_hash,
+        head=ValidatedRecoveryHead(
+            doc_id=selected_document.doc_id,
+            doc_hash=selected_document.doc_hash,
+            ciphertext=selected_document.ciphertext,
+            auth_payload=selected_head.auth_payload,
+            auth_status=selected_head.auth_status,
+            extension_index=selected_extension_index,
+        ),
+        validated_chain=validated_chain,
+    )
+
+
+def _root_chain_recovery_result(
+    plan: ChainRecoveryInputs,
+    manifest: BackupManifest,
+    payload: bytes,
+) -> ChainRecoveryResult:
+    return ChainRecoveryResult(
+        manifest=manifest,
+        extracted=tuple(extract_payloads(manifest, payload)),
+        head=ValidatedRecoveryHead(
+            doc_id=plan.doc_id,
+            doc_hash=plan.doc_hash,
+            ciphertext=plan.ciphertext,
+            auth_payload=plan.auth_payload,
+            auth_status=plan.auth_status,
+            extension_index=None,
+        ),
+        validated_chain=None,
+        root_payload=payload,
     )
 
 
 def _ensure_expected_head_satisfied(
-    plan: RecoveryPlanLike,
+    plan: ChainRecoveryInputs,
     *,
     selected_extension_index: int | None,
     selected_extension_doc_hash: str | None,
@@ -531,7 +707,10 @@ def _ensure_expected_head_satisfied(
     expected_head_doc_hash = getattr(plan, "expected_head_doc_hash", None)
     if expected_head_doc_hash is None:
         return
-    expected = _parse_extension_doc_hash(expected_head_doc_hash).hex()
+    expected = parse_doc_hash_hex(
+        expected_head_doc_hash,
+        option="--extension-doc-hash",
+    ).hex()
     validated_head_index = selected_extension_index if selected_extension_index is not None else 0
     validated_head_doc_hash = selected_extension_doc_hash or plan.doc_hash.hex()
     if hmac.compare_digest(expected, validated_head_doc_hash):
@@ -553,7 +732,7 @@ def _ensure_expected_head_satisfied(
 
 
 def validate_expected_recovery_head(
-    plan: RecoveryPlanLike,
+    plan: ChainRecoveryInputs,
     *,
     selected_extension_index: int | None,
     selected_extension_doc_hash: str | None,
@@ -566,26 +745,25 @@ def validate_expected_recovery_head(
 
 
 def _chain_replay_head_untrusted_error(
-    exc: ValueError,
+    exc: ExtensionReplayError,
     *,
-    plan: RecoveryPlanLike,
+    plan: ChainRecoveryInputs,
     decoded_links: tuple[DecodedExtensionLink, ...],
     selected_links: tuple[DecodedExtensionLink, ...],
-    root_manifest: EnvelopeManifest,
-    payload: bytes,
-    expected_sign_pub: bytes,
 ) -> extension_errors.ExtensionRecoveryError:
-    failure, validated_links = locate_replay_failure(
-        root_manifest=root_manifest,
-        payload=payload,
-        root_doc_hash=plan.doc_hash,
-        expected_sign_pub=expected_sign_pub,
-        selected_links=selected_links,
+    validated_link = next(
+        (
+            item
+            for item in selected_links
+            if item.link.document.header.index == exc.last_validated_head_index
+            and item.link.doc_hash == exc.last_validated_head_hash
+        ),
+        None,
     )
-    head_index, head_hash, head_auth, head_verified = _validated_head_details(
-        plan.doc_hash,
-        validated_links,
-    )
+    head_index = exc.last_validated_head_index
+    head_hash = exc.last_validated_head_hash.hex()
+    head_auth = None if validated_link is None else validated_link.auth_status
+    head_verified = None if validated_link is None else validated_link.root_signing_key_verified
     latest_head_index, latest_head_doc_hash = _latest_head_details(decoded_links)
     requested_doc_hash = (
         None if plan.extension_doc_hash is None else plan.extension_doc_hash.strip().lower()
@@ -598,10 +776,10 @@ def _chain_replay_head_untrusted_error(
         message=f"{head_label} recovery head could not be trusted: {failure_message}",
         details={
             "stage": "replay",
-            "failure_stage": "chain",
+            "failure_stage": exc.failure_phase,
             "failure_message": failure_message,
-            "failure_head_index": failure.link.document.header.index,
-            "failure_head_doc_hash": failure.link.doc_hash.hex(),
+            "failure_head_index": exc.failing_index,
+            "failure_head_doc_hash": exc.failing_hash.hex(),
             "latest_head_index": latest_head_index,
             "latest_head_doc_hash": latest_head_doc_hash,
             "requested_head_index": plan.extension_index,
@@ -609,47 +787,9 @@ def _chain_replay_head_untrusted_error(
             "validated_head_index": head_index,
             "validated_head_doc_hash": head_hash,
             "validated_head_auth_status": head_auth,
-            "validated_head_root_authority_verified": head_verified,
+            "validated_head_root_signing_key_verified": head_verified,
             "explicit_selection": explicit_selection,
         },
-    )
-
-
-def locate_replay_failure(
-    *,
-    root_manifest: EnvelopeManifest,
-    payload: bytes,
-    root_doc_hash: bytes,
-    expected_sign_pub: bytes,
-    selected_links: tuple[DecodedExtensionLink, ...],
-) -> tuple[DecodedExtensionLink, tuple[DecodedExtensionLink, ...]]:
-    for end in range(1, len(selected_links) + 1):
-        prefix = selected_links[:end]
-        try:
-            reconstruct_authenticated_latest_logical_state(
-                root_manifest,
-                payload,
-                root_doc_hash=root_doc_hash,
-                expected_sign_pub=expected_sign_pub,
-                extensions=tuple(item.link for item in prefix),
-            )
-        except ValueError:
-            return prefix[-1], prefix[:-1]
-    return selected_links[-1], selected_links[:-1]
-
-
-def _validated_head_details(
-    root_doc_hash: bytes,
-    links: tuple[DecodedExtensionLink, ...],
-) -> tuple[int, str, str | None, bool | None]:
-    if not links:
-        return 0, root_doc_hash.hex(), None, None
-    latest = links[-1]
-    return (
-        latest.link.document.header.index,
-        latest.link.doc_hash.hex(),
-        latest.auth_status,
-        latest.root_authority_verified,
     )
 
 
@@ -707,6 +847,7 @@ def _decode_imported_extension_links(
     expected_sign_pub: bytes,
     requested_index: int | None = None,
     requested_doc_hash: str | None = None,
+    decoded_import_session: DecodedImportSession | None = None,
     debug: bool,
 ) -> tuple[DecodedExtensionLink, ...]:
     if requested_index is not None and requested_doc_hash is not None:
@@ -718,8 +859,9 @@ def _decode_imported_extension_links(
         root_doc_id=root_doc_id,
         passphrase=passphrase,
         expected_sign_pub=expected_sign_pub,
-        fail_on_root_authority_errors=requested_index is None and requested_doc_hash is None,
+        fail_on_root_signing_key_errors=requested_index is None and requested_doc_hash is None,
         requested_doc_hash=_requested_extension_doc_hash_bytes(requested_doc_hash),
+        decoded_import_session=decoded_import_session,
         debug=debug,
     )
     candidates = _select_extension_candidates_for_auth(
@@ -741,29 +883,18 @@ def _decode_imported_extension_candidates(
     root_doc_id: bytes,
     passphrase: str,
     expected_sign_pub: bytes,
-    fail_on_root_authority_errors: bool,
+    fail_on_root_signing_key_errors: bool,
     requested_doc_hash: bytes | None,
+    decoded_import_session: DecodedImportSession | None,
     debug: bool,
 ) -> tuple[_DecodedExtensionCandidate, ...]:
     candidates: list[_DecodedExtensionCandidate] = []
     seen_doc_hashes = {root_doc_hash}
+    remaining_inline_chunk_bytes = MAX_RECOVERY_DECODED_CHUNK_BYTES
     for document in documents:
         if document.doc_hash in seen_doc_hashes:
             continue
-        if document.doc_id == root_doc_id:
-            raise extension_errors.ExtensionRecoveryError(
-                code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
-                message=(
-                    "imported extension chain could not be trusted: "
-                    "content import contains a document whose doc_id collides with "
-                    "the selected root backup"
-                ),
-                details={
-                    "stage": "selection",
-                    "root_doc_id": root_doc_id.hex(),
-                    "colliding_doc_hash": document.doc_hash.hex(),
-                },
-            )
+        _require_distinct_root_id(document, root_doc_id)
         try:
             auth_payload, auth_status = _resolve_verified_extension_auth(
                 document,
@@ -771,67 +902,69 @@ def _decode_imported_extension_candidates(
             )
         except ValueError as exc:
             if document.doc_hash == requested_doc_hash:
-                raise _extension_auth_api_error(
+                raise _extension_auth_error(
                     document,
                     message=str(exc),
                     explicit_selection=True,
                 ) from exc
-            if fail_on_root_authority_errors:
-                raise _extension_auth_api_error(document, message=str(exc)) from exc
+            if fail_on_root_signing_key_errors:
+                raise _extension_auth_error(document, message=str(exc)) from exc
             continue
         try:
-            plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
-            version, decoded_document = decode_any_envelope(plaintext)
+            plaintext = _import_document_plaintext(
+                document,
+                passphrase=passphrase,
+                debug=debug,
+                decoded_import_session=decoded_import_session,
+            )
+            _version, decoded_document = decode_document(
+                plaintext,
+                max_extension_inline_chunk_bytes=remaining_inline_chunk_bytes,
+            )
+        except (
+            PassphraseAuthenticationError,
+            ExtensionDecodedChunkBudgetError,
+            RecoveryResourceLimitError,
+        ):
+            raise
         except Exception as exc:
-            message = f"imported root-authority document could not be decoded: {exc}"
-            if document.doc_hash == requested_doc_hash:
-                _raise_selected_extension_candidate_error(
-                    document,
-                    expected_sign_pub=expected_sign_pub,
-                    stage="decode",
-                    message=message,
-                )
-            if fail_on_root_authority_errors:
-                _raise_if_document_signed_by_root_authority(
-                    document,
-                    expected_sign_pub=expected_sign_pub,
-                    stage="decode",
-                    message=message,
-                )
+            message = f"imported document signed by the root key could not be decoded: {exc}"
+            _handle_extension_candidate_failure(
+                document,
+                expected_sign_pub=expected_sign_pub,
+                requested_doc_hash=requested_doc_hash,
+                fail_on_root_signing_key_errors=fail_on_root_signing_key_errors,
+                stage="decode",
+                message=message,
+            )
             continue
-        if version != 2 or not isinstance(decoded_document, ExtensionEnvelope):
-            message = "imported root-authority document did not decode as an extension envelope"
-            if document.doc_hash == requested_doc_hash:
-                _raise_selected_extension_candidate_error(
-                    document,
-                    expected_sign_pub=expected_sign_pub,
-                    stage="decode",
-                    message=message,
-                )
-            if fail_on_root_authority_errors:
-                _raise_if_document_signed_by_root_authority(
-                    document,
-                    expected_sign_pub=expected_sign_pub,
-                    stage="decode",
-                    message=message,
-                )
+        if not isinstance(decoded_document, ExtensionDocument):
+            message = (
+                "imported document signed by the root key did not decode as an extension document"
+            )
+            _handle_extension_candidate_failure(
+                document,
+                expected_sign_pub=expected_sign_pub,
+                requested_doc_hash=requested_doc_hash,
+                fail_on_root_signing_key_errors=fail_on_root_signing_key_errors,
+                stage="decode",
+                message=message,
+            )
             continue
+        remaining_inline_chunk_bytes -= decoded_document.inline_chunk_raw_bytes
         if decoded_document.header.root_doc_hash != root_doc_hash:
-            message = "imported root-authority extension does not target the selected root document"
-            if document.doc_hash == requested_doc_hash:
-                _raise_selected_extension_candidate_error(
-                    document,
-                    expected_sign_pub=expected_sign_pub,
-                    stage="chain",
-                    message=message,
-                )
-            if fail_on_root_authority_errors:
-                _raise_if_document_signed_by_root_authority(
-                    document,
-                    expected_sign_pub=expected_sign_pub,
-                    stage="chain",
-                    message=message,
-                )
+            message = (
+                "imported extension signed by the root key does not target "
+                "the selected root document"
+            )
+            _handle_extension_candidate_failure(
+                document,
+                expected_sign_pub=expected_sign_pub,
+                requested_doc_hash=requested_doc_hash,
+                fail_on_root_signing_key_errors=fail_on_root_signing_key_errors,
+                stage="chain",
+                message=message,
+            )
             continue
         seen_doc_hashes.add(document.doc_hash)
         candidates.append(
@@ -845,10 +978,27 @@ def _decode_imported_extension_candidates(
     return tuple(candidates)
 
 
+def _require_distinct_root_id(document: ImportedRecoveryDocument, root_doc_id: bytes) -> None:
+    if document.doc_id == root_doc_id:
+        raise extension_errors.ExtensionRecoveryError(
+            code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
+            message=(
+                "imported extension chain could not be trusted: "
+                "content import contains a document whose doc_id collides with "
+                "the selected root backup"
+            ),
+            details={
+                "stage": "selection",
+                "root_doc_id": root_doc_id.hex(),
+                "colliding_doc_hash": document.doc_hash.hex(),
+            },
+        )
+
+
 def _requested_extension_doc_hash_bytes(requested_doc_hash: str | None) -> bytes | None:
     if requested_doc_hash is None:
         return None
-    return _parse_extension_doc_hash(requested_doc_hash)
+    return parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
 
 
 def _select_extension_candidates_for_auth(
@@ -879,7 +1029,7 @@ def _select_extension_candidates_for_auth(
             if candidate.decoded.header.index <= requested_index
         )
     if requested_doc_hash is not None:
-        requested = _parse_extension_doc_hash(requested_doc_hash)
+        requested = parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
         target_index = next(
             (
                 candidate.decoded.header.index
@@ -947,11 +1097,11 @@ def _authenticate_imported_extension_candidates(
                     auth_payload=candidate.auth_payload,
                     expected_sign_pub=expected_sign_pub,
                     auth_status=candidate.auth_status,
-                    root_authority_verified=True,
+                    root_signing_key_verified=True,
                 ),
                 auth_payload=candidate.auth_payload,
                 auth_status=candidate.auth_status,
-                root_authority_verified=True,
+                root_signing_key_verified=True,
             )
         )
 
@@ -985,11 +1135,11 @@ def _resolve_verified_extension_auth(
     except ValueError as exc:
         raise ValueError(f"imported extension AUTH could not be verified: {exc}") from exc
     if auth_payload.sign_pub != expected_sign_pub:
-        raise ValueError("imported extension AUTH signing key does not match root authority")
+        raise ValueError("imported extension AUTH signing key does not match root signing key")
     return auth_payload, auth_status
 
 
-def _extension_auth_api_error(
+def _extension_auth_error(
     document: ImportedRecoveryDocument,
     *,
     message: str,
@@ -1008,7 +1158,7 @@ def _extension_auth_api_error(
     )
 
 
-def _raise_if_document_signed_by_root_authority(
+def _raise_if_document_signed_by_root_key(
     document: ImportedRecoveryDocument,
     *,
     expected_sign_pub: bytes,
@@ -1055,7 +1205,7 @@ def _raise_selected_extension_candidate_error(
     except ValueError as exc:
         details["auth_error"] = str(exc)
     else:
-        details["root_authority_verified"] = auth_payload.sign_pub == expected_sign_pub
+        details["root_signing_key_verified"] = auth_payload.sign_pub == expected_sign_pub
     raise extension_errors.ExtensionRecoveryError(
         code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
         message=message,
@@ -1068,18 +1218,26 @@ def decode_imported_extension_link(
     *,
     passphrase: str,
     expected_sign_pub: bytes,
-    quiet: bool,
     debug: bool,
+    max_inline_chunk_bytes: int = MAX_RECOVERY_DECODED_CHUNK_BYTES,
+    decoded_import_session: DecodedImportSession | None = None,
 ) -> DecodedExtensionLink:
-    _ = quiet
     auth_payload, auth_status = _resolve_verified_extension_auth(
         document,
         expected_sign_pub=expected_sign_pub,
     )
-    plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
-    version, decoded = decode_any_envelope(plaintext)
-    if version != 2 or not isinstance(decoded, ExtensionEnvelope):
-        raise ValueError("imported document did not decode as an extension envelope")
+    plaintext = _import_document_plaintext(
+        document,
+        passphrase=passphrase,
+        debug=debug,
+        decoded_import_session=decoded_import_session,
+    )
+    _version, decoded = decode_document(
+        plaintext,
+        max_extension_inline_chunk_bytes=max_inline_chunk_bytes,
+    )
+    if not isinstance(decoded, ExtensionDocument):
+        raise ValueError("imported document did not decode as an extension document")
 
     return DecodedExtensionLink(
         link=AuthenticatedExtensionChainLink(
@@ -1088,11 +1246,11 @@ def decode_imported_extension_link(
             auth_payload=auth_payload,
             expected_sign_pub=expected_sign_pub,
             auth_status=auth_status,
-            root_authority_verified=True,
+            root_signing_key_verified=True,
         ),
         auth_payload=auth_payload,
         auth_status=auth_status,
-        root_authority_verified=True,
+        root_signing_key_verified=True,
     )
 
 
@@ -1122,7 +1280,7 @@ def _select_imported_chain_links(
             )
         return tuple(link for link in links if link.link.document.header.index <= requested_index)
     if requested_doc_hash is not None:
-        requested = _parse_extension_doc_hash(requested_doc_hash)
+        requested = parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
         selected: list[DecodedExtensionLink] = []
         matched = False
         for link in links:
@@ -1164,7 +1322,7 @@ def _ensure_root_selector_satisfied(
                 requested_doc_hash=None,
             )
     if requested_doc_hash is not None:
-        _parse_extension_doc_hash(requested_doc_hash)
+        parse_doc_hash_hex(requested_doc_hash, option="--extension-doc-hash")
         requested_doc_hash_value = requested_doc_hash.strip().lower()
         raise _missing_requested_extension_error(
             f"extension doc_hash {requested_doc_hash_value} was not found",
@@ -1181,101 +1339,58 @@ def decode_root_manifest(
     ciphertext: bytes,
     passphrase: str,
     debug: bool,
-) -> tuple[EnvelopeManifest, bytes]:
+) -> tuple[BackupManifest, bytes]:
     plaintext = decrypt_bytes(ciphertext, passphrase=passphrase, debug=debug)
-    version, decoded = decode_any_envelope(plaintext)
-    if version != 1 or not isinstance(decoded, tuple) or len(decoded) != 2:
-        raise ValueError("root backup must decode as Envelope V1")
+    return _decode_root_plaintext(plaintext)
+
+
+def decode_imported_root_manifest(
+    document: ImportedRecoveryDocument,
+    *,
+    decoded_import_session: DecodedImportSession,
+) -> tuple[BackupManifest, bytes]:
+    """Decode a root using plaintext authenticated by an earlier import decrypt pass."""
+
+    if document.doc_hash != decoded_import_session.root_document.doc_hash:
+        raise ValueError("decoded import session root does not match selected root document")
+    return _decode_root_plaintext(decoded_import_session.plaintext_for(document))
+
+
+def _decode_root_plaintext(plaintext: bytes) -> tuple[BackupManifest, bytes]:
+    _version, decoded = decode_document(plaintext)
+    if not isinstance(decoded, tuple) or len(decoded) != 2:
+        raise ValueError("root backup must decode as a standalone backup document")
     manifest, payload = decoded
-    if not isinstance(manifest, EnvelopeManifest) or not isinstance(payload, bytes):
+    if not isinstance(manifest, BackupManifest) or not isinstance(payload, bytes):
         raise ValueError("root backup did not decode correctly")
     return manifest, payload
 
 
-def resolve_root_manifest_authority(
-    manifest: EnvelopeManifest,
-    auth_payload: AuthPayload | None,
-) -> RootManifestAuthority:
-    if manifest.signing_seed is None:
-        return RootManifestAuthority(embedded_sign_pub=None, mismatch=False)
-
-    embedded_sign_pub = derive_public_key(manifest.signing_seed)
-    mismatch = auth_payload is not None and auth_payload.sign_pub != embedded_sign_pub
-    return RootManifestAuthority(embedded_sign_pub=embedded_sign_pub, mismatch=mismatch)
+def _selected_root_import_document(plan: ChainRecoveryInputs) -> ImportedRecoveryDocument:
+    for document in plan.import_documents:
+        if document.doc_hash == plan.doc_hash and document.ciphertext == plan.ciphertext:
+            return document
+    raise ValueError("decoded import session does not contain the selected root document")
 
 
-def validate_root_manifest_authority(
-    manifest: EnvelopeManifest,
-    auth_payload: AuthPayload | None,
-    *,
-    doc_hash: bytes,
-) -> bytes | None:
-    """Cryptographically validate root AUTH and its embedded signing authority."""
-
-    if auth_payload is not None:
-        if not hmac.compare_digest(auth_payload.doc_hash, doc_hash):
-            raise extension_errors.ExtensionRecoveryError(
-                code=extension_errors.AUTH_DOC_HASH_MISMATCH,
-                message="root AUTH doc_hash does not match the recovered root ciphertext",
-                details={"stage": "auth"},
-            )
-        if not verify_auth(
-            doc_hash, sign_pub=auth_payload.sign_pub, signature=auth_payload.signature
-        ):
-            raise extension_errors.ExtensionRecoveryError(
-                code=extension_errors.AUTH_SIGNATURE_INVALID,
-                message="root AUTH signature verification failed",
-                details={"stage": "auth"},
-            )
-
-    authority = resolve_root_manifest_authority(manifest, auth_payload)
-    if authority.mismatch:
-        raise extension_errors.ExtensionRecoveryError(
-            code=extension_errors.ROOT_AUTHORITY_MISMATCH,
-            message="embedded signing seed does not match the verified root AUTH authority",
-            details={"stage": "auth"},
-        )
-    return authority.embedded_sign_pub
-
-
-def decode_authenticated_extension_link(
-    item: ImportedRecoveryDocument,
+def _import_document_plaintext(
+    document: ImportedRecoveryDocument,
     *,
     passphrase: str,
-    expected_sign_pub: bytes | None,
-    quiet: bool,
     debug: bool,
-) -> DecodedExtensionLink:
-    if expected_sign_pub is None:
-        raise ValueError("extension replay requires an unsealed root signing authority")
-    return decode_imported_extension_link(
-        item,
-        passphrase=passphrase,
-        expected_sign_pub=expected_sign_pub,
-        quiet=quiet,
-        debug=debug,
-    )
-
-
-def _parse_extension_doc_hash(value: str) -> bytes:
-    normalized = value.strip().lower()
-    try:
-        requested_bytes = bytes.fromhex(normalized)
-    except ValueError as exc:
-        raise ValueError("--extension-doc-hash must be lowercase hex") from exc
-    if len(requested_bytes) != 32:
-        raise ValueError("--extension-doc-hash must be a 32-byte hex value")
-    return requested_bytes
+    decoded_import_session: DecodedImportSession | None,
+) -> bytes:
+    if decoded_import_session is not None:
+        return decoded_import_session.plaintext_for(document)
+    return decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
 
 
 def _synthetic_manifest_from_state(
-    root_manifest: EnvelopeManifest,
-    state: tuple[LogicalFileState, ...],
-) -> EnvelopeManifest:
-    return EnvelopeManifest(
-        format_version=root_manifest.format_version,
+    root_manifest: BackupManifest,
+    state: tuple[ReconstructedFile, ...],
+) -> BackupManifest:
+    return BackupManifest(
         created_at=root_manifest.created_at,
-        sealed=root_manifest.sealed,
         signing_seed=root_manifest.signing_seed,
         files=tuple(
             ManifestFile(
@@ -1289,30 +1404,46 @@ def _synthetic_manifest_from_state(
         input_origin=RECONSTRUCTED_STATE_INPUT_ORIGIN,
         input_roots=RECONSTRUCTED_STATE_INPUT_ROOTS,
         payload_codec="raw",
-        payload_raw_len=None,
     )
 
 
 __all__ = [
     "ChainRecoveryResult",
+    "DecodedImportSession",
     "DecodedExtensionLink",
     "ImportedRecoveryDocument",
-    "RecoveryChainInspection",
-    "RecoveryExtensionInventory",
-    "RecoveryHeadTrustRefusal",
-    "RecoveryReplayFailure",
-    "RootManifestAuthority",
-    "decode_authenticated_extension_link",
+    "RootSigningKeyBinding",
+    "ValidatedRecoveryHead",
     "decode_imported_extension_link",
+    "decode_imported_root_manifest",
     "decode_root_manifest",
     "imported_document_from_recovery_frames",
     "imported_documents_from_recovery_frames",
-    "locate_replay_failure",
     "recover_chain_entries",
     "recover_imported_chain_entries",
     "resolve_required_auth_payload",
-    "resolve_root_manifest_authority",
+    "resolve_root_signing_key_binding",
     "select_root_import_document",
+    "select_root_import_session",
     "validate_expected_recovery_head",
-    "validate_root_manifest_authority",
+    "validate_root_signing_key_binding",
 ]
+
+
+def _handle_extension_candidate_failure(
+    document: ImportedRecoveryDocument,
+    *,
+    expected_sign_pub: bytes,
+    requested_doc_hash: bytes | None,
+    fail_on_root_signing_key_errors: bool,
+    stage: str,
+    message: str,
+) -> None:
+    if document.doc_hash == requested_doc_hash:
+        _raise_selected_extension_candidate_error(
+            document, expected_sign_pub=expected_sign_pub, stage=stage, message=message
+        )
+    if fail_on_root_signing_key_errors:
+        _raise_if_document_signed_by_root_key(
+            document, expected_sign_pub=expected_sign_pub, stage=stage, message=message
+        )

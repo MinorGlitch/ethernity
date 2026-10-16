@@ -19,7 +19,6 @@ import unittest
 
 import cbor2
 
-from ethernity.cli.features.recover.key_recovery import passphrase_from_shard_frames
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     KEY_TYPE_SIGNING_SEED,
@@ -27,9 +26,9 @@ from ethernity.crypto.sharding import (
     MAX_SHARES,
     SHARD_VERSION,
     ShardPayload,
+    create_replacement_shards,
     decode_shard_payload,
     encode_shard_payload,
-    mint_replacement_shards,
     recover_passphrase,
     recover_signing_seed,
     split_passphrase,
@@ -38,6 +37,7 @@ from ethernity.crypto.sharding import (
 )
 from ethernity.crypto.signing import SHARD_SET_ID_LEN, generate_signing_keypair, sign_shard
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
+from ethernity.workflows.recovery.keys import passphrase_from_shard_frames
 
 TEST_SHARD_SET_ID = b"s" * SHARD_SET_ID_LEN
 
@@ -254,7 +254,7 @@ class TestSharding(unittest.TestCase):
         with self.assertRaises(ValueError):
             recover_passphrase([shares[0], shares[0]])
 
-    def test_mint_replacement_shards_recovers_same_passphrase(self) -> None:
+    def test_replacement_replacement_shards_recovers_same_passphrase(self) -> None:
         passphrase = "compatible-replacement-check"
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
         sign_priv, sign_pub = generate_signing_keypair()
@@ -266,7 +266,7 @@ class TestSharding(unittest.TestCase):
             sign_priv=sign_priv,
             sign_pub=sign_pub,
         )
-        replacements = mint_replacement_shards(
+        replacements = create_replacement_shards(
             [shares[0], shares[1], shares[2]],
             count=1,
             sign_priv=sign_priv,
@@ -281,7 +281,7 @@ class TestSharding(unittest.TestCase):
         recovered = recover_passphrase([shares[0], replacements[0]])
         self.assertEqual(recovered, passphrase)
 
-    def test_mint_replacement_shards_rejects_when_no_missing_slots(self) -> None:
+    def test_replacement_replacement_shards_rejects_when_no_missing_slots(self) -> None:
         passphrase = "replacement-limit-check"
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
         sign_priv, sign_pub = generate_signing_keypair()
@@ -294,13 +294,13 @@ class TestSharding(unittest.TestCase):
             sign_pub=sign_pub,
         )
         with self.assertRaisesRegex(ValueError, "only 0 replacement shard"):
-            mint_replacement_shards(
+            create_replacement_shards(
                 shares,
                 count=1,
                 sign_priv=sign_priv,
             )
 
-    def test_mint_replacement_shards_rejects_mixed_source_signing_keys(self) -> None:
+    def test_replacement_replacement_shards_rejects_mixed_source_signing_keys(self) -> None:
         passphrase = "signing-key-consistency-check"
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
         sign_priv, sign_pub = generate_signing_keypair()
@@ -326,13 +326,13 @@ class TestSharding(unittest.TestCase):
             shard_set_id=shares[1].shard_set_id,
         )
         with self.assertRaisesRegex(ValueError, "signing keys do not match"):
-            mint_replacement_shards(
+            create_replacement_shards(
                 [shares[0], mixed_share],
                 count=1,
                 sign_priv=sign_priv,
             )
 
-    def test_mint_replacement_shards_rejects_new_signing_seed_mismatch(self) -> None:
+    def test_replacement_replacement_shards_rejects_new_signing_seed_mismatch(self) -> None:
         passphrase = "replacement-signing-key-mismatch"
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
         sign_priv, sign_pub = generate_signing_keypair()
@@ -346,13 +346,13 @@ class TestSharding(unittest.TestCase):
             sign_pub=sign_pub,
         )
         with self.assertRaisesRegex(ValueError, "replacement signing key must match"):
-            mint_replacement_shards(
+            create_replacement_shards(
                 [shares[0], shares[1]],
                 count=1,
                 sign_priv=other_sign_priv,
             )
 
-    def test_mint_replacement_shards_matches_original_missing_share_randomized(self) -> None:
+    def test_replacement_replacement_shards_matches_original_missing_share_randomized(self) -> None:
         rng = random.Random(20260310)
         for case_index in range(20):
             threshold = rng.randint(2, 4)
@@ -374,7 +374,7 @@ class TestSharding(unittest.TestCase):
             )
             missing_share = shares[rng.randrange(share_count)]
             source = [share for share in shares if share.share_index != missing_share.share_index]
-            replacement = mint_replacement_shards(
+            replacement = create_replacement_shards(
                 source,
                 count=1,
                 sign_priv=sign_priv,
@@ -387,7 +387,7 @@ class TestSharding(unittest.TestCase):
             recovered = recover_passphrase(source[: threshold - 1] + [replacement])
             self.assertEqual(recovered, passphrase)
 
-    def test_mint_replacement_shards_rejects_mixed_valid_shard_sets(self) -> None:
+    def test_replacement_replacement_shards_rejects_mixed_valid_shard_sets(self) -> None:
         passphrase = "mixed-valid-shard-sets"
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
         sign_priv, sign_pub = generate_signing_keypair()
@@ -409,7 +409,7 @@ class TestSharding(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "not mutually compatible"):
-            mint_replacement_shards(
+            create_replacement_shards(
                 [first_set[0], second_set[1], first_set[2]],
                 count=1,
                 sign_priv=sign_priv,
@@ -493,7 +493,7 @@ class TestSharding(unittest.TestCase):
                 verify_signatures=False,
             )
 
-    def test_mint_replacement_shards_rejects_mixed_valid_shard_sets_at_exact_threshold(
+    def test_replacement_replacement_shards_rejects_mixed_valid_shard_sets_at_exact_threshold(
         self,
     ) -> None:
         passphrase = "mixed-valid-shard-sets"
@@ -517,7 +517,7 @@ class TestSharding(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "not mutually compatible"):
-            mint_replacement_shards(
+            create_replacement_shards(
                 [first_set[0], second_set[1]],
                 count=1,
                 sign_priv=sign_priv,
@@ -560,7 +560,7 @@ class TestSharding(unittest.TestCase):
 
         self.assertEqual(recovered, seed)
 
-    def test_mint_replacement_shards_accepts_legacy_exact_threshold_without_shard_set_id(
+    def test_replacement_replacement_shards_accepts_legacy_exact_threshold_without_shard_set_id(
         self,
     ) -> None:
         passphrase = "legacy-threshold-policy"
@@ -576,7 +576,7 @@ class TestSharding(unittest.TestCase):
         )
         legacy_shares = self._legacyize_shares(shares, sign_priv=sign_priv)
 
-        replacements = mint_replacement_shards(legacy_shares[:2], count=1, sign_priv=sign_priv)
+        replacements = create_replacement_shards(legacy_shares[:2], count=1, sign_priv=sign_priv)
 
         self.assertEqual(len(replacements), 1)
         self.assertEqual(replacements[0].version, LEGACY_SHARD_VERSION)
@@ -623,7 +623,9 @@ class TestSharding(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "set_id"):
                     decode_shard_payload(cbor2.dumps(payload, canonical=True))
 
-    def test_mint_signing_seed_replacement_matches_original_missing_share_randomized(self) -> None:
+    def test_replacement_signing_seed_replacement_matches_original_missing_share_randomized(
+        self,
+    ) -> None:
         rng = random.Random(20260311)
         for case_index in range(20):
             threshold = rng.randint(2, 4)
@@ -643,7 +645,7 @@ class TestSharding(unittest.TestCase):
             )
             missing_share = shares[rng.randrange(share_count)]
             source = [share for share in shares if share.share_index != missing_share.share_index]
-            replacement = mint_replacement_shards(
+            replacement = create_replacement_shards(
                 source,
                 count=1,
                 sign_priv=sign_priv,
@@ -797,7 +799,7 @@ class TestSharding(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid shard signature"):
             recover_signing_seed([shares[0], bad_payload])
 
-    def test_mint_replacement_shards_rejects_invalid_signature(self) -> None:
+    def test_replacement_replacement_shards_rejects_invalid_signature(self) -> None:
         passphrase = "replacement-signature-check"
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
         sign_priv, sign_pub = generate_signing_keypair()
@@ -823,7 +825,7 @@ class TestSharding(unittest.TestCase):
             shard_set_id=shares[1].shard_set_id,
         )
         with self.assertRaisesRegex(ValueError, "invalid shard signature"):
-            mint_replacement_shards([shares[0], bad_payload], count=1, sign_priv=sign_priv)
+            create_replacement_shards([shares[0], bad_payload], count=1, sign_priv=sign_priv)
 
     def test_shard_payload_roundtrip(self) -> None:
         doc_hash = hashlib.blake2b(b"payload", digest_size=32).digest()
@@ -903,7 +905,7 @@ class TestSharding(unittest.TestCase):
         decoded = decode_shard_payload(cbor2.dumps(payload, canonical=True))
         self.assertEqual(decoded, expected)
 
-    def test_decode_shard_payload_rejects_non_canonical_cbor(self) -> None:
+    def test_decode_shard_payload_rejects_nondeterministic_cbor(self) -> None:
         doc_hash = hashlib.blake2b(b"payload", digest_size=32).digest()
         sign_priv, sign_pub = generate_signing_keypair()
         share = b"\x01" * 16
@@ -933,11 +935,11 @@ class TestSharding(unittest.TestCase):
             "set_id": TEST_SHARD_SET_ID,
             "sig": signature,
         }
-        non_canonical = cbor2.dumps(payload, canonical=False)
-        canonical = cbor2.dumps(payload, canonical=True)
-        self.assertNotEqual(non_canonical, canonical)
-        with self.assertRaisesRegex(ValueError, "canonical CBOR"):
-            decode_shard_payload(non_canonical)
+        nondeterministic = cbor2.dumps(payload, canonical=False)
+        deterministic = cbor2.dumps(payload, canonical=True)
+        self.assertNotEqual(nondeterministic, deterministic)
+        with self.assertRaisesRegex(ValueError, "deterministic CBOR"):
+            decode_shard_payload(nondeterministic)
 
     def test_decode_rejects_threshold_or_index_exceeds_total(self) -> None:
         cases = (

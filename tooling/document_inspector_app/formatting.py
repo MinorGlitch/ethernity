@@ -5,13 +5,12 @@ import string
 from pathlib import Path
 from typing import Any
 
-from ethernity.encoding.cbor import loads_canonical
+from ethernity.encoding.cbor import loads_deterministic
 from ethernity.encoding.framing import Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_BASE64, encode_qr_payload
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.render.fallback_text import format_zbase32_lines
 
-from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
 from .constants import (
     DEFAULT_FALLBACK_GROUP_SIZE,
     DEFAULT_FALLBACK_LINE_LENGTH,
@@ -163,7 +162,7 @@ def frame_raw_text(frame: Frame) -> str:
 def frame_cbor_text(frame: Frame) -> str:
     if frame.frame_type == FrameType.MAIN_DOCUMENT:
         return "MAIN_DOCUMENT frame data is ciphertext, not CBOR.\n"
-    decoded: Any = loads_canonical(frame.data, label="frame payload")
+    decoded: Any = loads_deterministic(frame.data, label="frame payload")
     return json_text(decoded)
 
 

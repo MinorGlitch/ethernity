@@ -1,0 +1,176 @@
+name: Verify native packages
+
+on:
+  workflow_call:
+    inputs:
+      commit_sha:
+        required: true
+        type: string
+      tag:
+        required: true
+        type: string
+      build_binaries:
+        type: boolean
+        default: true
+      kit_artifact:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  UV_LOCKED: "true"
+
+jobs:
+  targets:
+    if: inputs.build_binaries
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - uses: ./.github/actions/setup-python
+      - id: matrix
+        run: echo "matrix=$(uv run python -m tooling.release.cli matrix)" >> "$GITHUB_OUTPUT"
+
+  build:
+    if: inputs.build_binaries
+    needs: targets
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Setup build dependencies
+        uses: ./.github/actions/setup-python
+        with:
+          extras: build
+          dependency-groups: "false"
+
+      - name: Download generated kit bundles
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.kit_artifact }}
+          path: src/ethernity/resources/kit
+
+      - name: Verify exact generated kit bundles
+        run: python -m tooling.release_resources --kit-directory src/ethernity/resources/kit
+
+      - name: Build with PyInstaller (onedir)
+        run: uv run --no-default-groups --extra build pyinstaller --clean --noconfirm ethernity.spec
+
+      - name: Smoke test built executable and Linux baseline
+        shell: bash
+        env:
+          TARGET_OS: ${{ matrix.target_os }}
+        run: |
+          args=("./dist/ethernity/ethernity")
+          if [[ "$TARGET_OS" == "windows" ]]; then
+            args=("./dist/ethernity/ethernity.exe")
+          elif [[ "$TARGET_OS" == "linux" ]]; then
+            args+=(--glibc-directory dist/ethernity)
+          fi
+          python -m tooling.release.smoke "${args[@]}"
+
+      - name: Package release archive
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          TARGET_OS: ${{ matrix.target_os }}
+          TARGET_ARCH: ${{ matrix.target_arch }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          PACKAGER: pyinstaller
+          PACKAGE_MODE: onedir
+        run: uv run --no-default-groups --extra build python -m scripts.package_pyinstaller
+
+      - name: Generate archive SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: ethernity-${{ inputs.tag }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.${{ matrix.archive_ext }}
+          format: cyclonedx-json
+          output-file: ethernity-${{ inputs.tag }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.sbom.cdx.json
+          syft-version: v1.49.0
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Upload package files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-build-${{ matrix.target_os }}-${{ matrix.target_arch }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            ethernity-${{ inputs.tag }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.${{ matrix.archive_ext }}
+            ethernity-${{ inputs.tag }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.sbom.cdx.json
+
+  source-archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Setup build dependencies
+        uses: ./.github/actions/setup-python
+        with:
+          extras: build
+          dependency-groups: "false"
+
+      - name: Download generated kit bundles
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.kit_artifact }}
+          path: src/ethernity/resources/kit
+
+      - name: Verify exact source archive kit bundles
+        run: python -m tooling.release_resources --kit-directory src/ethernity/resources/kit
+
+      - name: Build tagged source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv build --no-build-isolation --sdist --out-dir source-dist
+          mapfile -t archives < <(find source-dist -maxdepth 1 -type f -name '*.tar.gz')
+          if [[ "${#archives[@]}" -ne 1 ]]; then
+            echo "expected exactly one source archive, found ${#archives[@]}" >&2
+            exit 1
+          fi
+          mv "${archives[0]}" "ethernity-source-${{ inputs.tag }}.tar.gz"
+          python -m tooling.release_resources "ethernity-source-${{ inputs.tag }}.tar.gz"
+
+      - name: Generate source archive SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: ethernity-source-${{ inputs.tag }}.tar.gz
+          format: cyclonedx-json
+          output-file: ethernity-source-${{ inputs.tag }}.sbom.cdx.json
+          syft-version: v1.49.0
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Upload tagged source archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-source
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            ethernity-source-${{ inputs.tag }}.tar.gz
+            ethernity-source-${{ inputs.tag }}.sbom.cdx.json

@@ -37,8 +37,8 @@ class TestVarint(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "value must be an int"):
             encode_uvarint(True)
 
-    def test_decode_rejects_non_canonical(self) -> None:
-        with self.assertRaisesRegex(ValueError, "non-canonical"):
+    def test_decode_rejects_overlong_encoding(self) -> None:
+        with self.assertRaisesRegex(ValueError, "overlong"):
             decode_uvarint(b"\x80\x00", 0)
 
     def test_decode_rejects_overflow(self) -> None:

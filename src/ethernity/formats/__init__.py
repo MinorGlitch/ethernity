@@ -13,73 +13,67 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-from ethernity.formats.envelope_codec import (
-    MAGIC as ENVELOPE_MAGIC,
-    VERSION as ENVELOPE_VERSION,
+from ethernity.formats import extension_constants
+from ethernity.formats.document_codec import (
+    MAGIC as DOCUMENT_MAGIC,
+    VERSION as DOCUMENT_VERSION,
     build_manifest_and_payload,
     build_single_file_manifest,
-    decode_any_envelope,
-    decode_envelope,
-    decode_extension_envelope,
+    decode_backup_document,
+    decode_document,
+    decode_extension_document,
     decode_manifest,
-    encode_envelope,
-    encode_extension_envelope,
+    encode_backup_document,
+    encode_extension_document,
     encode_manifest,
     extract_payloads,
 )
-from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile, PayloadPart
-from ethernity.formats.extension_envelope import (
+from ethernity.formats.extension_constants import (
+    CHAIN_ID_PERSONALIZATION as CHAIN_ID_PERSONALIZATION,
+    CHUNK_ALGORITHM_FASTCDC as CHUNK_ALGORITHM_FASTCDC,
+    CHUNK_CODEC_GZIP as CHUNK_CODEC_GZIP,
+    CHUNK_CODEC_RAW as CHUNK_CODEC_RAW,
+)
+from ethernity.formats.extension_document import (
     ExtensionChunkingProfile,
     ExtensionChunkRecord,
     ExtensionChunkRef,
-    ExtensionEnvelope,
-    ExtensionEnvelopeHeader,
+    ExtensionDocument,
     ExtensionFile,
+    ExtensionHeader,
     build_extension_header,
     derive_chain_id,
 )
-from ethernity.formats.extension_envelope_constants import (
-    CHAIN_ID_PERSONALIZATION,
-    CHUNK_ALGORITHM_FASTCDC,
-    CHUNK_CODEC_GZIP,
-    CHUNK_CODEC_RAW,
-    EXTENSION_ENVELOPE_VERSION,
-    EXTENSION_SCHEMA_VERSION,
-)
+from ethernity.formats.manifest import BackupFile, BackupManifest, ManifestFile
 from ethernity.formats.payload_codec import (
     decode_payload_from_manifest,
     encode_payload_for_manifest,
 )
 
 __all__ = [
-    "ENVELOPE_MAGIC",
-    "ENVELOPE_VERSION",
-    "CHAIN_ID_PERSONALIZATION",
-    "CHUNK_ALGORITHM_FASTCDC",
-    "CHUNK_CODEC_GZIP",
-    "CHUNK_CODEC_RAW",
-    "EXTENSION_ENVELOPE_VERSION",
-    "EXTENSION_SCHEMA_VERSION",
-    "EnvelopeManifest",
-    "ExtensionEnvelope",
-    "ExtensionEnvelopeHeader",
+    *(name for name in extension_constants.__all__ if name != "MIN_EXTENSION_CHUNK_SIZE"),
+    "DOCUMENT_MAGIC",
+    "DOCUMENT_VERSION",
+    "BackupManifest",
+    "ExtensionDocument",
+    "ExtensionHeader",
     "ExtensionChunkingProfile",
     "ExtensionChunkRecord",
     "ExtensionChunkRef",
     "ExtensionFile",
     "ManifestFile",
-    "PayloadPart",
+    "BackupFile",
     "build_manifest_and_payload",
     "build_single_file_manifest",
     "build_extension_header",
-    "decode_extension_envelope",
-    "decode_any_envelope",
-    "decode_envelope",
+    "decode_extension_document",
+    "decode_document",
+    "decode_backup_document",
     "decode_manifest",
     "decode_payload_from_manifest",
     "derive_chain_id",
-    "encode_envelope",
-    "encode_extension_envelope",
+    "encode_backup_document",
+    "encode_extension_document",
     "encode_manifest",
     "encode_payload_for_manifest",
     "extract_payloads",

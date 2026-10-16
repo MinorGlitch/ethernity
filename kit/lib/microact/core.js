@@ -6,6 +6,7 @@ let isRendering = false;
 let currentInstance = null;
 let pendingEffects = [];
 const componentInstances = new Map();
+const domNodes = new Map();
 
 export { Fragment };
 
@@ -21,27 +22,19 @@ export const jsxs = jsx;
 export const jsxDEV = jsx;
 
 export function render(vnode, root) {
+  if (rootState && rootState.root !== root) {
+    pruneInstances(() => false);
+  }
   rootState = { root, vnode };
   scheduleRender();
 }
 
 export function useState(initialValue) {
-  const instance = requireCurrentInstance("useState");
-  const slot = useHookSlot(instance, "state", () => {
-    const value = typeof initialValue === "function" ? initialValue() : initialValue;
-    return { value };
-  });
-  if (!slot.setValue) {
-    slot.setValue = (nextValue) => {
-      const next = typeof nextValue === "function" ? nextValue(slot.value) : nextValue;
-      if (Object.is(next, slot.value)) {
-        return;
-      }
-      slot.value = next;
-      scheduleRender();
-    };
-  }
-  return [slot.value, slot.setValue];
+  return useReducer(
+    (value, next) => (typeof next === "function" ? next(value) : next),
+    initialValue,
+    (value) => (typeof value === "function" ? value() : value),
+  );
 }
 
 export function useReducer(reducer, initialArg, init) {
@@ -117,12 +110,8 @@ function flushRenderQueue() {
       renderScheduled = false;
       const seenPaths = new Set();
       pendingEffects = [];
-      const focusSnapshot = captureFocusSnapshot(rootState.root);
-      const fragment = document.createDocumentFragment();
-      appendChildNode(fragment, rootState.vnode, "0", seenPaths);
-      rootState.root.replaceChildren(fragment);
-      pruneComponentInstances(seenPaths);
-      restoreFocusSnapshot(rootState.root, focusSnapshot);
+      reconcileChildren(rootState.root, renderNodes(rootState.vnode, "0", seenPaths));
+      pruneInstances((path) => seenPaths.has(path));
       flushEffects();
     }
   } finally {
@@ -147,132 +136,134 @@ function flushEffects() {
   }
 }
 
-function pruneComponentInstances(seenPaths) {
-  for (const [path, instance] of componentInstances.entries()) {
-    if (seenPaths.has(path)) {
-      continue;
-    }
-    for (const hook of instance.hooks) {
-      if (hook?.kind === "effect" && typeof hook.cleanup === "function") {
-        try {
-          hook.cleanup();
-        } catch {
-          // Ignore cleanup failures during unmount.
-        }
+function cleanupInstance(instance) {
+  for (const hook of instance.hooks) {
+    if (hook.kind === "effect" && typeof hook.cleanup === "function") {
+      try {
+        hook.cleanup();
+      } catch {
+        /* Continue cleaning up other components. */
       }
     }
-    componentInstances.delete(path);
   }
 }
 
-function appendChildNode(parent, vnode, path, seenPaths) {
-  if (vnode === null || vnode === undefined || vnode === false || vnode === true) {
-    return;
-  }
-  if (Array.isArray(vnode)) {
-    for (let index = 0; index < vnode.length; index += 1) {
-      appendChildNode(parent, vnode[index], `${path}.${index}`, seenPaths);
+function pruneInstances(keepPath) {
+  for (const [path, instance] of componentInstances) {
+    if (!keepPath(path)) {
+      cleanupInstance(instance);
+      componentInstances.delete(path);
     }
-    return;
   }
-  if (typeof vnode === "string" || typeof vnode === "number") {
-    parent.appendChild(document.createTextNode(String(vnode)));
-    return;
+  for (const [path, record] of domNodes) {
+    if (!keepPath(path)) {
+      assignRef(record.props?.ref, null);
+      domNodes.delete(path);
+    }
+  }
+}
+
+function renderNodes(vnode, path, seenPaths) {
+  if (vnode === null || vnode === undefined || typeof vnode === "boolean") return [];
+  if (Array.isArray(vnode)) {
+    return vnode.flatMap((child, index) => {
+      const key = child?.props?.key;
+      return renderNodes(
+        child,
+        `${path}.${key === undefined ? `i${index}` : `k${JSON.stringify(key)}`}`,
+        seenPaths,
+      );
+    });
+  }
+  const text = typeof vnode === "string" || typeof vnode === "number";
+  const type = text ? "#text" : vnode.type;
+  const previousType = componentInstances.get(path)?.type ?? domNodes.get(path)?.type;
+  if (previousType !== undefined && previousType !== type) {
+    // Replacing a parent also unmounts its children, even at otherwise identical paths.
+    pruneInstances((candidate) => candidate !== path && !candidate.startsWith(`${path}.`));
   }
   if (typeof vnode.type === "function") {
-    const instance = getComponentInstance(path, vnode.type);
+    let instance = componentInstances.get(path);
+    if (!instance) {
+      instance = { type: vnode.type, hooks: [], hookIndex: 0 };
+      componentInstances.set(path, instance);
+    }
     seenPaths.add(path);
-    const previousInstance = currentInstance;
+    const previous = currentInstance;
     currentInstance = instance;
     instance.hookIndex = 0;
     let rendered;
     try {
       rendered = vnode.type(vnode.props ?? {});
     } finally {
-      currentInstance = previousInstance;
+      currentInstance = previous;
     }
-    appendChildNode(parent, rendered, `${path}.0`, seenPaths);
-    return;
+    return renderNodes(rendered, `${path}.0`, seenPaths);
   }
   if (vnode.type === Fragment) {
-    appendChildren(parent, vnode.props?.children, `${path}.f`, seenPaths);
-    return;
+    return renderNodes(vnode.props?.children, `${path}.f`, seenPaths);
   }
-
-  const element = document.createElement(vnode.type);
-  applyProps(element, vnode.props ?? {});
-  appendChildren(element, vnode.props?.children, `${path}.c`, seenPaths);
-  parent.appendChild(element);
+  let record = domNodes.get(path);
+  if (!record) {
+    record = {
+      type,
+      node: text ? document.createTextNode("") : document.createElement(type),
+      props: {},
+    };
+    domNodes.set(path, record);
+  }
+  seenPaths.add(path);
+  if (text) {
+    if (record.node.data !== String(vnode)) record.node.data = String(vnode);
+  } else {
+    const props = vnode.props ?? {};
+    reconcileChildren(record.node, renderNodes(props.children, `${path}.c`, seenPaths));
+    updateProps(record.node, record.props, props);
+    record.props = props;
+  }
+  return [record.node];
 }
 
-function appendChildren(parent, children, path, seenPaths) {
-  if (children === null || children === undefined) {
-    return;
+function reconcileChildren(parent, nodes) {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const current = parent.childNodes[index];
+    if (current !== nodes[index]) parent.insertBefore(nodes[index], current ?? null);
   }
-  if (Array.isArray(children)) {
-    for (let index = 0; index < children.length; index += 1) {
-      appendChildNode(parent, children[index], `${path}.${index}`, seenPaths);
-    }
-    return;
-  }
-  appendChildNode(parent, children, `${path}.0`, seenPaths);
+  while (parent.childNodes.length > nodes.length) parent.lastChild.remove();
 }
 
-function getComponentInstance(path, type) {
-  const existing = componentInstances.get(path);
-  if (existing && existing.type === type) {
-    return existing;
-  }
-  const instance = { type, hooks: [], hookIndex: 0 };
-  componentInstances.set(path, instance);
-  return instance;
-}
-
-function applyProps(element, props) {
-  for (const [name, value] of Object.entries(props)) {
-    if (name === "children" || name === "key") {
-      continue;
-    }
+function updateProps(element, previous, props) {
+  for (const name of new Set([...Object.keys(previous), ...Object.keys(props)])) {
+    if (name === "children" || name === "key") continue;
+    const value = props[name];
+    if (Object.is(previous[name], value)) continue;
     if (name === "ref") {
+      assignRef(previous[name], null);
       assignRef(value, element);
-      continue;
-    }
-    if (name.startsWith("on") && typeof value === "function") {
-      const eventName = name.slice(2).toLowerCase();
-      element.addEventListener(eventName, value);
-      continue;
-    }
-    if (name === "class" || name === "className") {
+    } else if (name.startsWith("on")) {
+      element[name.toLowerCase()] = value ?? null;
+    } else if (name === "class" || name === "className") {
       element.className = value ?? "";
-      continue;
-    }
-    if (name === "htmlFor") {
-      element.htmlFor = value ?? "";
-      continue;
-    }
-    if (value === null || value === undefined || value === false) {
-      continue;
-    }
-    if (value === true) {
-      element.setAttribute(name, "");
-      if (name in element) {
-        element[name] = true;
+    } else if (name === "style") {
+      for (const key of new Set([
+        ...Object.keys(previous.style ?? {}),
+        ...Object.keys(value ?? {}),
+      ])) {
+        element.style[key] = value?.[key] ?? "";
       }
-      continue;
+    } else if (name in element && !name.startsWith("aria-")) {
+      const next = value ?? (typeof element[name] === "boolean" ? false : "");
+      // Avoid resetting caret/selection when the browser already has this value.
+      if (element[name] !== next) element[name] = next;
+    } else if (
+      value === null ||
+      value === undefined ||
+      (value === false && !name.startsWith("aria-"))
+    ) {
+      element.removeAttribute(name);
+    } else {
+      element.setAttribute(name, value === true && !name.startsWith("aria-") ? "" : String(value));
     }
-    if (name === "style" && value && typeof value === "object") {
-      Object.assign(element.style, value);
-      continue;
-    }
-    if (name in element) {
-      try {
-        element[name] = value;
-        continue;
-      } catch {
-        // Fall back to attribute set below.
-      }
-    }
-    element.setAttribute(name, String(value));
   }
 }
 
@@ -305,53 +296,4 @@ function depsChanged(prev, next) {
     }
   }
   return false;
-}
-
-function captureFocusSnapshot(root) {
-  const active = document.activeElement;
-  if (!(active instanceof HTMLElement) || !root.contains(active) || !active.id) {
-    return null;
-  }
-  const snapshot = {
-    id: active.id,
-    scrollLeft: active.scrollLeft,
-    scrollTop: active.scrollTop,
-  };
-  if ("selectionStart" in active) {
-    snapshot.selectionStart = active.selectionStart;
-    snapshot.selectionEnd = active.selectionEnd;
-    snapshot.selectionDirection = active.selectionDirection;
-  }
-  return snapshot;
-}
-
-function restoreFocusSnapshot(root, snapshot) {
-  if (!snapshot) {
-    return;
-  }
-  const target = root.querySelector(`#${escapeCssIdentifier(snapshot.id)}`);
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-  target.focus({ preventScroll: true });
-  if ("selectionStart" in target && snapshot.selectionStart !== undefined) {
-    try {
-      target.selectionStart = snapshot.selectionStart;
-      target.selectionEnd = snapshot.selectionEnd ?? snapshot.selectionStart;
-      if (snapshot.selectionDirection) {
-        target.selectionDirection = snapshot.selectionDirection;
-      }
-    } catch {
-      // Ignore selection restore failures for unsupported input types.
-    }
-  }
-  target.scrollLeft = snapshot.scrollLeft ?? 0;
-  target.scrollTop = snapshot.scrollTop ?? 0;
-}
-
-function escapeCssIdentifier(value) {
-  if (globalThis.CSS?.escape) {
-    return globalThis.CSS.escape(value);
-  }
-  return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }

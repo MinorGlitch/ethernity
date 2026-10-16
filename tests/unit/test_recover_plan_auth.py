@@ -17,34 +17,45 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import dataclass, replace
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.features.mint.workflow import _signing_key_shard_frames_from_args
-from ethernity.cli.features.recover.planning import (
-    _frames_from_args,
-    _inspect_auth_payload,
-    _shard_frames_from_args,
-    build_recovery_plan,
-    inspect_from_args,
-    inspect_recovery_inputs,
-    plan_from_args,
-)
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
-from ethernity.cli.shared.types import InputFile, MintArgs, RecoverArgs
+import pytest
+
+from ethernity.crypto.age_policy import RecoveryResourceLimitError
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
-from ethernity.extensions.build import build_extension_document
+from ethernity.extensions.build import _build_extension_document
 from ethernity.extensions.recovery import recover_chain_entries
-from ethernity.formats.envelope_codec import (
+from ethernity.formats.document_codec import (
     build_manifest_and_payload,
-    encode_envelope,
-    encode_extension_envelope,
+    encode_backup_document,
+    encode_extension_document,
 )
-from ethernity.formats.envelope_types import PayloadPart
-from ethernity.formats.extension_envelope import ExtensionChunkingProfile
-from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.formats.extension_document import ExtensionChunkingProfile
+from ethernity.formats.manifest import BackupFile
+from ethernity.workflows.recovery.frame_inputs import FrameInputResult
+from ethernity.workflows.recovery.inputs import load_recovery_frames, load_shard_frames
+from ethernity.workflows.recovery.inspection import _inspect_auth_payload
+from ethernity.workflows.recovery.models import RecoveryInspection
+from ethernity.workflows.recovery.planning import (
+    RecoveryPlan,
+    _resolve_passphrase,
+    build_recovery_plan,
+    inspect_from_request,
+    inspect_recovery_inputs,
+    plan_from_request,
+)
+from ethernity.workflows.replacement_recovery import service as replacement_service
+from ethernity.workflows.shared.operation_types import InputFile
+from ethernity.workflows.shared.requests import (
+    RecoveryRequest,
+    ReplacementRecoveryRequest,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 V1_FIXTURE_ROOT = REPO_ROOT / "tests" / "fixtures" / "v1_0" / "golden" / "base64" / "file_no_shard"
@@ -83,27 +94,27 @@ def _auth_frame(ciphertext: bytes, *, signing_seed: bytes = TEST_SIGNING_SEED) -
     )
 
 
-def _root_envelope(data: bytes = b"root") -> bytes:
+def _root_document(data: bytes = b"root") -> bytes:
     manifest, payload = build_manifest_and_payload(
-        (PayloadPart(path="a.txt", data=data, mtime=1),),
+        (BackupFile(path="a.txt", data=data, mtime=1),),
         sealed=False,
         signing_seed=TEST_SIGNING_SEED,
         input_origin="file",
         input_roots=(),
     )
-    return encode_envelope(payload, manifest)
+    return encode_backup_document(payload, manifest)
 
 
-def _extension_envelope(root_doc_hash: bytes) -> bytes:
-    built = build_extension_document(
+def _extension_document(root_doc_hash: bytes) -> bytes:
+    built = _build_extension_document(
         index=1,
         parent_doc_hash=root_doc_hash,
         root_doc_hash=root_doc_hash,
         chunking=ExtensionChunkingProfile(
             algorithm_id=CHUNK_ALGORITHM_FASTCDC,
-            target_size=64 * 1024,
-            min_size=16 * 1024,
-            max_size=256 * 1024,
+            target_size=16 * 1024,
+            min_size=4 * 1024,
+            max_size=64 * 1024,
         ),
         input_files=(
             InputFile(
@@ -113,12 +124,9 @@ def _extension_envelope(root_doc_hash: bytes) -> bytes:
                 mtime=2,
             ),
         ),
-        input_origin="file",
-        input_roots=(),
-        chunker=lambda data, _profile: (data,),
         existing_file_sizes={},
     )
-    return encode_extension_envelope(built.document)
+    return encode_extension_document(built.document)
 
 
 def _passphrase_shard_frames(
@@ -150,14 +158,29 @@ def _passphrase_shard_frames(
 
 
 class TestInspectAuthPayload(unittest.TestCase):
-    def test_frames_from_args_bounds_scan_for_selected_extension_index(self) -> None:
+    def test_direct_custom_passphrase_stays_exact_until_decrypt(self) -> None:
+        exact = "  " + "  ".join(["abandon"] * 11 + ["above"]) + "  "
+
+        resolved = _resolve_passphrase(
+            passphrase=exact,
+            shard_frames=[],
+            doc_id=b"\x11" * DOC_ID_LEN,
+            doc_hash=b"\x22" * 32,
+            sign_pub=None,
+            allow_unsigned=False,
+            args=None,
+        )
+
+        self.assertEqual(resolved, exact)
+
+    def test_frames_from_args_decodes_sources_before_content_version_selection(self) -> None:
         main = _main_frame(b"root")
         with mock.patch(
-            "ethernity.cli.features.recover.planning.recovery_frames_from_scan",
-            return_value=[main],
+            "ethernity.workflows.recovery.inputs.frame_inputs.recovery_frames_from_scan",
+            return_value=FrameInputResult(frames=(main,)),
         ) as scan_mock:
-            frames, label, detail, _stdin_path = _frames_from_args(
-                RecoverArgs(scan=["backup-root"], extension_index=1),
+            frames, label, detail = load_recovery_frames(
+                RecoveryRequest(scan_paths=["backup-root"], extension_index=1),
                 allow_unsigned=False,
                 quiet=True,
             )
@@ -166,8 +189,7 @@ class TestInspectAuthPayload(unittest.TestCase):
         self.assertEqual((label, detail), ("Backup PDF or images", "backup-root"))
         scan_mock.assert_called_once_with(
             ["backup-root"],
-            quiet=True,
-            extension_carrier_max_index=1,
+            notice_sink=mock.ANY,
         )
 
     @staticmethod
@@ -183,19 +205,19 @@ class TestInspectAuthPayload(unittest.TestCase):
 
     def test_doc_id_mismatch_is_ignored_in_allow_unsigned_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x11" * DOC_ID_LEN)
-        with mock.patch("ethernity.cli.features.recover.planning._warn") as warn_mock:
-            payload, status, blocking_issues = _inspect_auth_payload(
-                [frame],
-                doc_id=b"\x12" * DOC_ID_LEN,
-                doc_hash=b"\x20" * 32,
-                allow_unsigned=True,
-                require_auth=False,
-                quiet=True,
-            )
+        notices = []
+        payload, status, blocking_issues = _inspect_auth_payload(
+            [frame],
+            doc_id=b"\x12" * DOC_ID_LEN,
+            doc_hash=b"\x20" * 32,
+            allow_unsigned=True,
+            require_auth=False,
+            notice_sink=notices.append,
+        )
         self.assertIsNone(payload)
         self.assertEqual(status, "ignored")
         self.assertEqual(blocking_issues, ())
-        warn_mock.assert_called_once()
+        self.assertEqual(len(notices), 1)
 
     def test_doc_id_mismatch_is_blocking_in_strict_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x11" * DOC_ID_LEN)
@@ -205,7 +227,7 @@ class TestInspectAuthPayload(unittest.TestCase):
             doc_hash=b"\x20" * 32,
             allow_unsigned=False,
             require_auth=True,
-            quiet=True,
+            notice_sink=None,
         )
         self.assertIsNone(payload)
         self.assertEqual(status, "invalid")
@@ -223,16 +245,15 @@ class TestInspectAuthPayload(unittest.TestCase):
                 if line.strip()
             ][-1]
             auth_payloads_path.write_text(auth_line + "\n", encoding="utf-8")
-            args = RecoverArgs(
+            args = RecoveryRequest(
                 payloads_file=str(V1_1_SHARDED_EMBEDDED_FIXTURE_ROOT / "main_payloads.txt"),
-                shard_payloads_file=[
+                shard_payload_files=[
                     str(V1_1_SHARDED_EMBEDDED_FIXTURE_ROOT / "shard_payloads_threshold.txt")
                 ],
                 auth_payloads_file=str(auth_payloads_path),
-                quiet=True,
             )
 
-            inspection = inspect_from_args(args)
+            inspection = inspect_from_request(args)
 
             self.assertFalse(inspection.unlock.satisfied)
             self.assertIsNone(inspection.unlock.resolved_passphrase)
@@ -241,27 +262,27 @@ class TestInspectAuthPayload(unittest.TestCase):
                 {issue["code"] for issue in inspection.blocking_issues},
             )
             with self.assertRaisesRegex(ValueError, "multiple auth payloads provided"):
-                plan_from_args(args)
+                plan_from_request(args)
 
     def test_inspect_filters_separate_auth_to_selected_root_document(self) -> None:
-        root_ciphertext = _root_envelope()
+        root_ciphertext = _root_document()
         _root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
-        extension_ciphertext = _extension_envelope(root_doc_hash)
+        extension_ciphertext = _extension_document(root_doc_hash)
         frames = [_main_frame(root_ciphertext), _main_frame(extension_ciphertext)]
         extra_auth_frames = [_auth_frame(root_ciphertext), _auth_frame(extension_ciphertext)]
-        args = RecoverArgs(passphrase="secret", quiet=True)
+        args = RecoveryRequest(passphrase="secret", quiet=True)
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.planning._frames_from_args",
-                return_value=(frames, "Recovery input", "inline", None),
+                "ethernity.workflows.recovery.inputs.load_recovery_frames",
+                return_value=(frames, "Recovery input", "inline"),
             ),
             mock.patch(
-                "ethernity.cli.features.recover.planning._extra_auth_frames_from_args",
+                "ethernity.workflows.recovery.inputs.load_extra_auth_frames",
                 return_value=extra_auth_frames,
             ),
             mock.patch(
-                "ethernity.cli.features.recover.planning._shard_frames_from_args",
+                "ethernity.workflows.recovery.inputs.load_shard_frames",
                 return_value=([], [], [], []),
             ),
             mock.patch(
@@ -269,7 +290,7 @@ class TestInspectAuthPayload(unittest.TestCase):
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
         ):
-            inspection = inspect_from_args(args)
+            inspection = inspect_from_request(args)
 
         self.assertEqual(inspection.doc_hash, root_doc_hash)
         self.assertEqual(inspection.auth_status, "verified")
@@ -280,9 +301,9 @@ class TestInspectAuthPayload(unittest.TestCase):
         )
 
     def test_extension_local_shards_select_root_and_replay_imported_chain(self) -> None:
-        root_ciphertext = _root_envelope()
+        root_ciphertext = _root_document()
         root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
-        extension_ciphertext = _extension_envelope(root_doc_hash)
+        extension_ciphertext = _extension_document(root_doc_hash)
         extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         frames = [
             _main_frame(root_ciphertext),
@@ -311,14 +332,13 @@ class TestInspectAuthPayload(unittest.TestCase):
                 shard_payloads_file=[],
                 shard_scan=[],
                 output_path=None,
-                root_dir=None,
                 extension_index=None,
                 extension_doc_hash=None,
                 expected_head_doc_hash=None,
                 args=None,
                 quiet=True,
             )
-            result = recover_chain_entries(plan, quiet=True)
+            result = recover_chain_entries(plan)
 
         self.assertEqual(plan.doc_id, root_doc_id)
         self.assertEqual(plan.doc_hash, root_doc_hash)
@@ -333,26 +353,20 @@ class TestInspectAuthPayload(unittest.TestCase):
         )
 
     def test_arg_resolved_passphrase_selects_root_from_multiple_imported_docs(self) -> None:
-        root_ciphertext = _root_envelope()
+        root_ciphertext = _root_document()
         root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
-        extension_ciphertext = _extension_envelope(root_doc_hash)
+        extension_ciphertext = _extension_document(root_doc_hash)
         frames = [
             _main_frame(root_ciphertext),
             _auth_frame(root_ciphertext),
             _main_frame(extension_ciphertext),
             _auth_frame(extension_ciphertext),
         ]
-        args = RecoverArgs(quiet=True)
+        args = RecoveryRequest(passphrase="secret", quiet=True)
 
-        with (
-            mock.patch(
-                "ethernity.cli.features.recover.planning._resolve_recovery_keys",
-                return_value="secret",
-            ) as resolve_keys,
-            mock.patch(
-                "ethernity.extensions.recovery.decrypt_bytes",
-                side_effect=lambda data, *, passphrase, debug=False: data,
-            ),
+        with mock.patch(
+            "ethernity.extensions.recovery.decrypt_bytes",
+            side_effect=lambda data, *, passphrase, debug=False: data,
         ):
             plan = build_recovery_plan(
                 frames=frames,
@@ -366,7 +380,6 @@ class TestInspectAuthPayload(unittest.TestCase):
                 shard_payloads_file=[],
                 shard_scan=[],
                 output_path=None,
-                root_dir=None,
                 extension_index=None,
                 extension_doc_hash=None,
                 expected_head_doc_hash=None,
@@ -374,16 +387,15 @@ class TestInspectAuthPayload(unittest.TestCase):
                 quiet=True,
             )
 
-        resolve_keys.assert_called_once_with(args)
         self.assertEqual(plan.doc_id, root_doc_id)
         self.assertEqual(plan.doc_hash, root_doc_hash)
         self.assertEqual(plan.passphrase, "secret")
         self.assertEqual(len(plan.import_documents), 2)
 
     def test_inspect_reports_extension_local_shards_as_root_unlock(self) -> None:
-        root_ciphertext = _root_envelope()
+        root_ciphertext = _root_document()
         root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
-        extension_ciphertext = _extension_envelope(root_doc_hash)
+        extension_ciphertext = _extension_document(root_doc_hash)
         extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         frames = [
             _main_frame(root_ciphertext),
@@ -395,19 +407,19 @@ class TestInspectAuthPayload(unittest.TestCase):
             doc_id=extension_doc_id,
             doc_hash=extension_doc_hash,
         )
-        args = RecoverArgs(quiet=True)
+        args = RecoveryRequest(quiet=True)
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.planning._frames_from_args",
-                return_value=(frames, "Recovery input", "inline", None),
+                "ethernity.workflows.recovery.inputs.load_recovery_frames",
+                return_value=(frames, "Recovery input", "inline"),
             ),
             mock.patch(
-                "ethernity.cli.features.recover.planning._extra_auth_frames_from_args",
+                "ethernity.workflows.recovery.inputs.load_extra_auth_frames",
                 return_value=[],
             ),
             mock.patch(
-                "ethernity.cli.features.recover.planning._shard_frames_from_args",
+                "ethernity.workflows.recovery.inputs.load_shard_frames",
                 return_value=(shard_frames, [], [], []),
             ),
             mock.patch(
@@ -415,7 +427,7 @@ class TestInspectAuthPayload(unittest.TestCase):
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
         ):
-            inspection = inspect_from_args(args)
+            inspection = inspect_from_request(args)
 
         self.assertEqual(inspection.doc_id, root_doc_id)
         self.assertEqual(inspection.doc_hash, root_doc_hash)
@@ -434,8 +446,8 @@ class TestInspectAuthPayload(unittest.TestCase):
             payload_path.write_text("not-a-valid-shard-payload\n", encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "QR payload"):
-                _shard_frames_from_args(
-                    RecoverArgs(shard_payloads_file=[str(payload_path)], quiet=True),
+                load_shard_frames(
+                    RecoveryRequest(shard_payload_files=[str(payload_path)], quiet=True),
                     quiet=True,
                 )
 
@@ -445,8 +457,10 @@ class TestInspectAuthPayload(unittest.TestCase):
             payload_path.write_text("not-a-valid-shard-payload\n", encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "QR payload"):
-                _signing_key_shard_frames_from_args(
-                    MintArgs(signing_key_shard_payloads_file=[str(payload_path)], quiet=True),
+                replacement_service._signing_key_shard_frames_from_args(
+                    ReplacementRecoveryRequest(
+                        signing_key_shard_payload_files=[str(payload_path)], quiet=True
+                    ),
                     quiet=True,
                 )
 
@@ -470,11 +484,11 @@ class TestInspectAuthPayload(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.recover.planning.resolve_auth_payload",
+            "ethernity.workflows.recovery.planning._resolve_auth_payload",
             return_value=(None, "missing"),
         ) as resolve_auth_mock:
             with mock.patch(
-                "ethernity.cli.features.recover.planning._resolve_passphrase",
+                "ethernity.workflows.recovery.planning._resolve_passphrase",
                 return_value="passphrase",
             ):
                 build_recovery_plan(
@@ -489,7 +503,6 @@ class TestInspectAuthPayload(unittest.TestCase):
                     shard_payloads_file=[],
                     shard_scan=[],
                     output_path=None,
-                    root_dir=None,
                     extension_index=None,
                     extension_doc_hash=None,
                     expected_head_doc_hash=None,
@@ -518,11 +531,11 @@ class TestInspectAuthPayload(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.recover.planning._inspect_auth_payload",
+            "ethernity.workflows.recovery.inspection._inspect_auth_payload",
             return_value=(None, "missing", ()),
         ) as inspect_auth_mock:
             with mock.patch(
-                "ethernity.cli.features.recover.planning._inspect_unlock_status",
+                "ethernity.workflows.recovery.inspection._inspect_unlock_status",
                 return_value=mock.Mock(
                     satisfied=False,
                     resolved_passphrase=None,
@@ -544,6 +557,144 @@ class TestInspectAuthPayload(unittest.TestCase):
                 )
 
         self.assertTrue(inspect_auth_mock.call_args.kwargs["require_auth"])
+
+
+@dataclass
+class ImportedChainInputs:
+    frames: list[Frame]
+    auth_frames: list[Frame]
+    shard_frames: list[Frame]
+    decrypt: mock.Mock
+
+
+@pytest.fixture
+def imported_chain(monkeypatch: pytest.MonkeyPatch) -> ImportedChainInputs:
+    root = _root_document()
+    _, root_hash = doc_id_and_hash_from_ciphertext(root)
+    extension = _extension_document(root_hash)
+    chain = ImportedChainInputs(
+        frames=[_main_frame(extension), _main_frame(root)],
+        auth_frames=[_auth_frame(extension), _auth_frame(root)],
+        shard_frames=[],
+        decrypt=mock.Mock(side_effect=lambda data, *, passphrase, debug=False: data),
+    )
+    monkeypatch.setattr(
+        "ethernity.workflows.recovery.inputs.load_recovery_frames",
+        lambda *args, **kwargs: (chain.frames, "Recovery input", "inline"),
+    )
+    monkeypatch.setattr(
+        "ethernity.workflows.recovery.inputs.load_extra_auth_frames",
+        lambda *args, **kwargs: chain.auth_frames,
+    )
+    monkeypatch.setattr(
+        "ethernity.workflows.recovery.inputs.load_shard_frames",
+        lambda *args, **kwargs: (
+            chain.shard_frames,
+            [],
+            ["extension-sheets.txt"] if chain.shard_frames else [],
+            [],
+        ),
+    )
+    monkeypatch.setattr("ethernity.extensions.recovery.decrypt_bytes", chain.decrypt)
+    return chain
+
+
+def _add_extension_shards(chain: ImportedChainInputs) -> None:
+    extension = chain.frames[0]
+    _, doc_hash = doc_id_and_hash_from_ciphertext(extension.data)
+    chain.shard_frames.extend(_passphrase_shard_frames(doc_id=extension.doc_id, doc_hash=doc_hash))
+
+
+@pytest.mark.parametrize("inspect_only", [False, True], ids=["execution", "inspection"])
+@pytest.mark.parametrize("use_shards", [False, True], ids=["passphrase", "extension-shards"])
+def test_root_selection_preserves_sources_and_decoded_session(
+    imported_chain: ImportedChainInputs, inspect_only: bool, use_shards: bool
+) -> None:
+    if use_shards:
+        _add_extension_shards(imported_chain)
+    request = RecoveryRequest(passphrase=None if use_shards else "secret", quiet=True)
+    result = inspect_from_request(request) if inspect_only else plan_from_request(request)
+    root = imported_chain.frames[1]
+    assert result.doc_id == root.doc_id
+    assert result.auth_status == "verified"
+    assert result.main_frames == (root,)
+    assert result.auth_frames == (imported_chain.auth_frames[1],)
+    assert result.shard_frames == tuple(imported_chain.shard_frames)
+    assert result.shard_payloads_file == (("extension-sheets.txt",) if use_shards else ())
+    session = result.decoded_import_session
+    assert session is not None
+    assert session.root_document.doc_id == root.doc_id
+    assert imported_chain.decrypt.call_count == 2
+    if isinstance(result, RecoveryPlan):
+        recovered = recover_chain_entries(result)
+        assert [(entry.path, data) for entry, data in recovered.extracted] == [("a.txt", b"root!")]
+        assert result.passphrase == "secret"
+        assert {document.doc_id for document in result.import_documents} == {
+            frame.doc_id for frame in imported_chain.frames
+        }
+    else:
+        assert isinstance(result, RecoveryInspection)
+        assert result.source_frames == tuple(imported_chain.frames)
+        assert result.source_extra_auth_frames == tuple(imported_chain.auth_frames)
+        assert result.unlock.satisfied
+        assert result.unlock.mode == ("shards" if use_shards else "passphrase")
+        assert result.unlock.resolved_passphrase == "secret"
+    assert imported_chain.decrypt.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        ("missing", "PASSPHRASE_REQUIRED"),
+        ("passphrase", "UNLOCK_FAILED"),
+        ("shards", "PASSPHRASE_SHARDS_INVALID"),
+        ("ambiguous", "UNLOCK_FAILED"),
+    ],
+)
+def test_selection_failures_are_inspection_blockers_and_execution_errors(
+    imported_chain: ImportedChainInputs, failure: str, code: str
+) -> None:
+    passphrase = None
+    if failure == "passphrase":
+        passphrase = "wrong"
+        imported_chain.decrypt.side_effect = ValueError("decryption failed")
+    elif failure == "shards":
+        _add_extension_shards(imported_chain)
+        imported_chain.shard_frames[:] = [replace(imported_chain.shard_frames[0], data=b"invalid")]
+    elif failure == "ambiguous":
+        passphrase = "secret"
+        second_root = _root_document(b"other backup")
+        imported_chain.frames[0] = _main_frame(second_root)
+        imported_chain.auth_frames[0] = _auth_frame(second_root)
+    request = RecoveryRequest(passphrase=passphrase, quiet=True)
+    inspection = inspect_from_request(request)
+    assert not inspection.unlock.satisfied
+    assert inspection.unlock.resolved_passphrase is None
+    assert inspection.decoded_import_session is None
+    assert inspection.source_frames == tuple(imported_chain.frames)
+    assert inspection.source_extra_auth_frames == tuple(imported_chain.auth_frames)
+    assert inspection.shard_frames == tuple(imported_chain.shard_frames)
+    issue = next(issue for issue in inspection.blocking_issues if issue["code"] == code)
+    assert issue["details"]["stage"] == "root_selection"
+    assert issue["details"]["main_document_count"] == 2
+    with pytest.raises(ValueError):
+        plan_from_request(request)
+
+
+@pytest.mark.parametrize("inspect_only", [False, True], ids=["execution", "inspection"])
+@pytest.mark.parametrize("use_shards", [False, True], ids=["passphrase", "extension-shards"])
+def test_root_selection_never_swallows_resource_limits(
+    imported_chain: ImportedChainInputs, inspect_only: bool, use_shards: bool
+) -> None:
+    if use_shards:
+        _add_extension_shards(imported_chain)
+    error = RecoveryResourceLimitError("recovery budget exceeded")
+    imported_chain.decrypt.side_effect = error
+    request = RecoveryRequest(passphrase=None if use_shards else "secret", quiet=True)
+    recover = inspect_from_request if inspect_only else plan_from_request
+    with pytest.raises(RecoveryResourceLimitError) as raised:
+        recover(request)
+    assert raised.value is error
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""QR payload transport encoding/decoding helpers."""
+"""Encode and decode QR transport payloads."""
 
 from __future__ import annotations
 
@@ -72,8 +72,8 @@ def _decode_base64_qr_payload(payload: bytes | str) -> bytes:
         decoded = base64.b64decode(_pad_unpadded_base64(cleaned), validate=True)
     except (binascii.Error, ValueError) as exc:
         raise ValueError("invalid base64 QR payload") from exc
-    canonical = base64.b64encode(decoded).decode("ascii").rstrip("=")
-    if canonical != cleaned:
+    expected_text = base64.b64encode(decoded).decode("ascii").rstrip("=")
+    if expected_text != cleaned:
         raise ValueError("invalid base64 QR payload")
     return decoded
 

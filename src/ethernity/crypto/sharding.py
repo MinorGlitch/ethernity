@@ -14,13 +14,13 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Shamir-based shard payload encoding, decoding, split, and recovery helpers."""
+"""Encode, decode, split, and recover Shamir-based shard payloads."""
 
 from __future__ import annotations
 
 import hmac
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from Crypto.Protocol.SecretSharing import Shamir
 
@@ -39,11 +39,13 @@ from ethernity.crypto.signing import (
     ED25519_SEED_LEN,
     ED25519_SIG_LEN,
     SHARD_SET_ID_LEN,
+    ShardSigningFields,
     derive_public_key,
+    shard_signed_fields,
     sign_shard,
     verify_shard,
 )
-from ethernity.encoding.cbor import dumps_canonical, loads_canonical
+from ethernity.encoding.cbor import dumps_deterministic, loads_deterministic
 
 LEGACY_SHARD_VERSION = 1
 SHARD_VERSION = 2
@@ -56,17 +58,9 @@ _INCOMPATIBLE_SHARD_SET_MESSAGE = (
 
 
 @dataclass(frozen=True)
-class ShardPayload:
+class ShardPayload(ShardSigningFields):
     """Signed shard payload metadata and share bytes."""
 
-    share_index: int
-    threshold: int
-    share_count: int
-    key_type: str
-    share: bytes
-    secret_len: int
-    doc_hash: bytes
-    sign_pub: bytes
     signature: bytes
     version: int = SHARD_VERSION
     shard_set_id: bytes | None = None
@@ -153,13 +147,13 @@ def recover_signing_seed(
     return seed
 
 
-def mint_replacement_shards(
+def create_replacement_shards(
     shares: list[ShardPayload],
     *,
     count: int,
     sign_priv: bytes,
 ) -> list[ShardPayload]:
-    """Mint replacement shards compatible with an existing shard set."""
+    """Create replacement shards compatible with an existing shard set."""
 
     if not shares:
         raise ValueError("no shares provided")
@@ -172,31 +166,15 @@ def mint_replacement_shards(
     source_sign_pub = shares[0].sign_pub
     version = shares[0].version
     shard_set_id = shares[0].shard_set_id
-    seen_indices: set[int] = set()
-    for share in shares:
-        if share.key_type != key_type:
-            raise ValueError("shard key types do not match")
-        if share.threshold != threshold:
-            raise ValueError("shard thresholds do not match")
-        if share.share_count != share_total:
-            raise ValueError("shard share counts do not match")
-        if share.secret_len != secret_len:
-            raise ValueError("shard secret lengths do not match")
-        if share.doc_hash != doc_hash:
-            raise ValueError("shard doc hashes do not match")
-        if not hmac.compare_digest(share.sign_pub, source_sign_pub):
-            raise ValueError("shard signing keys do not match")
-        if share.share_index in seen_indices:
-            raise ValueError("duplicate shard index")
-        seen_indices.add(share.share_index)
+    seen_indices = _replacement_share_indices(shares, shares[0])
     validate_shard_set_consistency(shares)
     if len(shares) < threshold:
-        raise ValueError(f"need at least {threshold} shard(s) to mint compatible replacements")
+        raise ValueError(f"need at least {threshold} shard(s) to create compatible replacements")
 
     missing_indices = [index for index in range(1, share_total + 1) if index not in seen_indices]
     if count > len(missing_indices):
         raise ValueError(
-            f"only {len(missing_indices)} replacement shard(s) can be minted from this set"
+            f"only {len(missing_indices)} replacement shard(s) can be created from this set"
         )
 
     source_shares = sorted(shares, key=lambda item: item.share_index)[:threshold]
@@ -245,44 +223,42 @@ def mint_replacement_shards(
     return payloads
 
 
+def _replacement_share_indices(shares: list[ShardPayload], reference: ShardPayload) -> set[int]:
+    seen_indices: set[int] = set()
+    for share in shares:
+        if share.key_type != reference.key_type:
+            raise ValueError("shard key types do not match")
+        if share.threshold != reference.threshold:
+            raise ValueError("shard thresholds do not match")
+        if share.share_count != reference.share_count:
+            raise ValueError("shard share counts do not match")
+        if share.secret_len != reference.secret_len:
+            raise ValueError("shard secret lengths do not match")
+        if share.doc_hash != reference.doc_hash:
+            raise ValueError("shard doc hashes do not match")
+        if not hmac.compare_digest(share.sign_pub, reference.sign_pub):
+            raise ValueError("shard signing keys do not match")
+        if share.share_index in seen_indices:
+            raise ValueError("duplicate shard index")
+        seen_indices.add(share.share_index)
+    return seen_indices
+
+
 def encode_shard_payload(payload: ShardPayload) -> bytes:
-    """Encode a shard payload as canonical CBOR."""
+    """Encode a shard payload as deterministic CBOR."""
 
-    (
-        version,
-        key_type,
-        threshold,
-        share_count,
-        share_index,
-        secret_len,
-        share,
-        doc_hash,
-        sign_pub,
-        signature,
-        shard_set_id,
-    ) = _normalize_shard_payload_for_encoding(payload)
-
-    data = {
-        "version": version,
-        "type": key_type,
-        "threshold": threshold,
-        "share_count": share_count,
-        "share_index": share_index,
-        "length": secret_len,
-        "share": share,
-        "hash": doc_hash,
-        "pub": sign_pub,
-        "sig": signature,
-    }
-    if version == SHARD_VERSION:
-        data["set_id"] = shard_set_id
-    return dumps_canonical(data)
+    payload = _normalize_shard_payload_for_encoding(payload)
+    data = shard_signed_fields(payload, version=payload.version)
+    data["sig"] = payload.signature
+    if payload.version == SHARD_VERSION:
+        data["set_id"] = payload.shard_set_id
+    return dumps_deterministic(data)
 
 
 def decode_shard_payload(data: bytes) -> ShardPayload:
-    """Decode and validate a shard payload from canonical CBOR."""
+    """Decode and validate a shard payload from deterministic CBOR."""
 
-    decoded = require_dict(loads_canonical(data, label="shard payload"), label="shard payload")
+    decoded = require_dict(loads_deterministic(data, label="shard payload"), label="shard payload")
     require_keys(
         decoded,
         (
@@ -313,31 +289,8 @@ def decode_shard_payload(data: bytes) -> ShardPayload:
         raise ValueError(f"unsupported shard payload version: {version}")
     if key_type not in (KEY_TYPE_PASSPHRASE, KEY_TYPE_SIGNING_SEED):
         raise ValueError(f"unsupported shard key type: {key_type}")
-    threshold = require_positive_int(threshold, label="shard threshold")
-    if threshold > MAX_SHARES:
-        raise ValueError(f"shard threshold must be <= {MAX_SHARES}")
-    share_count = require_positive_int(share_count, label="shard share_count")
-    if share_count > MAX_SHARES:
-        raise ValueError(f"shard share_count must be <= {MAX_SHARES}")
-    share_index = require_positive_int(share_index, label="shard share_index")
-    if share_index > MAX_SHARES:
-        raise ValueError(f"shard share_index must be <= {MAX_SHARES}")
-    if threshold > share_count:
-        raise ValueError("shard threshold cannot exceed share_count")
-    if share_index > share_count:
-        raise ValueError("shard share_index cannot exceed share_count")
-    secret_len = require_positive_int(secret_len, label="shard length")
-    if key_type == KEY_TYPE_SIGNING_SEED and secret_len != ED25519_SEED_LEN:
-        raise ValueError(f"signing-seed shard length must be {ED25519_SEED_LEN} bytes")
-    if not isinstance(share, (bytes, bytearray)) or not share:
-        raise ValueError("shard share must be bytes")
-    if len(share) % BLOCK_SIZE != 0:
-        raise ValueError("shard share length must be a multiple of block size")
-    if secret_len > len(share):
-        raise ValueError("shard length cannot exceed share length")
-    expected_len = ((secret_len + BLOCK_SIZE - 1) // BLOCK_SIZE) * BLOCK_SIZE
-    if len(share) != expected_len:
-        raise ValueError("shard share length does not match secret length")
+    threshold, share_count, share_index = _shard_quorum_fields(threshold, share_count, share_index)
+    secret_len, share = _shard_material_fields(secret_len, share, key_type)
     doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="hash", prefix="shard ")
     sign_pub = require_bytes(sign_pub, ED25519_PUB_LEN, label="pub", prefix="shard ")
     signature = require_bytes(signature, ED25519_SIG_LEN, label="sig", prefix="shard ")
@@ -440,8 +393,8 @@ def _split_secret(
 
 def _normalize_shard_payload_for_encoding(
     payload: ShardPayload,
-) -> tuple[int, str, int, int, int, int, bytes, bytes, bytes, bytes, bytes | None]:
-    """Validate shard payload fields before canonical encoding."""
+) -> ShardPayload:
+    """Validate shard payload fields before deterministic encoding."""
 
     version = require_int(payload.version, label="shard version")
     if version not in (LEGACY_SHARD_VERSION, SHARD_VERSION):
@@ -449,32 +402,8 @@ def _normalize_shard_payload_for_encoding(
     key_type = payload.key_type
     if key_type not in (KEY_TYPE_PASSPHRASE, KEY_TYPE_SIGNING_SEED):
         raise ValueError(f"unsupported shard key type: {key_type}")
-    threshold = require_positive_int(payload.threshold, label="shard threshold")
-    if threshold > MAX_SHARES:
-        raise ValueError(f"shard threshold must be <= {MAX_SHARES}")
-    share_count = require_positive_int(payload.share_count, label="shard share_count")
-    if share_count > MAX_SHARES:
-        raise ValueError(f"shard share_count must be <= {MAX_SHARES}")
-    share_index = require_positive_int(payload.share_index, label="shard share_index")
-    if share_index > MAX_SHARES:
-        raise ValueError(f"shard share_index must be <= {MAX_SHARES}")
-    if threshold > share_count:
-        raise ValueError("shard threshold cannot exceed share_count")
-    if share_index > share_count:
-        raise ValueError("shard share_index cannot exceed share_count")
-    secret_len = require_positive_int(payload.secret_len, label="shard length")
-    if key_type == KEY_TYPE_SIGNING_SEED and secret_len != ED25519_SEED_LEN:
-        raise ValueError(f"signing-seed shard length must be {ED25519_SEED_LEN} bytes")
-    if not isinstance(payload.share, (bytes, bytearray)) or not payload.share:
-        raise ValueError("shard share must be bytes")
-    share = bytes(payload.share)
-    if len(share) % BLOCK_SIZE != 0:
-        raise ValueError("shard share length must be a multiple of block size")
-    if secret_len > len(share):
-        raise ValueError("shard length cannot exceed share length")
-    expected_len = ((secret_len + BLOCK_SIZE - 1) // BLOCK_SIZE) * BLOCK_SIZE
-    if len(share) != expected_len:
-        raise ValueError("shard share length does not match secret length")
+    _shard_quorum_fields(payload.threshold, payload.share_count, payload.share_index)
+    _secret_len, share = _shard_material_fields(payload.secret_len, payload.share, key_type)
     doc_hash = require_bytes(payload.doc_hash, DOC_HASH_LEN, label="hash", prefix="shard ")
     sign_pub = require_bytes(payload.sign_pub, ED25519_PUB_LEN, label="pub", prefix="shard ")
     signature = require_bytes(payload.signature, ED25519_SIG_LEN, label="sig", prefix="shard ")
@@ -488,19 +417,52 @@ def _normalize_shard_payload_for_encoding(
         )
     elif payload.shard_set_id is not None:
         raise ValueError("shard set_id is not supported for shard version 1")
-    return (
-        version,
-        key_type,
-        threshold,
-        share_count,
-        share_index,
-        secret_len,
-        share,
-        doc_hash,
-        sign_pub,
-        signature,
-        shard_set_id,
+    return replace(
+        payload,
+        share=share,
+        doc_hash=doc_hash,
+        sign_pub=sign_pub,
+        signature=signature,
+        shard_set_id=shard_set_id,
     )
+
+
+def _shard_material_fields(
+    length_raw: object, share_raw: object, key_type: str
+) -> tuple[int, bytes]:
+    secret_len = require_positive_int(length_raw, label="shard length")
+    if key_type == KEY_TYPE_SIGNING_SEED and secret_len != ED25519_SEED_LEN:
+        raise ValueError(f"signing-seed shard length must be {ED25519_SEED_LEN} bytes")
+    if not isinstance(share_raw, (bytes, bytearray)) or not share_raw:
+        raise ValueError("shard share must be bytes")
+    share = bytes(share_raw)
+    if len(share) % BLOCK_SIZE != 0:
+        raise ValueError("shard share length must be a multiple of block size")
+    if secret_len > len(share):
+        raise ValueError("shard length cannot exceed share length")
+    expected_len = ((secret_len + BLOCK_SIZE - 1) // BLOCK_SIZE) * BLOCK_SIZE
+    if len(share) != expected_len:
+        raise ValueError("shard share length does not match secret length")
+    return secret_len, share
+
+
+def _shard_quorum_fields(
+    threshold_raw: object, count_raw: object, index_raw: object
+) -> tuple[int, int, int]:
+    threshold = require_positive_int(threshold_raw, label="shard threshold")
+    if threshold > MAX_SHARES:
+        raise ValueError(f"shard threshold must be <= {MAX_SHARES}")
+    share_count = require_positive_int(count_raw, label="shard share_count")
+    if share_count > MAX_SHARES:
+        raise ValueError(f"shard share_count must be <= {MAX_SHARES}")
+    share_index = require_positive_int(index_raw, label="shard share_index")
+    if share_index > MAX_SHARES:
+        raise ValueError(f"shard share_index must be <= {MAX_SHARES}")
+    if threshold > share_count:
+        raise ValueError("shard threshold cannot exceed share_count")
+    if share_index > share_count:
+        raise ValueError("shard share_index cannot exceed share_count")
+    return threshold, share_count, share_index
 
 
 def validate_shard_set_consistency(
@@ -514,41 +476,7 @@ def validate_shard_set_consistency(
         raise ValueError("no shares provided")
 
     threshold = shares[0].threshold
-    version = shares[0].version
-    shard_set_id = shares[0].shard_set_id
-    doc_hash = shares[0].doc_hash
-    sign_pub = shares[0].sign_pub
-    for share in shares:
-        if share.version != version:
-            raise ValueError("shard versions do not match")
-        if share.threshold != threshold:
-            raise ValueError("shard thresholds do not match")
-        if share.key_type != shares[0].key_type:
-            raise ValueError("shard key types do not match")
-        if share.share_count != shares[0].share_count:
-            raise ValueError("shard share counts do not match")
-        if share.secret_len != shares[0].secret_len:
-            raise ValueError("shard secret lengths do not match")
-        if not _same_shard_set_id(share.shard_set_id, shard_set_id):
-            raise ValueError(_INCOMPATIBLE_SHARD_SET_MESSAGE)
-        if not hmac.compare_digest(share.doc_hash, doc_hash):
-            raise ValueError("shard document hashes do not match")
-        if not hmac.compare_digest(share.sign_pub, sign_pub):
-            raise ValueError("shard signing public keys do not match")
-        if verify_signatures and not verify_shard(
-            share.doc_hash,
-            shard_version=share.version,
-            key_type=share.key_type,
-            threshold=share.threshold,
-            share_count=share.share_count,
-            share_index=share.share_index,
-            secret_len=share.secret_len,
-            share=share.share,
-            shard_set_id=share.shard_set_id,
-            sign_pub=share.sign_pub,
-            signature=share.signature,
-        ):
-            raise ValueError("invalid shard signature")
+    _validate_shard_identities(shares, verify_signatures=verify_signatures)
     if len(shares) <= threshold:
         return
 
@@ -572,6 +500,33 @@ def validate_shard_set_consistency(
             raise ValueError(_INCOMPATIBLE_SHARD_SET_MESSAGE)
 
 
+def _validate_shard_identities(shares: list[ShardPayload], *, verify_signatures: bool) -> None:
+    reference = shares[0]
+    for share in shares:
+        _validate_shard_identity(share, reference)
+        if verify_signatures and not verify_shard_payload(share, verifier=verify_shard):
+            raise ValueError("invalid shard signature")
+
+
+def _validate_shard_identity(share: ShardPayload, reference: ShardPayload) -> None:
+    if share.version != reference.version:
+        raise ValueError("shard versions do not match")
+    if share.threshold != reference.threshold:
+        raise ValueError("shard thresholds do not match")
+    if share.key_type != reference.key_type:
+        raise ValueError("shard key types do not match")
+    if share.share_count != reference.share_count:
+        raise ValueError("shard share counts do not match")
+    if share.secret_len != reference.secret_len:
+        raise ValueError("shard secret lengths do not match")
+    if not _same_shard_set_id(share.shard_set_id, reference.shard_set_id):
+        raise ValueError(_INCOMPATIBLE_SHARD_SET_MESSAGE)
+    if not hmac.compare_digest(share.doc_hash, reference.doc_hash):
+        raise ValueError("shard document hashes do not match")
+    if not hmac.compare_digest(share.sign_pub, reference.sign_pub):
+        raise ValueError("shard signing public keys do not match")
+
+
 def _recover_secret(
     shares: list[ShardPayload],
     *,
@@ -584,24 +539,9 @@ def _recover_secret(
         raise ValueError("no shares provided")
     threshold = shares[0].threshold
     secret_len = shares[0].secret_len
-    share_total = shares[0].share_count
     if key_type == KEY_TYPE_SIGNING_SEED and secret_len != ED25519_SEED_LEN:
         raise ValueError(f"signing seed must be {ED25519_SEED_LEN} bytes")
-    seen_indices: set[int] = set()
-    for share in shares:
-        if share.key_type != key_type:
-            raise ValueError("shard key types do not match")
-        if share.threshold != threshold:
-            raise ValueError("shard thresholds do not match")
-        if share.share_count != share_total:
-            raise ValueError("shard share counts do not match")
-        if share.share_index in seen_indices:
-            raise ValueError("duplicate shard index")
-        seen_indices.add(share.share_index)
-        if share.secret_len != secret_len:
-            raise ValueError("shard secret lengths do not match")
-        if len(share.share) % BLOCK_SIZE != 0:
-            raise ValueError("shard share length must be a multiple of block size")
+    _validate_recovery_shares(shares, key_type)
     if len(shares) < threshold:
         raise ValueError(f"need at least {threshold} shard(s) to recover secret")
 
@@ -624,7 +564,45 @@ def _recover_secret(
     return b"".join(blocks)[:secret_len]
 
 
+def _validate_recovery_shares(shares: list[ShardPayload], key_type: str) -> None:
+    threshold = shares[0].threshold
+    secret_len = shares[0].secret_len
+    share_total = shares[0].share_count
+    seen_indices: set[int] = set()
+    for share in shares:
+        if share.key_type != key_type:
+            raise ValueError("shard key types do not match")
+        if share.threshold != threshold:
+            raise ValueError("shard thresholds do not match")
+        if share.share_count != share_total:
+            raise ValueError("shard share counts do not match")
+        if share.share_index in seen_indices:
+            raise ValueError("duplicate shard index")
+        seen_indices.add(share.share_index)
+        if share.secret_len != secret_len:
+            raise ValueError("shard secret lengths do not match")
+        if len(share.share) % BLOCK_SIZE != 0:
+            raise ValueError("shard share length must be a multiple of block size")
+
+
 def _same_shard_set_id(left: bytes | None, right: bytes | None) -> bool:
     if left is None or right is None:
         return left is right
     return hmac.compare_digest(left, right)
+
+
+def verify_shard_payload(payload: ShardPayload, *, verifier=verify_shard) -> bool:
+    """Verify the signature over one complete shard payload."""
+    return verifier(
+        payload.doc_hash,
+        shard_version=payload.version,
+        key_type=payload.key_type,
+        threshold=payload.threshold,
+        share_count=payload.share_count,
+        share_index=payload.share_index,
+        secret_len=payload.secret_len,
+        share=payload.share,
+        shard_set_id=payload.shard_set_id,
+        sign_pub=payload.sign_pub,
+        signature=payload.signature,
+    )

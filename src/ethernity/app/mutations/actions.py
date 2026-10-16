@@ -1,0 +1,392 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import cast
+
+from ethernity.app.app_types import UnlockTaskState
+from ethernity.app.input_parsers import (
+    parse_layout,
+    parse_paths,
+    parse_threshold_count,
+    parse_update_index,
+)
+from ethernity.app.mutations.paths import TaskPathMutationActions
+from ethernity.app.path_selection import split_file_dir_paths
+from ethernity.app.workflow_registry import workflow_definition
+from ethernity.crypto.sharding import MAX_SHARES
+from ethernity.page_sizes import resolve_paper_size
+from ethernity.tasks.page_layout import with_print_layout
+from ethernity.tasks.recovery_inputs import has_recovery_source
+from ethernity.tasks.restore import RestoreTaskState
+
+QUORUM_INPUT_HELP = f"Use required/total sheets from 1 to {MAX_SHARES}, such as 2/3."
+
+
+class TaskMutationActions(TaskPathMutationActions):
+    """Apply parsed user input to task state models."""
+
+    def _apply_backup_passphrase(self, value: str | None) -> None:
+        if value is not None:
+            if value:
+                self.backup_state.passphrase_words = None
+            self.backup_state.passphrase = value or None
+            self.refresh_task_view()
+
+    def _apply_restore_passphrase(self, value: str | None) -> None:
+        if value is None:
+            self.refresh_task_view()
+            return
+        self.restore_state.passphrase = value or None
+        if value:
+            self.restore_state.recovery_documents = []
+            self.restore_state.recovery_payload_files = []
+        self.refresh_task_view()
+
+    def _apply_add_files_inputs(self, value: str | None) -> None:
+        if value is not None:
+            self.add_files_state.input_paths, self.add_files_state.input_dirs = (
+                split_file_dir_paths(parse_paths(value))
+            )
+            self.refresh_task_view()
+
+    def _apply_add_files_inputs_picked(self, paths: tuple[Path, ...] | None) -> None:
+        if paths is not None:
+            self.add_files_state.input_paths, self.add_files_state.input_dirs = (
+                split_file_dir_paths(paths)
+            )
+            self.refresh_task_view()
+
+    def _apply_add_files_input_files_picked(self, paths: tuple[Path, ...] | None) -> None:
+        if paths is not None:
+            self.add_files_state.input_paths = list(paths)
+            self.refresh_task_view()
+
+    def _apply_add_files_input_folder_picked(self, paths: tuple[Path, ...] | None) -> None:
+        if paths:
+            folder = paths[0]
+            if folder not in self.add_files_state.input_dirs:
+                self.add_files_state.input_dirs.append(folder)
+            self.refresh_task_view()
+
+    def _apply_add_files_passphrase(self, value: str | None) -> None:
+        if value is None:
+            self.refresh_task_view()
+            return
+        self.add_files_state.passphrase = value or None
+        if value:
+            self.add_files_state.recovery_documents = []
+            self.add_files_state.recovery_payload_files = []
+        self.refresh_task_view()
+
+    def _apply_rebuild_passphrase(self, value: str | None) -> None:
+        if value is None:
+            self.refresh_task_view()
+            return
+        self.rebuild_state.passphrase = value or None
+        if value:
+            self.rebuild_state.recovery_documents = []
+            self.rebuild_state.recovery_payload_files = []
+        self.refresh_task_view()
+
+    def _apply_replace_recovery_passphrase(self, value: str | None) -> None:
+        if value is None:
+            self.refresh_task_view()
+            return
+        self.replace_recovery_docs_state.passphrase = value or None
+        if value:
+            self.replace_recovery_docs_state.recovery_documents = []
+            self.replace_recovery_docs_state.recovery_payload_files = []
+        self.refresh_task_view()
+
+    def _apply_unlock_recovery_documents_picked(
+        self,
+        paths: tuple[Path, ...] | None,
+    ) -> None:
+        state = self._unlock_state()
+        if state is None:
+            return
+        if paths is None:
+            self.refresh_task_view()
+            return
+        state.recovery_documents = list(paths)
+        if paths:
+            state.passphrase = None
+            state.recovery_payload_files = []
+        self.refresh_task_view()
+
+    def _apply_unlock_payload_files_picked(self, paths: tuple[Path, ...] | None) -> None:
+        state = self._unlock_state()
+        if state is None:
+            return
+        if paths is None:
+            self.refresh_task_view()
+            return
+        state.recovery_payload_files = list(paths)
+        if paths:
+            state.passphrase = None
+            state.recovery_documents = []
+        self.refresh_task_view()
+
+    def _apply_backup_recovery(self, value: str | None) -> None:
+        if value is None:
+            return
+        normalized = value.strip().lower()
+        if not normalized or normalized in {"recommended", "recommended_shards", "shards"}:
+            self.backup_state.recovery_method = "recommended_shards"
+        elif normalized in {"single", "single_phrase", "phrase"}:
+            self.backup_state.recovery_method = "single_phrase"
+        elif counts := parse_threshold_count(normalized):
+            threshold, count = counts
+            self.backup_state.recovery_method = "custom_shards"
+            self.backup_state.shard_threshold = 1
+            self.backup_state.shard_count = count
+            self.backup_state.shard_threshold = threshold
+        else:
+            self.notify(
+                f"Use recommended, single, or required/total sheets from 1 to {MAX_SHARES}.",
+                severity="error",
+            )
+            return
+        self.refresh_task_view()
+
+    def _apply_backup_signing_key_shards(self, value: str | None) -> None:
+        if value is None:
+            return
+        counts = parse_threshold_count(value.strip().lower())
+        if counts is None:
+            self.notify(QUORUM_INPUT_HELP, severity="error")
+            return
+        threshold, count = counts
+        self.backup_state.signing_key_mode = "sharded"
+        self.backup_state.signing_key_shard_threshold = None
+        self.backup_state.signing_key_shard_count = count
+        self.backup_state.signing_key_shard_threshold = threshold
+        self.refresh_task_view()
+
+    def _apply_add_files_recovery_sheets(self, value: str | None) -> None:
+        if value is None:
+            return
+        normalized = value.strip().lower()
+        if normalized in {"", "off", "none", "no"}:
+            self.add_files_state.create_recovery_sheets = False
+        elif normalized in {"recommended", "default"}:
+            self.add_files_state.recovery_threshold = 1
+            self.add_files_state.recovery_sheet_count = 3
+            self.add_files_state.recovery_threshold = 2
+            self.add_files_state.create_recovery_sheets = True
+        elif counts := parse_threshold_count(normalized):
+            threshold, count = counts
+            self.add_files_state.recovery_threshold = 1
+            self.add_files_state.recovery_sheet_count = count
+            self.add_files_state.recovery_threshold = threshold
+            self.add_files_state.create_recovery_sheets = True
+        else:
+            self.notify(
+                f"Use off, recommended, or required/total sheets from 1 to {MAX_SHARES}.",
+                severity="error",
+            )
+            return
+        self.refresh_task_view()
+
+    def _apply_qr_chunk_size(self, value: str | None) -> None:
+        if value is None:
+            self.refresh_task_view()
+            return
+        normalized = value.strip()
+        if not normalized:
+            self._set_current_qr_chunk_size(None)
+            self.refresh_task_view()
+            return
+        try:
+            chunk_size = int(normalized)
+        except ValueError:
+            self.notify("Use a positive whole number.", severity="error")
+            return
+        if chunk_size < 1:
+            self.notify("Use a positive whole number.", severity="error")
+            return
+        self._set_current_qr_chunk_size(chunk_size)
+        self.refresh_task_view()
+
+    def _set_current_qr_chunk_size(self, value: int | None) -> None:
+        attribute = workflow_definition(self.active_task).qr_size_attribute
+        if attribute is not None:
+            setattr(self._current_state(), attribute, value)
+
+    def _apply_replace_recovery_set(self, value: str | None) -> None:
+        if value is None:
+            self.refresh_task_view()
+            return
+        counts = parse_threshold_count(value.strip().lower())
+        if counts is None:
+            self.notify(QUORUM_INPUT_HELP, severity="error")
+            self.refresh_task_view()
+            return
+        threshold, count = counts
+        self.replace_recovery_docs_state.recovery_threshold = 1
+        self.replace_recovery_docs_state.recovery_document_count = count
+        self.replace_recovery_docs_state.recovery_threshold = threshold
+        self.refresh_task_view()
+
+    def _apply_replace_signing_key_recovery(self, value: str | None) -> None:
+        if value is None:
+            return
+        counts = parse_threshold_count(value.strip().lower())
+        if counts is None:
+            self.notify(QUORUM_INPUT_HELP, severity="error")
+            return
+        threshold, count = counts
+        self.replace_recovery_docs_state.create_signing_key_recovery = True
+        self.replace_recovery_docs_state.signing_key_recovery_threshold = None
+        self.replace_recovery_docs_state.signing_key_recovery_count = None
+        self.replace_recovery_docs_state.signing_key_recovery_count = count
+        self.replace_recovery_docs_state.signing_key_recovery_threshold = threshold
+        self.replace_recovery_docs_state.signing_key_replacement_count = None
+        self.refresh_task_view()
+
+    def _apply_replace_passphrase_replacement_count(self, value: str | None) -> None:
+        if value is None:
+            return
+        normalized = value.strip()
+        if not normalized:
+            self.replace_recovery_docs_state.passphrase_replacement_count = None
+            self.refresh_task_view()
+            return
+        try:
+            count = int(normalized)
+        except ValueError:
+            self.notify("Use a positive whole number.", severity="error")
+            return
+        if count < 1:
+            self.notify("Use a positive whole number.", severity="error")
+            return
+        self.replace_recovery_docs_state.create_passphrase_recovery = True
+        self.replace_recovery_docs_state.passphrase_replacement_count = count
+        self.refresh_task_view()
+
+    def _apply_replace_signing_key_replacement_count(self, value: str | None) -> None:
+        if value is None:
+            return
+        normalized = value.strip()
+        if not normalized:
+            self.replace_recovery_docs_state.signing_key_replacement_count = None
+            self.refresh_task_view()
+            return
+        try:
+            count = int(normalized)
+        except ValueError:
+            self.notify("Use a positive whole number.", severity="error")
+            return
+        if count < 1:
+            self.notify("Use a positive whole number.", severity="error")
+            return
+        self.replace_recovery_docs_state.create_signing_key_recovery = True
+        self.replace_recovery_docs_state.signing_key_recovery_threshold = None
+        self.replace_recovery_docs_state.signing_key_recovery_count = None
+        self.replace_recovery_docs_state.signing_key_replacement_count = count
+        self.refresh_task_view()
+
+    def _apply_layout_section(self, value: str | None) -> None:
+        if value is None:
+            return
+        paper_size, design = parse_layout(value, fallback=self._current_layout())
+        paper = resolve_paper_size(paper_size).name
+        if self.active_task in {"backup", "rebuild", "replace_recovery_docs", "kit"}:
+            state = with_print_layout(self._current_state(), paper_size=paper, design=design)
+            setattr(self, workflow_definition(self.active_task).state_attribute, state)
+        self.refresh_task_view()
+
+    def _apply_restore_target(self, value: str | None) -> None:
+        if value is None:
+            return
+        normalized = value.strip().lower()
+        if normalized in {"latest", ""}:
+            self.restore_state.target = "latest"
+            self.restore_state.extension_index = None
+            self.restore_state.extension_doc_hash = None
+        elif normalized == "original":
+            self.restore_state.target = "original"
+            self.restore_state.extension_index = None
+            self.restore_state.extension_doc_hash = None
+        else:
+            update_index = parse_update_index(normalized)
+            if update_index is None:
+                self.notify("Use latest, original, or an update number.", severity="error")
+                return
+            self.restore_state.target = "specific_update"
+            self.restore_state.extension_index = update_index
+            self.restore_state.extension_doc_hash = None
+        self.refresh_task_view()
+
+    def _apply_restore_target_fingerprint(self, value: str | None) -> None:
+        if value is None:
+            self.refresh_task_view()
+            return
+        fingerprint = value.strip()
+        if not fingerprint:
+            self.restore_state.extension_doc_hash = None
+            self.refresh_task_view()
+            return
+        self.restore_state.target = "specific_update"
+        self.restore_state.extension_index = None
+        self.restore_state.extension_doc_hash = fingerprint
+        self.refresh_task_view()
+
+    def _apply_expected_head_fingerprint(self, value: str | None) -> None:
+        if value is None:
+            self.refresh_task_view()
+            return
+        fingerprint = value.strip() or None
+        if workflow_definition(self.active_task).unlock_selector is not None:
+            state = cast(UnlockTaskState, self._current_state())
+            state.expected_head_doc_hash = fingerprint
+            if not isinstance(state, RestoreTaskState):
+                state.allow_stale_head = False
+        self.refresh_task_view()
+
+    def _confirm_source_freshness(self) -> None:
+        if self.active_task == "add_files" and has_recovery_source(self.add_files_state):
+            self.add_files_state.allow_stale_head = True
+            self.add_files_state.expected_head_doc_hash = None
+            self.refresh_task_view()
+            self.notify("Newest loaded version accepted for this update.")
+        elif self.active_task == "rebuild" and (
+            self.rebuild_state.backup_folder is not None or self.rebuild_state.source_paths
+        ):
+            self.rebuild_state.allow_stale_head = True
+            self.rebuild_state.expected_head_doc_hash = None
+            self.refresh_task_view()
+            self.notify("Existing backup accepted for this rebuild.")
+        elif (
+            self.active_task == "replace_recovery_docs"
+            and self.replace_recovery_docs_state.source_paths
+        ):
+            self.replace_recovery_docs_state.allow_stale_head = True
+            self.replace_recovery_docs_state.expected_head_doc_hash = None
+            self.refresh_task_view()
+            self.notify("Existing backup accepted for replacement recovery sheets.")
+        else:
+            self.notify("Choose scanned pages before confirming freshness.", severity="warning")
+
+    def _toggle_kit_variant(self) -> None:
+        if self.active_task != "kit":
+            return
+        self.kit_state.variant = "scanner" if self.kit_state.variant == "lean" else "lean"
+        self.refresh_task_view()
+
+    def _current_layout(self) -> tuple[str, str]:
+        if self.active_task == "add_files":
+            return (
+                self.add_files_state.paper_size or self.settings_state.paper_size,
+                self.add_files_state.design or self.settings_state.design,
+            )
+        if self.active_task == "rebuild":
+            return self.rebuild_state.paper_size, self.rebuild_state.design
+        if self.active_task == "replace_recovery_docs":
+            return (
+                self.replace_recovery_docs_state.paper_size,
+                self.replace_recovery_docs_state.design,
+            )
+        if self.active_task == "kit":
+            return self.kit_state.paper_size, self.kit_state.design
+        return self.backup_state.paper_size, self.backup_state.design

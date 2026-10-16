@@ -16,6 +16,7 @@
  */
 
 import { MAX_QR_PAYLOAD_CHARS } from "../app/constants.js";
+import { bytesEqual } from "./bytes.js";
 
 const ZBASE32_ALPHABET = "ybndrfg8ejkmcpqxot1uwisza345h769";
 const BASE64_ALPHABET = /^[A-Za-z0-9+/]+$/;
@@ -99,6 +100,9 @@ export function decodeZBase32(text) {
   const normalizedChars = [];
   for (const ch of text) {
     if (ch === "-" || /\s/.test(ch)) continue;
+    if (ch.codePointAt(0) > 0x7f) {
+      throw new Error(`invalid z-base-32 character: ${ch}`);
+    }
     const normalized = ch.toLowerCase();
     const idx = ZBASE32_ALPHABET.indexOf(normalized);
     if (idx === -1) throw new Error(`invalid z-base-32 character: ${ch}`);
@@ -114,27 +118,31 @@ export function decodeZBase32(text) {
   }
   const decoded = new Uint8Array(out);
   if (encodeZBase32(decoded) !== normalizedChars.join("")) {
-    throw new Error("invalid z-base-32 text: non-canonical tail bits");
+    throw new Error("invalid z-base-32 text: nonzero unused tail bits");
   }
   return decoded;
 }
 
 export function filterZBase32Lines(text) {
-  const lines = text.split(/\r?\n/);
+  const lines = text.split(/\r\n|\r|\n/);
   const filtered = [];
   for (const raw of lines) {
-    const line = raw.trim().replace(/^\d{1,4}\.\s*/, "");
+    const line = raw.trim().replace(/^\d{1,5}\.\s*/, "");
     if (!line) continue;
-    const ok = true;
     for (const ch of line) {
       if (ch === "-" || /\s/.test(ch)) continue;
+      if (ch.codePointAt(0) > 0x7f) {
+        throw new Error(
+          "fallback text contains non-empty lines with characters outside the z-base-32 alphabet",
+        );
+      }
       if (!ZBASE32_ALPHABET.includes(ch.toLowerCase())) {
         throw new Error(
           "fallback text contains non-empty lines with characters outside the z-base-32 alphabet",
         );
       }
     }
-    if (ok) filtered.push(line);
+    filtered.push(line);
   }
   return filtered;
 }
@@ -157,7 +165,7 @@ export function readUvarint(bytes, offset) {
       const encoded = encodeUvarint(value);
       const actual = bytes.slice(offset, idx);
       if (!bytesEqual(encoded, actual)) {
-        throw new Error("non-canonical varint");
+        throw new Error("overlong varint");
       }
       if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
         throw new Error("varint too large");
@@ -170,8 +178,8 @@ export function readUvarint(bytes, offset) {
   throw new Error("truncated varint");
 }
 
-function encodeUvarint(value) {
-  let current = value;
+export function encodeUvarint(value) {
+  let current = BigInt(value);
   const out = [];
   while (true) {
     const byte = Number(current & 0x7fn);
@@ -184,33 +192,4 @@ function encodeUvarint(value) {
     }
   }
   return Uint8Array.from(out);
-}
-
-export function bytesEqual(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-export function bytesToHex(bytes) {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-export function hexToBytes(hex) {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = Number.parseInt(hex.slice(i, i + 2), 16);
-  }
-  return bytes;
-}
-
-export function concatBytes(a, b) {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
 }

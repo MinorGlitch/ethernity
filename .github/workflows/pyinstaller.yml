@@ -25,13 +25,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}-${{ inputs.release_tag || 'none' }}
+  group: release-${{ github.workflow }}-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
+
+env:
+  UV_LOCKED: "true"
 
 jobs:
   precheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     permissions:
       contents: read
       actions: read
@@ -40,468 +43,185 @@ jobs:
       commit_sha: ${{ steps.meta.outputs.commit_sha }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
       draft: ${{ steps.meta.outputs.draft }}
+      published: ${{ steps.meta.outputs.published }}
+      homebrew: ${{ steps.meta.outputs.homebrew }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Resolve target tag and commit
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+
+      - name: Resolve release and verify master CI
         id: meta
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            TAG="${{ inputs.release_tag }}"
-          else
-            TAG="${GITHUB_REF#refs/tags/}"
-          fi
-
-          if [[ -z "${TAG}" ]]; then
-            echo "release_tag is required" >&2
-            exit 1
-          fi
-          if [[ ! "${TAG}" =~ ^v ]]; then
-            echo "release tag must start with 'v': ${TAG}" >&2
-            exit 1
-          fi
-
-          git fetch --force --tags origin
-          if ! git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "tag not found: ${TAG}" >&2
-            exit 1
-          fi
-
-          COMMIT_SHA="$(git rev-list -n 1 "refs/tags/${TAG}")"
-          if [[ -z "${COMMIT_SHA}" ]]; then
-            echo "unable to resolve commit SHA for tag: ${TAG}" >&2
-            exit 1
-          fi
-
-          export COMMIT_SHA
-          PROJECT_VERSION="$(python - <<'PY'
-          import os
-          import subprocess
-          import tomllib
-
-          commit_sha = os.environ["COMMIT_SHA"]
-          try:
-              raw_pyproject = subprocess.check_output(
-                  ["git", "show", f"{commit_sha}:pyproject.toml"],
-                  stderr=subprocess.DEVNULL,
-              )
-          except subprocess.CalledProcessError as exc:
-              raise SystemExit(
-                  f"unable to read pyproject.toml at commit {commit_sha}"
-              ) from exc
-
-          data = tomllib.loads(raw_pyproject.decode("utf-8"))
-          print(data["project"]["version"])
-          PY
-          )"
-          EXPECTED_TAG="v${PROJECT_VERSION}"
-          if [[ "${TAG}" != "${EXPECTED_TAG}" ]]; then
-            echo "release tag/version mismatch: tag='${TAG}', expected='${EXPECTED_TAG}' from pyproject.toml at ${COMMIT_SHA}" >&2
-            exit 1
-          fi
-
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            if [[ "${{ inputs.prerelease }}" == "true" ]]; then
-              PRERELEASE=true
-            else
-              PRERELEASE=false
-            fi
-            if [[ "${{ inputs.draft }}" == "true" ]]; then
-              DRAFT=true
-            else
-              DRAFT=false
-            fi
-          else
-            if [[ "${TAG}" == *-* ]]; then
-              PRERELEASE=true
-            else
-              PRERELEASE=false
-            fi
-            DRAFT=false
-          fi
-
-          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
-          echo "commit_sha=${COMMIT_SHA}" >> "${GITHUB_OUTPUT}"
-          echo "prerelease=${PRERELEASE}" >> "${GITHUB_OUTPUT}"
-          echo "draft=${DRAFT}" >> "${GITHUB_OUTPUT}"
-
-      - name: Verify CI succeeded for target commit
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_SHA: ${{ steps.meta.outputs.commit_sha }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import time
-          import sys
-          import urllib.parse
-          import urllib.request
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          REQUESTED_PRERELEASE: ${{ inputs.prerelease }}
+          REQUESTED_DRAFT: ${{ inputs.draft }}
+        run: uv run python -m tooling.release.precheck
 
-          repo = os.environ["GITHUB_REPOSITORY"]
-          sha = os.environ["TARGET_SHA"]
-          token = os.environ["GITHUB_TOKEN"]
-          max_wait_seconds = 20 * 60
-          poll_seconds = 20
-          deadline = time.time() + max_wait_seconds
-          headers = {
-              "Accept": "application/vnd.github+json",
-              "Authorization": f"Bearer {token}",
-              "X-GitHub-Api-Version": "2022-11-28",
-          }
-
-          while True:
-              query = urllib.parse.urlencode({"head_sha": sha, "per_page": "100"})
-              url = f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{query}"
-              req = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(req) as response:  # noqa: S310
-                  payload = json.load(response)
-
-              runs = payload.get("workflow_runs", [])
-              qualifying_events = {"push", "pull_request", "workflow_dispatch"}
-              qualifying_runs = [
-                  run for run in runs if str(run.get("event") or "") in qualifying_events
-              ]
-              if qualifying_runs:
-                  # Release gating policy: require the latest CI run for this commit SHA
-                  # from a substantive event to be green. We intentionally do not
-                  # allow an older successful run to satisfy the gate after a newer
-                  # qualifying run fails/cancels.
-                  latest = qualifying_runs[0]
-                  latest_status = str(latest.get("status") or "unknown")
-                  latest_conclusion = str(latest.get("conclusion") or "unknown")
-                  latest_url = str(latest.get("html_url") or "")
-
-                  if latest_status == "completed":
-                      if latest_conclusion == "success":
-                          print(
-                              "Latest CI workflow run succeeded for "
-                              f"{sha}: conclusion={latest_conclusion}"
-                          )
-                          break
-                      print(
-                          "Latest CI workflow run for target commit completed without success "
-                          f"(status={latest_status}, conclusion={latest_conclusion}). "
-                          f"Run: {latest_url}",
-                          file=sys.stderr,
-                      )
-                      sys.exit(1)
-
-                  if latest_status not in {
-                      "queued",
-                      "in_progress",
-                      "requested",
-                      "waiting",
-                      "pending",
-                  }:
-                      print(
-                          "Latest CI workflow run has unexpected status for target commit "
-                          f"{sha}: {latest_status}. Run: {latest_url}",
-                          file=sys.stderr,
-                      )
-                      sys.exit(1)
-
-              now = time.time()
-              if now >= deadline:
-                  state = "no qualifying runs found"
-                  if qualifying_runs:
-                      latest = qualifying_runs[0]
-                      latest_status = str(latest.get("status") or "unknown")
-                      latest_conclusion = str(latest.get("conclusion") or "unknown")
-                      state = (
-                          "latest run "
-                          f"status={latest_status}, conclusion={latest_conclusion}"
-                      )
-                  print(
-                      "Timed out waiting for latest successful CI workflow run for commit "
-                      f"{sha} ({state}). Release publishing is blocked.",
-                      file=sys.stderr,
-                  )
-                  sys.exit(1)
-
-              remaining = int(deadline - now)
-              print(
-                  "Waiting for CI success for commit "
-                  f"{sha} ({remaining}s remaining)..."
-              )
-              time.sleep(poll_seconds)
-          PY
-
-  build:
+  existing-release:
     needs: precheck
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            artifact_os: linux
-            artifact_arch: x64
-            archive_ext: tar.gz
-          - runner: ubuntu-24.04-arm
-            artifact_os: linux
-            artifact_arch: arm64
-            archive_ext: tar.gz
-          - runner: macos-15-intel
-            artifact_os: macos
-            artifact_arch: x64
-            archive_ext: tar.gz
-          - runner: macos-latest
-            artifact_os: macos
-            artifact_arch: arm64
-            archive_ext: tar.gz
-          - runner: windows-latest
-            artifact_os: windows
-            artifact_arch: x64
-            archive_ext: zip
+    if: needs.precheck.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.precheck.outputs.commit_sha }}
+      - uses: ./.github/actions/setup-python
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Verify existing release without rebuilding or replacing it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
+          RELEASE_COMMIT_SHA: ${{ needs.precheck.outputs.commit_sha }}
+        run: uv run python -m tooling.release.cli verify-published
+
+  kit-bundles:
+    if: needs.precheck.outputs.published != 'true'
+    needs: precheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.precheck.outputs.commit_sha }}
 
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.11"
+      - name: Setup kit dependencies
+        uses: ./.github/actions/setup-kit
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Install build dependencies
-        run: uv sync --extra build --frozen
-
-      - name: Build with PyInstaller (onedir)
-        run: uv run pyinstaller --clean --noconfirm ethernity.spec
-
-      - name: Smoke test built executable
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${{ matrix.artifact_os }}" == "windows" ]]; then
-            BIN="./dist/ethernity/ethernity.exe"
-          else
-            BIN="./dist/ethernity/ethernity"
-          fi
-          "$BIN" --help >/dev/null
-          "$BIN" --version
-          SMOKE_OUT="${RUNNER_TEMP:-/tmp}/ethernity-pyinstaller-smoke"
-          rm -rf "$SMOKE_OUT"
-          mkdir -p "$SMOKE_OUT"
-          "$BIN" recover \
-            --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/qr_document.pdf \
-            --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/extensions/01/qr_document-01-*.pdf \
-            --passphrase stable-v1_2-extension-passphrase \
-            --output "$SMOKE_OUT/recovered" \
-            --quiet
-          test -d "$SMOKE_OUT/recovered"
-
-      - name: Package release archive
+      - name: Generate kit bundles
+        working-directory: kit
         env:
-          RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
-          ARTIFACT_OS: ${{ matrix.artifact_os }}
-          ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
-          RUNNER_ARCH: ${{ runner.arch }}
-          PACKAGER: pyinstaller
-          PACKAGE_MODE: onedir
-        run: uv run python scripts/package_pyinstaller.py
+          ETHERNITY_KIT_COMPRESSION: gzip
+          ETHERNITY_KIT_VARIANTS: both
+        run: |
+          rm -f ../src/ethernity/resources/kit/recovery_kit*.bundle.html
+          node build_kit.mjs
 
-      - name: Upload packaged artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6
+      - name: Verify generated kit bundles
+        run: python3 -m tooling.release_resources --kit-directory src/ethernity/resources/kit
+
+      - name: Upload kit bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-build-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}
+          name: release-kit-bundles
+          retention-days: 30
           if-no-files-found: error
-          path: |
-            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}.${{ matrix.archive_ext }}
+          path: src/ethernity/resources/kit/*.html
 
-  provenance:
-    needs: [precheck, build]
+  packages:
+    needs: [precheck, kit-bundles]
+    uses: ./.github/workflows/native-packages.yml
+    with:
+      commit_sha: ${{ needs.precheck.outputs.commit_sha }}
+      tag: ${{ needs.precheck.outputs.tag }}
+      kit_artifact: release-kit-bundles
+
+  signatures:
+    needs: [precheck, packages]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    environment: release
     permissions:
       contents: read
       id-token: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.precheck.outputs.commit_sha }}
+      - uses: ./.github/actions/setup-python
 
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.11"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Download packaged artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - name: Download package files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: release-build-*
           merge-multiple: true
-          path: dist-artifacts
+          path: release-files
+
+      - name: Download tagged source archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-source
+          path: release-files
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
-      - name: Export locked requirements for SBOM
-        run: |
-          uv export --format requirements.txt --no-dev --extra build --frozen \
-            --no-editable --no-emit-project --no-emit-workspace \
-            --output-file dist-artifacts/release-requirements.txt
+      - name: Sign and verify release files
+        env:
+          RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
+        run: uv run python -m tooling.release.cli sign
 
-      - name: Generate SBOMs and sign artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          archives=(dist-artifacts/*.zip dist-artifacts/*.tar.gz)
-          if (( ${#archives[@]} == 0 )); then
-            echo "no archives found to sign" >&2
-            exit 1
-          fi
-
-          for archive in "${archives[@]}"; do
-            if [[ "${archive}" == *.tar.gz ]]; then
-              stem="${archive%.tar.gz}"
-            else
-              stem="${archive%.zip}"
-            fi
-            sbom="${stem}.sbom.cdx.json"
-
-            uv run --with cyclonedx-bom cyclonedx-py requirements \
-              dist-artifacts/release-requirements.txt \
-              --pyproject pyproject.toml \
-              --output-reproducible \
-              --of JSON \
-              --output-file "${sbom}"
-
-            # Sign distributable payloads directly.
-            for file in "${archive}" "${sbom}"; do
-              cosign sign-blob --yes \
-                --bundle "${file}.sigstore.json" \
-                --output-signature "${file}.sig" \
-                --output-certificate "${file}.pem" \
-                "${file}"
-            done
-          done
-
-      - name: Upload provenance artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6
+      - name: Upload signature bundles
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-provenance
+          name: release-signatures
+          retention-days: 30
           if-no-files-found: error
-          path: |
-            dist-artifacts/*.sbom.cdx.json
-            dist-artifacts/*.sigstore.json
-            dist-artifacts/*.sig
-            dist-artifacts/*.pem
+          path: release-files/*.sigstore.json
 
   release:
-    needs: [precheck, provenance]
+    needs: [precheck, signatures]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: always() && needs.precheck.result == 'success' && needs.provenance.result == 'success'
+    if: always() && needs.precheck.result == 'success' && needs.signatures.result == 'success'
+    environment: release
     permissions:
       contents: write
     steps:
-      - name: Download all release artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - name: Checkout release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          pattern: release-*
+          ref: ${{ needs.precheck.outputs.commit_sha }}
+          fetch-depth: 0
+
+      - name: Download all release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-build-*
           merge-multiple: true
-          path: dist-artifacts
+          path: release-files
 
-      - name: Validate release artifact set completeness
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          tag="${{ needs.precheck.outputs.tag }}"
-          expected_archives=(
-            "dist-artifacts/ethernity-${tag}-linux-x64.tar.gz"
-            "dist-artifacts/ethernity-${tag}-linux-arm64.tar.gz"
-            "dist-artifacts/ethernity-${tag}-macos-x64.tar.gz"
-            "dist-artifacts/ethernity-${tag}-macos-arm64.tar.gz"
-            "dist-artifacts/ethernity-${tag}-windows-x64.zip"
-          )
-
-          archives=(dist-artifacts/*.zip dist-artifacts/*.tar.gz)
-          if (( ${#archives[@]} != ${#expected_archives[@]} )); then
-            echo "expected ${#expected_archives[@]} archives, found ${#archives[@]}" >&2
-            ls -la dist-artifacts || true
-            exit 1
-          fi
-
-          for archive in "${expected_archives[@]}"; do
-            if [[ ! -f "${archive}" ]]; then
-              echo "missing expected archive: ${archive}" >&2
-              ls -la dist-artifacts || true
-              exit 1
-            fi
-
-            if [[ "${archive}" == *.tar.gz ]]; then
-              stem="${archive%.tar.gz}"
-            else
-              stem="${archive%.zip}"
-            fi
-            sbom="${stem}.sbom.cdx.json"
-
-            required=(
-              "${sbom}"
-            )
-            for file in "${required[@]}"; do
-              if [[ ! -f "${file}" ]]; then
-                echo "missing required release file: ${file}" >&2
-                exit 1
-              fi
-            done
-
-            signed_targets=("${archive}" "${sbom}")
-            for target in "${signed_targets[@]}"; do
-              bundle="${target}.sigstore.json"
-              if [[ ! -f "${bundle}" ]]; then
-                echo "missing required bundle: ${bundle}" >&2
-                exit 1
-              fi
-              sig="${target}.sig"
-              cert="${target}.pem"
-              if [[ -f "${sig}" || -f "${cert}" ]]; then
-                if [[ ! -f "${sig}" || ! -f "${cert}" ]]; then
-                  echo "signature/certificate pair incomplete for: ${target}" >&2
-                  exit 1
-                fi
-              fi
-            done
-          done
-
-      - name: Publish release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          tag_name: ${{ needs.precheck.outputs.tag }}
-          prerelease: ${{ needs.precheck.outputs.prerelease == 'true' }}
-          draft: ${{ needs.precheck.outputs.draft == 'true' }}
-          generate_release_notes: true
-          files: |
-            dist-artifacts/*.zip
-            dist-artifacts/*.tar.gz
-            dist-artifacts/*.sbom.cdx.json
-            dist-artifacts/*.sigstore.json
-            dist-artifacts/*.sig
-            dist-artifacts/*.pem
+          name: release-source
+          path: release-files
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-signatures
+          path: release-files
+
+      - uses: ./.github/actions/setup-python
+
+      - name: Publish release without replacing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
+          RELEASE_COMMIT_SHA: ${{ needs.precheck.outputs.commit_sha }}
+          RELEASE_PRERELEASE: ${{ needs.precheck.outputs.prerelease }}
+          RELEASE_DRAFT: ${{ needs.precheck.outputs.draft }}
+        run: uv run python -m tooling.release.cli publish
+
+  homebrew:
+    needs: [precheck, release, existing-release]
+    if: always() && !cancelled() && needs.precheck.outputs.homebrew == 'true' && (needs.release.result == 'success' || needs.existing-release.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # GITHUB_TOKEN release events do not start downstream workflows. Explicit dispatch does.
+      - name: Start Homebrew publication (also safe after a release retry)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
+        run: gh workflow run homebrew-tap.yml --repo "$GITHUB_REPOSITORY" --ref master -f release_tag="$RELEASE_TAG"

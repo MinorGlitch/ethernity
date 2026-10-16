@@ -18,6 +18,8 @@
 import { useEffect, useRef, useState } from "microact/hooks";
 import { detectWithJsQr } from "./jsqr_runtime_core.js";
 
+export const SCANNER_ENABLED = true;
+
 function cameraSupportState() {
   if (typeof window === "undefined") return { ok: false, reason: "No browser context." };
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -75,16 +77,6 @@ export function useQrScannerRuntime(onScanPayload) {
     },
     [],
   );
-
-  useEffect(() => {
-    if (!active) return;
-    const video = videoRef.current;
-    const stream = streamRef.current;
-    if (!video || !stream || video.srcObject === stream) return;
-    video.srcObject = stream;
-    video.setAttribute("playsinline", "true");
-    video.play?.().catch(() => {});
-  });
 
   const startScanner = async () => {
     const support = cameraSupportState();

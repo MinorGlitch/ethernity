@@ -15,11 +15,12 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { documentCounts, primaryDocumentRecord } from "./documents/store.js";
 import { makeZip } from "../lib/zip.js";
 import { reassembleCiphertext } from "./frames_cipher.js";
 import { downloadBlob, downloadBytes } from "./io.js";
 import { cloneState } from "./state/initial.js";
-import { dispatchState, setErrorStatus, setLineStatus } from "./actions_common.js";
+import { dispatchState, setErrorStatus, setLineStatus } from "./state_actions.js";
 
 function basenameForExtractPath(path) {
   const parts = path.split("/").filter(Boolean);
@@ -45,14 +46,16 @@ export function resolveExtractDownload(file) {
 export function downloadCipher(dispatch, getState) {
   const next = cloneState(getState());
   try {
-    if (next.conflicts > 0) {
+    if (documentCounts(next).conflicts > 0) {
       throw new Error("conflicting duplicate frames detected");
     }
     if ((next.documents?.size ?? 0) > 1) {
       throw new Error("Encrypted file download is only available for one backup document.");
     }
-    const ciphertext = reassembleCiphertext(next);
-    next.ciphertext = ciphertext;
+    const record = primaryDocumentRecord(next);
+    if (!record) throw new Error("missing frames");
+    const ciphertext = reassembleCiphertext(record);
+    record.ciphertext = ciphertext;
     downloadBytes(ciphertext, "ciphertext.age");
     setLineStatus(next, "frameStatus", "Downloaded ciphertext.age", "ok");
   } catch (err) {
@@ -61,10 +64,10 @@ export function downloadCipher(dispatch, getState) {
   dispatchState(dispatch, next);
 }
 
-export function downloadEnvelope(_dispatch, getState) {
+export function downloadDecryptedBackup(_dispatch, getState) {
   const current = getState();
-  if (!current.decryptedEnvelope) return;
-  downloadBytes(current.decryptedEnvelope, "decrypted_envelope.bin");
+  if (!current.decryptedBackup) return;
+  downloadBytes(current.decryptedBackup, "decrypted_backup.bin");
 }
 
 export function downloadExtract(_dispatch, getState, index) {

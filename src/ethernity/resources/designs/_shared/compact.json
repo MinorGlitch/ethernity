@@ -1,0 +1,315 @@
+{
+  "reference_size": [148, 210],
+  "styles": {},
+  "components": {
+    "compact-paper": [
+      {"key": "paper", "kind": "panel", "box": [0, 0, 148, 210], "fill": "#ffffff"}
+    ],
+    "compact-header-decoration": [
+      {"key": "rule", "kind": "rule", "box": [10, 31, 128, 0.35], "fill": "#cbd5e1"}
+    ],
+    "compact-shell": [
+      {"key": "page", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-page"},
+      {"key": "id", "kind": "text", "box": [10, 34, 85, 4], "text": "{short_id_label}: {doc_id}", "style": "compact-mono", "fit": "wrap", "scale_height": true},
+      {"key": "date", "kind": "text", "box": [101, 34, 37, 4], "text": "{created_date}", "style": "compact-mono", "fit": "wrap", "scale_height": true, "align": "right"}
+    ],
+    "compact-note-decoration": [
+      {"key": "note", "kind": "panel", "box": [10, 43, 128, 14], "fill": "#f1f5f9"}
+    ],
+    "compact-main-note": [
+      {"key": "note-background", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-note-decoration"},
+      {"key": "note", "kind": "text", "box": [13, 46, 122, 9], "text": "{instruction_0}", "style": "compact-body", "fit": "wrap", "scale_height": true}
+    ],
+    "compact-card-decoration": [
+      {"key": "border", "kind": "panel", "box": [0, 0, 60, 65], "fill": "#ffffff", "stroke": "#cbd5e1"}
+    ],
+    "compact-card": [
+      {"key": "decoration", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-card-decoration"},
+      {"key": "label", "kind": "text", "box": [4, 3, 52, 4], "text": "SEGMENT {segment_number:02d}", "style": "compact-label", "fit": "wrap", "scale_height": true},
+      {"key": "qr-image", "kind": "image", "box": [5, 10, 50, 50]}
+    ],
+    "compact-kit-card": [
+      {"key": "decoration", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-card-decoration"},
+      {"key": "label", "kind": "text", "box": [4, 3, 52, 4], "text": "{copy_segment_prefix_upper} {segment_number:02d}", "style": "compact-label", "fit": "wrap", "scale_height": true},
+      {"key": "qr-image", "kind": "image", "box": [5, 10, 50, 50]}
+    ],
+    "compact-recovery-heading": [
+      {"key": "fallback-label", "kind": "text", "box": [10, 107, 128, 5], "text": "MANUAL FALLBACK", "style": "compact-heading", "fit": "wrap", "scale_height": true},
+      {"key": "fallback-guidance", "kind": "text", "box": [10, 113, 128, 4], "text": "Copy every group exactly, in numbered order.", "style": "compact-small", "fit": "wrap", "scale_height": true}
+    ],
+    "compact-fallback-row": [
+      {"key": "fallback-line-number", "kind": "text", "box": [0, 0.2, 8, 3.8], "text": "{number:02d}.", "style": "compact-number", "fit": "wrap", "scale_height": true, "align": "right", "max_lines": 1},
+      {"key": "fallback-line", "kind": "text", "box": [11, 0.2, 115, 3.8], "text": "{payload}", "style": "compact-fallback", "fit": "wrap", "scale_height": true, "max_lines": 1}
+    ],
+    "compact-fallback-title": [
+      {"key": "title", "kind": "text", "box": [11, 0.2, 115, 3.8], "text": "{title}", "style": "compact-label", "fit": "wrap", "scale_height": true}
+    ],
+    "compact-phrase-continuation": [
+      {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-recovery-shell"},
+      {"key": "label", "kind": "text", "box": [10, 44, 128, 5], "text": "RECOVERY PHRASE / CONTINUED", "style": "compact-heading", "fit": "wrap", "scale_height": true},
+      {"key": "instructions", "kind": "text", "box": [10, 51, 128, 20], "text": "{continuation_instructions}", "style": "compact-small", "fit": "wrap", "scale_height": true},
+      {"key": "phrase", "kind": "text", "box": [10, 76, 128, 117], "text": "{continuation_text}", "style": "compact-phrase", "fit": "wrap", "scale_height": true, "metadata": "recovery_passphrase", "line_height": 1.12}
+    ],
+    "compact-sheet-heading": [
+      {"key": "instructions", "kind": "text", "box": [10, 48, 70, 33], "text": "{instruction_0}\n{instruction_1}\n{instruction_2}", "style": "compact-small", "fit": "wrap", "scale_height": true},
+      {"key": "sheet-qr-image", "kind": "image", "box": [88, 30, 50, 50], "qr_slot": 0},
+      {"key": "id", "kind": "text", "box": [10, 34, 75, 5], "text": "{short_id_label}: {doc_id}", "style": "compact-mono", "scale_height": true},
+      {"key": "created", "kind": "text", "box": [10, 41, 75, 4], "text": "{created_date}", "style": "compact-mono", "scale_height": true}
+    ],
+    "compact-sheet-fallback-decoration": [
+      {"key": "heading", "kind": "text", "box": [0, 0, 128, 4], "text": "MANUAL FALLBACK", "style": "compact-label", "fit": "wrap", "scale_height": true}
+    ],
+    "compact-page": [
+      {"key": "paper", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-paper"},
+      {"key": "branding", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-branding"},
+      {"key": "header-decoration", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-header-decoration"},
+      {"key": "heading", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-heading"},
+      {"key": "footer", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-footer"}
+    ],
+    "compact-heading": [
+      {"key": "title", "kind": "text", "box": [10, 11, 128, 13], "text": "{copy_title_upper}", "style": "compact-title", "fit": "shrink", "min_size": 12, "scale_height": true},
+      {"key": "subtitle", "kind": "text", "box": [10, 24.5, 128, 5], "text": "{copy_subtitle}", "style": "compact-small", "fit": "wrap", "scale_height": true, "max_lines": 1}
+    ],
+    "compact-footer": [
+      {"key": "footer-rule", "kind": "rule", "box": [10, 198, 128, 0.2], "fill": "#cbd5e1"},
+      {"key": "generator", "kind": "text", "box": [10, 201, 79, 4], "text": "{generator}", "style": "compact-footer", "fit": "wrap", "scale_height": true},
+      {"key": "page", "kind": "text", "box": [100, 201, 38, 4], "text": "Page {page_number} / {page_count}", "style": "compact-footer", "fit": "wrap", "scale_height": true, "align": "right"}
+    ],
+    "compact-branding": [],
+    "compact-sheet-page": [
+      {"key": "paper", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-paper"},
+      {"key": "branding", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-branding"},
+      {"key": "heading", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-heading"},
+      {"key": "footer", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-footer"},
+      {"key": "header-rule", "kind": "rule", "box": [10, 31, 70, 0.3], "fill": "#cbd5e1"}
+    ],
+    "compact-recovery-shell": [
+      {"key": "page", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-shell"}
+    ]
+  },
+  "documents": {
+    "main": {
+      "first": {
+        "elements": [
+          {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-shell"},
+          {"key": "note", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-main-note"},
+          {"key": "card-0", "kind": "group", "box": [10, 61, 0, 0], "ref": "compact-card", "qr_slot": 0},
+          {"key": "card-1", "kind": "group", "box": [78, 61, 0, 0], "ref": "compact-card", "qr_slot": 1},
+          {"key": "card-2", "kind": "group", "box": [10, 130, 0, 0], "ref": "compact-card", "qr_slot": 2},
+          {"key": "card-3", "kind": "group", "box": [78, 130, 0, 0], "ref": "compact-card", "qr_slot": 3}
+        ],
+        "qr_capacity": 4,
+        "grid": {
+          "box": [10, 61, 128, 134],
+          "columns": 2,
+          "rows": 2,
+          "card_size": [60, 65],
+          "gap": [8, 4],
+          "horizontal": "center"
+        }
+      }
+    },
+    "recovery": {
+      "first": {
+        "elements": [
+          {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-shell"},
+          {"key": "note", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-main-note"},
+          {"key": "heading", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-recovery-heading"}
+        ]
+      },
+      "continuation": {
+        "elements": [
+          {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-shell"},
+          {"key": "hint", "kind": "text", "box": [10, 44, 128, 7], "text": "Continue in numbered order from the preceding page.", "style": "compact-body", "fit": "wrap", "scale_height": true}
+        ]
+      },
+      "recovery": {
+        "first": {
+          "box": [10, 121, 128, 74],
+          "row_height": 4.2,
+          "body_style": "compact-fallback",
+          "number_style": "compact-number",
+          "left": 0,
+          "right": 2,
+          "number_gap": 3,
+          "number_width": 8,
+          "safety": 0.5,
+          "title": [
+            {"key": "title", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-fallback-title"}
+          ],
+          "row": [
+            {"key": "row", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-fallback-row"}
+          ]
+        },
+        "continuation": {
+          "box": [10, 56, 128, 139],
+          "row_height": 4.2,
+          "body_style": "compact-fallback",
+          "number_style": "compact-number",
+          "left": 0,
+          "right": 2,
+          "number_gap": 3,
+          "number_width": 8,
+          "safety": 0.5,
+          "title": [
+            {"key": "title", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-fallback-title"}
+          ],
+          "row": [
+            {"key": "row", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-fallback-row"}
+          ]
+        },
+        "passphrase": {
+          "page": {
+            "elements": [
+              {"key": "phrase", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-phrase-continuation"}
+            ]
+          },
+          "style": "compact-phrase",
+          "guidance_style": "compact-small",
+          "width": 128,
+          "height": 15,
+          "continuation_box": [10, 76, 128, 117],
+          "line_height": 1.12
+        },
+        "metadata": {
+          "flow": "stack",
+          "box": [10, 63, 128, 0],
+          "reference_bottom": 104,
+          "gap": 3,
+          "fields": [
+            {
+              "name": "passphrase",
+              "label": "RECOVERY PHRASE",
+              "x": 10,
+              "width": 128,
+              "label_style": "compact-label",
+              "value_style": "compact-phrase",
+              "label_height": 3.5,
+              "label_gap": 1.5,
+              "bottom_padding": 1
+            },
+            {
+              "name": "quorum",
+              "label": "RECOVERY SHEETS",
+              "x": 10,
+              "width": 128,
+              "label_style": "compact-label",
+              "value_style": "compact-body",
+              "label_height": 3.5,
+              "label_gap": 1.5,
+              "bottom_padding": 1
+            },
+            {
+              "name": "signing_public_key",
+              "label": "SIGNING PUBLIC KEY",
+              "x": 10,
+              "width": 128,
+              "label_style": "compact-label",
+              "value_style": "compact-mono",
+              "label_height": 3.5,
+              "label_gap": 1.5,
+              "bottom_padding": 1
+            }
+          ],
+          "label_style": "compact-label",
+          "value_style": "compact-phrase",
+          "guidance_style": "compact-small",
+          "shift_start": 106,
+          "shift_end": 196,
+          "repeat_on_continuation": false
+        }
+      }
+    },
+    "shard": {
+      "first": {
+        "elements": [
+          {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-sheet-page"},
+          {"key": "sheet", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-sheet-heading"}
+        ],
+        "qr_capacity": 1
+      },
+      "sheet": {
+        "box": [10, 80.5, 128, 114.5],
+        "bottom_anchor": true,
+        "body_style": "compact-fallback",
+        "top": 4,
+        "bottom": 0,
+        "payload_inset": 8,
+        "safety": 0.3,
+        "profiles": [
+          {"row_height": 3.8, "font_size": 8, "title_size": 7},
+          {"row_height": 3.15, "font_size": 7, "title_size": 7},
+          {"row_height": 2.45, "font_size": 6, "title_size": 6}
+        ],
+        "decoration": [
+          {"key": "fallback-heading", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-sheet-fallback-decoration"}
+        ],
+        "title": [
+          {"key": "title", "kind": "text", "box": [8, 0, 120, 3.8], "text": "{title}", "style": "compact-fallback", "fit": "wrap", "scale_height": true, "line_height": 1}
+        ],
+        "row": [
+          {"key": "fallback-line-number", "kind": "text", "box": [0, 0, 6, 3.8], "text": "{number:02d}.", "style": "compact-number", "fit": "wrap", "scale_height": true, "align": "right", "line_height": 1, "max_lines": 1},
+          {"key": "fallback-payload", "kind": "text", "box": [8, 0, 120, 3.8], "text": "{payload}", "style": "compact-fallback", "fit": "wrap", "scale_height": true, "line_height": 1, "max_lines": 1}
+        ]
+      }
+    },
+    "signing_key_shard": {
+      "use": "shard"
+    },
+    "kit": {
+      "first": {
+        "elements": [
+          {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-shell"},
+          {"key": "note", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-main-note"},
+          {"key": "card-0", "kind": "group", "box": [10, 61, 0, 0], "ref": "compact-kit-card", "qr_slot": 0},
+          {"key": "card-1", "kind": "group", "box": [78, 61, 0, 0], "ref": "compact-kit-card", "qr_slot": 1},
+          {"key": "card-2", "kind": "group", "box": [10, 130, 0, 0], "ref": "compact-kit-card", "qr_slot": 2},
+          {"key": "card-3", "kind": "group", "box": [78, 130, 0, 0], "ref": "compact-kit-card", "qr_slot": 3}
+        ],
+        "qr_capacity": 4,
+        "grid": {
+          "box": [10, 61, 128, 134],
+          "columns": 2,
+          "rows": 2,
+          "card_size": [60, 65],
+          "gap": [8, 4],
+          "horizontal": "center"
+        }
+      },
+      "trailing": [
+        {
+          "elements": [
+            {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-shell"},
+            {"key": "instructions-heading", "kind": "text", "box": [10, 45, 128, 13], "text": "HOW TO REBUILD THE RECOVERY KIT", "style": "compact-heading", "fit": "wrap", "scale_height": true},
+            {"key": "instruction-0", "kind": "text", "box": [10, 64, 128, 18], "text": "1. {instruction_0}", "style": "compact-body", "fit": "wrap", "scale_height": true},
+            {"key": "instruction-1", "kind": "text", "box": [10, 84, 128, 18], "text": "2. {instruction_1}", "style": "compact-body", "fit": "wrap", "scale_height": true},
+            {"key": "instruction-2", "kind": "text", "box": [10, 104, 128, 18], "text": "3. {instruction_2}", "style": "compact-body", "fit": "wrap", "scale_height": true},
+            {"key": "instruction-3", "kind": "text", "box": [10, 124, 128, 18], "text": "4. {instruction_3}", "style": "compact-body", "fit": "wrap", "scale_height": true},
+            {"key": "troubleshooting", "kind": "text", "box": [10, 151, 128, 6], "text": "TROUBLESHOOTING", "style": "compact-heading", "fit": "wrap", "scale_height": true},
+            {"key": "help", "kind": "text", "box": [10, 162, 128, 27], "text": "{copy_guide_help_parts}", "style": "compact-body", "fit": "wrap", "scale_height": true}
+          ]
+        }
+      ]
+    },
+    "kit_index": {
+      "first": {
+        "elements": [
+          {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-shell"},
+          {"key": "count", "kind": "text", "box": [10, 44, 128, 6], "text": "{kit_qr_page_count} QR pages / {kit_qr_chunk_count} segments", "style": "compact-body", "fit": "wrap", "scale_height": true},
+          {"key": "heading", "kind": "text", "box": [10, 56, 128, 5], "text": "DOCUMENT INVENTORY", "style": "compact-heading", "fit": "wrap", "scale_height": true}
+        ],
+        "inventory": {
+          "top": 66,
+          "row_height": 15,
+          "capacity": 8,
+          "row": [
+            {"key": "row", "kind": "panel", "box": [10, 0, 128, 15], "fill": "#f8fafc"},
+            {"key": "identifier", "kind": "text", "box": [13, 1, 91, 4], "text": "{identifier}", "style": "compact-label", "fit": "wrap", "scale_height": true},
+            {"key": "detail", "kind": "text", "box": [13, 6, 122, 8], "text": "{detail}", "style": "compact-body", "fit": "wrap", "scale_height": true},
+            {"key": "status", "kind": "text", "box": [108, 1, 27, 4], "text": "{status}", "style": "compact-small", "fit": "wrap", "scale_height": true, "align": "right"}
+          ]
+        }
+      }
+    }
+  }
+}

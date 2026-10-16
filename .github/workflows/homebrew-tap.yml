@@ -6,89 +6,276 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Optional tag to publish to tap (defaults to latest release tag)"
-        required: false
+        description: "Published stable release tag to publish (vX.Y.Z)"
+        required: true
         type: string
-      build_bottles:
-        description: "Build and publish Homebrew bottles"
-        required: false
-        default: true
-        type: boolean
 
 permissions:
   contents: read
 
+# Tap publication is a deployment, not a CI job. Serialize every version and never cancel a run
+# after it may have started changing release assets or the public formula.
 concurrency:
-  group: homebrew-tap-${{ github.workflow }}-${{ github.ref }}-${{ inputs.release_tag || github.event.release.tag_name || 'none' }}
-  cancel-in-progress: true
+  group: homebrew-tap-publication
+  cancel-in-progress: false
 
 jobs:
-  update-tap:
+  prepare:
     if: github.event_name == 'workflow_dispatch' || (github.event.release.prerelease == false && github.event.release.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
-      tap_repo: ${{ steps.tap.outputs.tap_repo }}
+      tap_repo: ${{ steps.meta.outputs.tap_repo }}
+      tap_name: ${{ steps.meta.outputs.tap_name }}
       bottle_release_tag: ${{ steps.meta.outputs.bottle_release_tag }}
+      formula_artifact: ${{ steps.meta.outputs.formula_artifact }}
+      publication_artifact: ${{ steps.meta.outputs.publication_artifact }}
+      expected_tap_base: ${{ steps.tap-base.outputs.expected_tap_base }}
+      reuse: ${{ steps.tap-base.outputs.reuse }}
+      source_sha: ${{ steps.source.outputs.commit }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Resolve release tag
+      - name: Resolve and validate release metadata
         id: meta
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          SOURCE_REPO: ${{ github.repository }}
+          TAP_REPO_CONFIG: ${{ vars.HOMEBREW_TAP_REPO }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            tag="${{ inputs.release_tag }}"
-            if [[ -z "${tag}" ]]; then
-              tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" | jq -r '.tag_name')"
-            fi
-          else
-            tag="${{ github.event.release.tag_name }}"
-          fi
-          if [[ -z "${tag}" ]]; then
-            echo "release tag is required" >&2
+
+          if [[ ! "${SOURCE_REPO}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "invalid source repository slug: ${SOURCE_REPO}" >&2
             exit 1
           fi
-          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
-          echo "bottle_release_tag=ethernity-${tag}" >> "${GITHUB_OUTPUT}"
 
-      - name: Download uv.lock for selected tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL \
-            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${{ steps.meta.outputs.tag }}/uv.lock" \
-            -o "${RUNNER_TEMP}/uv.lock"
-
-      - name: Generate source formula from release tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 scripts/generate_homebrew_source_formula.py \
-            --repo "${GITHUB_REPOSITORY}" \
-            --tag "${{ steps.meta.outputs.tag }}" \
-            --template "scripts/homebrew_ethernity_tap.rb" \
-            --lock "${RUNNER_TEMP}/uv.lock" \
-            --output "${RUNNER_TEMP}/ethernity.rb"
-
-      - name: Resolve tap settings
-        id: tap
-        shell: bash
-        run: |
-          set -euo pipefail
-          tap_repo="${{ vars.HOMEBREW_TAP_REPO }}"
-          if [[ -z "${tap_repo}" ]] || \
-             [[ "${tap_repo}" == "minorglitch/tap" ]] || \
-             [[ "${tap_repo}" == "minorglitch/homebrew-tap" ]] || \
-             [[ "${tap_repo}" == "MinorGlitch/homebrew-ethernity" ]]; then
-            tap_repo="minorglitch/homebrew-tap"
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${REQUESTED_TAG}"
+          else
+            tag="${EVENT_TAG}"
           fi
-          echo "tap_repo=${tap_repo}" >> "${GITHUB_OUTPUT}"
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release tag must use strict stable syntax vX.Y.Z: ${tag}" >&2
+            exit 1
+          fi
 
-      - name: Verify tap token is configured
+          release_json="$(gh api "repos/${SOURCE_REPO}/releases/tags/${tag}")"
+          if [[ "$(jq -r '.tag_name' <<<"${release_json}")" != "${tag}" ]] || \
+             [[ "$(jq -r '.draft' <<<"${release_json}")" != "false" ]] || \
+             [[ "$(jq -r '.prerelease' <<<"${release_json}")" != "false" ]] || \
+             [[ "$(jq -r '.published_at // empty' <<<"${release_json}")" == "" ]]; then
+            echo "tag is not a published stable GitHub release: ${tag}" >&2
+            exit 1
+          fi
+          source_asset="ethernity-source-${tag}.tar.gz"
+          if ! jq -e --arg name "${source_asset}" \
+            '.assets | any(.name == $name)' <<<"${release_json}" >/dev/null; then
+            echo "release is missing required source asset: ${source_asset}" >&2
+            exit 1
+          fi
+
+          tap_repo="${TAP_REPO_CONFIG:-MinorGlitch/homebrew-tap}"
+          if [[ ! "${tap_repo}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "invalid tap repository slug: ${tap_repo}" >&2
+            exit 1
+          fi
+          tap_owner="${tap_repo%%/*}"
+          tap_repository="${tap_repo#*/}"
+          if [[ ! "${tap_repository}" =~ ^homebrew-(.+)$ ]]; then
+            echo "tap repository must use Homebrew's owner/homebrew-name convention: ${tap_repo}" >&2
+            exit 1
+          fi
+          tap_name="${tap_owner}/${BASH_REMATCH[1]}"
+
+          {
+            echo "tag=${tag}"
+            echo "tap_repo=${tap_repo}"
+            echo "tap_name=${tap_name}"
+            echo "bottle_release_tag=ethernity-${tag}"
+            echo "formula_artifact=homebrew-formula-${tag}"
+            echo "publication_artifact=homebrew-publication-${tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout trusted publication tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+          path: workflow-tools
+          persist-credentials: false
+
+      - name: Checkout selected release tag
+        id: source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.meta.outputs.tag }}
+          path: release-source
+          persist-credentials: false
+
+      - name: Verify tag-bound project version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          tag = os.environ["RELEASE_TAG"]
+          version = tomllib.loads(
+              Path("release-source/pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["version"]
+          if tag != f"v{version}":
+              raise SystemExit(f"release tag {tag!r} does not match project version {version!r}")
+          PY
+
+      - name: Inspect prior publication and capture current tap base
+        id: tap-base
+        working-directory: workflow-tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAP_REPO: ${{ steps.meta.outputs.tap_repo }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          SOURCE_SHA: ${{ steps.source.outputs.commit }}
+          PUBLICATION_DIR: ${{ runner.temp }}/homebrew-publication
+        run: python3 -m tooling.release.homebrew prepare
+
+      - name: Preserve validated publication for retries
+        if: steps.tap-base.outputs.reuse == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.meta.outputs.publication_artifact }}
+          path: ${{ runner.temp }}/homebrew-publication
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Generate staged formula from tag-bound inputs
+        if: steps.tap-base.outputs.reuse != 'true'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          SOURCE_REPO: ${{ github.repository }}
+          STAGE_DIR: ${{ runner.temp }}/homebrew-stage
+        run: |
+          set -euo pipefail
+          mkdir -p "${STAGE_DIR}/Formula" "${STAGE_DIR}/tooling"
+          python3 workflow-tools/scripts/generate_homebrew_source_formula.py \
+            --repo "${SOURCE_REPO}" \
+            --tag "${RELEASE_TAG}" \
+            --template "release-source/scripts/homebrew_ethernity_tap.rb" \
+            --lock "release-source/uv.lock" \
+            --output "${STAGE_DIR}/Formula/ethernity.rb"
+          cp workflow-tools/scripts/update_homebrew_bottle_block.py "${STAGE_DIR}/tooling/"
+
+      - name: Upload staged formula
+        if: steps.tap-base.outputs.reuse != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.meta.outputs.formula_artifact }}
+          path: ${{ runner.temp }}/homebrew-stage
+          if-no-files-found: error
+          retention-days: 30
+
+  validate-and-build:
+    if: needs.prepare.outputs.reuse != 'true'
+    needs: prepare
+    uses: ./.github/workflows/homebrew-build.yml
+    with:
+      formula_artifact: ${{ needs.prepare.outputs.formula_artifact }}
+      tap_name: ${{ needs.prepare.outputs.tap_name }}
+
+  assemble-publication:
+    needs: [prepare, validate-and-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+          persist-credentials: false
+
+      - name: Download exact staged formula
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.prepare.outputs.formula_artifact }}
+          path: ${{ runner.temp }}/homebrew-stage
+
+      - name: Download validated bottles
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: bottles-*
+          path: ${{ runner.temp }}/bottles
+
+      - name: Assemble immutable publication payload
+        shell: bash
+        env:
+          BOTTLE_RELEASE_TAG: ${{ needs.prepare.outputs.bottle_release_tag }}
+          STAGE_DIR: ${{ runner.temp }}/homebrew-stage
+          BOTTLE_DIR: ${{ runner.temp }}/bottles
+          PUBLICATION_DIR: ${{ runner.temp }}/homebrew-publication
+          TAP_REPO: ${{ needs.prepare.outputs.tap_repo }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_TAP_BASE: ${{ needs.prepare.outputs.expected_tap_base }}
+        run: |
+          set -euo pipefail
+          mapfile -t bottle_files < <(
+            find "${BOTTLE_DIR}" -type f -name 'ethernity--*.bottle.tar.gz' | sort
+          )
+          mapfile -t json_files < <(
+            find "${BOTTLE_DIR}" -type f -name 'ethernity--*.bottle.json' | sort
+          )
+          if [[ "${#bottle_files[@]}" -ne 3 ]] || [[ "${#json_files[@]}" -ne 3 ]]; then
+            echo "expected exactly three bottle tarballs and JSON files" >&2
+            exit 1
+          fi
+
+          declare -A seen_names=()
+          for bottle_file in "${bottle_files[@]}"; do
+            bottle_name="$(basename "${bottle_file}")"
+            if [[ -n "${seen_names[${bottle_name}]:-}" ]]; then
+              echo "duplicate bottle asset name: ${bottle_name}" >&2
+              exit 1
+            fi
+            seen_names["${bottle_name}"]=1
+          done
+
+          bottle_args=()
+          for bottle_file in "${bottle_files[@]}"; do
+            bottle_args+=(--bottle-file "${bottle_file}")
+          done
+          for json_file in "${json_files[@]}"; do
+            bottle_args+=(--bottle-json "${json_file}")
+          done
+          python3 "${STAGE_DIR}/tooling/update_homebrew_bottle_block.py" \
+            --formula "${STAGE_DIR}/Formula/ethernity.rb" \
+            --tap-repo "${TAP_REPO}" \
+            --release-tag "${BOTTLE_RELEASE_TAG}" \
+            "${bottle_args[@]}"
+
+          python3 -m tooling.release.homebrew assemble
+
+      - name: Upload immutable publication payload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ needs.prepare.outputs.publication_artifact }}
+          path: ${{ runner.temp }}/homebrew-publication
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: [prepare, assemble-publication]
+    if: always() && needs.prepare.result == 'success' && (needs.prepare.outputs.reuse == 'true' || needs.assemble-publication.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: homebrew-production
+    steps:
+      - name: Verify publication token
         shell: bash
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -99,196 +286,34 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout tap repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Download immutable publication payload
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          repository: ${{ steps.tap.outputs.tap_repo }}
+          name: ${{ needs.prepare.outputs.publication_artifact }}
+          path: ${{ runner.temp }}/homebrew-publication
+
+      - name: Checkout expected tap branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.prepare.outputs.tap_repo }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          ref: master
           path: tap
 
-      - name: Update formula file
-        id: update
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p tap/Formula
-          cp "${RUNNER_TEMP}/ethernity.rb" tap/Formula/ethernity.rb
-          git -C tap add Formula/ethernity.rb
-          if git -C tap diff --staged --quiet -- Formula/ethernity.rb; then
-            echo "changed=false" >> "${GITHUB_OUTPUT}"
-          else
-            echo "changed=true" >> "${GITHUB_OUTPUT}"
-          fi
-
-      - name: Commit and push formula update
-        if: steps.update.outputs.changed == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git -C tap config user.name "github-actions[bot]"
-          git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C tap commit -m "ethernity ${{ steps.meta.outputs.tag }}"
-          git -C tap push
-
-  build-bottles:
-    if: needs.update-tap.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.build_bottles)
-    needs: update-tap
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15-intel
-            id: macos-15-intel
-          - runner: macos-14
-            id: macos-14
-          - runner: ubuntu-24.04
-            id: ubuntu-24.04
-    steps:
-      - name: Checkout tap repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Checkout trusted publication tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ needs.update-tap.outputs.tap_repo }}
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
+          ref: master
+          path: workflow-tools
+          persist-credentials: false
 
-      - name: Configure Homebrew (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "/home/linuxbrew/.linuxbrew/bin" >> "${GITHUB_PATH}"
-          echo "/home/linuxbrew/.linuxbrew/sbin" >> "${GITHUB_PATH}"
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          brew --version
-
-      - name: Build bottle
-        shell: bash
+      - name: Publish validated bottles and formula
         env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
-          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tap_name="${{ needs.update-tap.outputs.tap_repo }}"
-          formula_ref="${tap_name}/ethernity"
-          brew untap "${tap_name}" || true
-          brew tap "${tap_name}" "file://${GITHUB_WORKSPACE}/tap"
-          brew uninstall --ignore-dependencies "${formula_ref}" || true
-          brew install --build-bottle "${formula_ref}"
-          brew test "${formula_ref}"
-          out_dir="${RUNNER_TEMP}/bottles"
-          mkdir -p "${out_dir}"
-          cd "${out_dir}"
-          brew bottle --json --no-rebuild "${formula_ref}"
-          ls -1 ethernity--*.bottle.*
-
-      - name: Upload bottle artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: bottles-${{ matrix.id }}
-          path: |
-            ${{ runner.temp }}/bottles/ethernity--*.bottle.tar.gz
-            ${{ runner.temp }}/bottles/ethernity--*.bottle.json
-          if-no-files-found: error
-
-  publish-bottles:
-    if: needs.update-tap.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.build_bottles)
-    needs: [update-tap, build-bottles]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Download bottle artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          path: ${{ runner.temp }}/bottles
-
-      - name: Rename bottles to single-dash convention
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r -d '' src; do
-            dst="$(dirname "${src}")/ethernity-${src##*ethernity--}"
-            mv "${src}" "${dst}"
-          done < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity--*.bottle.tar.gz' -print0)
-
-      - name: Checkout tap repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: ${{ needs.update-tap.outputs.tap_repo }}
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
-
-      - name: Create tap release if missing
-        shell: bash
-        env:
+          PYTHONPATH: workflow-tools
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          set -euo pipefail
-          tap_repo="${{ needs.update-tap.outputs.tap_repo }}"
-          bottle_release_tag="${{ needs.update-tap.outputs.bottle_release_tag }}"
-          if gh release view "${bottle_release_tag}" --repo "${tap_repo}" >/dev/null 2>&1; then
-            echo "Release ${bottle_release_tag} already exists in ${tap_repo}"
-          else
-            gh release create "${bottle_release_tag}" \
-              --repo "${tap_repo}" \
-              --title "Ethernity bottles ${{ needs.update-tap.outputs.tag }}" \
-              --target master \
-              --notes "Automated Homebrew bottle assets for ${{ needs.update-tap.outputs.tag }}."
-          fi
-
-      - name: Upload bottle assets to tap release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          set -euo pipefail
-          tap_repo="${{ needs.update-tap.outputs.tap_repo }}"
-          bottle_release_tag="${{ needs.update-tap.outputs.bottle_release_tag }}"
-          mapfile -t bottle_files < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity-*.bottle.tar.gz' | sort)
-          if [[ "${#bottle_files[@]}" -eq 0 ]]; then
-            echo "no bottle tarballs found" >&2
-            exit 1
-          fi
-          gh release upload "${bottle_release_tag}" "${bottle_files[@]}" --repo "${tap_repo}" --clobber
-
-      - name: Update bottle block in formula
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t bottle_files < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity-*.bottle.tar.gz' | sort)
-          if [[ "${#bottle_files[@]}" -eq 0 ]]; then
-            echo "no bottle tarballs found for formula update" >&2
-            exit 1
-          fi
-          bottle_args=()
-          for bottle_file in "${bottle_files[@]}"; do
-            bottle_args+=(--bottle-file "${bottle_file}")
-          done
-          mapfile -t json_files < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity--*.bottle.json' | sort)
-          for json_file in "${json_files[@]}"; do
-            bottle_args+=(--bottle-json "${json_file}")
-          done
-          python3 scripts/update_homebrew_bottle_block.py \
-            --formula "tap/Formula/ethernity.rb" \
-            --tap-repo "${{ needs.update-tap.outputs.tap_repo }}" \
-            --release-tag "${{ needs.update-tap.outputs.bottle_release_tag }}" \
-            "${bottle_args[@]}"
-
-      - name: Commit and push bottle block update
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git -C tap diff --quiet -- Formula/ethernity.rb; then
-            echo "No bottle block changes to commit."
-            exit 0
-          fi
-          git -C tap config user.name "github-actions[bot]"
-          git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C tap add Formula/ethernity.rb
-          git -C tap commit -m "ethernity ${{ needs.update-tap.outputs.tag }} bottles"
-          git -C tap push
+          TAP_REPO: ${{ needs.prepare.outputs.tap_repo }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_TAP_BASE: ${{ needs.prepare.outputs.expected_tap_base }}
+          PUBLICATION_DIR: ${{ runner.temp }}/homebrew-publication
+        run: python3 -m tooling.release.homebrew publish

@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 from ethernity.encoding.framing import Frame
 
-from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
-
 
 @dataclass(frozen=True)
 class FrameRecord:
@@ -59,7 +57,7 @@ class InspectionResult:
     combined_fallback_text: str
     document_text: str
     document_json_text: str | None
-    projection_diagnostics_text: str
+    trust_diagnostics_text: str
     frame_records: tuple[FrameRecord, ...]
     files: tuple[FileRecord, ...]
     recovered_secrets: tuple[RecoveredSecretRecord, ...]

@@ -32,12 +32,11 @@ export function reducer(state, action) {
       }
       return { ...state, ...action.patch, revision: state.revision + 1 };
     }
-    case "MUTATE_STATE": {
-      if (typeof action.mutate !== "function" || action.baseRevision !== state.revision) {
+    case "REPLACE_STATE": {
+      if (!action.state || action.baseRevision !== state.revision) {
         return state;
       }
-      const next = cloneState(state);
-      action.mutate(next);
+      const next = cloneState(action.state);
       next.revision = state.revision + 1;
       return next;
     }

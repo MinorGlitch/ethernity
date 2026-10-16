@@ -14,21 +14,21 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Canonical CBOR encoding and decoding helpers."""
+"""Encode and decode deterministic CBOR."""
 
 from __future__ import annotations
 
 import cbor2
 
 
-def dumps_canonical(value: object) -> bytes:
-    """Encode a value using canonical CBOR."""
+def dumps_deterministic(value: object) -> bytes:
+    """Encode a value using deterministic CBOR."""
 
     return cbor2.dumps(value, canonical=True)
 
 
-def loads_canonical(data: bytes, *, label: str) -> object:
-    """Decode CBOR and reject non-canonical encodings."""
+def loads_deterministic(data: bytes, *, label: str) -> object:
+    """Decode CBOR and reject encodings that are not deterministic."""
 
     try:
         decoded = cbor2.loads(data)
@@ -37,9 +37,9 @@ def loads_canonical(data: bytes, *, label: str) -> object:
     except RecursionError as exc:
         raise ValueError(f"{label} CBOR nesting is too deep") from exc
     try:
-        if dumps_canonical(decoded) != data:
+        if dumps_deterministic(decoded) != data:
             raise ValueError(
-                f"{label} must use canonical CBOR encoding "
+                f"{label} must use deterministic CBOR encoding "
                 "(indefinite-length items are not allowed)"
             )
     except cbor2.CBOREncodeError as exc:

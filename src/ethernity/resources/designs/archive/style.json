@@ -1,0 +1,739 @@
+{
+  "name": "archive",
+  "template": {
+    "styles": {
+      "document-title": {"family": "Helvetica", "size_pt": 15, "style": "B", "color": "#111418"},
+      "classification-label": {"family": "Courier", "size_pt": 6, "style": "B", "color": "#ffffff", "char_spacing_pt": 0.12},
+      "document-subtitle": {"family": "Courier", "size_pt": 6.8, "style": "B", "color": "#111418", "char_spacing_pt": 0.16},
+      "metadata-label": {"family": "Courier", "size_pt": 6, "style": "B", "color": "#6b7280", "char_spacing_pt": 0.1},
+      "metadata-value": {"family": "Courier", "size_pt": 6.4, "style": "B", "color": "#111418"},
+      "metadata-value-muted": {"family": "Courier", "size_pt": 6.4, "style": "B", "color": "#1763cf"},
+      "section-label": {"family": "Courier", "size_pt": 6.2, "style": "B", "color": "#111418", "char_spacing_pt": 0.1},
+      "instruction-body": {"family": "Helvetica", "size_pt": 7.8, "color": "#111418"},
+      "qr-label": {"family": "Courier", "size_pt": 6.2, "style": "B", "color": "#6b7280", "char_spacing_pt": 0.12},
+      "footer-caption": {"family": "Courier", "size_pt": 6.1, "color": "#9ca3af", "char_spacing_pt": 0.12},
+      "footer-page": {"family": "Courier", "size_pt": 6, "color": "#6b7280", "char_spacing_pt": 0.12},
+      "compact-label": {"family": "Courier", "size_pt": 6, "style": "B", "color": "#111418", "char_spacing_pt": 0.1},
+      "recovery-title": {"family": "Helvetica", "size_pt": 15.2, "style": "B", "color": "#111418"},
+      "recovery-subtitle": {"family": "Courier", "size_pt": 6.8, "style": "B", "color": "#111418", "char_spacing_pt": 0.18},
+      "recovery-label": {"family": "Courier", "size_pt": 6, "style": "B", "color": "#111418", "char_spacing_pt": 0.12},
+      "fallback-title": {"family": "Courier", "size_pt": 8.5, "style": "B", "color": "#111418", "char_spacing_pt": 0.08},
+      "fallback-body": {"family": "Courier", "size_pt": 7.5, "color": "#111418"},
+      "recovery-guidance": {"family": "Helvetica", "size_pt": 6, "color": "#4b5563"},
+      "sheet-classification": {"family": "Courier", "size_pt": 6, "style": "B", "color": "#ffffff", "char_spacing_pt": 0.1},
+      "confidential-label": {"family": "Courier", "size_pt": 6, "style": "B", "color": "#6b7280", "char_spacing_pt": 0.12},
+      "sheet-id": {"family": "Courier", "size_pt": 6.2, "style": "B", "color": "#111418"},
+      "passphrase-part": {"family": "Courier", "size_pt": 7.2, "style": "B", "color": "#1763cf"},
+      "passphrase-instructions": {"family": "Helvetica", "size_pt": 7.8, "color": "#4b5563"},
+      "guide-title": {"family": "Helvetica", "size_pt": 14, "style": "B", "color": "#111418", "char_spacing_pt": 0},
+      "guide-heading": {"family": "Helvetica", "size_pt": 9.5, "style": "B", "color": "#111418", "char_spacing_pt": 0},
+      "guide-body": {"family": "Helvetica", "size_pt": 10.5, "color": "#111418", "char_spacing_pt": 0},
+      "kit-original-kit-title": {"family": "Times", "size_pt": 20, "style": "B", "color": "#111418"},
+      "kit-original-kit-introduction": {"family": "Helvetica", "size_pt": 10.6, "color": "#111418"},
+      "kit-original-kit-icon": {"family": "Material Symbols Outlined", "size_pt": 14, "color": "#111418"},
+      "kit-original-kit-section-label": {"family": "Helvetica", "size_pt": 7.6, "style": "B", "color": "#111418", "char_spacing_pt": 0.16},
+      "kit-original-kit-step-body": {"family": "Helvetica", "size_pt": 10, "color": "#111418"},
+      "kit-original-callout-title": {"family": "Helvetica", "size_pt": 7.4, "style": "B", "color": "#111418", "char_spacing_pt": 0.16},
+      "kit-original-callout-body": {"family": "Helvetica", "size_pt": 9.3, "color": "#111418"},
+      "kit-original-checklist-icon": {"family": "Material Symbols Outlined", "size_pt": 15, "color": "#111418"},
+      "kit-original-checklist-title": {"family": "Helvetica", "size_pt": 7.3, "style": "B", "color": "#111418", "char_spacing_pt": 0.14},
+      "kit-original-checkbox": {"family": "Material Symbols Outlined", "size_pt": 14.5, "color": "#111418"},
+      "kit-original-checklist-body": {"family": "Helvetica", "size_pt": 9.4, "color": "#111418"},
+      "kit-original-kit-footer-kind": {"family": "Helvetica", "size_pt": 7.4, "color": "#111418", "char_spacing_pt": 0.16},
+      "kit-original-kit-footer-page": {"family": "Courier", "size_pt": 6.5, "color": "#6b7280", "char_spacing_pt": 0.1},
+      "kit-original-kit-footer-id": {"family": "Courier", "size_pt": 6.5, "color": "#111418", "char_spacing_pt": 0.1}
+    },
+    "documents": {
+      "main": {
+        "first": {
+          "elements": [
+            {"key": "header", "kind": "group", "box": [0, 0, 0, 0], "ref": "main-introduction"},
+            {"key": "codes", "kind": "group", "box": [0, 43, 0, 0], "ref": "qr-grid"},
+            {"key": "footer", "kind": "group", "box": [0, 0, 0, 0], "ref": "footer"}
+          ],
+          "qr_capacity": 12,
+          "grid": {
+            "box": [14, 43, 182, 234],
+            "columns": 3,
+            "rows": 4,
+            "card_size": [58.4, 57],
+            "gap": [3.4, 2]
+          }
+        },
+        "continuation": {
+          "elements": [
+            {"key": "header", "kind": "group", "box": [0, 0, 0, 0], "ref": "continuation-header"},
+            {"key": "codes", "kind": "group", "box": [0, 38, 0, 0], "ref": "qr-grid"},
+            {"key": "footer", "kind": "group", "box": [0, 0, 0, 0], "ref": "footer"}
+          ],
+          "qr_capacity": 12,
+          "grid": {
+            "box": [14, 38, 182, 234],
+            "columns": 3,
+            "rows": 4,
+            "card_size": [58.4, 57],
+            "gap": [3.4, 2]
+          }
+        }
+      },
+      "kit": {
+        "first": {
+          "elements": [
+            {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "kit-shell"},
+            {"key": "divider", "kind": "rule", "box": [14, 24.5, 182, 0.35], "fill": "#0f172a"},
+            {"key": "codes", "kind": "group", "box": [0, 28.5, 0, 0], "ref": "qr-grid"}
+          ],
+          "qr_capacity": 12,
+          "grid": {
+            "box": [14, 28.5, 182, 234],
+            "columns": 3,
+            "rows": 4,
+            "card_size": [58.4, 57],
+            "gap": [3.4, 2]
+          }
+        },
+        "trailing": [
+          {
+            "elements": [
+              {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "kit-instructions"}
+            ]
+          }
+        ]
+      },
+      "recovery": {
+        "first": {
+          "elements": [
+            {"key": "header", "kind": "group", "box": [0, 0, 0, 0], "ref": "recovery-header"},
+            {"key": "instructions", "kind": "group", "box": [0, 0, 0, 0], "ref": "recovery-instructions"}
+          ]
+        },
+        "recovery": {
+          "section_gap_rows": 1,
+          "first": {
+            "box": [14, 69.4, 182, 208.0],
+            "row_height": 4.5,
+            "body_style": "fallback-body",
+            "number_style": "fallback-body",
+            "left": 3,
+            "right": 3,
+            "inline_number": true,
+            "section": [
+              {"key": "card", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-card"}
+            ],
+            "title": [
+              {"key": "title", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-title"}
+            ],
+            "row": [
+              {"key": "row", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-row"}
+            ]
+          },
+          "continuation": {
+            "box": [14, 38, 182, 239.4],
+            "row_height": 4.5,
+            "body_style": "fallback-body",
+            "number_style": "fallback-body",
+            "left": 3,
+            "right": 3,
+            "inline_number": true,
+            "section": [
+              {"key": "card", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-card"}
+            ],
+            "title": [
+              {"key": "title", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-title"}
+            ],
+            "row": [
+              {"key": "row", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-row"}
+            ]
+          },
+          "passphrase": {
+            "page": {
+              "elements": [
+                {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "passphrase-continuation"}
+              ]
+            },
+            "style": "metadata-value",
+            "guidance_style": "recovery-guidance",
+            "width": 63,
+            "height": 29.2608,
+            "continuation_box": [60, 70, 90, 206],
+            "line_height": 1.08,
+            "single_line": true
+          },
+          "metadata": {
+            "flow": "columns",
+            "box": [14, 26, 182, 0],
+            "reference_bottom": 48.4072,
+            "fields": [
+              {"name": "doc_id", "label": "{document_id_label}", "x": 14, "width": 22, "y": 26, "label_style": "recovery-label", "value_style": "metadata-value", "minimum_height": 10, "label_height": 2.6, "label_gap": 0.1, "bottom_padding": 0.2, "line_height": 1.08, "uppercase": true},
+              {"name": "created_timestamp", "label": "Created (UTC)", "x": 38, "width": 28, "y": 26, "label_style": "recovery-label", "value_style": "metadata-value", "minimum_height": 10, "label_height": 2.6, "label_gap": 0.1, "bottom_padding": 0.2, "line_height": 1.08, "uppercase": true},
+              {"name": "quorum", "label": "Shard Quorum", "x": 68, "width": 63, "y": 26, "label_style": "recovery-label", "value_style": "metadata-value", "minimum_height": 10, "label_height": 2.6, "label_gap": 0.1, "bottom_padding": 0.2, "line_height": 1.08, "uppercase": true},
+              {"name": "signing_public_key", "label": "Signing Key", "x": 133, "width": 63, "y": 26, "label_style": "recovery-label", "value_style": "metadata-value", "minimum_height": 10, "label_height": 2.6, "label_gap": 0.1, "bottom_padding": 0.2, "line_height": 1.08, "uppercase": true},
+              {"name": "passphrase", "label": "Passphrase", "x": 68, "width": 63, "y": 26, "label_style": "recovery-label", "value_style": "metadata-value", "minimum_height": 10, "label_height": 2.6, "label_gap": 0.1, "bottom_padding": 0.2, "line_height": 1.08, "uppercase": true}
+            ],
+            "label_style": "recovery-guidance",
+            "value_style": "metadata-value",
+            "guidance_style": "recovery-guidance",
+            "shift_start": 50.4,
+            "shift_end": 69.4,
+            "minimum_bottom": 36,
+            "repeat_on_continuation": false
+          }
+        },
+        "continuation": {
+          "elements": [
+            {"key": "header", "kind": "group", "box": [0, 0, 0, 0], "ref": "recovery-header"},
+            {"key": "id", "kind": "text", "box": [14, 28, 50, 4], "text": "{document_id_label_upper}: {doc_id}", "style": "sheet-id"},
+            {"key": "created", "kind": "text", "box": [68, 28, 76, 4], "text": "{created_timestamp}", "style": "sheet-id"},
+            {"key": "divider", "kind": "rule", "box": [14, 35, 182, 0.35], "fill": "#0f172a"}
+          ]
+        }
+      },
+      "shard": {
+        "first": {
+          "elements": [
+            {"key": "artwork-0", "kind": "group", "box": [0, 0, 0, 0], "ref": "sheet-introduction"},
+            {"key": "qr-0", "kind": "group", "box": [75, 73.25, 0, 0], "ref": "sheet-qr", "qr_slot": 0},
+            {"key": "footer", "kind": "group", "box": [0, 0, 0, 0], "ref": "footer"}
+          ],
+          "qr_capacity": 1
+        },
+        "sheet": {
+          "box": [14, 152.5, 182, 124],
+          "qr_area_top": 54,
+          "top": 1,
+          "bottom": 1,
+          "payload_inset": 6,
+          "numbering": "inline",
+          "body_style": "fallback-body",
+          "profiles": [
+            {"row_height": 4.25, "font_size": 8.5, "title_size": 8.5},
+            {"columns": 2, "row_height": 2.9, "font_size": 6.5, "title_size": 6.5}
+          ],
+          "decoration": [
+            {"key": "fallback", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-card"}
+          ],
+          "title": [
+            {"key": "title", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-title"}
+          ],
+          "row": [
+            {"key": "row", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-row"}
+          ]
+        }
+      },
+      "signing_key_shard": {"use": "shard"}
+    },
+    "components": {
+      "instruction-card": [
+        {"key": "background", "kind": "panel", "box": [0, 0, 128, 12.5], "stroke": "#d1d5db", "fill": "#f9fafb", "line_width": 0.22, "stretch_x": true},
+        {"key": "accent", "kind": "rule", "box": [0, 0, 1, 12.5], "fill": "#1763cf"},
+        {"key": "instructions", "kind": "text", "box": [3, 1, 122, 11], "text": "{instructions_text}", "style": "instruction-body", "fit": "wrap", "line_height": 1.1, "scale_height": true, "font_size": 8.5}
+      ],
+      "kit-heading": [
+        {"key": "title", "kind": "text", "box": [0, 0, 0, 7.5], "text": "{copy_title_upper}", "style": "document-title", "font_size": 13, "fit": "shrink", "min_size": 10, "stretch_x": true}
+      ],
+      "qr-grid": [
+        {"key": "qr-0", "kind": "group", "box": [14.0, 0, 0, 0], "ref": "qr-card", "qr_slot": 0},
+        {"key": "qr-1", "kind": "group", "box": [75.8, 0, 0, 0], "ref": "qr-card", "qr_slot": 1},
+        {"key": "qr-2", "kind": "group", "box": [137.6, 0, 0, 0], "ref": "qr-card", "qr_slot": 2},
+        {"key": "qr-3", "kind": "group", "box": [14.0, 59, 0, 0], "ref": "qr-card", "qr_slot": 3},
+        {"key": "qr-4", "kind": "group", "box": [75.8, 59, 0, 0], "ref": "qr-card", "qr_slot": 4},
+        {"key": "qr-5", "kind": "group", "box": [137.6, 59, 0, 0], "ref": "qr-card", "qr_slot": 5},
+        {"key": "qr-6", "kind": "group", "box": [14.0, 118, 0, 0], "ref": "qr-card", "qr_slot": 6},
+        {"key": "qr-7", "kind": "group", "box": [75.8, 118, 0, 0], "ref": "qr-card", "qr_slot": 7},
+        {"key": "qr-8", "kind": "group", "box": [137.6, 118, 0, 0], "ref": "qr-card", "qr_slot": 8},
+        {"key": "qr-9", "kind": "group", "box": [14.0, 177, 0, 0], "ref": "qr-card", "qr_slot": 9},
+        {"key": "qr-10", "kind": "group", "box": [75.8, 177, 0, 0], "ref": "qr-card", "qr_slot": 10},
+        {"key": "qr-11", "kind": "group", "box": [137.6, 177, 0, 0], "ref": "qr-card", "qr_slot": 11}
+      ],
+      "qr-card": [
+        {"key": "qr-card", "kind": "panel", "box": [0, 0, 58.4, 57], "stroke": "#d1d5db", "fill": "#ffffff", "line_width": 0.25},
+        {"key": "qr-image", "kind": "image", "box": [2.7, 3.5, 53, 53]},
+        {"key": "qr-label", "kind": "text", "box": [2, 0.5, 54.4, 2.8], "text": "{copy_segment_prefix_upper} {segment_number:02d}", "style": "qr-label", "align": "right"}
+      ],
+      "sheet-qr": [
+        {"key": "frame", "kind": "panel", "box": [-3, -3, 66, 66], "stroke": "#111418", "fill": "#ffffff", "line_width": 0.35},
+        {"key": "corner-left-top-x", "kind": "rule", "box": [-3, -3, 4.2, 0.35], "fill": "#111418"},
+        {"key": "corner-left-top-y", "kind": "rule", "box": [-3, -3, 0.35, 4.2], "fill": "#111418"},
+        {"key": "corner-right-top-x", "kind": "rule", "box": [58.8, -3, 4.2, 0.35], "fill": "#111418"},
+        {"key": "corner-right-top-y", "kind": "rule", "box": [62.65, -3, 0.35, 4.2], "fill": "#111418"},
+        {"key": "qr-image", "kind": "image", "box": [0, 0, 60, 60]}
+      ],
+      "main-introduction": [
+        {"key": "main-header", "kind": "group", "ref": "main-header", "box": [0, 0, 0, 0]},
+        {"key": "instructions-panel", "kind": "panel", "box": [14, 28.5, 182, 13], "stroke": "#d1d5db", "fill": "#f9fafb", "line_width": 0.22},
+        {"key": "instructions-accent", "kind": "rule", "box": [14, 28.5, 1, 13], "fill": "#1763cf"},
+        {"key": "label", "kind": "group", "box": [14, 28.5, 0, 0], "ref": "instruction-label"},
+        {"key": "instructions", "kind": "text", "box": [45, 30.5, 148, 10.5], "text": "{copy_scan_instructions}", "style": "instruction-body", "fit": "wrap", "line_height": 1, "scale_height": true},
+        {"key": "qr-rule", "kind": "rule", "box": [14, 42, 182, 0.5], "fill": "#0f172a"}
+      ],
+      "footer": [
+        {"key": "content", "kind": "group", "box": [14, 280.3, 182, 0], "ref": "footer-content"}
+      ],
+      "footer-content": [
+        {"key": "footer-rule", "kind": "rule", "box": [0, 0, 0, 0.25], "fill": "#0f172a", "stretch_x": true},
+        {"key": "footer-dot", "kind": "ellipse", "box": [0, 2.4, 1.8, 1.8], "fill": "#1763cf", "line_width": 0.18},
+        {"key": "footer-left", "kind": "text", "box": [3.2, 2.2, 70, 3.5], "text": "{generator_upper}", "style": "footer-caption", "fit": "shrink"},
+        {"key": "footer-page", "kind": "text", "box": [0, 2.2, 0, 3.5], "text": "PAGE {page_number} / {page_count}", "style": "footer-page", "align": "right", "fit": "shrink", "stretch_x": true}
+      ],
+      "continuation-header": [
+        {"key": "main-header", "kind": "group", "ref": "main-header", "box": [0, 0, 0, 0]},
+        {"key": "qr-rule", "kind": "rule", "box": [14, 34, 182, 0.5], "fill": "#0f172a"}
+      ],
+      "kit-shell": [
+        {"key": "paper", "kind": "group", "box": [0, 0, 0, 0], "ref": "paper"},
+        {"key": "heading", "kind": "group", "box": [14, 14, 182, 0], "ref": "kit-heading"},
+        {"key": "footer", "kind": "group", "box": [0, 0, 0, 0], "ref": "footer"}
+      ],
+      "passphrase-continuation": [
+        {"key": "page-border", "kind": "group", "box": [0, 0, 0, 0], "ref": "paper"},
+        {"key": "passphrase-continuation-title", "kind": "text", "box": [14, 16, 112, 7], "text": "RECOVERY PASSPHRASE", "style": "recovery-title", "fit": "shrink", "min_size": 12},
+        {"key": "passphrase-continuation-title-rule", "kind": "rule", "box": [14, 26, 90, 0.25], "fill": "#d1d5db"},
+        {"key": "passphrase-continuation-doc-id", "kind": "text", "box": [124, 17, 72, 4], "text": "{document_id_label_upper}: {doc_id}", "style": "sheet-id", "align": "right", "fit": "shrink"},
+        {"key": "passphrase-continuation-part", "kind": "text", "box": [14, 36, 182, 4.5], "text": "METADATA CONTINUATION {continuation_index} / {continuation_count}", "style": "passphrase-part"},
+        {"key": "passphrase-continuation-instructions", "kind": "text", "box": [14, 43, 182, 16], "text": "{continuation_instructions}", "style": "passphrase-instructions", "fit": "wrap"},
+        {"key": "passphrase-continuation-panel", "kind": "panel", "box": [57, 67, 96, 210.3], "stroke": "#d1d5db", "fill": "#f9fafb", "line_width": 0.25},
+        {"key": "passphrase-continuation-value", "kind": "text", "box": [60, 69, 90, 206.3], "text": "{continuation_text}", "style": "metadata-value", "line_height": 1.08, "metadata": "recovery_passphrase"},
+        {"key": "footer", "kind": "group", "ref": "footer", "box": [0, 0, 0, 0]}
+      ],
+      "sheet-introduction": [
+        {"key": "sheet-header", "kind": "group", "ref": "sheet-header", "box": [0, 0, 0, 0]},
+        {"key": "doc-id-label", "kind": "text", "box": [15.4, 26.8, 48, 2.6], "text": "{copy_document_id_label_upper}", "style": "compact-label"},
+        {"key": "sheet-details", "kind": "group", "ref": "sheet-details", "box": [0, 0, 0, 0]}
+      ],
+      "main-header": [
+        {"key": "page-border", "kind": "group", "box": [0, 0, 0, 0], "ref": "paper"},
+        {"key": "title", "kind": "text", "box": [14, 14, 118, 7.5], "text": "{copy_title_upper}", "style": "document-title", "fit": "shrink", "min_size": 12},
+        {"key": "mode-chip", "kind": "panel", "box": [14, 23, 9.7, 4.2], "fill": "#111418"},
+        {"key": "mode-chip-text", "kind": "text", "box": [14.6, 24.1, 8.5, 2.6], "text": "MODE", "style": "classification-label", "align": "center"},
+        {"key": "subtitle", "kind": "text", "box": [25, 23.4, 102, 4], "text": "{copy_subtitle_upper}", "style": "document-subtitle", "fit": "shrink"},
+        {"key": "meta-rule-0", "kind": "rule", "box": [147.8, 18.1, 48.2, 0.2], "fill": "#d1d5db"},
+        {"key": "meta-label-0", "kind": "text", "box": [147.8, 14.5, 18, 3], "text": "PAGE", "style": "metadata-label"},
+        {"key": "meta-value-0", "kind": "text", "box": [166, 14.5, 30, 3], "text": "Page {page_number} / {page_count}", "style": "metadata-value", "align": "right", "fit": "shrink"},
+        {"key": "meta-rule-1", "kind": "rule", "box": [147.8, 22.8, 48.2, 0.2], "fill": "#d1d5db"},
+        {"key": "meta-label-1", "kind": "text", "box": [147.8, 19.2, 18, 3], "text": "{short_id_label}", "style": "metadata-label"},
+        {"key": "meta-value-1", "kind": "text", "box": [166, 19.2, 30, 3], "text": "{doc_id}", "style": "metadata-value-muted", "align": "right", "fit": "shrink"},
+        {"key": "meta-rule-2", "kind": "rule", "box": [147.8, 27.5, 48.2, 0.2], "fill": "#d1d5db"},
+        {"key": "meta-label-2", "kind": "text", "box": [147.8, 23.9, 18, 3], "text": "CREATED (UTC)", "style": "metadata-label"},
+        {"key": "meta-value-2", "kind": "text", "box": [166, 23.9, 30, 3], "text": "{created_timestamp}", "style": "metadata-value", "align": "right", "fit": "shrink"}
+      ],
+      "sheet-details": [
+        {"key": "doc-id", "kind": "text", "box": [15.4, 30, 58, 3], "text": "{doc_id}", "style": "sheet-id", "fit": "shrink"},
+        {"key": "created-label", "kind": "text", "box": [61, 26.8, 48, 2.6], "text": "CREATED (UTC)", "style": "compact-label"},
+        {"key": "created", "kind": "text", "box": [61, 30, 58, 3], "text": "{created_timestamp}", "style": "sheet-id", "fit": "shrink"},
+        {"key": "header-rule", "kind": "rule", "box": [14, 38, 182, 0.55], "fill": "#0f172a"},
+        {"key": "instructions", "kind": "group", "box": [14, 39, 0, 0], "ref": "handling-card"}
+      ],
+      "sheet-header": [
+        {"key": "page-border", "kind": "group", "box": [0, 0, 0, 0], "ref": "paper"},
+        {"key": "title", "kind": "text", "box": [14, 14, 126, 7], "text": "{copy_title_upper}", "style": "document-title", "fit": "shrink", "min_size": 11},
+        {"key": "badge", "kind": "panel", "box": [174, 14.3, 22, 4.8], "fill": "#111418"},
+        {"key": "badge-text", "kind": "text", "box": [175, 15.5, 20, 2.7], "text": "SHARD {shard_index} / {shard_total}", "style": "sheet-classification", "align": "center", "fit": "shrink"},
+        {"key": "confidential", "kind": "text", "box": [168, 21, 28, 3], "text": "CONFIDENTIAL", "style": "confidential-label", "align": "right"},
+        {"key": "meta-panel", "kind": "panel", "box": [14, 25, 182, 11], "stroke": "#d1d5db", "fill": "#f9fafb"}
+      ],
+      "handling-instructions": [
+        {"key": "instruction-line-0", "kind": "text", "box": [0, 0, 148, 4], "text": "{instruction_0}", "style": "instruction-body", "fit": "wrap", "line_height": 1.22},
+        {"key": "instruction-line-1", "kind": "text", "box": [0, 4.3, 148, 4], "text": "{instruction_1}", "style": "instruction-body", "fit": "wrap", "line_height": 1.22},
+        {"key": "instruction-line-2", "kind": "text", "box": [0, 8.6, 148, 4], "text": "{instruction_2}", "style": "instruction-body", "fit": "wrap", "line_height": 1.22}
+      ],
+      "recovery-header": [
+        {"key": "page-border", "kind": "group", "box": [0, 0, 0, 0], "ref": "paper"},
+        {"key": "title", "kind": "text", "box": [14, 16, 112, 7], "text": "{copy_title_upper}", "style": "recovery-title", "fit": "shrink", "min_size": 12},
+        {"key": "title-rule", "kind": "rule", "box": [14, 24.2, 90, 0.25], "fill": "#d1d5db"},
+        {"key": "badge", "kind": "panel", "box": [174, 14.3, 22, 4], "fill": "#1763cf"},
+        {"key": "badge-text", "kind": "text", "box": [175, 15.2, 20, 2.6], "text": "CONFIDENTIAL", "style": "classification-label", "align": "center", "fit": "shrink"},
+        {"key": "subtitle", "kind": "text", "box": [145, 20.4, 51, 4], "text": "{copy_subtitle_upper}", "style": "recovery-subtitle", "align": "right", "fit": "shrink", "visible": "not_extension"},
+        {"key": "footer", "kind": "group", "ref": "footer", "box": [0, 0, 0, 0]},
+        {"key": "update-identity", "kind": "text", "box": [97, 21.5, 99, 4], "text": "{copy_subtitle_upper}", "style": "recovery-subtitle", "align": "right", "fit": "shrink", "visible": "extension"}
+      ],
+      "recovery-instructions": [
+        {"key": "card", "kind": "group", "box": [14, 50.4, 0, 0], "ref": "handling-card"},
+        {"key": "divider", "kind": "rule", "box": [14, 67.4, 182, 0.35], "fill": "#0f172a"}
+      ],
+      "fallback-card": [
+        {"key": "panel", "kind": "panel", "box": [0, 0, 0, 0], "stroke": "#d1d5db", "fill": "#f9fafb", "line_width": 0.22, "stretch_x": true, "stretch_y": true}
+      ],
+      "instruction-label": [
+        {"key": "label", "kind": "text", "box": [2.8, 2.0, 25, 4], "text": "{instructions_label_upper}", "style": "section-label", "fit": "shrink"}
+      ],
+      "handling-card": [
+        {"key": "panel", "kind": "panel", "box": [0, 0.0, 182, 15], "stroke": "#d1d5db", "fill": "#f9fafb", "line_width": 0.22},
+        {"key": "accent", "kind": "rule", "box": [0, 0.0, 1, 15], "fill": "#1763cf"},
+        {"key": "label", "kind": "group", "box": [0, 0, 0, 0], "ref": "instruction-label"},
+        {"key": "text", "kind": "group", "box": [31, 2.0, 0, 0], "ref": "handling-instructions"}
+      ],
+      "paper": [
+        {"key": "page-border", "kind": "panel", "box": [0, 0, 210, 297], "stroke": "#e5e7eb", "fill": "#ffffff", "line_width": 0.26}
+      ],
+      "fallback-title": [
+        {"key": "title", "kind": "text", "box": [3, 0.5, 176, 4.1], "text": "{title}", "style": "fallback-title", "line_height": 1, "scale_height": true, "stretch_x": true}
+      ],
+      "fallback-row": [
+        {"key": "line", "kind": "text", "box": [3, 0.5, 176, 3.8], "text": "{number:02d}. {payload}", "style": "fallback-body", "line_height": 1, "max_lines": 1, "scale_height": true, "stretch_x": true}
+      ],
+      "kit-guide-card": [
+        {"key": "panel", "kind": "panel", "box": [0, 0, 0, 0], "fill": "#f9fafb", "stroke": "#d1d5db", "line_width": 0.3, "stretch_x": true, "stretch_y": true},
+        {"key": "rail", "kind": "rule", "box": [0, 0, 1, 0], "fill": "#1763cf", "stretch_y": true}
+      ],
+      "kit-instructions": [
+        {"key": "page-border", "kind": "group", "box": [0, 0, 0, 0], "ref": "paper"},
+        {"key": "instruction-shell", "kind": "panel", "box": [14, 14, 182, 269], "stroke": "#e2e8f0", "fill": "#f9fafb", "line_width": 0.45},
+        {"key": "instruction-title", "kind": "text", "box": [21, 22, 166, 10], "text": "HOW TO REBUILD THE RECOVERY KIT", "style": "kit-original-kit-title", "fit": "shrink", "min_size": 16},
+        {"key": "instruction-subtitle", "kind": "text", "box": [21, 34.7, 160, 5.5], "text": "{copy_guide_intro}", "style": "kit-original-kit-introduction", "fit": "shrink", "min_size": 8.2},
+        {"key": "instruction-rule", "kind": "rule", "box": [21, 41.8, 168, 0.35], "fill": "#cbd5e1"},
+        {"key": "instruction-badge-1", "kind": "panel", "box": [21, 47.5, 46.25, 8.6], "stroke": "#111418", "line_width": 0.25},
+        {"key": "instruction-badge-icon-1", "kind": "text", "box": [23.4, 48.9, 6, 6], "text": "\ue9f4", "style": "kit-original-kit-icon", "line_height": 1},
+        {"key": "instruction-badge-text-1", "kind": "text", "box": [31.8, 50.1, 33.25, 3.4], "text": "SCAN + ASSEMBLE", "style": "kit-original-kit-section-label", "fit": "shrink", "min_size": 6.2},
+        {"key": "instruction-bullet-1-0", "kind": "text", "box": [21, 61.5, 6, 6], "text": "\ue39e", "style": "kit-original-kit-icon", "line_height": 1},
+        {"key": "instruction-line-1-0", "kind": "text", "box": [29.5, 61.3, 73, 12], "text": "{copy_guide_scan_steps_0}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-bullet-1-1", "kind": "text", "box": [21, 71.9961111111, 6, 6], "text": "\ue39e", "style": "kit-original-kit-icon", "line_height": 1},
+        {"key": "instruction-line-1-1", "kind": "text", "box": [29.5, 71.7961111111, 73, 12], "text": "{copy_guide_scan_steps_1}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-bullet-1-2", "kind": "text", "box": [21, 82.4922222222, 6, 6], "text": "\ue39e", "style": "kit-original-kit-icon", "line_height": 1},
+        {"key": "instruction-line-1-2", "kind": "text", "box": [29.5, 82.2922222222, 73, 12], "text": "{copy_guide_scan_steps_2}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-bullet-1-3", "kind": "text", "box": [21, 92.9883333333, 6, 6], "text": "\ue39e", "style": "kit-original-kit-icon", "line_height": 1},
+        {"key": "instruction-line-1-3", "kind": "text", "box": [29.5, 92.7883333333, 73, 12], "text": "{copy_guide_scan_steps_3}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-badge-2", "kind": "panel", "box": [21, 107, 41.6, 8.6], "stroke": "#111418", "line_width": 0.25},
+        {"key": "instruction-badge-icon-2", "kind": "text", "box": [23.4, 108.4, 6, 6], "text": "\ue894", "style": "kit-original-kit-icon", "line_height": 1},
+        {"key": "instruction-badge-text-2", "kind": "text", "box": [31.8, 109.6, 28.6, 3.4], "text": "OPEN THE KIT", "style": "kit-original-kit-section-label", "fit": "shrink", "min_size": 6.2},
+        {"key": "instruction-bullet-2-0", "kind": "text", "box": [21, 121, 6, 6], "text": "\ue39e", "style": "kit-original-kit-icon", "line_height": 1},
+        {"key": "instruction-line-2-0", "kind": "text", "box": [29.5, 120.8, 73, 12], "text": "{copy_guide_open_steps_0}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-bullet-2-1", "kind": "text", "box": [21, 131.4961111111, 6, 6], "text": "\ue39e", "style": "kit-original-kit-icon", "line_height": 1},
+        {"key": "instruction-line-2-1", "kind": "text", "box": [29.5, 131.2961111111, 73, 12], "text": "{copy_guide_open_steps_1}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-bullet-2-2", "kind": "text", "box": [21, 140.3961111111, 6, 6], "text": "\ue39e", "style": "kit-original-kit-icon", "line_height": 1},
+        {"key": "instruction-line-2-2", "kind": "text", "box": [29.5, 140.1961111111, 73, 12], "text": "{copy_guide_open_steps_2}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-badge-3", "kind": "panel", "box": [21, 157, 46.25, 8.6], "stroke": "#111418", "line_width": 0.25},
+        {"key": "instruction-badge-icon-3", "kind": "text", "box": [23.4, 158.4, 6, 6], "text": "\ue869", "style": "kit-original-kit-icon", "line_height": 1},
+        {"key": "instruction-badge-text-3", "kind": "text", "box": [31.8, 159.6, 33.25, 3.4], "text": "TROUBLESHOOTING", "style": "kit-original-kit-section-label", "fit": "shrink", "min_size": 6.2},
+        {"key": "instruction-disc-3-0", "kind": "ellipse", "box": [22, 174.1, 0.9, 0.9], "fill": "#111418", "line_width": 0.18},
+        {"key": "instruction-line-3-0", "kind": "text", "box": [29.5, 170.8, 73, 12], "text": "{copy_guide_help_steps_0}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-disc-3-1", "kind": "ellipse", "box": [22, 184.5961111111, 0.9, 0.9], "fill": "#111418", "line_width": 0.18},
+        {"key": "instruction-line-3-1", "kind": "text", "box": [29.5, 181.2961111111, 73, 12], "text": "{copy_guide_help_steps_1}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "instruction-disc-3-2", "kind": "ellipse", "box": [22, 193.4961111111, 0.9, 0.9], "fill": "#111418", "line_width": 0.18},
+        {"key": "instruction-line-3-2", "kind": "text", "box": [29.5, 190.1961111111, 73, 12], "text": "{copy_guide_help_steps_2}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "info-card-0", "kind": "panel", "box": [107.5, 47.5, 81.5, 34], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.22},
+        {"key": "info-title-0", "kind": "text", "box": [110.8, 51.5, 74.9, 3.8], "text": "VERIFY", "style": "kit-original-callout-title"},
+        {"key": "info-body-0-0", "kind": "text", "box": [110.8, 59.5, 74.9, 12], "text": "{copy_guide_verify_0}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "info-body-0-1", "kind": "text", "box": [110.8, 69.6961111111, 74.9, 12], "text": "{copy_guide_verify_1}", "style": "kit-original-callout-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "info-card-1", "kind": "panel", "box": [107.5, 85, 81.5, 34], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.22},
+        {"key": "info-title-1", "kind": "text", "box": [110.8, 89, 74.9, 3.8], "text": "STORAGE", "style": "kit-original-callout-title"},
+        {"key": "info-body-1-0", "kind": "text", "box": [110.8, 97, 74.9, 12], "text": "{copy_guide_storage_0}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "info-body-1-1", "kind": "text", "box": [110.8, 107.1961111111, 74.9, 12], "text": "{copy_guide_storage_1}", "style": "kit-original-callout-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "info-card-2", "kind": "panel", "box": [107.5, 123, 81.5, 32], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.22},
+        {"key": "info-title-2", "kind": "text", "box": [110.8, 127, 74.9, 3.8], "text": "SECURITY", "style": "kit-original-callout-title"},
+        {"key": "info-body-2-0", "kind": "text", "box": [110.8, 135, 74.9, 12], "text": "{copy_guide_security_0}", "style": "kit-original-kit-step-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "info-body-2-1", "kind": "text", "box": [110.8, 143.4, 74.9, 12], "text": "{copy_guide_security_1}", "style": "kit-original-callout-body", "fit": "wrap", "line_height": 1.16},
+        {"key": "checklist-card", "kind": "panel", "box": [107.5, 159, 81.5, 76], "stroke": "#cbd5e1", "fill": "#ffffff", "line_width": 0.22},
+        {"key": "checklist-icon", "kind": "text", "box": [110.7, 163, 6, 6], "text": "\ue8e8", "style": "kit-original-checklist-icon", "line_height": 1},
+        {"key": "checklist-title", "kind": "text", "box": [118, 164, 67.5, 4], "text": "BEFORE YOU PUT THIS AWAY", "style": "kit-original-checklist-title", "fit": "shrink"},
+        {"key": "checklist-box-0", "kind": "text", "box": [111.3, 174, 6, 6], "text": "\ue835", "style": "kit-original-checkbox", "line_height": 1},
+        {"key": "checklist-line-0", "kind": "text", "box": [119.5, 174, 65.5, 9.5923444444], "text": "{copy_guide_checklist_0}", "style": "kit-original-checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "checklist-box-1", "kind": "text", "box": [111.3, 183.5923444444, 6, 6], "text": "\ue835", "style": "kit-original-checkbox", "line_height": 1},
+        {"key": "checklist-line-1", "kind": "text", "box": [119.5, 183.5923444444, 65.5, 13], "text": "{copy_guide_checklist_1}", "style": "kit-original-checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "checklist-box-2", "kind": "text", "box": [111.3, 197.1308611111, 6, 6], "text": "\ue835", "style": "kit-original-checkbox", "line_height": 1},
+        {"key": "checklist-line-2", "kind": "text", "box": [119.5, 197.1308611111, 65.5, 8], "text": "{copy_guide_checklist_2}", "style": "kit-original-checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "checklist-box-3", "kind": "text", "box": [111.3, 205.1308611111, 6, 6], "text": "\ue835", "style": "kit-original-checkbox", "line_height": 1},
+        {"key": "checklist-line-3", "kind": "text", "box": [119.5, 205.1308611111, 65.5, 9.5923444444], "text": "{copy_guide_checklist_3}", "style": "kit-original-checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "checklist-box-4", "kind": "text", "box": [111.3, 214.7232055556, 6, 6], "text": "\ue835", "style": "kit-original-checkbox", "line_height": 1},
+        {"key": "checklist-line-4", "kind": "text", "box": [119.5, 214.7232055556, 65.5, 8], "text": "{copy_guide_checklist_4}", "style": "kit-original-checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "checklist-box-5", "kind": "text", "box": [111.3, 222.7232055556, 6, 6], "text": "\ue835", "style": "kit-original-checkbox", "line_height": 1},
+        {"key": "checklist-line-5", "kind": "text", "box": [119.5, 222.7232055556, 65.5, 13], "text": "{copy_guide_checklist_5}", "style": "kit-original-checklist-body", "fit": "shrink", "line_height": 1.08, "scale_height": true},
+        {"key": "instruction-footer-rule", "kind": "rule", "box": [21, 267, 168, 0.25], "fill": "#cbd5e1"},
+        {"key": "instruction-footer-kind", "kind": "text", "box": [21, 272, 63, 4], "text": "RECOVERY KIT: OFFLINE HTML BUNDLE", "style": "kit-original-kit-footer-kind", "fit": "shrink"},
+        {"key": "instruction-footer-page", "kind": "text", "box": [88, 272, 34, 4], "text": "PAGE {page_number} / {page_count}", "style": "kit-original-kit-footer-page", "align": "center", "fit": "shrink"}
+      ]
+    }
+  },
+  "compact_layout": {
+    "source": "compact.json",
+    "below_width_mm": 200,
+    "below_height_mm": 279.4,
+    "styles": {
+      "compact-title": {"source": "document-title", "size_pt": 16},
+      "compact-body": {"source": "instruction-body", "size_pt": 8.5},
+      "compact-small": {"source": "instruction-body", "size_pt": 7.5},
+      "compact-mono": {"source": "metadata-value", "size_pt": 7.3},
+      "compact-label": {"source": "metadata-label", "size_pt": 7},
+      "compact-heading": {"source": "document-title", "size_pt": 10},
+      "compact-fallback": {"source": "fallback-body", "size_pt": 8},
+      "compact-number": {"source": "footer-caption", "size_pt": 7.1},
+      "compact-footer": {"source": "footer-caption", "size_pt": 6.5},
+      "compact-phrase": {"source": "metadata-value", "size_pt": 8.5},
+      "guide-title": {"source": "guide-title", "size_pt": 10},
+      "guide-heading": {"source": "guide-heading", "size_pt": 8.5},
+      "guide-body": {"source": "guide-body", "size_pt": 8.5}
+    },
+    "components": {
+      "compact-paper": [
+        {"key": "paper", "kind": "panel", "box": [0, 0, 148, 210], "fill": "#ffffff"}
+      ],
+      "compact-card-decoration": [
+        {"key": "card", "kind": "panel", "box": [0, 0, 62, 65], "fill": "#ffffff", "stroke": "#d1d5db"}
+      ],
+      "compact-title": [
+        {"key": "title", "kind": "text", "box": [10, 10, 76, 7.5], "text": "{copy_title_upper}", "style": "document-title", "font_size": 13, "fit": "shrink", "min_size": 10}
+      ],
+      "compact-heading": [
+        {"key": "heading", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-document-heading"},
+        {"key": "meta-rule-0", "kind": "rule", "box": [89.8, 14.1, 48.2, 0.2], "fill": "#d1d5db"},
+        {"key": "meta-label-0", "kind": "text", "box": [89.8, 10.5, 18, 3], "text": "PAGE", "style": "metadata-label"},
+        {"key": "meta-value-0", "kind": "text", "box": [108, 10.5, 30, 3], "text": "Page {page_number} / {page_count}", "style": "metadata-value", "align": "right", "fit": "shrink"},
+        {"key": "identity", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-identity"}
+      ],
+      "compact-sheet-header": [
+        {"key": "title", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-title"},
+        {"key": "meta-rule-0", "kind": "rule", "box": [89.8, 14.1, 48.2, 0.2], "fill": "#d1d5db"},
+        {"key": "meta-label-0", "kind": "text", "box": [89.8, 10.5, 18, 3], "text": "SHARD", "style": "metadata-label"},
+        {"key": "meta-value-0", "kind": "text", "box": [108, 10.5, 30, 3], "text": "{shard_index} / {shard_total}", "style": "metadata-value", "align": "right", "fit": "shrink"},
+        {"key": "identity", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-identity"}
+      ],
+      "compact-identity": [
+        {"key": "meta-rule-1", "kind": "rule", "box": [89.8, 18.8, 48.2, 0.2], "fill": "#d1d5db"},
+        {"key": "meta-label-1", "kind": "text", "box": [89.8, 15.2, 18, 3], "text": "{short_id_label}", "style": "metadata-label"},
+        {"key": "meta-value-1", "kind": "text", "box": [108, 15.2, 30, 3], "text": "{doc_id}", "style": "metadata-value-muted", "align": "right", "fit": "shrink"},
+        {"key": "meta-rule-2", "kind": "rule", "box": [89.8, 23.5, 48.2, 0.2], "fill": "#d1d5db"},
+        {"key": "meta-label-2", "kind": "text", "box": [89.8, 19.9, 18, 3], "text": "CREATED (UTC)", "style": "metadata-label"},
+        {"key": "meta-value-2", "kind": "text", "box": [108, 19.9, 30, 3], "text": "{created_timestamp}", "style": "metadata-value", "align": "right", "fit": "shrink"}
+      ],
+      "compact-header-decoration": [],
+      "compact-shell": [
+        {"key": "page", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-page"}
+      ],
+      "kit-shell": [
+        {"key": "paper", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-paper"},
+        {"key": "heading", "kind": "group", "box": [10, 10, 128, 0], "ref": "kit-heading"},
+        {"key": "footer", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-footer"}
+      ],
+      "compact-qr-artwork": [
+        {"key": "decoration", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-card-decoration"},
+        {"key": "qr-image", "kind": "image", "box": [1, 4, 60, 60]}
+      ],
+      "compact-card": [
+        {"key": "artwork", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-qr-artwork"},
+        {"key": "label", "kind": "text", "box": [2, 0.5, 58, 3], "text": "{copy_segment_prefix_upper} {segment_number:02d}", "style": "compact-label", "fit": "wrap", "scale_height": true}
+      ],
+      "compact-main-instructions": [
+        {"key": "card", "kind": "group", "box": [10, 28, 0, 0], "ref": "compact-instruction-card"},
+        {"key": "divider", "kind": "rule", "box": [10, 42, 128, 0.35], "fill": "#0f172a"}
+      ],
+      "compact-qr-grid": [
+        {"key": "card-0", "kind": "group", "box": [10, 0, 0, 0], "ref": "compact-card", "qr_slot": 0},
+        {"key": "card-1", "kind": "group", "box": [76, 0, 0, 0], "ref": "compact-card", "qr_slot": 1},
+        {"key": "card-2", "kind": "group", "box": [10, 69, 0, 0], "ref": "compact-card", "qr_slot": 2},
+        {"key": "card-3", "kind": "group", "box": [76, 69, 0, 0], "ref": "compact-card", "qr_slot": 3}
+      ],
+      "compact-sheet-heading": [
+        {"key": "instructions", "kind": "text", "box": [10, 38, 70, 30], "text": "{instructions_text}", "style": "compact-small", "fit": "wrap", "scale_height": true},
+        {"key": "sheet-qr-image", "kind": "image", "box": [88, 30, 50, 50], "qr_slot": 0}
+      ],
+      "compact-footer": [
+        {"key": "content", "kind": "group", "box": [10, 198, 128, 0], "ref": "footer-content"}
+      ],
+      "compact-sheet-page": [
+        {"key": "paper", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-paper"},
+        {"key": "branding", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-branding"},
+        {"key": "heading", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-sheet-header"},
+        {"key": "footer", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-footer"},
+        {"key": "header-rule", "kind": "rule", "box": [10, 28, 128, 0.35], "fill": "#cbd5e1"}
+      ],
+      "recovery-instructions": [
+        {"key": "card", "kind": "group", "box": [10, 28, 0, 0], "ref": "compact-instruction-card"},
+        {"key": "divider", "kind": "rule", "box": [10, 42, 128, 0.35], "fill": "#0f172a"}
+      ],
+      "fallback-title": [
+        {"key": "title", "kind": "text", "box": [3, 0.5, 122, 4.1], "text": "{title}", "style": "fallback-title", "line_height": 1, "scale_height": true, "stretch_x": true}
+      ],
+      "fallback-row": [
+        {"key": "line", "kind": "text", "box": [3, 0.5, 122, 3.8], "text": "{number:02d}. {payload}", "style": "compact-fallback", "line_height": 1, "max_lines": 1, "scale_height": true, "stretch_x": true}
+      ],
+      "compact-instruction-card": [
+        {"key": "card", "kind": "group", "box": [0, 0, 128, 0], "ref": "instruction-card"}
+      ],
+      "compact-document-heading": [
+        {"key": "title", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-title"},
+        {"key": "subtitle", "kind": "text", "box": [10, 19.4, 76, 5], "text": "{copy_subtitle}", "style": "document-subtitle", "font_size": 6.8, "fit": "wrap", "line_height": 1}
+      ],
+      "compact-recovery-shell": [
+        {"key": "paper", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-paper"},
+        {"key": "heading", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-document-heading"},
+        {"key": "identity", "kind": "group", "box": [0, -4.7, 0, 0], "ref": "compact-identity"},
+        {"key": "footer", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-footer"}
+      ]
+    },
+    "documents": {
+      "main": {
+        "first": {
+          "elements": [
+            {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-shell"},
+            {"key": "instructions", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-main-instructions"},
+            {"key": "codes", "kind": "group", "box": [0, 43, 0, 0], "ref": "compact-qr-grid"}
+          ],
+          "qr_capacity": 4,
+          "grid": {
+            "box": [10, 43, 128, 134],
+            "columns": 2,
+            "rows": 2,
+            "card_size": [62, 65],
+            "gap": [4, 4]
+          }
+        },
+        "continuation": {
+          "elements": [
+            {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-shell"},
+            {"key": "divider", "kind": "rule", "box": [10, 28, 128, 0.35], "fill": "#0f172a"},
+            {"key": "codes", "kind": "group", "box": [0, 32, 0, 0], "ref": "compact-qr-grid"}
+          ],
+          "qr_capacity": 4,
+          "grid": {
+            "box": [10, 32, 128, 134],
+            "columns": 2,
+            "rows": 2,
+            "card_size": [62, 65],
+            "gap": [4, 4]
+          }
+        }
+      },
+      "kit": {
+        "first": {
+          "elements": [
+            {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "kit-shell"},
+            {"key": "divider", "kind": "rule", "box": [10, 20.5, 128, 0.35], "fill": "#0f172a"},
+            {"key": "codes", "kind": "group", "box": [0, 24.5, 0, 0], "ref": "compact-qr-grid"}
+          ],
+          "qr_capacity": 4,
+          "grid": {
+            "box": [10, 24.5, 128, 134],
+            "columns": 2,
+            "rows": 2,
+            "card_size": [62, 65],
+            "gap": [4, 4]
+          }
+        },
+        "trailing": [
+          {
+            "elements": [
+              {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "kit-shell"},
+              {"key": "guide", "kind": "group", "box": [10, 21, 0, 0], "ref": "kit-guide-compact"}
+            ]
+          }
+        ]
+      },
+      "shard": {
+        "first": {
+          "elements": [
+            {"key": "shell", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-sheet-page"},
+            {"key": "sheet", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-sheet-heading"}
+          ],
+          "qr_capacity": 1
+        },
+        "sheet": {
+          "box": [10, 70, 128, 125],
+          "qr_bottom_gap": 2,
+          "body_style": "compact-fallback",
+          "top": 1,
+          "bottom": 1,
+          "payload_inset": 6,
+          "numbering": "inline",
+          "safety": 0.3,
+          "profiles": [
+            {"row_height": 3.8, "font_size": 8, "title_size": 8.5},
+            {"row_height": 3.15, "font_size": 7, "title_size": 7.5},
+            {"row_height": 2.45, "font_size": 6.5, "title_size": 6}
+          ],
+          "decoration": [
+            {"key": "fallback", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-card"}
+          ],
+          "title": [
+            {"key": "title", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-title"}
+          ],
+          "row": [
+            {"key": "row", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-row"}
+          ]
+        }
+      },
+      "recovery": {
+        "first": {
+          "elements": [
+            {"key": "header", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-recovery-shell"},
+            {"key": "instructions", "kind": "group", "box": [0, 0, 0, 0], "ref": "recovery-instructions"}
+          ]
+        },
+        "continuation": {
+          "elements": [
+            {"key": "header", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-recovery-shell"},
+            {"key": "divider", "kind": "rule", "box": [10, 28, 128, 0.35], "fill": "#0f172a"}
+          ]
+        },
+        "recovery": {
+          "section_gap_rows": 1,
+          "first": {
+            "box": [10, 94, 128, 101],
+            "row_height": 4.5,
+            "body_style": "compact-fallback",
+            "number_style": "compact-fallback",
+            "left": 3,
+            "right": 3,
+            "inline_number": true,
+            "section": [
+              {"key": "card", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-card"}
+            ],
+            "title": [
+              {"key": "title", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-title"}
+            ],
+            "row": [
+              {"key": "row", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-row"}
+            ]
+          },
+          "continuation": {
+            "box": [10, 32, 128, 163],
+            "row_height": 4.5,
+            "body_style": "compact-fallback",
+            "number_style": "compact-fallback",
+            "left": 3,
+            "right": 3,
+            "inline_number": true,
+            "section": [
+              {"key": "card", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-card"}
+            ],
+            "title": [
+              {"key": "title", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-title"}
+            ],
+            "row": [
+              {"key": "row", "kind": "group", "box": [0, 0, 0, 0], "ref": "fallback-row"}
+            ]
+          },
+          "passphrase": {
+            "page": {
+              "elements": [
+                {"key": "phrase", "kind": "group", "box": [0, 0, 0, 0], "ref": "compact-phrase-continuation"}
+              ]
+            },
+            "style": "compact-phrase",
+            "guidance_style": "compact-small",
+            "width": 122,
+            "height": 20,
+            "continuation_box": [10, 76, 128, 117],
+            "line_height": 1.12
+          },
+          "metadata": {
+            "flow": "stack",
+            "box": [10, 48, 128, 0],
+            "reference_bottom": 90,
+            "gap": 2,
+            "fields": [
+              {"name": "passphrase", "label": "RECOVERY PHRASE", "x": 10, "width": 128, "label_style": "fallback-title", "value_style": "compact-phrase", "label_height": 3.5, "label_gap": 1, "bottom_padding": 2, "stroke": "#d1d5db", "fill": "#f9fafb", "line_width": 0.22, "padding": 3, "top_padding": 2, "uppercase": true},
+              {"name": "quorum", "label": "RECOVERY SHEETS", "x": 10, "width": 128, "label_style": "fallback-title", "value_style": "compact-body", "label_height": 3.5, "label_gap": 1, "bottom_padding": 2, "stroke": "#d1d5db", "fill": "#f9fafb", "line_width": 0.22, "padding": 3, "top_padding": 2, "uppercase": true},
+              {"name": "signing_public_key", "label": "SIGNING PUBLIC KEY", "x": 10, "width": 128, "label_style": "fallback-title", "value_style": "compact-mono", "label_height": 3.5, "label_gap": 1, "bottom_padding": 2, "stroke": "#d1d5db", "fill": "#f9fafb", "line_width": 0.22, "padding": 3, "top_padding": 2, "uppercase": true}
+            ],
+            "label_style": "compact-label",
+            "value_style": "compact-phrase",
+            "guidance_style": "compact-small",
+            "shift_start": 94,
+            "shift_end": 195,
+            "repeat_on_continuation": false
+          }
+        }
+      }
+    }
+  },
+  "component_sources": ["kit-guide.json"]
+}

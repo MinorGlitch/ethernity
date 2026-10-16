@@ -13,39 +13,31 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.features.recover import planning as recover_plan
-from ethernity.cli.shared.types import RecoverArgs
 from ethernity.encoding.framing import Frame, FrameType
-
-
-def _home_env(home: Path) -> dict[str, str]:
-    env = {"HOME": str(home), "USERPROFILE": str(home)}
-    drive, tail = os.path.splitdrive(str(home))
-    if drive:
-        env["HOMEDRIVE"] = drive
-        env["HOMEPATH"] = tail or "\\"
-    return env
+from ethernity.workflows.recovery import inputs as recover_inputs, planning as recover_plan
+from ethernity.workflows.recovery.frame_inputs import FrameInputResult
+from ethernity.workflows.shared.requests import RecoveryRequest
+from tests.support.environment import home_environment
 
 
 class TestRecoverPlanPathNormalization(unittest.TestCase):
     def test_frames_from_args_expands_user_paths(self) -> None:
-        args = RecoverArgs(fallback_file="~/recovery.txt")
+        args = RecoveryRequest(recovery_text_file="~/recovery.txt")
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+            with mock.patch.dict("os.environ", home_environment(home), clear=False):
                 with mock.patch.object(
-                    recover_plan,
-                    "_frames_from_fallback",
-                    return_value=["frame"],
+                    recover_inputs.frame_inputs,
+                    "frames_from_fallback",
+                    return_value=FrameInputResult(frames=("frame",)),
                 ) as fallback_mock:
-                    frames, label, detail, root_dir = recover_plan._frames_from_args(
+                    frames, label, detail = recover_inputs.load_recovery_frames(
                         args,
                         allow_unsigned=False,
                         quiet=True,
@@ -53,25 +45,24 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertEqual(frames, ["frame"])
         self.assertEqual(label, "Recovery text")
         self.assertEqual(detail, str(home / "recovery.txt"))
-        self.assertIsNone(root_dir)
         fallback_mock.assert_called_once_with(
             str(home / "recovery.txt"),
             allow_invalid_auth=False,
-            quiet=True,
+            notice_sink=mock.ANY,
         )
 
     def test_frames_from_args_scan_filters_out_shard_documents(self) -> None:
-        args = RecoverArgs(scan=["~/backup-dir"])
+        args = RecoveryRequest(scan_paths=["~/backup-dir"])
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+            with mock.patch.dict("os.environ", home_environment(home), clear=False):
                 with mock.patch.object(
-                    recover_plan,
+                    recover_inputs.frame_inputs,
                     "recovery_frames_from_scan",
-                    return_value=["main", "auth"],
+                    return_value=FrameInputResult(frames=("main", "auth")),
                 ) as scan_mock:
-                    frames, label, detail, root_dir = recover_plan._frames_from_args(
+                    frames, label, detail = recover_inputs.load_recovery_frames(
                         args,
                         allow_unsigned=False,
                         quiet=True,
@@ -79,21 +70,23 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertEqual(frames, ["main", "auth"])
         self.assertEqual(label, "Backup PDF or images")
         self.assertEqual(detail, str(home / "backup-dir"))
-        self.assertIsNone(root_dir)
-        scan_mock.assert_called_once_with([str(home / "backup-dir")], quiet=True)
+        scan_mock.assert_called_once_with(
+            [str(home / "backup-dir")],
+            notice_sink=mock.ANY,
+        )
 
-    def test_frames_from_args_root_only_scan_excludes_extension_carriers(self) -> None:
-        args = RecoverArgs(scan=["~/backup-dir"], extension_index=0)
+    def test_frames_from_args_root_selection_does_not_change_scan_inputs(self) -> None:
+        args = RecoveryRequest(scan_paths=["~/backup-dir"], extension_index=0)
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+            with mock.patch.dict("os.environ", home_environment(home), clear=False):
                 with mock.patch.object(
-                    recover_plan,
+                    recover_inputs.frame_inputs,
                     "recovery_frames_from_scan",
-                    return_value=["root-main", "root-auth"],
+                    return_value=FrameInputResult(frames=("root-main", "root-auth")),
                 ) as scan_mock:
-                    frames, label, detail, root_dir = recover_plan._frames_from_args(
+                    frames, label, detail = recover_inputs.load_recovery_frames(
                         args,
                         allow_unsigned=False,
                         quiet=True,
@@ -102,30 +95,28 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertEqual(frames, ["root-main", "root-auth"])
         self.assertEqual(label, "Backup PDF or images")
         self.assertEqual(detail, str(home / "backup-dir"))
-        self.assertIsNone(root_dir)
         scan_mock.assert_called_once_with(
             [str(home / "backup-dir")],
-            quiet=True,
-            include_extension_carriers=False,
+            notice_sink=mock.ANY,
         )
 
     def test_frames_from_args_can_mix_scan_with_fallback_text(self) -> None:
-        args = RecoverArgs(fallback_file="~/extension.txt", scan=["~/root.pdf"])
+        args = RecoveryRequest(recovery_text_file="~/extension.txt", scan_paths=["~/root.pdf"])
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+            with mock.patch.dict("os.environ", home_environment(home), clear=False):
                 with mock.patch.object(
-                    recover_plan,
-                    "_frames_from_fallback",
-                    return_value=["extension-main", "extension-auth"],
+                    recover_inputs.frame_inputs,
+                    "frames_from_fallback",
+                    return_value=FrameInputResult(frames=("extension-main", "extension-auth")),
                 ) as fallback_mock:
                     with mock.patch.object(
-                        recover_plan,
+                        recover_inputs.frame_inputs,
                         "recovery_frames_from_scan",
-                        return_value=["root-main", "root-auth"],
+                        return_value=FrameInputResult(frames=("root-main", "root-auth")),
                     ) as scan_mock:
-                        frames, label, detail, root_dir = recover_plan._frames_from_args(
+                        frames, label, detail = recover_inputs.load_recovery_frames(
                             args,
                             allow_unsigned=False,
                             quiet=True,
@@ -136,59 +127,58 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
             detail,
             f"Recovery text: {home / 'extension.txt'}; Backup PDF or images: {home / 'root.pdf'}",
         )
-        self.assertIsNone(root_dir)
         fallback_mock.assert_called_once_with(
             str(home / "extension.txt"),
             allow_invalid_auth=False,
-            quiet=True,
+            notice_sink=mock.ANY,
         )
-        scan_mock.assert_called_once_with([str(home / "root.pdf")], quiet=True)
+        scan_mock.assert_called_once_with([str(home / "root.pdf")], notice_sink=mock.ANY)
 
-    def test_shard_and_auth_path_helpers_expand_user_paths(self) -> None:
-        args = RecoverArgs(
-            auth_fallback_file="~/auth.txt",
-            shard_fallback_file=["~/s1.txt"],
-            shard_payloads_file=["~/s2.txt"],
-            shard_scan=["~/s3.pdf"],
+    def test_shard_and_auth_paths_expand_user_paths(self) -> None:
+        args = RecoveryRequest(
+            auth_text_file="~/auth.txt",
+            shard_text_files=["~/s1.txt"],
+            shard_payload_files=["~/s2.txt"],
+            shard_scan_paths=["~/s3.pdf"],
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+            with mock.patch.dict("os.environ", home_environment(home), clear=False):
                 with mock.patch.object(
-                    recover_plan,
-                    "_auth_frames_from_fallback",
-                    return_value=["auth"],
+                    recover_inputs.frame_inputs,
+                    "auth_frames_from_fallback",
+                    return_value=FrameInputResult(frames=("auth",)),
                 ) as auth_mock:
-                    auth_frames = recover_plan._extra_auth_frames_from_args(
+                    auth_frames = recover_inputs.load_extra_auth_frames(
                         args,
                         allow_unsigned=False,
                         quiet=True,
                     )
                 with mock.patch.object(
-                    recover_plan,
-                    "_frame_from_fallback",
+                    recover_inputs.frame_inputs,
+                    "frame_from_fallback",
                     return_value="shard",
                 ) as shard_fallback_mock:
                     with mock.patch.object(
-                        recover_plan,
-                        "_frames_from_payloads",
+                        recover_inputs.frame_inputs,
+                        "frames_from_payloads",
                         return_value=["payload-shard"],
                     ) as shard_payload_mock:
                         with mock.patch.object(
-                            recover_plan,
+                            recover_inputs.frame_inputs,
                             "shard_frames_from_scan",
-                            return_value=["scan-shard"],
+                            return_value=FrameInputResult(frames=("scan-shard",)),
                         ) as shard_scan_mock:
                             shard_frames, shard_fallback, shard_payloads, shard_scan = (
-                                recover_plan._shard_frames_from_args(
+                                recover_inputs.load_shard_frames(
                                     args,
                                     quiet=True,
                                 )
                             )
         self.assertEqual(auth_frames, ["auth"])
         auth_mock.assert_called_once_with(
-            str(home / "auth.txt"), allow_invalid_auth=False, quiet=True
+            str(home / "auth.txt"), allow_invalid_auth=False, notice_sink=mock.ANY
         )
         self.assertEqual(shard_frames, ["shard", "payload-shard", "scan-shard"])
         self.assertEqual(shard_fallback, [str(home / "s1.txt")])
@@ -199,9 +189,12 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
             str(home / "s2.txt"),
             label="shard text lines",
         )
-        shard_scan_mock.assert_called_once_with([str(home / "s3.pdf")], quiet=True)
+        shard_scan_mock.assert_called_once_with(
+            [str(home / "s3.pdf")],
+            notice_sink=mock.ANY,
+        )
 
-    def test_shard_and_auth_helpers_preserve_preloaded_frames(self) -> None:
+    def test_shard_and_auth_loading_preserves_preloaded_frames(self) -> None:
         auth_frame = Frame(
             version=1,
             frame_type=FrameType.AUTH,
@@ -218,21 +211,19 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
             total=1,
             data=b"shard",
         )
-        args = RecoverArgs(
+        args = RecoveryRequest(
             auth_frames=[auth_frame],
             shard_frames=[shard_frame],
         )
 
-        auth_frames = recover_plan._extra_auth_frames_from_args(
+        auth_frames = recover_inputs.load_extra_auth_frames(
             args,
             allow_unsigned=False,
             quiet=True,
         )
-        shard_frames, shard_fallback, shard_payloads, shard_scan = (
-            recover_plan._shard_frames_from_args(
-                args,
-                quiet=True,
-            )
+        shard_frames, shard_fallback, shard_payloads, shard_scan = recover_inputs.load_shard_frames(
+            args,
+            quiet=True,
         )
 
         self.assertEqual(auth_frames, [auth_frame])
@@ -242,27 +233,29 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertEqual(shard_scan, [])
 
     def test_plan_from_args_expands_output_path(self) -> None:
-        args = RecoverArgs(output="~/recovered")
+        args = RecoveryRequest(output_path="~/recovered")
         fake_plan = object()
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
-                with mock.patch.object(recover_plan, "validate_recover_args"):
+            with mock.patch.dict("os.environ", home_environment(home), clear=False):
+                with mock.patch.object(
+                    recover_plan, "normalize_recovery_request", return_value=args
+                ):
                     with mock.patch.object(recover_plan, "resolve_recover_config"):
                         with mock.patch.object(
-                            recover_plan,
-                            "_frames_from_args",
-                            return_value=(["main"], "QR payloads", "input", None),
+                            recover_inputs,
+                            "load_recovery_frames",
+                            return_value=(["main"], "QR payloads", "input"),
                         ):
                             with mock.patch.object(
-                                recover_plan,
-                                "_extra_auth_frames_from_args",
+                                recover_inputs,
+                                "load_extra_auth_frames",
                                 return_value=[],
                             ):
                                 with mock.patch.object(
-                                    recover_plan,
-                                    "_shard_frames_from_args",
+                                    recover_inputs,
+                                    "load_shard_frames",
                                     return_value=([], [], [], []),
                                 ):
                                     with mock.patch.object(
@@ -270,7 +263,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                                         "build_recovery_plan",
                                         return_value=fake_plan,
                                     ) as build_mock:
-                                        plan = recover_plan.plan_from_args(args)
+                                        plan = recover_plan.plan_from_request(args)
         self.assertIs(plan, fake_plan)
         self.assertEqual(build_mock.call_args.kwargs["output_path"], str(home / "recovered"))
 

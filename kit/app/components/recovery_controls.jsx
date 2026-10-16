@@ -1,0 +1,143 @@
+/*
+ * Copyright (C) 2026 Alex Stoyanov
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { formatBytes } from "../format.js";
+
+export function ActionsRow({ actions, className }) {
+  if (!actions?.length) return null;
+  const classes = className ? `row ${className}` : "row";
+  return (
+    <div class={classes}>
+      {actions.map((action) => (
+        <button
+          class={action.className}
+          disabled={action.disabled}
+          title={action.disabled ? action.disabledReason : undefined}
+          onClick={action.onClick}
+          type="button"
+        >
+          {action.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Field({
+  id,
+  label,
+  value,
+  placeholder,
+  onInput,
+  onPaste,
+  readOnly,
+  type = "text",
+  as = "input",
+  className,
+  autoComplete,
+  spellCheck,
+}) {
+  const Tag = as === "textarea" ? "textarea" : "input";
+  const tagProps = {
+    id,
+    value: value ?? "",
+    placeholder,
+    readOnly,
+    onInput,
+    onPaste,
+    class: className,
+  };
+  if (Tag === "input") {
+    tagProps.type = type;
+  }
+  if (autoComplete !== undefined) {
+    tagProps.autoComplete = autoComplete;
+  }
+  if (spellCheck !== undefined) {
+    tagProps.spellcheck = spellCheck;
+  }
+  return (
+    <>
+      <label class="label" htmlFor={id}>
+        {label}
+      </label>
+      <Tag {...tagProps} />
+    </>
+  );
+}
+
+export function StatusBlock({ status }) {
+  if (!status?.lines?.length) return null;
+  const className = status?.type ? `status ${status.type}` : "status";
+  return <div class={className}>{status.lines.join("\n")}</div>;
+}
+
+function isActionableDiagnostic(item) {
+  if (!item) return false;
+  if (item.tone === "error" || item.tone === "warn") return true;
+  const value = typeof item.value === "string" ? item.value.trim() : `${item.value ?? ""}`;
+  return /^-?\d+$/.test(value) && Number(value) !== 0;
+}
+
+export function DiagnosticsList({ items, compact = false }) {
+  if (!items?.length) return null;
+  const rows = compact ? items.filter(isActionableDiagnostic) : items;
+  if (!rows.length) return null;
+  return (
+    <div class="diag-list">
+      {rows.map((item, index) => {
+        const rowClass = item.tone ? `diag-row ${item.tone}` : "diag-row";
+        return (
+          <div key={`${item.label}-${index}`} class={rowClass}>
+            <div class="diag-label">{item.label}</div>
+            <div class="diag-value">
+              {item.value ?? "-"}
+              {item.detail ? <div class="hint">{item.detail}</div> : null}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function OutputTable({ files, onDownloadFile }) {
+  if (!files.length) {
+    return (
+      <tbody>
+        <tr class="empty-row">
+          <td colSpan="3">No files extracted yet.</td>
+        </tr>
+      </tbody>
+    );
+  }
+  return (
+    <tbody>
+      {files.map((file, index) => (
+        <tr>
+          <td>{file.path}</td>
+          <td>{formatBytes(file.data.length)}</td>
+          <td>
+            <button type="button" class="secondary" onClick={() => onDownloadFile(index)}>
+              Download
+            </button>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  );
+}

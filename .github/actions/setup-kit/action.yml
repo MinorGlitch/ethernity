@@ -1,0 +1,13 @@
+name: Setup recovery kit tools
+description: Install the supported Node runtime and exact npm lockfile
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: "24"
+        cache: npm
+        cache-dependency-path: kit/package-lock.json
+    - shell: bash
+      working-directory: kit
+      run: npm ci

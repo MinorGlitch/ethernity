@@ -3,18 +3,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeAlias
 
+from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.formats.extension_document import ExtensionChunkingProfile
+from ethernity.page_sizes import PaperSizeName
 from ethernity.qr.codec import QrConfig
 
 PayloadCodec = Literal["auto", "raw", "gzip"]
 QrPayloadCodec = Literal["raw", "base64"]
 QrErrorCorrection = Literal["L", "M", "Q", "H"]
-PageSize = Literal["A4", "LETTER"]
+PageSize: TypeAlias = PaperSizeName
 SigningKeyMode = Literal["embedded", "sharded"]
-ExtensionUnlockPolicy = Literal["self-contained", "reuse-root"]
-ExtensionSigningKeyMode = Literal["not-stored", "sharded"]
+
+# Application policy only; the extension format accepts any valid bounded profile.
+DEFAULT_EXTENSION_CHUNKING_PROFILE = ExtensionChunkingProfile(
+    algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+    target_size=16 * 1024,
+    min_size=4 * 1024,
+    max_size=64 * 1024,
+)
 
 
 @dataclass(frozen=True)
@@ -40,16 +48,10 @@ class RecoverDefaults:
 
 
 @dataclass(frozen=True)
-class ExtendDefaults:
-    """Default CLI values for extension commands."""
+class AddFilesDefaults:
+    """Default CLI values for Add Files."""
 
     base_dir: str | None = None
-    unlock_policy: ExtensionUnlockPolicy | None = None
-    shard_threshold: int | None = None
-    shard_count: int | None = None
-    signing_key_mode: ExtensionSigningKeyMode | None = None
-    signing_key_shard_threshold: int | None = None
-    signing_key_shard_count: int | None = None
     qr_payload_codec: QrPayloadCodec = "raw"
 
 
@@ -60,6 +62,7 @@ class UiDefaults:
     quiet: bool = False
     no_color: bool = False
     no_animations: bool = False
+    show_internals: bool = False
 
 
 @dataclass(frozen=True)
@@ -70,44 +73,23 @@ class DebugDefaults:
 
 
 @dataclass(frozen=True)
-class RuntimeDefaults:
-    """Default runtime tuning knobs."""
-
-    render_jobs: int | Literal["auto"] | None = None
-
-
-@dataclass(frozen=True)
-class ExtensionChunkingDefaults:
-    """Default content-defined chunking profile for new extension chains."""
-
-    target_size: int = 16 * 1024
-    min_size: int = 4 * 1024
-    max_size: int = 64 * 1024
-
-
-@dataclass(frozen=True)
 class CliDefaults:
     """Grouped defaults for CLI subcommands and UI behavior."""
 
     backup: BackupDefaults = field(default_factory=BackupDefaults)
     recover: RecoverDefaults = field(default_factory=RecoverDefaults)
-    extend: ExtendDefaults = field(default_factory=ExtendDefaults)
+    add_files: AddFilesDefaults = field(default_factory=AddFilesDefaults)
     ui: UiDefaults = field(default_factory=UiDefaults)
     debug: DebugDefaults = field(default_factory=DebugDefaults)
-    runtime: RuntimeDefaults = field(default_factory=RuntimeDefaults)
 
 
 @dataclass(frozen=True)
 class AppConfig:
     """Resolved application configuration used by runtime services."""
 
-    template_path: Path
-    recovery_template_path: Path
-    shard_template_path: Path
-    signing_key_shard_template_path: Path
-    kit_template_path: Path
-    paper_size: str
+    design_name: str
+    paper_size: PaperSizeName
     qr_config: QrConfig
     qr_chunk_size: int
-    extension_chunking: ExtensionChunkingDefaults = field(default_factory=ExtensionChunkingDefaults)
+    extension_chunking: ExtensionChunkingProfile = DEFAULT_EXTENSION_CHUNKING_PROFILE
     cli_defaults: CliDefaults = field(default_factory=CliDefaults)

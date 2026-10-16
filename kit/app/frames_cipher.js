@@ -15,10 +15,9 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { blake2b256 } from "../lib/blake2b.js";
-import { bytesToHex, hexToBytes } from "../lib/encoding.js";
+import { RecoveryError } from "../lib/errors.js";
+import { hexToBytes } from "../lib/bytes.js";
 import {
-  DOC_ID_LEN,
   MAX_CIPHERTEXT_BYTES,
   MAX_RECOVERY_CIPHERTEXT_BYTES,
   MAX_RECOVERY_DOCUMENTS,
@@ -27,9 +26,11 @@ import {
   authOnlyDocumentRecords,
   completeDocumentRecords,
   incompleteDocumentRecords,
-  primaryDocumentRecord,
-  syncLegacyDocumentFields,
-} from "./document_store.js";
+} from "./documents/store.js";
+import {
+  documentIdentityFromCiphertext,
+  documentIdentityFromDocHash,
+} from "./documents/identity.js";
 
 export function reassembleCiphertext(source) {
   if (source.total === null || source.mainFrames.size !== source.total) {
@@ -56,16 +57,6 @@ export function reassembleCiphertext(source) {
   return out;
 }
 
-export function ensureCiphertextAndHash(state) {
-  const primary = primaryDocumentRecord(state);
-  if (!primary) {
-    return ensureDocumentCiphertextAndHash(state);
-  }
-  const docHash = ensureDocumentCiphertextAndHash(primary);
-  syncLegacyDocumentFields(state);
-  return docHash;
-}
-
 export function ensureDocumentCiphertextAndHash(record) {
   if (!record.total || record.mainFrames.size !== record.total) {
     return null;
@@ -74,25 +65,17 @@ export function ensureDocumentCiphertextAndHash(record) {
     record.ciphertext = reassembleCiphertext(record);
   }
   if (!record.cipherDocHashHex) {
-    const hash = blake2b256(record.ciphertext);
-    enforceDerivedDocId(record, hash);
-    record.cipherDocHashHex = bytesToHex(hash);
-    return hash;
+    const identity = documentIdentityFromCiphertext(record.ciphertext);
+    enforceDerivedDocId(record, identity);
+    record.cipherDocHashHex = identity.docHashHex;
+    return identity.docHash;
   }
   const hash = hexToBytes(record.cipherDocHashHex);
-  enforceDerivedDocId(record, hash);
+  enforceDerivedDocId(record, documentIdentityFromDocHash(hash));
   return hash;
 }
 
 export function syncCollectedCiphertext(state) {
-  if (!state.documents.size) {
-    try {
-      ensureDocumentCiphertextAndHash(state);
-    } catch {
-      // leave ciphertext unset if reassembly fails
-    }
-    return;
-  }
   for (const record of state.documents.values()) {
     try {
       ensureDocumentCiphertextAndHash(record);
@@ -100,7 +83,6 @@ export function syncCollectedCiphertext(state) {
       // leave ciphertext unset if reassembly fails
     }
   }
-  syncLegacyDocumentFields(state);
 }
 
 export function collectedRecoveryDocuments(
@@ -120,18 +102,14 @@ export function collectedRecoveryDocuments(
   const documents = [];
   for (const record of completeDocumentRecords(state)) {
     const docHash = ensureDocumentCiphertextAndHash(record);
-    const docId = docHash.slice(0, DOC_ID_LEN);
+    const identity = documentIdentityFromDocHash(docHash);
     documents.push({
-      docId,
-      docIdHex: bytesToHex(docId),
-      docHash,
-      docHashHex: bytesToHex(docHash),
+      ...identity,
       ciphertext: record.ciphertext,
       authPayload: record.authPayload,
     });
   }
   enforceRecoveryDocumentBudget(documents);
-  syncLegacyDocumentFields(state);
   return documents;
 }
 
@@ -140,7 +118,8 @@ export function enforceRecoveryDocumentBudget(
   { byteField = "ciphertext", byteLabel = "ciphertext" } = {},
 ) {
   if (documents.length > MAX_RECOVERY_DOCUMENTS) {
-    throw new Error(
+    throw new RecoveryError(
+      "RECOVERY_RESOURCE_LIMIT",
       `collected backup documents exceed MAX_RECOVERY_DOCUMENTS (${MAX_RECOVERY_DOCUMENTS}): ${documents.length}`,
     );
   }
@@ -151,25 +130,26 @@ export function enforceRecoveryDocumentBudget(
       continue;
     }
     if (bytes.length > MAX_CIPHERTEXT_BYTES) {
-      throw new Error(
+      throw new RecoveryError(
+        "RECOVERY_RESOURCE_LIMIT",
         `collected ${byteLabel} exceeds MAX_CIPHERTEXT_BYTES (${MAX_CIPHERTEXT_BYTES}): ${bytes.length} bytes`,
       );
     }
     totalBytes += bytes.length;
   }
   if (totalBytes > MAX_RECOVERY_CIPHERTEXT_BYTES) {
-    throw new Error(
+    throw new RecoveryError(
+      "RECOVERY_RESOURCE_LIMIT",
       `collected ${byteLabel} exceeds MAX_RECOVERY_CIPHERTEXT_BYTES (${MAX_RECOVERY_CIPHERTEXT_BYTES}): ${totalBytes} bytes`,
     );
   }
 }
 
-function enforceDerivedDocId(record, docHash) {
+function enforceDerivedDocId(record, identity) {
   if (!record.docIdHex) {
     return;
   }
-  const derivedDocId = docHash.slice(0, DOC_ID_LEN);
-  if (bytesToHex(derivedDocId) !== record.docIdHex) {
+  if (identity.docIdHex !== record.docIdHex) {
     throw new Error("document doc_id does not match derived ciphertext hash");
   }
 }

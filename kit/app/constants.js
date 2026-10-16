@@ -16,11 +16,16 @@
  */
 
 export const FRAME_MAGIC = [0x41, 0x50]; // "AP"
-export const ENVELOPE_MAGIC = [0x41, 0x59]; // "AY"
+export const DOCUMENT_MAGIC = [0x41, 0x59]; // "AY"
 export const FRAME_VERSION = 1;
-export const ENVELOPE_VERSION = 1;
-export const EXTENSION_ENVELOPE_VERSION = 2;
-export const EXTENSION_SCHEMA_VERSION = 1;
+export const LEGACY_BACKUP_DOCUMENT_VERSION = 1;
+export const DOCUMENT_VERSION = 2;
+export const SUPPORTED_DOCUMENT_VERSIONS = new Set([
+  LEGACY_BACKUP_DOCUMENT_VERSION,
+  DOCUMENT_VERSION,
+]);
+export const DOCUMENT_KIND_BACKUP = 1;
+export const DOCUMENT_KIND_UPDATE = 2;
 export const FRAME_TYPE_MAIN = 0x44; // "D"
 export const FRAME_TYPE_KEY = 0x4b; // "K"
 export const FRAME_TYPE_AUTH = 0x41; // "A"
@@ -39,10 +44,12 @@ export const SHARD_DOMAIN = "ETHERNITY-SHARD-V1";
 export const PATH_ENCODING_DIRECT = "direct";
 export const PATH_ENCODING_PREFIX_TABLE = "prefix_table";
 export const CHUNK_ALGORITHM_FASTCDC = 1;
+export const MIN_EXTENSION_CHUNK_SIZE = 4 * 1024;
 export const CHUNK_CODEC_RAW = 0;
 export const CHUNK_CODEC_GZIP = 1;
 export const MAX_CIPHERTEXT_BYTES = 1_048_576;
 export const MAX_RECOVERY_DOCUMENTS = 128;
+export const MAX_EXTENSION_INDEX = MAX_RECOVERY_DOCUMENTS - 1;
 export const MAX_RECOVERY_CIPHERTEXT_BYTES = 64 * MAX_CIPHERTEXT_BYTES;
 export const MAX_MAIN_FRAME_DATA_BYTES = 1_048_576;
 export const MAX_MAIN_FRAME_TOTAL = 4_096;
@@ -56,5 +63,6 @@ export const MAX_FALLBACK_NORMALIZED_CHARS = 2_000_000;
 export const MAX_FALLBACK_LINES = 50_000;
 export const MAX_RECOVERY_TEXT_BYTES = 10_485_760;
 export const MAX_DECOMPRESSED_PAYLOAD_BYTES = 67_108_864;
+export const MAX_RECOVERY_DECODED_CHUNK_BYTES = 4 * MAX_DECOMPRESSED_PAYLOAD_BYTES;
 export const textEncoder = new TextEncoder();
 export const textDecoder = new TextDecoder();

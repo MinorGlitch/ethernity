@@ -1,81 +1,67 @@
-# Security Policy
+# Security
 
-## Project Status
+## Report a vulnerability
 
-Ethernity is stable software.
+Report vulnerabilities privately through this repository's GitHub Security Advisories. Include the
+affected version or commit, steps to reproduce the problem, and its impact. Do not include private
+keys, passphrases, or real backup contents.
 
-Treat it as a tool for controlled backup workflows, not as a fully autonomous backup platform.
-Always keep independent backups and run recovery drills.
+If private reporting is unavailable, ask the maintainers for a private channel through the
+repository's contact channels. Keep vulnerability details out of public issues.
 
-## Security Model Summary
+We aim to acknowledge reports promptly, but do not promise a response or patch deadline. This
+policy does not establish support windows for every historical release or claim independent
+security certification. Support for older backup formats is documented in the
+[compatibility history](docs/format_history.md).
 
-Ethernity is designed to support offline-recoverable encrypted backups using:
+## What Ethernity protects
 
-- age-based encryption for ciphertext confidentiality
-- integrity checks on recovered payloads
-- optional shard-based secret sharing for recovery key material
-- signed auxiliary artifacts for authenticity checks
+Ethernity encrypts file contents with age before writing them to backup pages. Reading those pages
+alone does not reveal the files without the passphrase. Backup and recovery work offline.
 
-## What Ethernity Helps Protect Against
+Recovery sheets use Shamir secret sharing to divide a passphrase or signing seed. Fewer than the
+required number of shares do not reveal the shared secret. If the threshold is one, each sheet
+holds enough information to recover that secret on its own.
 
-- Casual disclosure from physical possession of printed documents
-- Single-document compromise when sharding is configured correctly
-- Silent corruption in recovery payload transfer paths
-- Vendor lock-in risk for backup readability
+Checksums and hashes detect damaged or incorrectly transcribed data. Ed25519 signatures verify
+backup authentication records and recovery sheets against a signing key. Establishing that the
+key belongs to the backup you intended to restore requires a trusted reference; agreement among
+the supplied documents alone is not proof of their origin. The
+[update and recovery rules](docs/extension_publication_rules.md#restore-and-version-checks) define
+the checks for each kind of backup.
 
-## What Ethernity Does Not Protect Against
+## Limits and assumptions
 
-- Compromised endpoint during backup or recovery
-- Social engineering/coercion attacks
-- Weak passphrases selected by users
-- Poor shard custody (for example, storing all shards together)
+Use a computer you trust for creation and recovery. A compromised computer can read files and
+passphrases before encryption or after decryption. Ethernity cannot prevent coercion or social
+engineering, or make a weak user-chosen passphrase resistant to guessing.
 
-## Operational Safety Recommendations
+Control access to backup pages and recovery sheets. Know how many sheets are needed and who holds
+them. Keep the sheets in separate locations, apart from the backup pages, and prefer generated
+passphrases. Keep an independent backup and test recovery from the printed copies you store. Keep
+the offline recovery kit separately from the backup documents.
 
-- Generate backups on trusted systems.
-- Prefer generated passphrases over manually chosen weak phrases.
-- Store shard documents in separate physical locations.
-- Keep recovery kit media separate from main backup media.
-- Validate recovery periodically in a controlled environment.
+Replacing recovery sheets does not disable old sheets when the credentials stay the same.
+Rebuild also keeps the passphrase and, for unsealed backups, the signing key. See
+[creating a new backup after compromise](docs/advanced_operations.md#rebuild-a-standalone-backup).
 
-## Threat Boundaries and Assumptions
+Recovery can check the documents supplied to it. It cannot discover a newer update kept elsewhere.
+A separately stored, trusted full fingerprint identifies the version you recorded, but cannot
+prove that nobody created a later version. Document identifiers also allow pages from the same
+backup to be linked together; Ethernity does not provide anonymity.
 
-This project assumes:
+## Inputs and checks
 
-- local host security is your responsibility
-- physical document custody practices are enforced by operators
-- users understand threshold sharding tradeoffs
+This policy covers the terminal app, scriptable commands, browser recovery kit, backup and recovery
+formats, and release verification. Imported PDFs, images, text, and QR data are untrusted inputs.
+Readers must check authentication, paths, and recovery limits. Wrong passphrases and damaged
+encrypted data should produce the same decryption failure message.
 
-If these assumptions do not hold, security outcomes degrade quickly.
+The desktop reader parses PDFs and images in separate processes with resource limits. Desktop and
+browser recovery check the encryption work factor before decryption and bound the work they accept.
+The [design decisions](docs/format_rationale.md#why-recovery-has-limits) describe the limits and
+worker behavior.
 
-## Reporting a Vulnerability
-
-Please do not report security vulnerabilities via public issues.
-
-Preferred process:
-
-1. Open a private GitHub Security Advisory draft for this repository.
-2. Include reproduction steps, affected versions/commits, and impact.
-3. If private advisory flow is unavailable, contact maintainers through repository channels and request a private path.
-
-We will acknowledge triage as quickly as possible, but no strict SLA is guaranteed.
-
-## Scope of This Policy
-
-This policy covers:
-
-- CLI security-sensitive behavior
-- recovery artifact integrity/authentication paths
-- release artifact provenance and verification guidance
-
-It does not guarantee:
-
-- support windows for all historical versions
-- immediate patch timelines
-- formal third-party security certification
-
-## Additional References
-
-- Core format specification: `docs/format.md`
-- Non-normative format notes: `docs/format_notes.md`
-- Release artifact verification: `docs/release_artifacts.md`
+Release signatures identify the source of a release file. See
+[release verification](docs/release_files.md#verification-example) for verification instructions.
+The [format specification](docs/format.md) defines the cryptographic and decoding requirements.

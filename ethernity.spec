@@ -1,20 +1,26 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+    copy_metadata,
+)
 
 hiddenimports = (
-    collect_submodules("playwright")
-    + collect_submodules("questionary")
-    + collect_submodules("prompt_toolkit")
+    ["textual.widgets._markdown_viewer", "textual.widgets._tab_pane"]
     + collect_submodules("rich._unicode_data")
     + collect_submodules("zxingcpp")
 )
-datas = collect_data_files("ethernity") + collect_data_files("playwright") + copy_metadata("ethernity-paper")
+datas = collect_data_files("ethernity") + copy_metadata("ethernity-paper")
+datas += collect_data_files("pypdfium2", includes=["version.json"])
+datas += collect_data_files("pypdfium2_raw", includes=["version.json"])
+binaries = collect_dynamic_libs("pypdfium2_raw")
 
 
 a = Analysis(
     ["src/ethernity/__main__.py"],
     pathex=["src"],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

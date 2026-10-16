@@ -22,3 +22,6 @@ class TestStableV1FrozenRaw(FrozenProfileTestCase):
     __test__ = True
     PROFILE_NAME = "raw"
     QR_PAYLOAD_CODEC = "raw"
+
+    def test_legacy_signing_key_replacement_shard_supports_followup_replacement(self) -> None:
+        self._verify_replacement_signing_key_replacement_shards_allow_followup_replacement()
