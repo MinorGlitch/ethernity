@@ -17,6 +17,7 @@ import {
   setText,
   setValue,
   statusMarkup,
+  updateDiagnostics,
   updateStatus,
 } from "./controls.js";
 
@@ -85,9 +86,24 @@ export function createView(root, downloadFile) {
   const nodes = new Map(Array.from(root.querySelectorAll("[id]"), (node) => [node.id, node]));
   const get = (id) => nodes.get(id);
   const table = root.querySelector("tbody");
-  let previousFiles;
+  let previous = {};
+  let collectionComplete = false;
 
   function update(state) {
+    // Collection patches replace these records. Text edits and status messages
+    // keep them, so neither needs to rebuild the diagnostic rows.
+    const documentsChanged =
+      state.documents !== previous.documents || state.primaryDocIdHex !== previous.primaryDocIdHex;
+    const shardsChanged =
+      state.shardSets !== previous.shardSets ||
+      state.activeShardSetKey !== previous.activeShardSetKey;
+    if (documentsChanged) {
+      collectionComplete = selectFrameCollectionComplete(state);
+      updateDiagnostics(get("backup-status"), selectFrameDiagnostics(state));
+    }
+    if (shardsChanged || state.recoveredShardSecret !== previous.recoveredShardSecret) {
+      updateDiagnostics(get("sheets-status"), selectShardDiagnostics(state));
+    }
     const actions = selectActionState(state);
     setValue(get("payload-text"), state.payloadText);
     setValue(get("shard-payload-text"), state.shardPayloadText);
@@ -97,7 +113,7 @@ export function createView(root, downloadFile) {
     get("freshness-unknown-acknowledgement").checked = state.freshnessUnknownAcknowledged;
     get("backup-input").classList.toggle(
       "input-collapsed",
-      selectFrameCollectionComplete(state) && !state.payloadText.trim(),
+      collectionComplete && !state.payloadText.trim(),
     );
     get("sheets-input").classList.toggle(
       "input-collapsed",
@@ -124,8 +140,8 @@ export function createView(root, downloadFile) {
       actions.canDownloadCipher,
       actions.downloadCipherDisabledReason,
     );
-    updateStatus(get("backup-status"), state.frameStatus, selectFrameDiagnostics(state));
-    updateStatus(get("sheets-status"), state.shardStatus, selectShardDiagnostics(state));
+    updateStatus(get("backup-status"), state.frameStatus);
+    updateStatus(get("sheets-status"), state.shardStatus);
     const shard = selectShardInputs(state);
     setValue(get("shard-doc-hash"), shard.docHashHex);
     setValue(get("shard-doc-id"), shard.docIdHex);
@@ -155,12 +171,11 @@ export function createView(root, downloadFile) {
     get("files-output").hidden = !actions.hasOutput && !state.extractStatus.lines.length;
     get("files-heading").hidden = !actions.hasOutput;
     get("files-table").hidden = !actions.hasOutput;
-    setText(get("output-summary"), selectOutputSummary(state));
     setButton(get("clear-output"), actions.hasOutput);
     setButton(get("download-zip"), actions.hasOutput);
     updateStatus(get("extract-status"), state.extractStatus);
-    if (state.extractedFiles !== previousFiles) {
-      previousFiles = state.extractedFiles;
+    if (state.extractedFiles !== previous.extractedFiles) {
+      setText(get("output-summary"), selectOutputSummary(state));
       table.replaceChildren(
         ...state.extractedFiles.map((file, index) => {
           const row = document.createElement("tr");
@@ -181,6 +196,7 @@ export function createView(root, downloadFile) {
         }),
       );
     }
+    previous = { ...state };
   }
   function lock(locked) {
     get("offline-guard").hidden = !locked;

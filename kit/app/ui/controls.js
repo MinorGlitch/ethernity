@@ -44,7 +44,7 @@ export function setButton(node, enabled, reason = "", label) {
   if (label !== undefined) setText(node, label);
 }
 
-export function updateStatus(node, status, items) {
+export function updateStatus(node, status) {
   const message = node.querySelector(".status");
   const hasMessage = Boolean(status.lines.length);
   message.hidden = !hasMessage;
@@ -53,21 +53,23 @@ export function updateStatus(node, status, items) {
   const text = node.querySelector(".diagnostic-text");
   text.hidden = !status.details?.length;
   setText(text, status.details?.join("\n") ?? "");
-  node.querySelector("details").hidden = !hasMessage || (!items && text.hidden);
+  node.querySelector("details").hidden =
+    !hasMessage || (!node.querySelector(".secondary-diagnostics") && text.hidden);
   node.hidden = !hasMessage;
-  if (items) {
-    updateDiagnostics(
-      node.querySelector(".prominent"),
-      items.filter((item) => item.prominent),
-    );
-    updateDiagnostics(
-      node.querySelector(".secondary-diagnostics"),
-      items.filter((item) => !item.prominent),
-    );
-  }
 }
 
-function updateDiagnostics(node, items) {
+export function updateDiagnostics(node, items) {
+  updateDiagnosticList(
+    node.querySelector(".prominent"),
+    items.filter((item) => item.prominent),
+  );
+  updateDiagnosticList(
+    node.querySelector(".secondary-diagnostics"),
+    items.filter((item) => !item.prominent),
+  );
+}
+
+function updateDiagnosticList(node, items) {
   node.hidden = !items.length;
   node.replaceChildren(
     ...items.map((item) => {

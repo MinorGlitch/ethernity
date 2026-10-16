@@ -2,6 +2,7 @@ import { mountApp } from "../app/app.js";
 import { createCamera } from "../app/scanner/camera.js";
 import { createView } from "../app/ui/view.js";
 import { createInitialState } from "../app/state/initial.js";
+import { checkDiagnosticUpdates } from "./browser/diagnostics.mjs";
 
 function check(condition, message) {
   if (!condition) throw new Error(message);
@@ -220,6 +221,7 @@ async function run() {
   const root = document.createElement("div");
   document.body.replaceChildren(root);
   checkView(root);
+  checkDiagnosticUpdates(root);
   await checkApp(root);
   await checkCamera();
 }

@@ -9,6 +9,8 @@ in `dist/` and the Python package resources are build outputs.
 - `app.js` owns one state value and dispatches actions synchronously.
   `ui/` builds the fixed interface once and updates existing elements. User data
   enters the page through textContent/value, never HTML interpolation.
+  Collection diagnostics update when their records, selection, or recovered secret
+  change. Typing and status messages leave those rows in place.
 - `scanner/` owns camera start, stop, and disposal. Locking the kit, resetting, or
   leaving the page stops the camera. Late camera requests cannot restart it.
 - The reducer accepts patches and resets. Each accepted change advances the
@@ -39,3 +41,6 @@ when changing coordination code.
 The browser checks cover the actual generated kits, printed-loader metadata,
 legacy recovery fixtures, scanner images, and camera cancellation races. UI
 lifecycle checks use browser DOM elements; there is no simulated DOM renderer.
+`scripts/smoke_generated_bundles.mjs` selects browsers and variants. The scenarios
+and shared fixtures live in `tests/browser/`, grouped by recovery, scanning,
+metadata, network transitions, UI lifecycle, and worker behavior.
