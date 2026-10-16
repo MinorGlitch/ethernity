@@ -69,6 +69,13 @@ the three bottles before updating the tap. Builders receive no tap credential. T
 `homebrew-production` environment is restricted to `master` and `v*` and is the only job allowed
 to read `HOMEBREW_TAP_TOKEN`. It has no required reviewers or self-approval restrictions.
 
+The formula generator resolves Python resources from the release's `uv.lock`, including their
+SHA-256 checksums. It selects compatible wheels for each platform and uses the locked source
+archive only when no matching wheel exists. Selection checks the CPython version and ABI,
+architecture, and minimum platform version: macOS 13 or glibc 2.35. These wheel limits do not
+extend the operating systems covered by the bottle tests. Shared and universal wheels are reused
+where applicable; Intel macOS, Apple silicon, and Linux still have separate bottles and tests.
+
 `HOMEBREW_TAP_REPO` is the configured GitHub repository name, for example
 `MinorGlitch/homebrew-tap`. The workflow derives the Homebrew tap name, `MinorGlitch/tap`, from
 it. Bottle releases start as drafts. The workflow checks that every expected file is present and

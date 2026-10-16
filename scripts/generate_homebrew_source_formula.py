@@ -23,11 +23,32 @@ import operator
 import re
 import tomllib
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 _ROOT_LOCK_PACKAGE_NAME = "ethernity-paper"
 _HOMEBREW_PYTHON_MINOR = 13
 _HOMEBREW_PYTHON_TAG = f"cp3{_HOMEBREW_PYTHON_MINOR}"
+_RESOURCE_PLACEHOLDER = "  # @locked-python-resources@"
+
+
+class HomebrewTarget(NamedTuple):
+    system: str
+    architecture: str
+    minimum_version: tuple[int, int]
+    condition: str
+
+
+# Keep wheel requirements within the existing macOS 13 / glibc 2.35 package
+# baselines, even when the bottle builders run newer operating systems.
+_HOMEBREW_TARGETS = (
+    HomebrewTarget("darwin", "arm64", (13, 0), "OS.mac? && Hardware::CPU.arm?"),
+    HomebrewTarget("darwin", "x86_64", (13, 0), "OS.mac? && Hardware::CPU.intel?"),
+    HomebrewTarget("linux", "x86_64", (2, 35), "OS.linux? && Hardware::CPU.intel?"),
+    HomebrewTarget("linux", "aarch64", (2, 35), "OS.linux? && Hardware::CPU.arm?"),
+)
+
 # The formula uses ordinary CPython, not a free-threaded or debug interpreter.
 _HOMEBREW_WHEEL_PYTHON_ABIS = (
     {(_HOMEBREW_PYTHON_TAG, _HOMEBREW_PYTHON_TAG), (_HOMEBREW_PYTHON_TAG, "none")}
@@ -38,47 +59,18 @@ _HOMEBREW_WHEEL_PYTHON_ABIS = (
 _VERSION_MARKER_NAMES = frozenset(
     {"python_full_version", "python_version", "implementation_version"}
 )
-_HOMEBREW_MARKER_ENVIRONMENTS = (
+_HOMEBREW_MARKER_ENVIRONMENTS = tuple(
     {
-        "sys_platform": "darwin",
-        "platform_system": "Darwin",
+        "sys_platform": target.system,
+        "platform_system": "Darwin" if target.system == "darwin" else "Linux",
         "os_name": "posix",
-        "platform_machine": "arm64",
+        "platform_machine": target.architecture,
         "platform_python_implementation": "CPython",
         "implementation_name": "cpython",
         "python_full_version": f"3.{_HOMEBREW_PYTHON_MINOR}.0",
         "python_version": f"3.{_HOMEBREW_PYTHON_MINOR}",
-    },
-    {
-        "sys_platform": "darwin",
-        "platform_system": "Darwin",
-        "os_name": "posix",
-        "platform_machine": "x86_64",
-        "platform_python_implementation": "CPython",
-        "implementation_name": "cpython",
-        "python_full_version": f"3.{_HOMEBREW_PYTHON_MINOR}.0",
-        "python_version": f"3.{_HOMEBREW_PYTHON_MINOR}",
-    },
-    {
-        "sys_platform": "linux",
-        "platform_system": "Linux",
-        "os_name": "posix",
-        "platform_machine": "x86_64",
-        "platform_python_implementation": "CPython",
-        "implementation_name": "cpython",
-        "python_full_version": f"3.{_HOMEBREW_PYTHON_MINOR}.0",
-        "python_version": f"3.{_HOMEBREW_PYTHON_MINOR}",
-    },
-    {
-        "sys_platform": "linux",
-        "platform_system": "Linux",
-        "os_name": "posix",
-        "platform_machine": "aarch64",
-        "platform_python_implementation": "CPython",
-        "implementation_name": "cpython",
-        "python_full_version": f"3.{_HOMEBREW_PYTHON_MINOR}.0",
-        "python_version": f"3.{_HOMEBREW_PYTHON_MINOR}",
-    },
+    }
+    for target in _HOMEBREW_TARGETS
 )
 
 
@@ -153,7 +145,31 @@ def _supports_homebrew_python(filename: str) -> bool:
     )
 
 
-def _choose_wheel(package: dict[str, object], predicate: str) -> dict[str, object] | None:
+def _supports_platform(tag: str, target: HomebrewTarget) -> bool:
+    if tag == "any":
+        return True
+    if target.system == "darwin":
+        match = re.fullmatch(r"macosx_(\d+)_(\d+)_(arm64|x86_64|universal2)", tag)
+        return bool(
+            match
+            and match[3] in (target.architecture, "universal2")
+            and (int(match[1]), int(match[2])) <= target.minimum_version
+        )
+    match = re.fullmatch(r"manylinux_(\d+)_(\d+)_(x86_64|aarch64)", tag)
+    if match:
+        return (
+            match[3] == target.architecture
+            and (int(match[1]), int(match[2])) <= target.minimum_version
+        )
+    legacy = re.fullmatch(r"manylinux(1|2010|2014)_(x86_64|aarch64)", tag)
+    return bool(
+        legacy
+        and legacy[2] == target.architecture
+        and (legacy[1] == "2014" or target.architecture == "x86_64")
+    )
+
+
+def _choose_wheel(package: dict[str, object], target: HomebrewTarget) -> dict[str, object] | None:
     wheels = package.get("wheels", [])
     if not isinstance(wheels, list):
         return None
@@ -162,12 +178,16 @@ def _choose_wheel(package: dict[str, object], predicate: str) -> dict[str, objec
         if not isinstance(wheel, dict):
             continue
         filename = _wheel_filename(wheel)
-        if re.search(predicate, filename) and _supports_homebrew_python(filename):
+        platform_tags = filename.removesuffix(".whl").rsplit("-", 1)[-1].split(".")
+        if _supports_homebrew_python(filename) and any(
+            _supports_platform(tag, target) for tag in platform_tags
+        ):
             matches.append(wheel)
     if not matches:
         return None
     matches.sort(
         key=lambda wheel: (
+            _wheel_filename(wheel).endswith("-any.whl"),
             _HOMEBREW_PYTHON_TAG not in _wheel_filename(wheel),
             _wheel_filename(wheel),
         )
@@ -176,44 +196,17 @@ def _choose_wheel(package: dict[str, object], predicate: str) -> dict[str, objec
 
 
 def _choose_package_file_for_resource(
-    package: dict[str, object], current_url: str
+    package: dict[str, object], target: HomebrewTarget
 ) -> tuple[str, str] | None:
-    sdist = package.get("sdist")
-    if not current_url.endswith(".tar.gz"):
-        for pattern in _wheel_patterns_for_resource(current_url):
-            wheel = _choose_wheel(package, pattern)
-            if wheel is not None:
-                return str(wheel["url"]), _sha256_from_lock_hash(str(wheel["hash"]))
-    if isinstance(sdist, dict):
-        return str(sdist["url"]), _sha256_from_lock_hash(str(sdist["hash"]))
+    selected = _choose_wheel(package, target)
+    if selected is None:
+        selected = package.get("sdist")
+    if isinstance(selected, dict):
+        url = str(selected["url"])
+        if not url.startswith("https://"):
+            raise ValueError(f"locked package URL is not HTTPS: {url}")
+        return url, _sha256_from_lock_hash(str(selected["hash"]))
     return None
-
-
-def _macos_wheel_patterns(current_url: str) -> tuple[str, ...]:
-    universal = r"macosx.*universal2|universal2.*macosx"
-    if "universal2" not in current_url:
-        for architecture in ("arm64", "x86_64"):
-            if architecture in current_url:
-                return (rf"macosx.*{architecture}|{architecture}.*macosx", universal)
-    return (universal, r"macosx")
-
-
-def _wheel_patterns_for_resource(current_url: str) -> tuple[str, ...]:
-    if "none-any.whl" in current_url:
-        return (r"none-any\.whl$",)
-    if "macosx" in current_url:
-        return _macos_wheel_patterns(current_url)
-    arm = "aarch64" in current_url or "arm64" in current_url
-    if "manylinux" in current_url:
-        if arm:
-            return (r"manylinux.*aarch64|aarch64.*manylinux",)
-        if "x86_64" in current_url:
-            return (r"manylinux.*x86_64|x86_64.*manylinux",)
-    if arm:
-        return (r"aarch64|arm64",)
-    if "x86_64" in current_url:
-        return (r"x86_64",)
-    return (r"\.whl$",)
 
 
 def _load_lock_packages(lock_path: Path) -> dict[str, dict[str, object]]:
@@ -230,13 +223,6 @@ def _load_lock_packages(lock_path: Path) -> dict[str, dict[str, object]]:
             continue
         by_name[_normalize_package_name(name_value)] = package
     return by_name
-
-
-def _resource_package_names(formula: str) -> set[str]:
-    return {
-        _normalize_package_name(match.group(1))
-        for match in re.finditer(r'^\s*resource "([^"]+)" do\s*$', formula, flags=re.MULTILINE)
-    }
 
 
 def _formula_dependency_names(formula: str) -> set[str]:
@@ -259,14 +245,15 @@ def _compare_marker_values(left: str, right: str, op: ast.cmpop, *, left_name: s
         return left in right
     if isinstance(op, ast.NotIn):
         return left not in right
-    compare = {
+    comparisons: dict[type[ast.cmpop], Callable[..., bool]] = {
         ast.Eq: operator.eq,
         ast.NotEq: operator.ne,
         ast.Lt: operator.lt,
         ast.LtE: operator.le,
         ast.Gt: operator.gt,
         ast.GtE: operator.ge,
-    }.get(type(op))
+    }
+    compare = comparisons.get(type(op))
     if compare is None:
         raise ValueError(f"unsupported marker operator: {ast.dump(op)}")
     if (
@@ -384,79 +371,51 @@ def _required_runtime_resource_names(
     return required
 
 
-def _validate_resource_inventory(formula: str, lock_packages: dict[str, dict[str, object]]) -> None:
-    resource_names = _resource_package_names(formula)
-    formula_dependency_names = _formula_dependency_names(formula)
-    required_resources = _required_runtime_resource_names(
-        lock_packages,
-        formula_dependency_names=formula_dependency_names,
+def _resource_block(package_name: str, selected: tuple[str, str], indent: str) -> str:
+    url, sha = selected
+    return (
+        f'{indent}resource "{package_name}" do\n'
+        f'{indent}  url "{url}"\n'
+        f'{indent}  sha256 "{sha}"\n'
+        f"{indent}end\n"
     )
-    missing_resources = sorted(required_resources - resource_names)
-    if missing_resources:
-        joined = ", ".join(missing_resources)
-        raise ValueError(
-            f"formula template is missing resource blocks for runtime packages: {joined}"
+
+
+def _render_resource(package_name: str, package: dict[str, object]) -> str:
+    choices: dict[tuple[str, str], list[str]] = {}
+    for target in _HOMEBREW_TARGETS:
+        selected = _choose_package_file_for_resource(package, target)
+        if selected is None:
+            raise ValueError(
+                f"no locked package file matches {package_name} on "
+                f"{target.system}/{target.architecture}"
+            )
+        choices.setdefault(selected, []).append(target.condition)
+    if len(choices) == 1:
+        return _resource_block(package_name, next(iter(choices)), "  ")
+
+    blocks = []
+    for index, (selected, conditions) in enumerate(choices.items()):
+        keyword = "if" if index == 0 else "elsif"
+        condition = (
+            conditions[0]
+            if len(conditions) == 1
+            else " || ".join(f"({value})" for value in conditions)
         )
-    stale_resources = sorted(resource_names - required_resources)
-    if stale_resources:
-        joined = ", ".join(stale_resources)
-        raise ValueError(f"formula template contains stale runtime resource blocks: {joined}")
-
-
-def _resource_block_fields(lines: list[str], index: int, package_name: str) -> tuple[int, int, int]:
-    block_end = index + 1
-    url_idx = None
-    sha_idx = None
-    while block_end < len(lines):
-        stripped = lines[block_end].strip()
-        if stripped.startswith('url "') and url_idx is None:
-            url_idx = block_end
-        elif stripped.startswith('sha256 "') and sha_idx is None:
-            sha_idx = block_end
-        elif stripped == "end":
-            break
-        block_end += 1
-    if url_idx is None or sha_idx is None or block_end >= len(lines):
-        raise ValueError(f"formula resource block is malformed: {package_name}")
-    return url_idx, sha_idx, block_end
-
-
-def _rewrite_resource_block(
-    lines: list[str], index: int, package_name: str, package: dict[str, object]
-) -> int:
-    url_idx, sha_idx, block_end = _resource_block_fields(lines, index, package_name)
-    current_url_match = re.search(r'url "([^"]+)"', lines[url_idx])
-    if current_url_match is None:
-        raise ValueError(f"formula resource URL is malformed: {package_name}")
-    selected = _choose_package_file_for_resource(package, current_url_match.group(1))
-    if selected is None:
-        raise ValueError(f"no locked package file matches formula resource: {package_name}")
-    new_url, new_sha = selected
-    if not new_url.startswith("https://"):
-        raise ValueError(f"locked package URL is not HTTPS for resource: {package_name}")
-    url_indent = lines[url_idx][: len(lines[url_idx]) - len(lines[url_idx].lstrip())]
-    sha_indent = lines[sha_idx][: len(lines[sha_idx]) - len(lines[sha_idx].lstrip())]
-    lines[url_idx] = f'{url_indent}url "{new_url}"\n'
-    lines[sha_idx] = f'{sha_indent}sha256 "{new_sha}"\n'
-    return block_end + 1
+        blocks.append(f"  {keyword} {condition}\n")
+        blocks.append(_resource_block(package_name, selected, "    "))
+    blocks.append("  end\n")
+    return "".join(blocks)
 
 
 def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str, object]]) -> str:
-    _validate_resource_inventory(formula, lock_packages)
-    lines = formula.splitlines(keepends=True)
-    index = 0
-    while index < len(lines):
-        match = re.match(r'\s*resource "([^"]+)" do\s*$', lines[index])
-        if not match:
-            index += 1
-            continue
-        package_name = _normalize_package_name(match.group(1))
-        package = lock_packages.get(package_name)
-        if package is None:
-            raise ValueError(f"formula resource package not found in uv.lock: {package_name}")
-        index = _rewrite_resource_block(lines, index, package_name, package)
-
-    return "".join(lines)
+    if formula.splitlines().count(_RESOURCE_PLACEHOLDER) != 1:
+        raise ValueError("formula template must contain exactly one locked resource placeholder")
+    required = _required_runtime_resource_names(
+        lock_packages, formula_dependency_names=_formula_dependency_names(formula)
+    )
+    resources = "\n".join(_render_resource(name, lock_packages[name]) for name in sorted(required))
+    return formula.replace(_RESOURCE_PLACEHOLDER + "\n", resources)
 
 
 def _parse_args() -> argparse.Namespace:
