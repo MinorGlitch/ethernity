@@ -82,7 +82,7 @@ test("browser recovery rejects silent latest without a freshness decision", asyn
 
   await assert.rejects(
     () => recoverPlaintextCore([root], { verifySignature: verifiedSignature }),
-    /latest recovery requires an expected head hash or explicit freshness-unknown acknowledgement/u,
+    /Enter the expected backup fingerprint, or confirm that newer updates may be missing\./u,
   );
 });
 
@@ -178,7 +178,7 @@ test("browser recovery rejects stale latest chain when expected head differs", a
           expectedHeadDocHashHex: ext2.docHashHex,
         },
       }),
-    /validated extension head doc_hash does not match expected head/,
+    /The recovered version does not match your expected fingerprint/,
   );
 });
 
@@ -446,7 +446,7 @@ test("browser recovery rejects duplicate authenticated extension indexes for lat
       recoverLatestFromPlaintextDocuments([root, ext2, ext1, conflictingExt2], {
         verifySignature: verifiedSignature,
       }),
-    /multiple authenticated extensions for index 2/,
+    /Two signed updates have the same number \(2\)/,
   );
 });
 

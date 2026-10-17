@@ -6,10 +6,9 @@
     "node": "^24.19.0 || >=26.5.0"
   },
   "imports": {
-    "#kit-scanner-panel": "./app/components/QrScannerPanel.jsx",
-    "#kit-scanner-runtime": "./app/hooks/useQrScannerRuntime_jsqr.js"
+    "#kit-scanner": "./app/scanner/panel.js"
   },
-  "main": "app/index.jsx",
+  "main": "app/index.js",
   "directories": {
     "lib": "lib"
   },

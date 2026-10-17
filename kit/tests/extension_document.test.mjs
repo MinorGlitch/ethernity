@@ -17,7 +17,7 @@ import { defaultExtensionChunker } from "../app/extensions/chunking.js";
 import { addFrame } from "../app/frames_apply.js";
 import { decodeFrame } from "../app/frames_protocol.js";
 import { createInitialState } from "../app/state/initial.js";
-import { selectFrameDiagnostics } from "../app/state/selectors.js";
+import { selectActionState } from "../app/state/selectors.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { blake2b256 } from "../lib/blake2b.js";
 import { bytesToHex } from "../lib/bytes.js";
@@ -518,10 +518,9 @@ test("browser frame collection rejects AUTH duplicates with changed signed field
   assert.equal(documentCounts(state).authDuplicates, 0);
   assert.equal(documentCounts(state).authConflicts, 1);
   assert.equal(primaryDocumentRecord(state).authStatus, "conflicting auth payloads");
-  assert.equal(
-    selectFrameDiagnostics(state).find((item) => item.label === "AUTH conflicts")?.value,
-    "1",
-  );
+  state.agePassphrase = "pw";
+  assert.equal(selectActionState(state).canDecryptCiphertext, false);
+  assert.match(selectActionState(state).decryptDisabledReason, /Two AUTH sections/);
 });
 
 test("browser frame collection rejects AUTH duplicates with changed doc hash", () => {

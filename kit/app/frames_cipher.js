@@ -26,6 +26,7 @@ import {
   authOnlyDocumentRecords,
   completeDocumentRecords,
   incompleteDocumentRecords,
+  documentCounts,
 } from "./documents/store.js";
 import {
   documentIdentityFromCiphertext,
@@ -34,18 +35,19 @@ import {
 
 export function reassembleCiphertext(source) {
   if (source.total === null || source.mainFrames.size !== source.total) {
-    throw new Error("missing frames");
+    throw new Error("Add all parts of this backup before continuing.");
   }
   const chunks = [];
   for (let i = 0; i < source.total; i += 1) {
     const frame = source.mainFrames.get(i);
-    if (!frame) throw new Error(`missing frame ${i}`);
+    if (!frame)
+      throw new Error(`A backup part is missing (data index ${i}). Add the remaining pages.`);
     chunks.push(frame.data);
   }
   const totalLen = chunks.reduce((sum, arr) => sum + arr.length, 0);
   if (totalLen > MAX_CIPHERTEXT_BYTES) {
     throw new Error(
-      `reassembled payload exceeds MAX_CIPHERTEXT_BYTES (${MAX_CIPHERTEXT_BYTES}): ${totalLen} bytes`,
+      `This backup is too large for the kit (${totalLen} bytes; limit ${MAX_CIPHERTEXT_BYTES}). Use the Ethernity app to recover it.`,
     );
   }
   const out = new Uint8Array(totalLen);
@@ -85,22 +87,45 @@ export function syncCollectedCiphertext(state) {
   }
 }
 
-export function collectedRecoveryDocuments(
+// Shared by the controls and recovery action. This inspects collection readiness;
+// ciphertext identity, resource limits, and signatures are still checked during recovery.
+export function inspectCollectedDocuments(
   state,
   { allowIncomplete = false, allowAuthOnly = false } = {},
 ) {
+  const counts = documentCounts(state);
+  const complete = completeDocumentRecords(state);
   const incomplete = incompleteDocumentRecords(state);
-  if (incomplete.length && !allowIncomplete) {
-    const docIds = incomplete.map((record) => record.docIdHex).join(", ");
-    throw new Error(`incomplete backup document(s): ${docIds}`);
-  }
   const authOnly = authOnlyDocumentRecords(state);
-  if (authOnly.length && !allowAuthOnly) {
-    const docIds = authOnly.map((record) => record.docIdHex).join(", ");
-    throw new Error(`AUTH frame(s) without MAIN document: ${docIds}`);
+  let error = null;
+  if (counts.conflicts) {
+    error = new RecoveryError(
+      "DOCUMENT_INVALID",
+      "Two copies of the same backup part contain different data. Start over with one matching page set.",
+    );
+  } else if (counts.authConflicts) {
+    error = new RecoveryError("AUTH_CONFLICT", "conflicting AUTH frames detected");
+  } else if (counts.authErrors) {
+    error = new RecoveryError("AUTH_PAYLOAD_INVALID", "invalid AUTH frames detected");
+  } else if (incomplete.length && !allowIncomplete) {
+    error = new Error(
+      `Add the missing pages for these documents: ${incomplete.map((record) => record.docIdHex).join(", ")}.`,
+    );
+  } else if (authOnly.length && !allowAuthOnly) {
+    error = new Error(
+      `Add the MAIN section for these documents: ${authOnly.map((record) => record.docIdHex).join(", ")}. Only their AUTH section has been added.`,
+    );
+  } else if (!complete.length) {
+    error = new RecoveryError("INPUT_REQUIRED", "Collected ciphertext not available yet.");
   }
+  return { complete, incomplete, authOnly, error };
+}
+
+export function collectedRecoveryDocuments(state, options) {
+  const selection = inspectCollectedDocuments(state, options);
+  if (selection.error) throw selection.error;
   const documents = [];
-  for (const record of completeDocumentRecords(state)) {
+  for (const record of selection.complete) {
     const docHash = ensureDocumentCiphertextAndHash(record);
     const identity = documentIdentityFromDocHash(docHash);
     documents.push({
@@ -150,6 +175,8 @@ function enforceDerivedDocId(record, identity) {
     return;
   }
   if (identity.docIdHex !== record.docIdHex) {
-    throw new Error("document doc_id does not match derived ciphertext hash");
+    throw new Error(
+      "The document ID does not match the backup data. Start over with another copy of the matching pages.",
+    );
   }
 }

@@ -19,7 +19,7 @@ import { cloneShardSets } from "../shard_store.js";
 import { cloneDocuments } from "../documents/store.js";
 import { readEmbeddedKitMetadata } from "../kit_metadata.js";
 
-export function createBaseState() {
+export function createInitialState() {
   readEmbeddedKitMetadata();
   return {
     revision: 0,
@@ -53,15 +53,6 @@ export function createBaseState() {
   };
 }
 
-export function createInitialState() {
-  const state = createBaseState();
-  setStatus(state, "frameStatus", ["State cleared."]);
-  setStatus(state, "shardStatus", ["Shard state cleared."]);
-  setStatus(state, "extractStatus", []);
-  setStatus(state, "decryptStatus", []);
-  return state;
-}
-
 export function setStatus(state, key, lines, type = "") {
   state[key] = { lines, type };
 }
@@ -74,15 +65,14 @@ export function bumpError(state, key) {
   state[key] += 1;
 }
 
+// Also accepts a partial state patch. Only copy the mutable data being changed.
 export function cloneState(state) {
-  return {
-    ...state,
-    documents: cloneDocuments(state.documents),
-    shardSets: cloneShardSets(state.shardSets),
-    extractedFiles: state.extractedFiles.slice(),
-    frameStatus: { ...state.frameStatus },
-    shardStatus: { ...state.shardStatus },
-    extractStatus: { ...state.extractStatus },
-    decryptStatus: { ...state.decryptStatus },
-  };
+  const copy = { ...state };
+  if (state.documents) copy.documents = cloneDocuments(state.documents);
+  if (state.shardSets) copy.shardSets = cloneShardSets(state.shardSets);
+  if (state.extractedFiles) copy.extractedFiles = state.extractedFiles.slice();
+  for (const key of ["frameStatus", "shardStatus", "extractStatus", "decryptStatus"]) {
+    if (state[key]) copy[key] = { ...state[key] };
+  }
+  return copy;
 }

@@ -1,8 +1,5 @@
-import {
-  selectCiphertextSource,
-  selectShardInputs,
-  selectShardKeyLabel,
-} from "../app/state/selectors.js";
+import { inspectCollectedDocuments } from "../app/frames_cipher.js";
+import { selectShardInputs, selectShardKeyLabel } from "../app/state/selectors.js";
 import {
   addMainDocumentFrame,
   primaryDocumentRecord,
@@ -23,7 +20,7 @@ import {
   SHARD_KEY_SIGNING_SEED,
   MAX_QR_PAYLOAD_CHARS,
 } from "../app/constants.js";
-import { dispatchState } from "../app/state_actions.js";
+import { dispatchPatch } from "../app/state_actions.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -204,9 +201,13 @@ test("state cloning and reset preserve mutable-field isolation", () => {
   assert.equal(shardPayload.share[0], 2);
 
   let committed = createInitialState();
-  dispatchState((action) => {
-    committed = reducer(committed, action);
-  }, cloned);
+  dispatchPatch(
+    (action) => {
+      committed = reducer(committed, action);
+    },
+    () => cloned,
+    cloned,
+  );
   const committedDocument = primaryDocumentRecord(committed);
   const committedShards = activeShardSetRecord(committed);
   primaryDocumentRecord(cloned).mainFrames.clear();
@@ -217,9 +218,13 @@ test("state cloning and reset preserve mutable-field isolation", () => {
   assert.equal(committedDocument.authStatus, "missing");
   assert.equal(committedShards.shardFrames.get(1).signatureVerified, true);
   assert.equal(committedShards.shardFrames.get(1).share[0], 9);
-  dispatchState((action) => {
-    committed = reducer(committed, action);
-  }, cloned);
+  dispatchPatch(
+    (action) => {
+      committed = reducer(committed, action);
+    },
+    () => cloned,
+    cloned,
+  );
   assert.equal(primaryDocumentRecord(committed), committedDocument);
 
   resetState(state);
@@ -228,7 +233,7 @@ test("state cloning and reset preserve mutable-field isolation", () => {
   assert.equal(state.shardSets.size, 0);
   assert.equal(activeShardSetRecord(state)?.shardFrames.size ?? 0, 0);
   assert.equal(state.errors, 0);
-  assert.equal(state.frameStatus.lines[0], "State cleared.");
+  assert.deepEqual(state.frameStatus.lines, []);
 });
 
 test("reducer rejects stale state commits and bumps revision on reset", () => {
@@ -236,26 +241,26 @@ test("reducer rejects stale state commits and bumps revision on reset", () => {
   assert.equal(state.revision, 0);
 
   state = reducer(state, {
-    type: "REPLACE_STATE",
+    type: "PATCH_STATE",
     baseRevision: state.revision,
-    state: { ...state, payloadText: "a" },
+    patch: { payloadText: "a" },
   });
   assert.equal(state.payloadText, "a");
   assert.equal(state.revision, 1);
 
   const unchanged = reducer(state, {
-    type: "REPLACE_STATE",
+    type: "PATCH_STATE",
     baseRevision: 0,
-    state: { ...state, payloadText: "stale" },
+    patch: { payloadText: "stale" },
   });
   assert.equal(unchanged, state);
   assert.equal(unchanged.payloadText, "a");
   assert.equal(unchanged.revision, 1);
 
   state = reducer(state, {
-    type: "REPLACE_STATE",
+    type: "PATCH_STATE",
     baseRevision: state.revision,
-    state: { ...state, payloadText: "b" },
+    patch: { payloadText: "b" },
   });
   assert.equal(state.payloadText, "b");
   assert.equal(state.revision, 2);
@@ -263,7 +268,7 @@ test("reducer rejects stale state commits and bumps revision on reset", () => {
   state = reducer(state, { type: "RESET" });
   assert.equal(state.revision, 3);
   assert.equal(state.payloadText, "");
-  assert.equal(state.frameStatus.lines[0], "State cleared.");
+  assert.deepEqual(state.frameStatus.lines, []);
 
   const patched = reducer(state, {
     type: "PATCH_STATE",
@@ -291,7 +296,10 @@ test("record selection and diagnostics follow the stored records", () => {
   addMainDocumentFrame(state, second);
   assert.equal(documentCounts(state).duplicates, 1);
   assert.equal(primaryDocumentRecord(state), state.documents.get("01"));
-  assert.match(selectCiphertextSource(state).detail, /3 B.*2 documents/);
+  assert.deepEqual(
+    inspectCollectedDocuments(state).complete.map((record) => record.docIdHex),
+    ["01", "02"],
+  );
 
   const payload = {
     version: 1,
@@ -319,7 +327,7 @@ test("record selection and diagnostics follow the stored records", () => {
   assert.equal(shardCounts(state).conflicts, 1);
 
   addMainDocumentFrame(state, { ...first, data: Uint8Array.of(9) });
-  assert.equal(selectCiphertextSource(state).available, false);
+  assert.ok(inspectCollectedDocuments(state).error);
   assert.equal(documentCounts(state).conflicts, 1);
 });
 
@@ -339,7 +347,7 @@ test("malformed AUTH text remains an error when more documents arrive", () => {
     ),
   );
   assert.equal(documentCounts(state).authErrors, 1);
-  assert.equal(selectCiphertextSource(state).available, false);
+  assert.ok(inspectCollectedDocuments(state).error);
   resetState(state);
   assert.equal(documentCounts(state).authErrors, 0);
 });

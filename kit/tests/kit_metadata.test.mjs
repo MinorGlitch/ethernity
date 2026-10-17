@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { readEmbeddedKitMetadata } from "../app/kit_metadata.js";
-import { createBaseState } from "../app/state/initial.js";
+import { createInitialState } from "../app/state/initial.js";
 
 const HASH_A = "aa".repeat(32);
 const HASH_B = "bb".repeat(32);
@@ -23,7 +23,7 @@ test("reusable kit metadata carries no chain-specific trust claim", () => {
     capability: "ethernity-unanchored-rescue",
     version: 1,
   });
-  const state = createBaseState();
+  const state = createInitialState();
   assert.equal(state.expectedHeadDocHashText, "");
 });
 

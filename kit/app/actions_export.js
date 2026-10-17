@@ -15,12 +15,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { documentCounts, primaryDocumentRecord } from "./documents/store.js";
+import { inspectEncryptedDownload } from "./recovery_input.js";
 import { makeZip } from "../lib/zip.js";
 import { reassembleCiphertext } from "./frames_cipher.js";
 import { downloadBlob, downloadBytes } from "./io.js";
-import { cloneState } from "./state/initial.js";
-import { dispatchState, setErrorStatus, setLineStatus } from "./state_actions.js";
+import { dispatchPatch, setErrorStatus, setLineStatus } from "./state_actions.js";
 
 function basenameForExtractPath(path) {
   const parts = path.split("/").filter(Boolean);
@@ -44,24 +43,18 @@ export function resolveExtractDownload(file) {
 }
 
 export function downloadCipher(dispatch, getState) {
-  const next = cloneState(getState());
+  const current = getState();
+  const patch = {};
   try {
-    if (documentCounts(next).conflicts > 0) {
-      throw new Error("conflicting duplicate frames detected");
-    }
-    if ((next.documents?.size ?? 0) > 1) {
-      throw new Error("Encrypted file download is only available for one backup document.");
-    }
-    const record = primaryDocumentRecord(next);
-    if (!record) throw new Error("missing frames");
+    const { record, error } = inspectEncryptedDownload(current);
+    if (error) throw new Error(error);
     const ciphertext = reassembleCiphertext(record);
-    record.ciphertext = ciphertext;
     downloadBytes(ciphertext, "ciphertext.age");
-    setLineStatus(next, "frameStatus", "Downloaded ciphertext.age", "ok");
+    setLineStatus(patch, "frameStatus", "Download started: ciphertext.age.", "ok");
   } catch (err) {
-    setErrorStatus(next, "frameStatus", err);
+    setErrorStatus(patch, "frameStatus", err);
   }
-  dispatchState(dispatch, next);
+  dispatchPatch(dispatch, getState, patch);
 }
 
 export function downloadDecryptedBackup(_dispatch, getState) {
@@ -84,19 +77,20 @@ export function downloadExtract(_dispatch, getState, index) {
 }
 
 export function downloadZip(dispatch, getState) {
-  const next = cloneState(getState());
-  if (!next.extractedFiles.length) return;
+  const current = getState();
+  const patch = {};
+  if (!current.extractedFiles.length) return;
   try {
-    const zipBlob = makeZip(next.extractedFiles);
+    const zipBlob = makeZip(current.extractedFiles);
     downloadBlob(zipBlob, "recovered_files.zip");
-    setLineStatus(
-      next,
-      "extractStatus",
-      `Downloaded ${next.extractedFiles.length} file(s) as ZIP.`,
-      "ok",
-    );
+    setLineStatus(patch, "extractStatus", "Download started: recovered_files.zip.", "ok");
   } catch (err) {
-    setErrorStatus(next, "extractStatus", err);
+    setErrorStatus(
+      patch,
+      "extractStatus",
+      err,
+      "The ZIP could not be created. Try downloading the files individually.",
+    );
   }
-  dispatchState(dispatch, next);
+  dispatchPatch(dispatch, getState, patch);
 }

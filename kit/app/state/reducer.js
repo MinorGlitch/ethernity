@@ -17,10 +17,6 @@
 
 import { cloneState, createInitialState } from "./initial.js";
 
-export function initialState() {
-  return createInitialState();
-}
-
 export function reducer(state, action) {
   if (!state) {
     return createInitialState();
@@ -30,15 +26,7 @@ export function reducer(state, action) {
       if (!action.patch || action.baseRevision !== state.revision) {
         return state;
       }
-      return { ...state, ...action.patch, revision: state.revision + 1 };
-    }
-    case "REPLACE_STATE": {
-      if (!action.state || action.baseRevision !== state.revision) {
-        return state;
-      }
-      const next = cloneState(action.state);
-      next.revision = state.revision + 1;
-      return next;
+      return { ...state, ...cloneState(action.patch), revision: state.revision + 1 };
     }
     case "RESET": {
       const next = createInitialState();

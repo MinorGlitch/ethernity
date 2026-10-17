@@ -4,7 +4,6 @@
     "ignoreUnknown": true,
     "includes": [
       "app/**/*.js",
-      "app/**/*.jsx",
       "lib/**/*.js",
       "lib/**/*.mjs",
       "scripts/**/*.mjs",

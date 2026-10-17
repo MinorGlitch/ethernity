@@ -22,8 +22,6 @@ import { getSigningPublicKey, verifySignature } from "../lib/ed25519.js";
 import { AUTH_DOMAIN, AUTH_VERSION, textEncoder } from "./constants.js";
 import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 
-let authStatusQueue = Promise.resolve();
-
 export function deriveSigningPublicKey(signingSeed) {
   return getSigningPublicKey(signingSeed);
 }
@@ -39,15 +37,6 @@ function authSignatureMessage(docHash, signPub) {
 }
 
 export async function updateAuthStatus(state) {
-  const run = authStatusQueue.then(
-    () => updateAuthStatusNow(state),
-    () => updateAuthStatusNow(state),
-  );
-  authStatusQueue = run.catch(() => {});
-  await run;
-}
-
-async function updateAuthStatusNow(state) {
   for (const record of state.documents.values()) {
     await updateDocumentAuthStatus(record);
   }
@@ -107,7 +96,10 @@ export async function requireVerifiedAuthPayload(
 ) {
   const payload = document.authPayload;
   if (!payload) {
-    throw new RecoveryError("AUTH_REQUIRED", "missing AUTH payload");
+    throw new RecoveryError(
+      "AUTH_REQUIRED",
+      "Add the AUTH section from the matching backup page, then try again.",
+    );
   }
   if (!bytesEqual(payload.docHash, document.docHash)) {
     throw new RecoveryError("AUTH_DOC_HASH_MISMATCH", "AUTH doc_hash does not match ciphertext");

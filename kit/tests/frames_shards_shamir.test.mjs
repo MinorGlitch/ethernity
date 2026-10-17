@@ -610,7 +610,7 @@ test("signed v2 root-bound replacement sheets unlock without a later head; old h
     assert.equal(verification.invalid, 0);
     assert.equal(autoRecoverShardSecret(state), !bindToHead);
     if (bindToHead) {
-      assert.match(state.shardStatus.lines.join("\n"), /does not match collected ciphertext/u);
+      assert.match(state.shardStatus.lines.join("\n"), /do not match the added backup/u);
       addAuthenticatedDocument(state, headCiphertext);
       await updateAuthStatus(state);
       assert.equal(autoRecoverShardSecret(state), true);
@@ -647,10 +647,7 @@ test("shard recovery rejects shards outside verified non-primary document signin
 
   assert.equal(autoRecoverShardSecret(state), false);
   assert.equal(state.shardStatus.type, "error");
-  assert.match(
-    state.shardStatus.lines.join("\n"),
-    /signing key does not match verified document AUTH/,
-  );
+  assert.match(state.shardStatus.lines.join("\n"), /use a different signing key from the backup/);
 });
 
 test("shard recovery clears a recovered secret when later AUTH rejects the signing key", () => {
@@ -693,10 +690,7 @@ test("shard recovery clears a recovered secret when later AUTH rejects the signi
   assert.equal(autoRecoverShardSecret(state), false);
   assert.equal(state.recoveredShardSecret, "");
   assert.equal(state.agePassphrase, "");
-  assert.match(
-    state.shardStatus.lines.join("\n"),
-    /signing key does not match verified document AUTH/,
-  );
+  assert.match(state.shardStatus.lines.join("\n"), /use a different signing key from the backup/);
 });
 
 test("shard recovery ignores a set with a different signing key when a valid set is available", () => {
@@ -773,7 +767,7 @@ test("shard recovery blocks same-set shard conflicts", () => {
 
   assert.equal(autoRecoverShardSecret(state), false);
   assert.equal(state.shardStatus.type, "error");
-  assert.match(state.shardStatus.lines.join("\n"), /conflicting shard frames/);
+  assert.match(state.shardStatus.lines.join("\n"), /Two copies of the same recovery sheet/);
 });
 
 test("shard recovery matches reused root shards after extension-first scans", () => {
@@ -823,7 +817,7 @@ test("ciphertext reconstruction enforces limits and missing frames", () => {
   const missingState = createInitialState();
   const missingDocument = createTestDocument(missingState);
   missingDocument.total = 1;
-  assert.throws(() => reassembleCiphertext(missingDocument), /missing frames/);
+  assert.throws(() => reassembleCiphertext(missingDocument), /Add all parts of this backup/);
 
   const syncState = createInitialState();
   const syncDocument = createTestDocument(syncState);
@@ -955,7 +949,10 @@ test("autoRecoverShardSecret enforces gating and supports both secret types", ()
   });
   assert.equal(autoRecoverShardSecret(passphraseState), false);
   assert.equal(passphraseState.shardStatus.type, "warn");
-  assert.match(passphraseState.shardStatus.lines.join("\n"), /verify shard signatures first/);
+  assert.match(
+    passphraseState.shardStatus.lines.join("\n"),
+    /have not passed their signature checks/,
+  );
   for (const payload of passphraseShards.shardFrames.values()) {
     payload.signatureVerified = true;
   }
@@ -1005,6 +1002,7 @@ test("autoRecoverShardSecret reports ciphertext reassembly failures as shardStat
 
   assert.equal(autoRecoverShardSecret(state), false);
   assert.equal(state.shardStatus.type, "error");
-  assert.match(state.shardStatus.lines.join("\n"), /Shard recovery blocked:/);
-  assert.match(state.shardStatus.lines.join("\n"), /MAX_CIPHERTEXT_BYTES/);
+  assert.match(state.shardStatus.lines.join("\n"), /The backup could not be checked/);
+  assert.match(state.shardStatus.details.join("\n"), /too large for the kit/);
+  assert.ok(state.shardStatus.details[0].includes(`limit ${MAX_CIPHERTEXT_BYTES}`));
 });

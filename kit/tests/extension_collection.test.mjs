@@ -51,7 +51,7 @@ test("browser action state blocks latest recovery for AUTH-only extension record
   assert.equal(selectActionState(state).canDecryptCiphertext, true);
 });
 
-test("browser frame diagnostics report invalid AUTH payloads", () => {
+test("invalid AUTH payloads block recovery without a second error display", () => {
   const state = createInitialState();
   const frame = buildFrame({
     frameType: FRAME_TYPE_AUTH,
@@ -64,7 +64,13 @@ test("browser frame diagnostics report invalid AUTH payloads", () => {
 
   assert.equal(added, 0);
   assert.equal(documentCounts(state).authErrors, 1);
-  assert.equal(diagnostics.find((item) => item.label === "AUTH errors")?.value, "1");
+  state.agePassphrase = "pw";
+  assert.equal(selectActionState(state).canDecryptCiphertext, false);
+  assert.match(selectActionState(state).decryptDisabledReason, /AUTH section could not be read/);
+  assert.equal(
+    diagnostics.some((item) => item.tone === "error"),
+    false,
+  );
 });
 
 test("collected recovery documents reject frame doc_id not derived from ciphertext", () => {
@@ -77,7 +83,7 @@ test("collected recovery documents reject frame doc_id not derived from cipherte
     decodeFrame(buildFrame({ frameType: FRAME_TYPE_MAIN, docId: fakeDocId, data: ciphertext })),
   );
 
-  assert.throws(() => collectedRecoveryDocuments(state), /doc_id/);
+  assert.throws(() => collectedRecoveryDocuments(state), /document ID/);
 });
 
 test("collected recovery documents reject AUTH frames without MAIN documents", () => {
@@ -100,7 +106,7 @@ test("collected recovery documents reject AUTH frames without MAIN documents", (
     ),
   );
 
-  assert.throws(() => collectedRecoveryDocuments(state), /AUTH frame\(s\) without MAIN/);
+  assert.throws(() => collectedRecoveryDocuments(state), /Add the MAIN section/);
 });
 
 test("encrypted file download is disabled for multi-document scans", () => {
@@ -126,7 +132,7 @@ test("browser action state requires an explicit latest freshness decision", () =
   assert.equal(blocked.canDecryptCiphertext, false);
   assert.equal(
     blocked.decryptDisabledReason,
-    "latest recovery requires an expected head hash or explicit freshness-unknown acknowledgement",
+    "Enter the expected backup fingerprint, or confirm that newer updates may be missing.",
   );
 
   state.freshnessUnknownAcknowledged = true;
@@ -170,4 +176,15 @@ test("multi-document collection waits for incomplete extensions before latest re
 
   state.extensionTargetText = "root";
   assert.equal(selectActionState(state).canDecryptCiphertext, true);
+});
+
+test("root recovery requires its own valid target even when latest has an inline fingerprint", () => {
+  const state = createInitialState();
+  state.agePassphrase = "pw";
+  state.extensionTargetText = `latest:${"ab".repeat(32)}`;
+  addSingleFrameDocument(state, { ciphertext: Uint8Array.of(0xa1) });
+  assert.equal(selectActionState(state).canDecryptCiphertext, true);
+  assert.equal(selectActionState(state).canDecryptRootOnly, false);
+  state.expectedHeadDocHashText = "ab".repeat(32);
+  assert.equal(selectActionState(state).canDecryptRootOnly, true);
 });

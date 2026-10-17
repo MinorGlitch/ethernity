@@ -15,7 +15,7 @@ import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { verifyCollectedShardSignatures } from "../app/shard_auth.js";
 import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
-import { initialState, reducer } from "../app/state/reducer.js";
+import { reducer } from "../app/state/reducer.js";
 import { decryptAgePassphrase } from "../lib/age_scrypt.js";
 import { bytesToHex } from "../lib/bytes.js";
 import { ensureAtob } from "./protocol_test_data.mjs";
@@ -115,7 +115,7 @@ test("shard-first then main frames triggers recovery without re-pasting shards",
       "utf8",
     );
 
-    let state = initialState();
+    let state = createInitialState();
     const dispatch = (action) => {
       state = reducer(state, action);
     };
@@ -126,7 +126,7 @@ test("shard-first then main frames triggers recovery without re-pasting shards",
     assert.equal(state.recoveredShardSecret, "");
     assert.equal(
       state.shardStatus.lines.includes(
-        "Shard recovery blocked: collect main frames to derive ciphertext hash.",
+        "Add all backup pages first so the kit can check that these recovery sheets belong to them.",
       ),
       true,
     );

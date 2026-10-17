@@ -15,14 +15,13 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-export function StepShell({ title = "Recovery step", summary, children }) {
-  return (
-    <section class="panel step-shell">
-      <div class="step-head">
-        <h2 class="step-heading">{title}</h2>
-        {summary ? <p class="step-summary">{summary}</p> : null}
-      </div>
-      <div class="step-content">{children}</div>
-    </section>
-  );
+import { mountApp } from "./app.js";
+import { configureRecoveryWorker, serveRecoveryWorker } from "./recovery_worker.js";
+
+if (typeof document === "undefined") {
+  serveRecoveryWorker();
+} else {
+  configureRecoveryWorker(document.currentScript?.textContent ?? "");
+  const root = document.getElementById("app");
+  if (root) mountApp(root);
 }

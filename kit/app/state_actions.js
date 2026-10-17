@@ -16,15 +16,7 @@
  */
 
 import { RecoveryError } from "../lib/errors.js";
-import { bumpError, setStatus } from "./state/initial.js";
-
-export function dispatchState(dispatch, state) {
-  dispatch({ type: "REPLACE_STATE", state, baseRevision: state.revision });
-}
-
-export function dispatchReset(dispatch) {
-  dispatch({ type: "RESET" });
-}
+import { setStatus } from "./state/initial.js";
 
 export function dispatchPatch(dispatch, getState, patch) {
   const current = getState();
@@ -35,24 +27,19 @@ export function setLineStatus(state, key, line, type = "") {
   setStatus(state, key, [line], type);
 }
 
-export function setErrorStatus(state, key, error, message = String(error)) {
+export function setErrorStatus(
+  state,
+  key,
+  error,
+  message = error instanceof Error ? error.message : String(error),
+) {
   setLineStatus(state, key, message, "error");
+  const detail = error instanceof Error ? error.message : String(error);
+  if (detail !== message) state[key].details = [detail];
   if (error instanceof RecoveryError) {
     state[key].code = error.code;
     state[key].stage = error.stage;
   }
-}
-
-export function parseTextWithErrors(state, text, parseFn, errorKey) {
-  let added = 0;
-  let failed = false;
-  try {
-    added += parseFn(state, text);
-  } catch {
-    bumpError(state, errorKey);
-    failed = true;
-  }
-  return { added, failed };
 }
 
 export function clearRecoveryResult(state) {
@@ -60,17 +47,4 @@ export function clearRecoveryResult(state) {
   state.decryptedBackup = null;
   setStatus(state, "extractStatus", []);
   setStatus(state, "decryptStatus", []);
-}
-
-export function cancelDecryptRequest(state) {
-  if (!state.isDecrypting) {
-    return;
-  }
-  state.isDecrypting = false;
-  state.decryptRequestId += 1;
-}
-
-export function applyExtractResult(state, result) {
-  state.extractedFiles = result.files;
-  setStatus(state, "extractStatus", []);
 }

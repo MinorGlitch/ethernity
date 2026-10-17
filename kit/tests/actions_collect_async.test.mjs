@@ -198,7 +198,7 @@ test("async main followups do not overwrite reset state", async () => {
 
   const finalState = store.getState();
   assert.equal(primaryDocumentRecord(finalState), null);
-  assert.equal(finalState.frameStatus.lines[0], "State cleared.");
+  assert.deepEqual(finalState.frameStatus.lines, []);
 });
 
 test("shard followups wait for pending AUTH before recovering a shard secret", async () => {
@@ -279,7 +279,7 @@ test("shard followups wait for pending AUTH before recovering a shard secret", a
     assert.equal(finalState.agePassphrase, "");
     assert.match(
       finalState.shardStatus.lines.join("\n"),
-      /signing key does not match verified document AUTH/,
+      /use a different signing key from the backup/,
     );
   } finally {
     globalThis.crypto = originalCrypto;
@@ -367,7 +367,10 @@ test("scanned payload parse failures report an error status", async () => {
   const finalState = store.getState();
   assert.equal(finalState.errors, 1);
   assert.equal(finalState.frameStatus.type, "error");
-  assert.equal(finalState.frameStatus.lines[0], "Scanned QR could not be decoded.");
+  assert.equal(
+    finalState.frameStatus.lines[0],
+    "This QR code could not be read as backup data. Try scanning it again or paste the text from the page.",
+  );
 });
 
 for (const method of ["paste", "scan"]) {
@@ -406,5 +409,150 @@ test("scanned shard parse failures report an error status", async () => {
   assert.deepEqual(finalState.extractedFiles, []);
   assert.equal(finalState.extractedFiles.length > 0, false);
   assert.equal(finalState.shardStatus.type, "error");
-  assert.equal(finalState.shardStatus.lines[0], "Scanned shard QR could not be decoded.");
+  assert.equal(
+    finalState.shardStatus.lines[0],
+    "This QR code could not be read as a recovery sheet. Try scanning it again or paste the text from the page.",
+  );
+});
+
+test("repeated scans are benign; conflicts stay visible after more valid input", async () => {
+  const store = createStore();
+  const data = Uint8Array.of(8, 9);
+  const docId = blake2b256(data).slice(0, 8);
+  const original = buildFrame({ frameType: FRAME_TYPE_MAIN, docId, data });
+  const scan = (bytes) => addScannedPayload(store.dispatch, store.getState, { bytes });
+  await scan(original);
+  await scan(original);
+  assert.equal(store.getState().frameStatus.type, "");
+  assert.match(store.getState().frameStatus.lines[0], /Already added/);
+  assert.equal(primaryDocumentRecord(store.getState()).mainFrames.size, 1);
+
+  await scan(buildFrame({ frameType: FRAME_TYPE_MAIN, docId, data: Uint8Array.of(10) }));
+  assert.equal(store.getState().frameStatus.type, "error");
+  assert.match(store.getState().frameStatus.lines[0], /different data/);
+  const moreData = Uint8Array.of(11);
+  await scan(
+    buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: blake2b256(moreData).slice(0, 8),
+      data: moreData,
+    }),
+  );
+  assert.equal(store.getState().frameStatus.type, "error");
+  assert.equal(store.getState().frameStatus.lines[0], "Added 1 backup part.");
+  assert.match(store.getState().frameStatus.lines[1], /Start over/);
+});
+
+test("repeated AUTH scans do not report a new backup part", async () => {
+  const store = createStore();
+  const hash = blake2b256(Uint8Array.of(8));
+  const bytes = buildFrame({
+    frameType: FRAME_TYPE_AUTH,
+    docId: hash.slice(0, 8),
+    data: encodeCbor({ version: AUTH_VERSION, hash, pub: AUTH_SIGN_PUB, sig: new Uint8Array(64) }),
+  });
+  await addScannedPayload(store.dispatch, store.getState, { bytes });
+  await addScannedPayload(store.dispatch, store.getState, { bytes });
+  assert.match(store.getState().frameStatus.lines[0], /Already added/);
+  assert.equal(store.getState().frameStatus.type, "");
+  assert.equal(store.getState().documents.size, 1);
+});
+
+// Use deferred verification to exercise edits during real collection work, without sleeps.
+async function withVerificationGate(run) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  const started = deferred();
+  const release = deferred();
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: {
+      subtle: {
+        async importKey() {
+          return {};
+        },
+        async verify() {
+          started.resolve();
+          await release.promise;
+          return true;
+        },
+      },
+    },
+  });
+  try {
+    await run(started.promise, release.resolve);
+  } finally {
+    release.resolve();
+    if (original) Object.defineProperty(globalThis, "crypto", original);
+    else delete globalThis.crypto;
+  }
+}
+
+test("editing inputs during AUTH verification keeps both edits and verified records", async () => {
+  await withVerificationGate(async (started, release) => {
+    const store = createStore();
+    const data = Uint8Array.of(8, 9);
+    const hash = blake2b256(data);
+    const docId = hash.slice(0, 8);
+    store.getState().payloadText = [
+      buildFrame({ frameType: FRAME_TYPE_MAIN, docId, data }),
+      buildFrame({
+        frameType: FRAME_TYPE_AUTH,
+        docId,
+        data: encodeCbor({
+          version: AUTH_VERSION,
+          hash,
+          pub: AUTH_SIGN_PUB,
+          sig: new Uint8Array(64),
+        }),
+      }),
+    ]
+      .map(toUnpaddedBase64)
+      .join("\n");
+    const pending = addPayloads(store.dispatch, store.getState);
+    await started;
+    updateField(store.dispatch, store.getState, "payloadText", "next page");
+    updateField(store.dispatch, store.getState, "agePassphrase", "typed while verifying");
+    release();
+    await pending;
+    assert.equal(primaryDocumentRecord(store.getState()).authStatus, "verified");
+    assert.equal(store.getState().payloadText, "next page");
+    assert.equal(store.getState().agePassphrase, "typed while verifying");
+    assert.equal(store.getState().isAddingFrames, false);
+  });
+});
+
+test("sheet verification preserves edits and publishes the recovered secret", async () => {
+  const store = createStore();
+  const data = Uint8Array.of(8, 7, 6);
+  const hash = blake2b256(data);
+  const docId = hash.slice(0, 8);
+  await addScannedPayload(store.dispatch, store.getState, {
+    bytes: buildFrame({ frameType: FRAME_TYPE_MAIN, docId, data }),
+  });
+  store.getState().shardPayloadText = [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+  ]
+    .map(([shareIndex, shareHex]) =>
+      toUnpaddedBase64(
+        buildFrame({
+          frameType: FRAME_TYPE_KEY,
+          docId,
+          data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash: hash })),
+        }),
+      ),
+    )
+    .join("\n");
+  await withVerificationGate(async (started, release) => {
+    const pending = addShardPayloads(store.dispatch, store.getState);
+    await started;
+    updateField(store.dispatch, store.getState, "shardPayloadText", "next sheet");
+    updateField(store.dispatch, store.getState, "agePassphrase", "my own passphrase");
+    release();
+    await pending;
+    assert.equal(store.getState().recoveredShardSecret, FIXTURE_PASSPHRASE);
+    assert.equal(store.getState().agePassphrase, "my own passphrase");
+    assert.equal(store.getState().shardPayloadText, "next sheet");
+    assert.equal(store.getState().isAddingShards, false);
+  });
 });
