@@ -148,6 +148,7 @@ class DecodedImportSession:
     """One bounded decrypt pass shared by import classification and chain replay."""
 
     root_document: ImportedRecoveryDocument
+    root_backup: tuple[BackupManifest, bytes]
     entries: tuple[_DecodedImportEntry, ...]
     locked_passphrase: str
 
@@ -373,7 +374,7 @@ def _select_root_import_session_candidate(
 ) -> DecodedImportSession:
     """Classify all imports using exactly one already-selected passphrase candidate."""
 
-    roots: list[ImportedRecoveryDocument] = []
+    roots: list[tuple[ImportedRecoveryDocument, tuple[BackupManifest, bytes]]] = []
     decoded_entries: list[_DecodedImportEntry] = []
     extension_count = 0
     decode_errors: list[str] = []
@@ -391,21 +392,24 @@ def _select_root_import_session_candidate(
         plaintext = entry.plaintext
         try:
             header = read_document_header(plaintext)
-            decoded = decode_document(plaintext)[1] if header.kind == DocumentKind.BACKUP else None
+            decoded = (
+                _decode_root_plaintext(plaintext) if header.kind == DocumentKind.BACKUP else None
+            )
         except ExtensionDecodedChunkBudgetError:
             raise
         except Exception as exc:
             non_passphrase_failures += 1
             decode_errors.append(f"{document.doc_id.hex()}: {exc}")
             continue
-        if isinstance(decoded, tuple) and len(decoded) == 2:
-            roots.append(document)
+        if decoded is not None:
+            roots.append((document, decoded))
         elif header.kind == DocumentKind.UPDATE:
             extension_count += 1
 
     if len(roots) == 1:
         return DecodedImportSession(
-            root_document=roots[0],
+            root_document=roots[0][0],
+            root_backup=roots[0][1],
             entries=tuple(decoded_entries),
             locked_passphrase=passphrase,
         )
@@ -1349,11 +1353,11 @@ def decode_imported_root_manifest(
     *,
     decoded_import_session: DecodedImportSession,
 ) -> tuple[BackupManifest, bytes]:
-    """Decode a root using plaintext authenticated by an earlier import decrypt pass."""
+    """Return the parsed root retained by the earlier import decrypt pass."""
 
     if document.doc_hash != decoded_import_session.root_document.doc_hash:
         raise ValueError("decoded import session root does not match selected root document")
-    return _decode_root_plaintext(decoded_import_session.plaintext_for(document))
+    return decoded_import_session.root_backup
 
 
 def _decode_root_plaintext(plaintext: bytes) -> tuple[BackupManifest, bytes]:

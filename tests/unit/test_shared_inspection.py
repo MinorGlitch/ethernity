@@ -86,10 +86,10 @@ class TestSharedInspection(unittest.TestCase):
             details={"stage": "inspect"},
         )
 
-        self.assertEqual(issue["code"], issue_codes.AUTH_REQUIRED)
-        self.assertEqual(issue["details"], {"stage": "inspect"})
+        self.assertEqual(issue.code, issue_codes.AUTH_REQUIRED)
+        self.assertEqual(issue.details, {"stage": "inspect"})
 
     def test_blocking_issue_preserves_domain_code(self) -> None:
         issue = blocking_issue(code="AD_HOC_FAILURE", message="ad hoc")
 
-        self.assertEqual(issue["code"], "AD_HOC_FAILURE")
+        self.assertEqual(issue.code, "AD_HOC_FAILURE")

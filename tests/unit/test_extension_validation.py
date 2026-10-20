@@ -18,8 +18,9 @@ from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
 from ethernity.formats.extension_document import ExtensionChunkingProfile, ExtensionDocument
 from ethernity.formats.extension_mode import UpdateMode
 from ethernity.formats.manifest import BackupFile, BackupManifest
+from ethernity.workflows.recovery.models import RecoveryUnlockStatus
 from ethernity.workflows.recovery.planning import RecoveryPlan
-from ethernity.workflows.recovery.source_state import recovery_source_fields
+from ethernity.workflows.recovery.source_state import LoadedRecoverySource, recovery_source_fields
 from ethernity.workflows.shared.operation_types import InputFile
 
 SIGNING_SEED = b"s" * 32
@@ -132,9 +133,17 @@ def _plan(
         auth_payload=root.auth_payload,
         auth_status="verified",
         allow_unsigned=False,
-        passphrase="test",
+        unlock=RecoveryUnlockStatus(
+            mode="passphrase",
+            passphrase_provided=True,
+            validated_shard_count=0,
+            required_shard_threshold=None,
+            satisfied=True,
+            resolved_passphrase="test",
+        ),
+        blocking_issues=(),
         output_path=None,
-        import_documents=tuple(imported),
+        loaded_source=LoadedRecoverySource((), (), tuple(imported), None, None),
     )
 
 

@@ -122,19 +122,6 @@ class TestReplacementRecoveryService(unittest.TestCase):
                 secret_label="passphrase",
             )
 
-    def test_raise_if_under_quorum_replacement_inputs_adds_legacy_hint(self) -> None:
-        resolution = replacement_service._ReplacementShardResolution(
-            provided_count=1,
-            threshold=2,
-            shard_version=1,
-        )
-
-        with self.assertRaisesRegex(ValueError, "legacy v1"):
-            replacement_service._raise_if_under_quorum_replacement_inputs(
-                resolution,
-                secret_label="passphrase",
-            )
-
     @mock.patch(
         "ethernity.workflows.replacement_recovery.service._replacement_payloads_from_frames",
         side_effect=[

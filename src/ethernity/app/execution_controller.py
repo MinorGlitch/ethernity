@@ -14,16 +14,15 @@ from ethernity.app.execution import (
 )
 from ethernity.app.operation_progress import OperationProgress, OperationProgressSink
 from ethernity.app.task_catalog import TASK_TITLES
-from ethernity.security.resource_worker import terminate_active_workers
-from ethernity.tasks.models import TaskExecutionResult
-from ethernity.tasks.task_types import TaskKey
-from ethernity.workflows.shared.events import emit_finalizing, event_session
-from ethernity.workflows.shared.execution_control import (
+from ethernity.core.execution_control import (
     ExecutionControl,
     OperationCancelled,
     cancellation_point,
     execution_session,
 )
+from ethernity.tasks.models import TaskExecutionResult
+from ethernity.tasks.task_types import TaskKey
+from ethernity.workflows.shared.events import emit_finalizing, event_session
 
 ResultType = TypeVar("ResultType")
 CallThreadReturnType = TypeVar("CallThreadReturnType")
@@ -143,7 +142,6 @@ class ExecutionController:
             return
         if event.state == WorkerState.CANCELLED:
             self._control.request_cancel()
-            terminate_active_workers()
             self._cancelled_worker = event.worker
             if self._thread_finished:
                 self._finish_cancelled(event.worker)

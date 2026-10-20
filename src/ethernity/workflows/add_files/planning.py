@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ethernity.config import load_app_config
 from ethernity.core.validation import validate_manifest_file_tree
@@ -29,8 +29,6 @@ from ethernity.extensions.chain import ValidatedChainState, replay_authenticated
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
     ChainRecoveryResult,
-    imported_documents_from_recovery_frames,
-    recover_chain_entries,
 )
 from ethernity.formats.extension_document import derive_chain_id
 from ethernity.formats.extension_mode import UpdateMode, resolve_update_mode
@@ -39,8 +37,8 @@ from ethernity.workflows.add_files.errors import AddFilesIssue, AddFilesWorkflow
 from ethernity.workflows.add_files.request import AddFilesRequest
 from ethernity.workflows.add_files.scope import load_selected_scope, summarize_scope_diff
 from ethernity.workflows.recovery.models import RecoveryInspection
-from ethernity.workflows.recovery.planning import RecoveryPlan, inspect_from_request
-from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.workflows.recovery.planning import inspect_from_request, plan_from_inspection
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError
 from ethernity.workflows.shared.input_scope import InputScopeDiff, SelectedInputScope
@@ -115,11 +113,9 @@ class ResolvedAddFilesState:
         return self.inspection.blocking_issues
 
 
-def inspect_add_files(request: AddFilesRequest) -> AddFilesInspection:
-    return resolve_add_files_state(request).inspection
-
-
-def resolve_add_files_state(request: AddFilesRequest) -> ResolvedAddFilesState:
+def resolve_add_files_state(
+    request: AddFilesRequest, *, session: RecoverySession | None = None
+) -> ResolvedAddFilesState:
     """Capture one authenticated source version for inspection and later publication."""
 
     if not (
@@ -130,13 +126,15 @@ def resolve_add_files_state(request: AddFilesRequest) -> ResolvedAddFilesState:
             message="Provide backup PDFs, images, recovery text, or QR payloads for Add Files.",
         )
     with recovery_kdf_budget():
-        return _resolve_content_state(request)
+        return _resolve_content_state(request, session=session or RecoverySession())
 
 
-def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
+def _resolve_content_state(
+    request: AddFilesRequest, *, session: RecoverySession
+) -> ResolvedAddFilesState:
     try:
         selected_input = load_selected_scope(request)
-        root = inspect_from_request(_recovery_request(request))
+        root = inspect_from_request(_recovery_request(request), session=session)
     except FileNotFoundError as exc:
         raise AddFilesWorkflowError(
             code=issue_codes.NOT_FOUND, message=str(exc), details={"path": exc.filename}
@@ -148,11 +146,13 @@ def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
     except ValueError as exc:
         raise AddFilesWorkflowError(code=issue_codes.INVALID_INPUT, message=str(exc)) from exc
 
-    source_frames = (*root.source_frames, *root.source_extra_auth_frames)
-    documents = (
-        imported_documents_from_recovery_frames(list(source_frames)) if source_frames else ()
-    )
-    issues = [AddFilesIssue.from_mapping(issue) for issue in root.blocking_issues]
+    source = root.loaded_source
+    source_frames = (*source.recovery_frames, *source.extra_auth_frames)
+    documents = source.documents
+    issues = [
+        AddFilesIssue(issue.code, issue.message, dict(issue.details))
+        for issue in root.blocking_issues
+    ]
     chain: ValidatedChainState | None = None
     recovered: ChainRecoveryResult | None = None
     signing_seed: bytes | None = None
@@ -160,7 +160,16 @@ def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
     update_mode = resolve_update_mode(None, request.update_mode)
     if root.unlock.satisfied and root.unlock.resolved_passphrase and not issues:
         try:
-            recovered = recover_chain_entries(_recovery_plan(root, request), debug=False)
+            recovered = session.recover_chain(
+                plan_from_inspection(
+                    root,
+                    replace(
+                        _recovery_request(request),
+                        expected_head_doc_hash=request.expected_head_doc_hash,
+                    ),
+                ),
+                debug=False,
+            )
             if recovered.manifest.sealed:
                 issues.append(
                     AddFilesIssue(
@@ -300,36 +309,6 @@ def _recovery_request(request: AddFilesRequest) -> RecoveryRequest:
         auth_payloads_file=request.auth_payloads_file,
         auth_frames=request.auth_frames,
         quiet=request.quiet,
-    )
-
-
-def _recovery_plan(root: RecoveryInspection, request: AddFilesRequest) -> RecoveryPlan:
-    if root.unlock.resolved_passphrase is None:
-        raise ValueError("Backup passphrase is missing.")
-    return RecoveryPlan(
-        ciphertext=root.ciphertext,
-        doc_id=root.doc_id,
-        doc_hash=root.doc_hash,
-        passphrase=root.unlock.resolved_passphrase,
-        auth_payload=root.auth_payload,
-        auth_status=root.auth_status,
-        allow_unsigned=False,
-        output_path=None,
-        import_documents=imported_documents_from_recovery_frames(
-            [*root.source_frames, *root.source_extra_auth_frames]
-        ),
-        decoded_import_session=root.decoded_import_session,
-        expected_head_doc_hash=request.expected_head_doc_hash,
-        source=RecoverySourceFields(
-            input_label=root.input_label,
-            input_detail=root.input_detail,
-            main_frames=root.main_frames,
-            auth_frames=root.auth_frames,
-            shard_frames=root.shard_frames,
-            shard_fallback_files=root.shard_fallback_files,
-            shard_payloads_file=root.shard_payloads_file,
-            shard_scan=root.shard_scan,
-        ),
     )
 
 

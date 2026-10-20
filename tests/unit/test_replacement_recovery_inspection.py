@@ -12,7 +12,6 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest import mock
 
-from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE
 from ethernity.crypto.signing import AuthPayload, derive_public_key, sign_auth
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.extensions.recovery import ValidatedRecoveryHead
@@ -21,7 +20,11 @@ from ethernity.workflows.recovery.planning import (
     RecoveryPlan,
     RecoveryUnlockStatus,
 )
-from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.workflows.recovery.source_state import (
+    LoadedRecoveryInputs,
+    LoadedRecoverySource,
+    RecoverySourceFields,
+)
 from ethernity.workflows.replacement_recovery.service import (
     _recover_replacement_chain,
     execute_replacement_recovery_operation,
@@ -29,7 +32,8 @@ from ethernity.workflows.replacement_recovery.service import (
 )
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError as ApiCommandError
-from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
+from ethernity.workflows.shared.inspection import BlockingIssue
+from ethernity.workflows.shared.requests import RecoveryRequest, ReplacementRecoveryRequest
 
 ROOT_SIGNING_SEED = b"\x33" * 32
 ROOT_SIGN_PUB = derive_public_key(ROOT_SIGNING_SEED)
@@ -47,16 +51,12 @@ def _root_auth(doc_hash: bytes = b"\x77" * 32) -> AuthPayload:
 def _state(*, shard_frames: tuple[Frame, ...] = ()) -> SimpleNamespace:
     return SimpleNamespace(
         config=SimpleNamespace(),
-        recover_args=SimpleNamespace(),
-        frames=(),
-        extra_auth_frames=(),
-        shard_frames=shard_frames,
-        shard_fallback_files=(),
-        shard_payloads_file=(),
-        shard_scan=(),
+        recover_args=RecoveryRequest(),
+        loaded=LoadedRecoveryInputs(
+            source=LoadedRecoverySource((), (), (), "Scan", "/tmp/root"),
+            shard_frames=shard_frames,
+        ),
         signing_key_frames=(),
-        input_label="Scan",
-        input_detail="/tmp/root",
     )
 
 
@@ -67,6 +67,7 @@ def _recovery(
     passphrase: str | None = "passphrase",
 ) -> RecoveryInspection:
     return RecoveryInspection(
+        loaded_source=LoadedRecoverySource((), (), (), None, None),
         ciphertext=b"root-ciphertext",
         doc_id=b"\x66" * 8,
         doc_hash=b"\x77" * 32,
@@ -104,13 +105,21 @@ def _plan(
         ciphertext=b"root-ciphertext",
         doc_id=b"\x66" * 8,
         doc_hash=b"\x77" * 32,
-        passphrase="passphrase",
+        unlock=RecoveryUnlockStatus(
+            mode="passphrase",
+            passphrase_provided=True,
+            validated_shard_count=0,
+            required_shard_threshold=None,
+            satisfied=True,
+            resolved_passphrase="passphrase",
+        ),
+        blocking_issues=(),
         auth_payload=_root_auth(),
         auth_status="verified",
         allow_unsigned=False,
         output_path=None,
         expected_head_doc_hash=expected_head_doc_hash,
-        import_documents=import_documents,
+        loaded_source=LoadedRecoverySource((), (), import_documents, None, None),
         source=RecoverySourceFields(
             input_label="Scan",
             input_detail="/tmp/root",
@@ -157,20 +166,17 @@ def _chain(*, extension: bool = True) -> SimpleNamespace:
 class TestReplacementRecoveryInspection(unittest.TestCase):
     def test_inspection_deduplicates_auth_required_blockers(self) -> None:
         args = ReplacementRecoveryRequest(payloads_file="main.txt", quiet=True)
-        auth_required = {
-            "code": "AUTH_REQUIRED",
-            "message": (
-                "replacement recovery requires an authenticated backup input with an AUTH payload"
-            ),
-            "details": {},
-        }
+        auth_required = BlockingIssue(
+            "AUTH_REQUIRED",
+            "replacement recovery requires an authenticated backup input with an AUTH payload",
+        )
         with (
             mock.patch(
                 "ethernity.workflows.replacement_recovery.service._load_replacement_input_state",
                 return_value=_state(),
             ),
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service.inspect_recovery_inputs",
+                "ethernity.workflows.replacement_recovery.service.inspect_loaded_recovery",
                 return_value=_recovery(auth_payload=None, satisfied=False, passphrase=None),
             ),
             mock.patch(
@@ -186,7 +192,7 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         ):
             inspection = inspect_replacement_recovery_inputs(args)
 
-        issues = [item for item in inspection.blocking_issues if item["code"] == "AUTH_REQUIRED"]
+        issues = [item for item in inspection.blocking_issues if item.code == "AUTH_REQUIRED"]
         self.assertEqual(len(issues), 1)
 
     def test_inspection_uses_root_binding_after_validating_selected_chain_head(self) -> None:
@@ -207,12 +213,11 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
                 return_value=_state(),
             ),
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_try_build_replacement_recovery_plan",
+                "ethernity.workflows.replacement_recovery.service.plan_from_inspection",
                 return_value=root_plan,
             ),
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service.inspect_recovery_inputs",
+                "ethernity.workflows.replacement_recovery.service.inspect_loaded_recovery",
                 return_value=_recovery(auth_payload=_root_auth()),
             ),
             mock.patch(
@@ -237,7 +242,9 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         self.assertEqual(inspection.selected_extension_index, 1)
         self.assertEqual(inspection.selected_extension_doc_hash, "44" * 32)
         self.assertEqual(captured["recovery"].doc_hash, root_plan.doc_hash)
-        recover_chain.assert_called_once_with(root_plan, debug=False, allow_stale_head=False)
+        recover_chain.assert_called_once_with(
+            root_plan, debug=False, allow_stale_head=False, session=mock.ANY
+        )
 
     def test_chain_failure_does_not_add_misleading_unlock_failure(self) -> None:
         args = ReplacementRecoveryRequest(
@@ -249,12 +256,11 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
                 return_value=_state(),
             ),
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_try_build_replacement_recovery_plan",
+                "ethernity.workflows.replacement_recovery.service.plan_from_inspection",
                 return_value=_plan(import_documents=(object(), object())),
             ),
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service.inspect_recovery_inputs",
+                "ethernity.workflows.replacement_recovery.service.inspect_loaded_recovery",
                 return_value=_recovery(auth_payload=_root_auth()),
             ),
             mock.patch(
@@ -274,7 +280,7 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         ):
             inspection = inspect_replacement_recovery_inputs(args)
 
-        codes = [item["code"] for item in inspection.blocking_issues]
+        codes = [item.code for item in inspection.blocking_issues]
         self.assertIn(issue_codes.RECOVERY_HEAD_UNTRUSTED, codes)
         self.assertNotIn("UNLOCK_FAILED", codes)
         self.assertIsNone(inspection.manifest)
@@ -292,7 +298,15 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         plan = _plan()
         plan = replace(
             plan,
-            passphrase="derived-passphrase",
+            unlock=RecoveryUnlockStatus(
+                mode="shards",
+                passphrase_provided=False,
+                validated_shard_count=2,
+                required_shard_threshold=2,
+                satisfied=True,
+                resolved_passphrase="derived-passphrase",
+                shard_share_count=3,
+            ),
             source=replace(
                 plan.source,
                 shard_frames=(shard_frame,),
@@ -306,23 +320,13 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
                 return_value=_state(shard_frames=(shard_frame,)),
             ),
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_try_build_replacement_recovery_plan",
+                "ethernity.workflows.replacement_recovery.service.plan_from_inspection",
                 return_value=plan,
             ),
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service.inspect_recovery_inputs",
-                return_value=_recovery(auth_payload=_root_auth(), satisfied=False),
+                "ethernity.workflows.replacement_recovery.service.inspect_loaded_recovery",
+                return_value=plan,
             ) as inspect_recovery,
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service.decode_shard_payload",
-                return_value=SimpleNamespace(
-                    key_type=KEY_TYPE_PASSPHRASE,
-                    threshold=2,
-                    share_count=3,
-                    share_index=1,
-                ),
-            ),
             mock.patch(
                 "ethernity.workflows.replacement_recovery.service._recover_replacement_chain",
                 return_value=_chain(extension=False),
@@ -340,7 +344,8 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         ):
             inspection = inspect_replacement_recovery_inputs(args)
 
-        self.assertEqual(inspect_recovery.call_args.kwargs["passphrase"], "derived-passphrase")
+        inspect_recovery.assert_called_once()
+        self.assertIs(inspection.recovery, plan)
         self.assertEqual(inspection.recovery.unlock.mode, "shards")
         self.assertEqual(inspection.recovery.unlock.required_shard_threshold, 2)
         self.assertEqual(inspection.recovery.unlock.resolved_passphrase, "derived-passphrase")
@@ -354,14 +359,22 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         )
         captured: dict[str, object] = {}
 
-        def capture_plan(**kwargs):
-            captured.update(kwargs)
+        def capture_plan(loaded, request, **kwargs):
+            captured.update(
+                extension_index=request.extension_index,
+                expected_head_doc_hash=request.expected_head_doc_hash,
+            )
             raise RuntimeError("stop")
 
         with (
             mock.patch(
                 "ethernity.workflows.replacement_recovery.service._load_replacement_input_state",
-                return_value=_state(),
+                return_value=SimpleNamespace(
+                    **{
+                        **vars(_state()),
+                        "recover_args": replace(args.recovery_request(), extension_index=0),
+                    }
+                ),
             ),
             mock.patch(
                 "ethernity.workflows.replacement_recovery.service.build_recovery_plan",
@@ -396,7 +409,7 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         plan = _plan(import_documents=(object(), object()))
         chain = _chain()
         with mock.patch(
-            "ethernity.workflows.replacement_recovery.service.recover_chain_entries",
+            "ethernity.extensions.recovery.recover_chain_entries",
             return_value=chain,
         ) as recover:
             actual = _recover_replacement_chain(plan, debug=True, allow_stale_head=True)
@@ -408,7 +421,7 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
         plan = _plan(import_documents=(object(), object()))
         with (
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service.recover_chain_entries",
+                "ethernity.extensions.recovery.recover_chain_entries",
                 return_value=_chain(),
             ),
             self.assertRaises(ApiCommandError) as caught,

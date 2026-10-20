@@ -24,6 +24,7 @@ from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.formats.manifest import BackupManifest, ManifestFile
 from ethernity.workflows.recovery.execution import decrypt_manifest_extract_selection
 from ethernity.workflows.recovery.planning import RecoveryPlan, plan_from_request
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared.events import (
     EventSink,
     active_event_sink,
@@ -69,13 +70,14 @@ def prepare_recover_plan(
     args: RecoveryRequest,
     *,
     event_sink: EventSink | None = None,
+    session: RecoverySession | None = None,
 ) -> RecoveryPlan:
     with (
         event_session(event_sink),
         recovery_kdf_budget(),
     ):
         emit_phase(phase="plan", label="Resolving recovery inputs")
-        plan = plan_from_request(args)
+        plan = plan_from_request(args, session=session)
         plan.emit_plan_progress()
         return plan
 
@@ -88,6 +90,7 @@ def execute_recover_plan(
     debug_max_bytes: int = 0,
     debug_reveal_secrets: bool = False,
     emit_written_files: bool = True,
+    session: RecoverySession | None = None,
     event_sink: EventSink | None = None,
 ) -> RecoverExecutionResult:
     with (
@@ -129,7 +132,7 @@ def execute_recover_plan(
                 emit_written_file(kind="recovered_file", path=written_path, details=file_payload)
 
         emit_phase(phase="decrypt", label="Decrypting and extracting payload")
-        decrypted = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
+        decrypted = decrypt_manifest_extract_selection(plan, debug=debug, session=session)
         manifest = decrypted.manifest
         extracted = list(decrypted.extracted)
         authenticated = plan.auth_status == "verified" and plan.auth_payload is not None

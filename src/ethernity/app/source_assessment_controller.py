@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass, field
 from typing import Protocol, cast
 
 from textual.app import App
 
 from ethernity.app.workflow_state import WorkflowUiState
-from ethernity.security.resource_worker import terminate_active_workers
+from ethernity.core.execution_control import (
+    ExecutionControl,
+    OperationCancelled,
+    cancellation_point,
+    execution_session,
+)
 from ethernity.tasks import source_assessment as source_assessment_module
 from ethernity.tasks.source_assessment import (
     SourceAssessableTaskState,
@@ -26,37 +32,73 @@ class _SourceAssessmentHost(Protocol):
     def refresh_task_view(self) -> None: ...
 
 
+@dataclass
+class _AssessmentRun:
+    request: SourceAssessmentRequest
+    control: ExecutionControl = field(default_factory=ExecutionControl)
+    completion: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def assess(self) -> SourceAssessment:
+        with execution_session(self.control):
+            cancellation_point()
+            result = source_assessment_module.assess_source_request(self.request)
+            cancellation_point()
+            return result
+
+
 class SourceAssessmentController:
     """Own the asynchronous lifecycle for read-only guided-source inspection."""
 
     def __init__(self, app: _SourceAssessmentHost) -> None:
         self._app = app
-        self._generation: dict[TaskKey, int] = {}
-        self._completion: dict[TaskKey, asyncio.Event] = {}
+        self._runs: dict[TaskKey, _AssessmentRun] = {}
+        self._closed = False
+
+    def close(self) -> None:
+        self._closed = True
+        for task in tuple(self._runs):
+            self._cancel(task)
+
+    def _cancel(self, task: TaskKey) -> None:
+        previous = self._runs.pop(task, None)
+        if previous is not None:
+            previous.control.request_cancel()
+            previous.completion.set()
+        self._refresh(task)
+
+    def _refresh(self, task: TaskKey) -> None:
+        ui_state = self._app.workflow_ui_states.get(task)
+        if ui_state is not None:
+            ui_state.source_assessment_loading = task in self._runs
+        if self._app.is_running:
+            self._app.refresh_task_view()
 
     def request(self, task: TaskKey) -> None:
         """Schedule an assessment after a source mutation without blocking the UI."""
 
+        if self._closed:
+            return
         state = self._state(task)
         ui_state = self._app.workflow_ui_states.get(task)
         if state is None or ui_state is None:
+            self._cancel(task)
             self._app.refresh_task_view()
             return
 
         request = state.source_assessment_request()
+        previous = self._runs.get(task)
+        if request is not None and previous is not None and previous.request.key == request.key:
+            return
+        self._cancel(task)
         if request is None:
-            self._next_generation(task)
-            ui_state.source_assessment_loading = False
-            self._app.refresh_task_view()
             return
 
-        generation = self._next_generation(task)
-        self._completion[task] = asyncio.Event()
-        ui_state.source_assessment_loading = True
-        self._app.refresh_task_view()
+        run = _AssessmentRun(request)
+        self._runs[task] = run
+        self._refresh(task)
         app = cast(App[object], self._app)
         app.run_worker(
-            self._assess(task, generation, request),
+            self._assess(task, run),
             name=f"assess-{task}-source",
             group=f"assess-{task}-source",
             exclusive=True,
@@ -65,87 +107,51 @@ class SourceAssessmentController:
     async def ensure_current(self, task: TaskKey) -> SourceAssessment | None:
         """Await a missing current assessment before opening final review."""
 
-        state = self._state(task)
-        ui_state = self._app.workflow_ui_states.get(task)
-        if state is None or ui_state is None:
-            return None
-        request = state.source_assessment_request()
-        if request is None:
-            return None
-        current = state.current_source_assessment()
-        if current is not None:
-            return current
-
-        while ui_state.source_assessment_loading:
-            completion = self._completion.get(task)
-            if completion is None:
-                break
-            await completion.wait()
+        while not self._closed:
+            state = self._state(task)
+            if state is None:
+                return None
+            request = state.source_assessment_request()
+            if request is None:
+                return None
             current = state.current_source_assessment()
             if current is not None:
                 return current
-
-        request = state.source_assessment_request()
-        if request is None:
-            return None
-        generation = self._next_generation(task)
-        self._completion[task] = asyncio.Event()
-        ui_state.source_assessment_loading = True
-        self._app.refresh_task_view()
-        try:
-            assessment = await asyncio.to_thread(
-                source_assessment_module.assess_source_request,
-                request,
-            )
-            if self._generation.get(task) == generation and state.store_source_assessment(
-                request, assessment
-            ):
-                return assessment
-            return None
-        finally:
-            self._finish(task, generation)
+            run = self._runs.get(task)
+            if run is None or run.request.key != request.key:
+                self.request(task)
+            run = self._runs.get(task)
+            if run is None:
+                return None
+            await run.completion.wait()
+        return None
 
     async def _assess(
         self,
         task: TaskKey,
-        generation: int,
-        request: SourceAssessmentRequest,
+        run: _AssessmentRun,
     ) -> None:
         state = self._state(task)
         if state is None:
-            self._finish(task, generation)
+            self._finish(task, run)
             return
         try:
-            assessment = await asyncio.to_thread(
-                source_assessment_module.assess_source_request,
-                request,
-            )
-            if self._generation.get(task) == generation:
-                state.store_source_assessment(request, assessment)
+            assessment = await asyncio.to_thread(run.assess)
+            if self._runs.get(task) is run:
+                state.store_source_assessment(run.request, assessment)
+        except asyncio.CancelledError:
+            run.control.request_cancel()
+            raise
+        except OperationCancelled:
+            pass
         finally:
-            self._finish(task, generation)
+            self._finish(task, run)
 
-    def _finish(self, task: TaskKey, generation: int) -> None:
-        if self._generation.get(task) != generation:
-            return
-        ui_state = self._app.workflow_ui_states.get(task)
-        if ui_state is not None:
-            ui_state.source_assessment_loading = False
-        completion = self._completion.get(task)
-        if completion is not None:
-            completion.set()
-        if self._app.is_running:
-            self._app.refresh_task_view()
-
-    def _next_generation(self, task: TaskKey) -> int:
-        if task in self._generation:
-            terminate_active_workers()
-        completion = self._completion.get(task)
-        if completion is not None:
-            completion.set()
-        generation = self._generation.get(task, 0) + 1
-        self._generation[task] = generation
-        return generation
+    def _finish(self, task: TaskKey, run: _AssessmentRun) -> None:
+        run.completion.set()
+        if self._runs.get(task) is run:
+            del self._runs[task]
+            self._refresh(task)
 
     def _state(self, task: TaskKey) -> SourceAssessableTaskState | None:
         state = getattr(self._app, f"{task}_state", None)

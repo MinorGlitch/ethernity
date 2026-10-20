@@ -41,8 +41,6 @@ from ethernity.tasks.presentation.recovery import (
 from ethernity.tasks.recovery_inputs import (
     has_recovery_source,
     has_unlock_inputs,
-    recovery_text_error,
-    recovery_text_frames,
 )
 from ethernity.tasks.source_assessment import (
     ContentRecoveryTaskState,
@@ -71,10 +69,7 @@ class RestoreTaskState(ContentRecoveryTaskState):
 
     def sections(self) -> tuple[TaskSection, ...]:
         destination_warning = self._destination_warning()
-        source_error = recovery_text_error(
-            self.recovery_text,
-            allow_invalid_auth=self.allow_unsigned,
-        )
+        source_error = self.parsed_recovery_text(allow_unsigned=self.allow_unsigned).error
         return (
             self.source_section(
                 "Backup source",
@@ -226,7 +221,7 @@ class RestoreTaskState(ContentRecoveryTaskState):
         validation = self.validate_task()
         validation.require_ready("Restore is not ready.")
 
-        result = execute_recovery(self.to_recovery_request())
+        result = execute_recovery(self.to_recovery_request(), session=self.recovery_session)
         return TaskExecutionResult(
             status="succeeded",
             message="Recovered files written.",
@@ -289,14 +284,7 @@ class RestoreTaskState(ContentRecoveryTaskState):
     def to_recovery_request(self) -> RecoveryRequest:
         return RecoveryRequest(
             config_path=self.config_path,
-            frames=tuple(
-                recovery_text_frames(
-                    self.recovery_text,
-                    allow_invalid_auth=self.allow_unsigned,
-                    quiet=True,
-                )
-                or ()
-            ),
+            frames=self.parsed_recovery_text(allow_unsigned=self.allow_unsigned).require_frames(),
             recovery_text_file=self.external_recovery_text_file,
             payloads_file=self.payloads_file,
             scan_paths=tuple(self.source_paths),

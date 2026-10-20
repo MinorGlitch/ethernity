@@ -82,8 +82,8 @@ def check_generated_recovery(
         recovered = execute_recovery(
             RecoveryRequest(
                 config_path=config_path,
-                frames=inspection.source_frames,
-                auth_frames=inspection.source_extra_auth_frames,
+                frames=inspection.loaded_source.recovery_frames,
+                auth_frames=inspection.loaded_source.extra_auth_frames,
                 shard_frames=selected_sheets,
                 passphrase=None if selected_sheets else passphrase,
                 extension_index=base.extension_index,
@@ -106,10 +106,10 @@ def _require_ready_inspection(inspection: RecoveryInspection) -> None:
     other_issues = [
         issue
         for issue in inspection.blocking_issues
-        if issue.get("code") != issue_codes.PASSPHRASE_REQUIRED
+        if issue.code != issue_codes.PASSPHRASE_REQUIRED
     ]
     if other_issues:
-        raise ValueError(str(other_issues[0].get("message", "Document recovery check failed.")))
+        raise ValueError(other_issues[0].message)
     if inspection.unlock.mode == "missing":
         raise GeneratedRecoveryPassphraseRequired(
             "Enter the passphrase printed in the recovery document to check these PDFs."

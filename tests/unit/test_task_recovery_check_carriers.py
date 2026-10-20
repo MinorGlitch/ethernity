@@ -49,7 +49,7 @@ def test_backup_adapters_preserve_the_new_document_identity(
         result = workflow_execution.execute_backup(requests.BackupRequest())
     else:
         monkeypatch.setattr(
-            workflow_execution, "execute_rebuild_operation", lambda _request: produced
+            workflow_execution, "execute_rebuild_operation", lambda _request, **options: produced
         )
         result = workflow_execution.execute_rebuild(requests.RebuildRequest())
 
@@ -90,7 +90,7 @@ def test_backup_producers_mark_carriers_by_role_without_guessing_filenames(
             signing_key_shard_threshold=2 if with_sheets else None,
             signing_key_shard_count=2 if with_sheets else None,
         )
-        monkeypatch.setattr(backup, "execute_backup", lambda _request: execution)
+        monkeypatch.setattr(backup, "execute_backup", lambda _request, **options: execution)
     else:
         state = RebuildTaskState(
             backup_folder=tmp_path / "old-backup",
@@ -98,7 +98,7 @@ def test_backup_producers_mark_carriers_by_role_without_guessing_filenames(
             passphrase="secret",
             output_dir=tmp_path / "output",
         )
-        monkeypatch.setattr(rebuild, "execute_rebuild", lambda _request: execution)
+        monkeypatch.setattr(rebuild, "execute_rebuild", lambda _request, **options: execution)
 
     result = state.execute()
 

@@ -58,8 +58,6 @@ from ethernity.tasks.presentation.recovery import (
 from ethernity.tasks.recovery_inputs import (
     has_recovery_source,
     has_unlock_inputs,
-    recovery_text_error,
-    recovery_text_frames,
 )
 from ethernity.tasks.source_assessment import (
     ContentRecoveryTaskState,
@@ -189,7 +187,9 @@ class AddFilesTaskState(ContentRecoveryTaskState):
             self._assessment_cache = None
             return
         key = self._assessment_key()
-        assessment = assess_add_files(self.to_add_files_request(quiet=True))
+        assessment = assess_add_files(
+            self.to_add_files_request(quiet=True), session=self.recovery_session
+        )
         if assessment.issues:
             issue = assessment.issues[0]
             self._assessment_cache = _AssessmentCache(
@@ -213,7 +213,7 @@ class AddFilesTaskState(ContentRecoveryTaskState):
                     section="source",
                 )
             )
-        if self.recovery_text and recovery_text_error(self.recovery_text) is not None:
+        if self.recovery_text and self.parsed_recovery_text().error is not None:
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_RECOVERY_TEXT_INVALID",
@@ -561,7 +561,7 @@ class AddFilesTaskState(ContentRecoveryTaskState):
             if self.recovery_text_file is not None
             else None,
             payloads_file=str(self.payloads_file) if self.payloads_file is not None else None,
-            frames=tuple(recovery_text_frames(self.recovery_text, quiet=quiet) or ()),
+            frames=self.parsed_recovery_text().require_frames(),
             auth_text_file=str(self.auth_text_file) if self.auth_text_file is not None else None,
             auth_payloads_file=str(self.auth_payloads_file)
             if self.auth_payloads_file is not None

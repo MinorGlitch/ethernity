@@ -587,7 +587,7 @@ def test_large_result_paths_scroll_while_actions_stay_visible() -> None:
 
 
 def test_replacement_result_reports_only_files_in_the_output_folder(monkeypatch) -> None:
-    def fake_execute_replacement_recovery(request: object) -> SimpleNamespace:
+    def fake_execute_replacement_recovery(request: object, *, session) -> SimpleNamespace:
         return SimpleNamespace(
             shard_paths=(
                 Path("replacement-docs/passphrase-1.pdf"),

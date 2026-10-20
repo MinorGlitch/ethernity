@@ -12,13 +12,13 @@ from ethernity.app.execution import ReviewedTask
 from ethernity.app.operation_progress import OperationProgress
 from ethernity.app.screens.task_progress import TaskProgressScreen
 from ethernity.app.screens.task_result import TaskResultScreen
-from ethernity.tasks.backup import BackupTaskState
-from ethernity.tasks.models import TaskExecutionResult
-from ethernity.workflows.shared import events
-from ethernity.workflows.shared.execution_control import (
+from ethernity.core.execution_control import (
     begin_final_write,
     cancellation_point,
 )
+from ethernity.tasks.backup import BackupTaskState
+from ethernity.tasks.models import TaskExecutionResult
+from ethernity.workflows.shared import events
 from tests.support.app import run_app_test
 
 

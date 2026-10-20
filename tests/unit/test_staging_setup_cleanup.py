@@ -7,13 +7,13 @@ from unittest.mock import Mock
 import pytest
 
 from ethernity.config import AppConfig
+from ethernity.core.execution_control import OperationCancelled
 from ethernity.core.models import DocumentPlan
 from ethernity.crypto.signing import derive_public_key
 from ethernity.qr.codec import QrConfig
 from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.backup import execution as backup
 from ethernity.workflows.replacement_recovery import service as replacement
-from ethernity.workflows.shared.execution_control import OperationCancelled
 from ethernity.workflows.shared.operation_types import InputFile
 from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
 

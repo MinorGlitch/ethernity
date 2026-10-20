@@ -58,7 +58,7 @@ def test_execution_accepts_the_same_request_as_its_service(
     )
     received = []
 
-    def prepare_or_execute(value):
+    def prepare_or_execute(value, **options):
         received.append(value)
         return result
 

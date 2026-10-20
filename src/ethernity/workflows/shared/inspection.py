@@ -18,10 +18,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 
 from ethernity.workflows.shared.events import CommandError
 
-BlockingIssue = dict[str, object]
+
+@dataclass(frozen=True)
+class BlockingIssue:
+    """A recovery failure retained as domain data until an adapter presents it."""
+
+    code: str
+    message: str
+    details: dict[str, object] = field(default_factory=dict)
 
 
 def blocking_issue(
@@ -32,11 +40,7 @@ def blocking_issue(
 ) -> BlockingIssue:
     """Keep an issue code, message, and details together."""
 
-    return {
-        "code": code,
-        "message": message,
-        "details": dict(details or {}),
-    }
+    return BlockingIssue(code, message, dict(details or {}))
 
 
 def blocking_issue_from_exception(

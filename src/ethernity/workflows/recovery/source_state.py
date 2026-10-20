@@ -5,14 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
-from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
-from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.frame_sets import (
     deduplicate_auth_frames,
     deduplicate_frame_slots,
     split_main_and_auth_frames,
 )
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.extensions.recovery import ImportedRecoveryDocument
 from ethernity.workflows.recovery.constants import RECOVERY_SCAN_LABEL
 
 
@@ -51,6 +50,51 @@ class AssembledRecoveryDocument:
     doc_hash: bytes
 
 
+@dataclass(frozen=True)
+class LoadedRecoverySource:
+    """Imported source bytes, including sheets needed by maintenance workflows."""
+
+    frames: tuple[Frame, ...]
+    extra_auth_frames: tuple[Frame, ...]
+    documents: tuple[ImportedRecoveryDocument, ...]
+    input_label: str | None
+    input_detail: str | None
+
+    @property
+    def recovery_frames(self) -> tuple[Frame, ...]:
+        return tuple(frame for frame in self.frames if frame.frame_type != FrameType.KEY_DOCUMENT)
+
+    @property
+    def sheet_frames(self) -> tuple[Frame, ...]:
+        return tuple(frame for frame in self.frames if frame.frame_type == FrameType.KEY_DOCUMENT)
+
+    def assembled_root(self, doc_id: bytes) -> AssembledRecoveryDocument:
+        document = next((item for item in self.documents if item.doc_id == doc_id), None)
+        if document is None:
+            raise ValueError("Selected root is not part of the imported source.")
+        frames = [frame for frame in self.recovery_frames if frame.doc_id == doc_id]
+        extra_auth = self.extra_auth_frames
+        if len(self.documents) > 1:
+            extra_auth = tuple(frame for frame in extra_auth if frame.doc_id == doc_id)
+        main, auth = split_main_and_auth_frames(deduplicate_frame_slots(frames))
+        auth = deduplicate_auth_frames([*auth, *extra_auth])
+        return AssembledRecoveryDocument(
+            source=recovery_source_fields(self.input_label, self.input_detail, main, auth),
+            ciphertext=document.ciphertext,
+            doc_id=document.doc_id,
+            doc_hash=document.doc_hash,
+        )
+
+
+@dataclass(frozen=True)
+class LoadedRecoveryInputs:
+    source: LoadedRecoverySource
+    shard_frames: tuple[Frame, ...] = ()
+    shard_fallback_files: tuple[str, ...] = ()
+    shard_payload_files: tuple[str, ...] = ()
+    shard_scan: tuple[str, ...] = ()
+
+
 def recovery_source_fields(
     input_label: str | None,
     input_detail: str | None,
@@ -82,23 +126,3 @@ def require_recovery_frames(frames: Sequence[Frame], input_label: str | None) ->
         else "Check the input path and try again."
     )
     raise ValueError(f"no backup data found. {hint}")
-
-
-def assemble_recovery_document(
-    frames: Sequence[Frame],
-    extra_auth_frames: Sequence[Frame],
-    *,
-    input_label: str | None,
-    input_detail: str | None,
-) -> AssembledRecoveryDocument:
-    main_frames, auth_frames = split_main_and_auth_frames(deduplicate_frame_slots(list(frames)))
-    if extra_auth_frames:
-        auth_frames = deduplicate_auth_frames([*auth_frames, *extra_auth_frames])
-    ciphertext = reassemble_payload(main_frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
-    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
-    return AssembledRecoveryDocument(
-        source=recovery_source_fields(input_label, input_detail, main_frames, auth_frames),
-        ciphertext=ciphertext,
-        doc_id=doc_id,
-        doc_hash=doc_hash,
-    )

@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.workflows.recovery import inputs as recover_inputs, planning as recover_plan
 from ethernity.workflows.recovery.frame_inputs import FrameInputResult
@@ -233,39 +234,18 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertEqual(shard_scan, [])
 
     def test_plan_from_args_expands_output_path(self) -> None:
-        args = RecoveryRequest(output_path="~/recovered")
-        fake_plan = object()
+        ciphertext = b"test ciphertext"
+        doc_id, _ = doc_id_and_hash_from_ciphertext(ciphertext)
+        frame = Frame(1, FrameType.MAIN_DOCUMENT, doc_id, 0, 1, ciphertext)
+        args = RecoveryRequest(
+            output_path="~/recovered", frames=[frame], passphrase="secret", allow_unsigned=True
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
             with mock.patch.dict("os.environ", home_environment(home), clear=False):
-                with mock.patch.object(
-                    recover_plan, "normalize_recovery_request", return_value=args
-                ):
-                    with mock.patch.object(recover_plan, "resolve_recover_config"):
-                        with mock.patch.object(
-                            recover_inputs,
-                            "load_recovery_frames",
-                            return_value=(["main"], "QR payloads", "input"),
-                        ):
-                            with mock.patch.object(
-                                recover_inputs,
-                                "load_extra_auth_frames",
-                                return_value=[],
-                            ):
-                                with mock.patch.object(
-                                    recover_inputs,
-                                    "load_shard_frames",
-                                    return_value=([], [], [], []),
-                                ):
-                                    with mock.patch.object(
-                                        recover_plan,
-                                        "build_recovery_plan",
-                                        return_value=fake_plan,
-                                    ) as build_mock:
-                                        plan = recover_plan.plan_from_request(args)
-        self.assertIs(plan, fake_plan)
-        self.assertEqual(build_mock.call_args.kwargs["output_path"], str(home / "recovered"))
+                plan = recover_plan.plan_from_request(args)
+        self.assertEqual(plan.output_path, str(home / "recovered"))
 
 
 if __name__ == "__main__":

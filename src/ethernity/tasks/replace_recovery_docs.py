@@ -52,8 +52,6 @@ from ethernity.tasks.quorum import (
 from ethernity.tasks.recovery_inputs import (
     has_recovery_source,
     has_unlock_inputs,
-    recovery_text_error,
-    recovery_text_frames,
 )
 from ethernity.tasks.source_assessment import (
     ContentRecoveryTaskState,
@@ -118,7 +116,7 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
         return self
 
     def sections(self) -> tuple[TaskSection, ...]:
-        source_error = recovery_text_error(self.recovery_text)
+        source_error = self.parsed_recovery_text().error
         return (
             self.source_section("Existing backup", source_error, self._source_summary()),
             unlock_section(self, "Unlock existing backup"),
@@ -375,7 +373,9 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
         validation = self.validate_task()
         validation.require_ready("Replacement recovery sheets are not ready.")
 
-        result = execute_replacement_recovery(self.to_replacement_recovery_request())
+        result = execute_replacement_recovery(
+            self.to_replacement_recovery_request(), session=self.recovery_session
+        )
         output_paths = (
             *result.shard_paths,
             *result.signing_key_shard_paths,
@@ -396,7 +396,7 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
             design=self.design,
             recovery_text_file=self.external_recovery_text_file,
             payloads_file=self.payloads_file,
-            frames=tuple(recovery_text_frames(self.recovery_text, quiet=True) or ()),
+            frames=self.parsed_recovery_text().require_frames(),
             input_label="Pasted recovery text" if self.recovery_text else None,
             input_detail=recovery_text_summary(self.recovery_text) if self.recovery_text else None,
             scan_paths=tuple(self.source_paths),

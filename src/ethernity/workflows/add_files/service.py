@@ -36,6 +36,7 @@ from ethernity.workflows.add_files.reporting import (
 )
 from ethernity.workflows.add_files.request import AddFilesRequest
 from ethernity.workflows.execution import execute_replacement_recovery
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.replacement_recovery.service import (
     replacement_recovery_directory_name,
     require_replacement_recovery_output_available,
@@ -92,11 +93,13 @@ class AddFilesExecutionResult:
         return self.ok and self.recovery_sheets.status == "failed"
 
 
-def assess_add_files(request: AddFilesRequest) -> AddFilesAssessment:
+def assess_add_files(
+    request: AddFilesRequest, *, session: RecoverySession | None = None
+) -> AddFilesAssessment:
     """Plan and validate a request without publishing files."""
 
     try:
-        prepared = prepare_add_files_run(request)
+        prepared = prepare_add_files_run(request, session=session)
         assessed = assess_prepared_add_files(prepared)
     except AddFilesWorkflowError as exc:
         return AddFilesAssessment(request=request, issues=(exc.issue,))

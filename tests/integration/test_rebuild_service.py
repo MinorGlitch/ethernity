@@ -19,7 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from ethernity.crypto.document_identity import doc_id_from_doc_hash
+from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext, doc_id_from_doc_hash
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase, split_signing_seed
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType
@@ -29,6 +29,8 @@ from ethernity.workflows.rebuild.service import (
     _infer_recovery_sheet_settings,
     execute_rebuild_operation,
 )
+from ethernity.workflows.recovery.session import RecoverySession
+from ethernity.workflows.recovery.source_state import LoadedRecoverySource
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError as ApiCommandError
 from ethernity.workflows.shared.operation_types import BackupResult
@@ -98,6 +100,29 @@ def _signing_seed_shard_frames(
         )
         for shard in shards
     )
+
+
+def _recovery_plan(**kwargs) -> SimpleNamespace:
+    return SimpleNamespace(
+        **kwargs,
+        loaded_source=LoadedRecoverySource((), (), (), None, None),
+    )
+
+
+def _loaded_source(paths, shard_frames) -> LoadedRecoverySource:
+    ciphertext = b"source"
+    doc_id, _ = doc_id_and_hash_from_ciphertext(ciphertext)
+    main = Frame(VERSION, FrameType.MAIN_DOCUMENT, doc_id, 0, 1, ciphertext)
+    session = RecoverySession()
+    request = RecoveryRequest(scan_paths=paths)
+    with mock.patch(
+        "ethernity.workflows.recovery.frame_inputs.frames_from_scan",
+        return_value=[main, *shard_frames],
+    ) as scanner:
+        loaded = session.load_source(request)
+        assert session.load_source(request) is loaded
+    scanner.assert_called_once_with(paths)
+    return loaded
 
 
 def _backup_result() -> BackupResult:
@@ -194,7 +219,7 @@ class TestRebuildService(unittest.TestCase):
             selected_extension_index=1,
             selected_extension_doc_hash="55" * 32,
         )
-        recover_plan = SimpleNamespace(
+        recover_plan = _recovery_plan(
             passphrase="secret passphrase",
             doc_id=b"\x22" * 8,
             doc_hash=b"\x44" * 32,
@@ -217,7 +242,7 @@ class TestRebuildService(unittest.TestCase):
                 return_value=recover_plan,
             ) as plan_recovery_request,
             mock.patch(
-                "ethernity.workflows.rebuild.service.recover_chain_entries",
+                "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
                 return_value=chain,
             ),
             mock.patch(
@@ -263,11 +288,7 @@ class TestRebuildService(unittest.TestCase):
         validated_rebuild_root_dir.assert_not_called()
         recover_args = plan_recovery_request.call_args.args[0]
         self.assertEqual(recover_args.scan_paths, ["root.pdf", "extension-01.pdf"])
-        self.assertIsNone(infer_recovery_sheet_settings.call_args.kwargs["root_dir"])
-        self.assertEqual(
-            infer_recovery_sheet_settings.call_args.kwargs["source_scan"],
-            ("root.pdf", "extension-01.pdf"),
-        )
+        self.assertEqual(infer_recovery_sheet_settings.call_args.kwargs["source_key_frames"], ())
         self.assertIsNone(run_backup_mock.call_args.kwargs.get("promote_lock_path"))
         self.assertIsNone(run_backup_mock.call_args.kwargs.get("prepare_promotion"))
 
@@ -334,7 +355,6 @@ class TestRebuildService(unittest.TestCase):
             sign_priv=sign_priv,
         )[:2]
         policy = _infer_recovery_sheet_settings(
-            root_dir=None,
             root_doc_id_hex=doc_id.hex(),
             root_doc_hash=doc_hash,
             sign_pub=sign_pub,
@@ -363,18 +383,14 @@ class TestRebuildService(unittest.TestCase):
             root_dir = Path(tmpdir)
             renamed = root_dir / "renamed-root-policy.pdf"
             renamed.write_bytes(b"not really a pdf; scanner is mocked")
-            with mock.patch(
-                "ethernity.workflows.rebuild.service.frames_from_scan",
-                return_value=list(shard_frames),
-            ) as frames_from_scan:
-                policy = _infer_recovery_sheet_settings(
-                    root_dir=str(root_dir),
-                    root_doc_id_hex=doc_id.hex(),
-                    root_doc_hash=doc_hash,
-                    sign_pub=sign_pub,
-                )
+            loaded = _loaded_source([str(renamed)], shard_frames)
+            policy = _infer_recovery_sheet_settings(
+                source_key_frames=loaded.sheet_frames,
+                root_doc_id_hex=doc_id.hex(),
+                root_doc_hash=doc_hash,
+                sign_pub=sign_pub,
+            )
 
-        frames_from_scan.assert_called_once_with([str(root_dir)])
         self.assertEqual(policy.passphrase_shard_threshold, 2)
         self.assertEqual(policy.passphrase_shard_count, 3)
 
@@ -395,16 +411,13 @@ class TestRebuildService(unittest.TestCase):
             root_dir = Path(tmpdir)
             renamed = root_dir / "not-a-signing-key-name.pdf"
             renamed.write_bytes(b"scanner is mocked")
-            with mock.patch(
-                "ethernity.workflows.rebuild.service.frames_from_scan",
-                return_value=list(shard_frames),
-            ):
-                policy = _infer_recovery_sheet_settings(
-                    root_dir=str(root_dir),
-                    root_doc_id_hex=doc_id.hex(),
-                    root_doc_hash=doc_hash,
-                    sign_pub=sign_pub,
-                )
+            loaded = _loaded_source([str(renamed)], shard_frames)
+            policy = _infer_recovery_sheet_settings(
+                source_key_frames=loaded.sheet_frames,
+                root_doc_id_hex=doc_id.hex(),
+                root_doc_hash=doc_hash,
+                sign_pub=sign_pub,
+            )
 
         self.assertIsNone(policy.passphrase_shard_threshold)
         self.assertEqual(policy.passphrase_shard_count, 0)
@@ -433,17 +446,13 @@ class TestRebuildService(unittest.TestCase):
             doc_hash=b"\x99" * 32,
             sign_priv=sign_priv,
         )[:2]
-        with mock.patch(
-            "ethernity.workflows.rebuild.service.frames_from_scan",
-            return_value=[*unrelated_shards, *root_shards],
-        ) as scanner:
-            policy = _infer_recovery_sheet_settings(
-                root_dir="arbitrary-documents",
-                root_doc_id_hex=doc_id.hex(),
-                root_doc_hash=doc_hash,
-                sign_pub=derive_public_key(sign_priv),
-            )
-        scanner.assert_called_once_with(["arbitrary-documents"])
+        loaded = _loaded_source(["arbitrary-documents"], [*unrelated_shards, *root_shards])
+        policy = _infer_recovery_sheet_settings(
+            source_key_frames=loaded.sheet_frames,
+            root_doc_id_hex=doc_id.hex(),
+            root_doc_hash=doc_hash,
+            sign_pub=derive_public_key(sign_priv),
+        )
         self.assertEqual(policy.passphrase_shard_threshold, 2)
         self.assertEqual(policy.passphrase_shard_count, 3)
 
@@ -463,7 +472,6 @@ class TestRebuildService(unittest.TestCase):
 
         with self.assertRaises(ApiCommandError) as ctx:
             _infer_recovery_sheet_settings(
-                root_dir=None,
                 root_doc_id_hex=doc_id.hex(),
                 root_doc_hash=doc_hash,
                 sign_pub=None,
@@ -514,7 +522,7 @@ class TestRebuildService(unittest.TestCase):
                 (ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1), b"data"),
             ),
         )
-        recover_plan = SimpleNamespace(
+        recover_plan = _recovery_plan(
             passphrase="secret passphrase",
             doc_id=doc_id,
             doc_hash=doc_hash,
@@ -530,9 +538,8 @@ class TestRebuildService(unittest.TestCase):
                     "ethernity.workflows.rebuild.service.plan_recovery_request",
                     return_value=recover_plan,
                 ),
-                mock.patch("ethernity.workflows.rebuild.service.frames_from_scan", return_value=[]),
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.recover_chain_entries",
+                    "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
                     return_value=chain,
                 ),
                 mock.patch(
@@ -605,7 +612,7 @@ class TestRebuildService(unittest.TestCase):
             selected_extension_index=1,
             selected_extension_doc_hash=extension_doc_hash.hex(),
         )
-        recover_plan = SimpleNamespace(
+        recover_plan = _recovery_plan(
             passphrase="secret passphrase",
             doc_id=root_doc_id,
             doc_hash=root_doc_hash,
@@ -621,9 +628,8 @@ class TestRebuildService(unittest.TestCase):
                     "ethernity.workflows.rebuild.service.plan_recovery_request",
                     return_value=recover_plan,
                 ),
-                mock.patch("ethernity.workflows.rebuild.service.frames_from_scan", return_value=[]),
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.recover_chain_entries",
+                    "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
                     return_value=chain,
                 ),
                 mock.patch(
@@ -697,7 +703,7 @@ class TestRebuildService(unittest.TestCase):
             selected_extension_index=1,
             selected_extension_doc_hash=extension_doc_hash.hex(),
         )
-        recover_plan = SimpleNamespace(
+        recover_plan = _recovery_plan(
             passphrase="secret passphrase",
             doc_id=root_doc_id,
             doc_hash=root_doc_hash,
@@ -713,9 +719,8 @@ class TestRebuildService(unittest.TestCase):
                     "ethernity.workflows.rebuild.service.plan_recovery_request",
                     return_value=recover_plan,
                 ),
-                mock.patch("ethernity.workflows.rebuild.service.frames_from_scan", return_value=[]),
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.recover_chain_entries",
+                    "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
                     return_value=chain,
                 ),
             ):
@@ -769,7 +774,7 @@ class TestRebuildService(unittest.TestCase):
             selected_extension_index=1,
             selected_extension_doc_hash=extension_doc_hash.hex(),
         )
-        recover_plan = SimpleNamespace(
+        recover_plan = _recovery_plan(
             passphrase="secret passphrase",
             doc_id=root_doc_id,
             doc_hash=root_doc_hash,
@@ -785,9 +790,8 @@ class TestRebuildService(unittest.TestCase):
                     "ethernity.workflows.rebuild.service.plan_recovery_request",
                     return_value=recover_plan,
                 ),
-                mock.patch("ethernity.workflows.rebuild.service.frames_from_scan", return_value=[]),
                 mock.patch(
-                    "ethernity.workflows.rebuild.service.recover_chain_entries",
+                    "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
                     return_value=chain,
                 ),
                 mock.patch(
@@ -833,7 +837,7 @@ class TestRebuildService(unittest.TestCase):
 
     @mock.patch("ethernity.workflows.rebuild.service.run_backup")
     @mock.patch(
-        "ethernity.workflows.rebuild.service.recover_chain_entries",
+        "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
         side_effect=ApiCommandError(
             code=issue_codes.RECOVERY_HEAD_UNTRUSTED,
             message=(
@@ -862,7 +866,7 @@ class TestRebuildService(unittest.TestCase):
     )
     @mock.patch(
         "ethernity.workflows.rebuild.service.plan_recovery_request",
-        return_value=SimpleNamespace(
+        return_value=_recovery_plan(
             passphrase="secret",
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
@@ -913,7 +917,7 @@ class TestRebuildService(unittest.TestCase):
 
     @mock.patch("ethernity.workflows.rebuild.service.run_backup")
     @mock.patch(
-        "ethernity.workflows.rebuild.service.recover_chain_entries",
+        "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
         side_effect=ApiCommandError(
             code=issue_codes.ROOT_SIGNING_KEY_MISMATCH,
             message="embedded signing seed does not match the verified root AUTH signing key",
@@ -922,7 +926,7 @@ class TestRebuildService(unittest.TestCase):
     )
     @mock.patch(
         "ethernity.workflows.rebuild.service.plan_recovery_request",
-        return_value=SimpleNamespace(
+        return_value=_recovery_plan(
             passphrase="secret",
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
@@ -992,7 +996,7 @@ class TestRebuildService(unittest.TestCase):
         ),
     )
     @mock.patch(
-        "ethernity.workflows.rebuild.service.recover_chain_entries",
+        "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
         return_value=SimpleNamespace(
             manifest=BackupManifest(
                 created_at=1,
@@ -1008,7 +1012,7 @@ class TestRebuildService(unittest.TestCase):
     )
     @mock.patch(
         "ethernity.workflows.rebuild.service.plan_recovery_request",
-        return_value=SimpleNamespace(
+        return_value=_recovery_plan(
             passphrase="secret",
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
@@ -1110,7 +1114,7 @@ class TestRebuildService(unittest.TestCase):
         ),
     )
     @mock.patch(
-        "ethernity.workflows.rebuild.service.recover_chain_entries",
+        "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
         return_value=SimpleNamespace(
             manifest=BackupManifest(
                 created_at=1,
@@ -1126,7 +1130,7 @@ class TestRebuildService(unittest.TestCase):
     )
     @mock.patch(
         "ethernity.workflows.rebuild.service.plan_recovery_request",
-        return_value=SimpleNamespace(
+        return_value=_recovery_plan(
             passphrase="secret",
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
@@ -1198,7 +1202,7 @@ class TestRebuildService(unittest.TestCase):
         ),
     )
     @mock.patch(
-        "ethernity.workflows.rebuild.service.recover_chain_entries",
+        "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
         return_value=SimpleNamespace(
             manifest=BackupManifest(
                 created_at=1,
@@ -1214,7 +1218,7 @@ class TestRebuildService(unittest.TestCase):
     )
     @mock.patch(
         "ethernity.workflows.rebuild.service.plan_recovery_request",
-        return_value=SimpleNamespace(
+        return_value=_recovery_plan(
             passphrase="secret",
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
@@ -1256,7 +1260,7 @@ class TestRebuildService(unittest.TestCase):
         self.assertIsNone(run_backup_mock.call_args.kwargs["signing_seed_override"])
 
     @mock.patch(
-        "ethernity.workflows.rebuild.service.recover_chain_entries",
+        "ethernity.workflows.recovery.session.RecoverySession.recover_chain",
         return_value=SimpleNamespace(
             manifest=BackupManifest(
                 created_at=1,
@@ -1270,7 +1274,7 @@ class TestRebuildService(unittest.TestCase):
     )
     @mock.patch(
         "ethernity.workflows.rebuild.service.plan_recovery_request",
-        return_value=SimpleNamespace(
+        return_value=_recovery_plan(
             passphrase="secret",
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,

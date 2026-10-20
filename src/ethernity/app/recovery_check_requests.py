@@ -8,7 +8,6 @@ from ethernity.app.execution import ReviewedTask
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.models import TaskExecutionResult
 from ethernity.tasks.recovery_check import GeneratedRecoveryCheckRequest
-from ethernity.tasks.recovery_inputs import recovery_text_frames
 from ethernity.workflows.shared.requests import RecoveryRequest
 
 
@@ -20,7 +19,7 @@ def generated_recovery_request(
     ancestry = None
     if isinstance(state, AddFilesTaskState):
         ancestry = RecoveryRequest(
-            frames=tuple(recovery_text_frames(state.recovery_text, quiet=True) or ()),
+            frames=state.parsed_recovery_text().require_frames(),
             recovery_text_file=state.recovery_text_file if not state.recovery_text else None,
             payloads_file=state.payloads_file,
             scan_paths=tuple(state.source_paths),

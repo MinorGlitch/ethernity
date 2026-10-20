@@ -1,4 +1,4 @@
-"""Cooperative cancellation up to the first irreversible output write."""
+"""Operation cancellation shared by workflows and bounded input workers."""
 
 from __future__ import annotations
 

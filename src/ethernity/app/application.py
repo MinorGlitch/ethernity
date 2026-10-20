@@ -206,6 +206,7 @@ class EthernityApp(
         yield from compose_app_shell()
 
     def on_unmount(self) -> None:
+        self.source_assessment_controller.close()
         self.backup_estimate_controller.close()
         self.recovery_check_controller.close()
 

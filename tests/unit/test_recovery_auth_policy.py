@@ -9,8 +9,13 @@ import pytest
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import VERSION, Frame, FrameType
-from ethernity.workflows.recovery.inspection import inspect_recovery_inputs
+from ethernity.workflows.recovery.inspection import inspect_document
 from ethernity.workflows.recovery.keys import resolve_auth_payload
+from ethernity.workflows.recovery.source_state import (
+    AssembledRecoveryDocument,
+    LoadedRecoverySource,
+    recovery_source_fields,
+)
 
 _CIPHERTEXT = b"encrypted backup for AUTH policy tests"
 _DOC_ID, _DOC_HASH = doc_id_and_hash_from_ciphertext(_CIPHERTEXT)
@@ -90,14 +95,17 @@ def test_inspection_and_execution_agree_on_auth_policy(
         assert execution_status == expected_status
 
     inspection_notices = []
-    inspection = inspect_recovery_inputs(
-        frames=[_MAIN],
-        extra_auth_frames=auth_frames,
+    inspection = inspect_document(
+        AssembledRecoveryDocument(
+            recovery_source_fields(None, None, [_MAIN], auth_frames),
+            _CIPHERTEXT,
+            _DOC_ID,
+            _DOC_HASH,
+        ),
+        loaded_source=LoadedRecoverySource((_MAIN, *auth_frames), (), (), None, None),
         shard_frames=[],
         passphrase="  exact custom passphrase  ",
         allow_unsigned=allow_unsigned,
-        input_label=None,
-        input_detail=None,
         shard_fallback_files=[],
         shard_payloads_file=[],
         shard_scan=[],
@@ -107,7 +115,7 @@ def test_inspection_and_execution_agree_on_auth_policy(
     assert inspection.auth_payload == execution_payload
     assert inspection_notices == execution_notices
     assert inspection.unlock.satisfied is not blocks
-    assert [issue["code"] for issue in inspection.blocking_issues] == ([code] if blocks else [])
+    assert [issue.code for issue in inspection.blocking_issues] == ([code] if blocks else [])
     assert inspection.unlock.resolved_passphrase == (
         None if blocks else "  exact custom passphrase  "
     )

@@ -38,9 +38,10 @@ from ethernity.workflows.backup.execution import (
     _create_auth_frame,
     _prepare_backup_document,
 )
-from ethernity.workflows.recovery.execution import decrypt_and_extract
+from ethernity.workflows.recovery.execution import decrypt_manifest_extract_selection
+from ethernity.workflows.recovery.models import RecoveryUnlockStatus
 from ethernity.workflows.recovery.planning import RecoveryPlan
-from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.workflows.recovery.source_state import LoadedRecoverySource, RecoverySourceFields
 
 
 class StubInputFile:
@@ -198,8 +199,8 @@ class TestBackupAuthFrameCreation(unittest.TestCase):
 
 
 class TestRecoveryExecutionRoundTrip(unittest.TestCase):
-    def test_decrypt_and_extract_integration(self) -> None:
-        """Test decrypt_and_extract with real encryption using full RecoveryPlan."""
+    def test_decrypt_manifest_extract_selection_integration(self) -> None:
+        """Test decrypt_manifest_extract_selection with real encryption using full RecoveryPlan."""
         # Create test data
         payload = b"test recovery content"
         parts = [BackupFile(path="recovered.txt", data=payload, mtime=None)]
@@ -220,10 +221,19 @@ class TestRecoveryExecutionRoundTrip(unittest.TestCase):
 
         # Create recovery plan with all required fields
         plan = RecoveryPlan(
+            loaded_source=LoadedRecoverySource((), (), (), None, None),
             ciphertext=ciphertext,
             doc_id=doc_id,
             doc_hash=doc_hash,
-            passphrase=passphrase,
+            unlock=RecoveryUnlockStatus(
+                mode="passphrase",
+                passphrase_provided=True,
+                validated_shard_count=0,
+                required_shard_threshold=None,
+                satisfied=True,
+                resolved_passphrase=passphrase,
+            ),
+            blocking_issues=(),
             auth_payload=None,
             auth_status="unsigned",
             allow_unsigned=True,
@@ -241,7 +251,7 @@ class TestRecoveryExecutionRoundTrip(unittest.TestCase):
         )
 
         # Decrypt and extract
-        extracted = decrypt_and_extract(plan, quiet=True)
+        extracted = decrypt_manifest_extract_selection(plan).extracted
 
         self.assertEqual(len(extracted), 1)
         manifest_file, data = extracted[0]

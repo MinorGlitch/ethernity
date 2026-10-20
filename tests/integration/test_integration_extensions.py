@@ -284,7 +284,7 @@ def _run_recover(
             scan_paths=[str(path) for path in scan],
             expected_head_doc_hash=expected_head_doc_hash,
             passphrase=passphrase,
-            shard_scan_paths=[str(path) for path in shard_scan or ()] or None,
+            shard_scan_paths=[str(path) for path in shard_scan or ()],
             output_path=str(output),
             quiet=True,
         )

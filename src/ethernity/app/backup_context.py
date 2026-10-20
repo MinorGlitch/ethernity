@@ -8,6 +8,7 @@ from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.source_assessment import SourceAssessment, SourceAssessmentRequest
 from ethernity.tasks.task_types import TaskKey
+from ethernity.workflows.recovery.session import RecoverySession
 
 BACKUP_TASKS: tuple[TaskKey, ...] = (
     "restore",
@@ -34,6 +35,7 @@ class LoadedBackupContext:
     recovery_payload_files: tuple[Path, ...]
     expected_head_doc_hash: str | None
     allow_stale_head: bool
+    session: RecoverySession
 
     @classmethod
     def from_state(
@@ -56,6 +58,7 @@ class LoadedBackupContext:
             recovery_payload_files=tuple(state.recovery_payload_files),
             expected_head_doc_hash=state.expected_head_doc_hash,
             allow_stale_head=getattr(state, "allow_stale_head", False),
+            session=state.recovery_session,
         )
 
     @property
@@ -90,6 +93,7 @@ class LoadedBackupContext:
             if field in type(state).model_fields:
                 setattr(state, field, getattr(request, field))
         state.config_path = request.config_path
+        state.use_recovery_session(self.session)
         state.passphrase = self.passphrase
         state.recovery_documents = list(self.recovery_documents)
         state.recovery_payload_files = list(self.recovery_payload_files)

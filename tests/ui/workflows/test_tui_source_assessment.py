@@ -21,6 +21,8 @@ from ethernity.tasks.source_assessment import (
     source_freshness_status,
 )
 from ethernity.workflows.recovery.models import RecoveryUnlockStatus
+from ethernity.workflows.recovery.source_state import LoadedRecoverySource
+from ethernity.workflows.shared.inspection import BlockingIssue
 from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition
 
@@ -62,23 +64,24 @@ def test_recovery_source_assessment_exposes_identity_and_document_count(monkeypa
     )
     assert request is not None
     inspection = SimpleNamespace(
-        source_frames=(SimpleNamespace(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x12" * 8),),
+        loaded_source=LoadedRecoverySource(
+            (SimpleNamespace(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x12" * 8),),
+            (),
+            (),
+            None,
+            None,
+        ),
         main_frames=(),
         auth_frames=(),
         doc_id=b"\x12" * 8,
         doc_hash=b"\x12" * 32,
         decoded_import_session=None,
         unlock=_missing_unlock(),
-        blocking_issues=(
-            {
-                "code": "PASSPHRASE_REQUIRED",
-                "message": "unlock later",
-            },
-        ),
+        blocking_issues=(BlockingIssue("PASSPHRASE_REQUIRED", "unlock later"),),
     )
     monkeypatch.setattr(
         "ethernity.tasks.source_assessment.inspect_recovery",
-        lambda _request: inspection,
+        lambda _request, **_kwargs: inspection,
     )
 
     assessment = assess_source_request(request)
@@ -106,10 +109,10 @@ def test_mixed_source_assessment_preserves_every_document_carrier(monkeypatch) -
     )
     calls = []
 
-    def inspect_recovery(recovery_request):
+    def inspect_recovery(recovery_request, *, session):
         calls.append(recovery_request)
         return SimpleNamespace(
-            source_frames=(frame,),
+            loaded_source=LoadedRecoverySource((frame,), (), (), None, None),
             main_frames=(),
             auth_frames=(),
             doc_id=frame.doc_id,
@@ -136,7 +139,13 @@ def test_mixed_source_assessment_preserves_every_document_carrier(monkeypatch) -
 
 def test_add_files_assessment_error_blocks_the_source_section(monkeypatch) -> None:
     inspection = SimpleNamespace(
-        source_frames=(SimpleNamespace(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\xab" * 8),),
+        loaded_source=LoadedRecoverySource(
+            (SimpleNamespace(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\xab" * 8),),
+            (),
+            (),
+            None,
+            None,
+        ),
         main_frames=(),
         auth_frames=(),
         doc_id=b"\xab" * 8,
@@ -144,15 +153,12 @@ def test_add_files_assessment_error_blocks_the_source_section(monkeypatch) -> No
         decoded_import_session=None,
         unlock=_missing_unlock(),
         blocking_issues=(
-            {
-                "code": "MAIN_DOCUMENTS_INVALID",
-                "message": "The supplied documents are incomplete.",
-            },
+            BlockingIssue("MAIN_DOCUMENTS_INVALID", "The supplied documents are incomplete."),
         ),
     )
     monkeypatch.setattr(
         "ethernity.tasks.source_assessment.inspect_recovery",
-        lambda _args: inspection,
+        lambda _args, **_kwargs: inspection,
     )
     state = AddFilesTaskState(
         source_paths=[Path("renamed-root.pdf")],
@@ -347,3 +353,52 @@ def test_destination_remains_editable_while_source_is_loading() -> None:
     assert all(step.state != "locked" for step in workflow.steps)
     assert isinstance(workflow.steps[0].body, SourceBodyPresentation)
     assert workflow.steps[0].body.loading
+
+
+def test_replaced_assessment_cannot_publish_over_current_source(monkeypatch) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    calls = []
+
+    def assess(request) -> SourceAssessment:
+        source = request.scan_paths[0].name
+        calls.append(source)
+        if source == "old.pdf":
+            started.set()
+            assert release.wait(timeout=10)
+            finished.set()
+        return SourceAssessment(
+            source_kind=request.source_kind,
+            source_label=request.source_label,
+            source_summary=request.source_summary,
+            backup_identity=source,
+        )
+
+    monkeypatch.setattr("ethernity.tasks.source_assessment.assess_source_request", assess)
+
+    async def run() -> None:
+        app = EthernityApp()
+        try:
+            async with run_app_test(app, size=(120, 36)) as pilot:
+                await pilot.press("2")
+                app._apply_restore_sources_picked((Path("old.pdf"),))
+                await wait_for_condition(pilot, started.is_set, "old assessment to start")
+                app._apply_restore_sources_picked((Path("old.pdf"),))
+                app._apply_restore_sources_picked((Path("current.pdf"),))
+                await wait_for_condition(
+                    pilot,
+                    lambda: app.restore_state.current_source_assessment() is not None,
+                    "current assessment to finish",
+                )
+                release.set()
+                await wait_for_condition(pilot, finished.is_set, "old assessment to return")
+                await pilot.pause()
+                result = app.restore_state.current_source_assessment()
+                assert result is not None and result.backup_identity == "current.pdf"
+                assert calls == ["old.pdf", "current.pdf"]
+                assert not app.workflow_ui_states["restore"].source_assessment_loading
+        finally:
+            release.set()
+
+    asyncio.run(run())

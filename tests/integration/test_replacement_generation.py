@@ -9,6 +9,11 @@ from unittest.mock import Mock
 import pytest
 
 from ethernity.config import AppConfig, BackupDefaults, CliDefaults
+from ethernity.core.execution_control import (
+    ExecutionControl,
+    OperationCancelled,
+    execution_session,
+)
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.extensions.recovery import ChainRecoveryResult, ValidatedRecoveryHead
@@ -16,15 +21,11 @@ from ethernity.formats.manifest import BackupManifest
 from ethernity.qr.codec import QrConfig
 from ethernity.render.errors import RenderValidationError
 from ethernity.render.types import RenderInputs, RenderResult
+from ethernity.workflows.recovery.models import RecoveryUnlockStatus
 from ethernity.workflows.recovery.planning import RecoveryPlan
-from ethernity.workflows.recovery.source_state import recovery_source_fields
+from ethernity.workflows.recovery.source_state import LoadedRecoverySource, recovery_source_fields
 from ethernity.workflows.replacement_recovery import service
 from ethernity.workflows.shared import events, shard_rendering
-from ethernity.workflows.shared.execution_control import (
-    ExecutionControl,
-    OperationCancelled,
-    execution_session,
-)
 from ethernity.workflows.shared.operation_types import ReplacementRecoveryOperationResult
 from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
 
@@ -68,6 +69,7 @@ def replacement_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Replacem
         version=1, doc_hash=doc_hash, sign_pub=derive_public_key(seed), signature=b"a" * 64
     )
     plan = RecoveryPlan(
+        loaded_source=LoadedRecoverySource((), (), (), None, None),
         source=recovery_source_fields(None, None, (), ()),
         ciphertext=ciphertext,
         doc_id=doc_id,
@@ -75,7 +77,15 @@ def replacement_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Replacem
         auth_payload=auth,
         auth_status="verified",
         allow_unsigned=False,
-        passphrase="test replacement passphrase",
+        unlock=RecoveryUnlockStatus(
+            mode="passphrase",
+            passphrase_provided=True,
+            validated_shard_count=0,
+            required_shard_threshold=None,
+            satisfied=True,
+            resolved_passphrase="test replacement passphrase",
+        ),
+        blocking_issues=(),
         output_path=None,
     )
     chain = ChainRecoveryResult(

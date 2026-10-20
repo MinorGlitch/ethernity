@@ -41,8 +41,9 @@ from ethernity.formats.document_codec import (
 from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
 from ethernity.formats.extension_document import ExtensionChunkingProfile
 from ethernity.formats.manifest import BackupFile
+from ethernity.workflows.recovery.models import RecoveryUnlockStatus
 from ethernity.workflows.recovery.planning import RecoveryPlan
-from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.workflows.recovery.source_state import LoadedRecoverySource, RecoverySourceFields
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.operation_types import InputFile
 
@@ -143,10 +144,19 @@ def _recovery_plan(
     root_signing_seed = b"\x33" * 32
     root_sign_pub = derive_public_key(root_signing_seed)
     return RecoveryPlan(
+        loaded_source=LoadedRecoverySource((), (), (), None, None),
         ciphertext=root_ciphertext,
         doc_id=root_doc_id,
         doc_hash=root_doc_hash,
-        passphrase="secret",
+        unlock=RecoveryUnlockStatus(
+            mode="passphrase",
+            passphrase_provided=True,
+            validated_shard_count=0,
+            required_shard_threshold=None,
+            satisfied=True,
+            resolved_passphrase="secret",
+        ),
+        blocking_issues=(),
         auth_payload=AuthPayload(
             version=1,
             doc_hash=root_doc_hash,
@@ -182,16 +192,23 @@ def _candidate_locked_chain_plan(
     extension_plaintext = _extension_ciphertext(root_doc_hash)
     extension_ciphertext = b"candidate-locked-extension-ciphertext"
     extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
+    base = _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash)
     plan = dataclasses.replace(
-        _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-        passphrase=passphrase,
-        import_documents=(
-            _imported_document(root_ciphertext, source_label="root.pdf"),
-            _imported_document(
-                extension_ciphertext,
-                auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
-                source_label="extension.pdf",
+        base,
+        unlock=dataclasses.replace(base.unlock, resolved_passphrase=passphrase),
+        loaded_source=LoadedRecoverySource(
+            (),
+            (),
+            (
+                _imported_document(root_ciphertext, source_label="root.pdf"),
+                _imported_document(
+                    extension_ciphertext,
+                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                    source_label="extension.pdf",
+                ),
             ),
+            None,
+            None,
         ),
     )
     return plan, root_plaintext, extension_plaintext, extension_doc_hash
@@ -232,13 +249,19 @@ class TestRecoverChain(unittest.TestCase):
         extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-            import_documents=(
-                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
-                    source_label="renamed-extension.pdf",
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                        source_label="renamed-extension.pdf",
+                    ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -373,7 +396,7 @@ class TestRecoverChain(unittest.TestCase):
             )
             plan = dataclasses.replace(
                 _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-                import_documents=documents,
+                loaded_source=LoadedRecoverySource((), (), documents, None, None),
                 decoded_import_session=decoded_import_session,
             )
             result = recover_chain_entries(plan)
@@ -394,13 +417,19 @@ class TestRecoverChain(unittest.TestCase):
         plan = dataclasses.replace(
             base_plan,
             auth_payload=forged_auth,
-            import_documents=(
-                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
-                    source_label="renamed-extension.pdf",
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                        source_label="renamed-extension.pdf",
+                    ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -426,13 +455,19 @@ class TestRecoverChain(unittest.TestCase):
                 root_doc_hash,
                 expected_head_doc_hash="aa" * 32,
             ),
-            import_documents=(
-                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
-                    source_label="renamed-extension.pdf",
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                        source_label="renamed-extension.pdf",
+                    ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -523,18 +558,24 @@ class TestRecoverChain(unittest.TestCase):
         second_doc_id, second_doc_hash = doc_id_and_hash_from_ciphertext(second_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-            import_documents=(
-                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
-                _imported_document(
-                    first_ciphertext,
-                    auth_frames=(_extension_auth_frame(first_doc_id, first_doc_hash),),
-                    source_label="extension-one.pdf",
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+                    _imported_document(
+                        first_ciphertext,
+                        auth_frames=(_extension_auth_frame(first_doc_id, first_doc_hash),),
+                        source_label="extension-one.pdf",
+                    ),
+                    _imported_document(
+                        second_ciphertext,
+                        auth_frames=(_extension_auth_frame(second_doc_id, second_doc_hash),),
+                        source_label="extension-two.pdf",
+                    ),
                 ),
-                _imported_document(
-                    second_ciphertext,
-                    auth_frames=(_extension_auth_frame(second_doc_id, second_doc_hash),),
-                    source_label="extension-two.pdf",
-                ),
+                None,
+                None,
             ),
         )
 
@@ -558,13 +599,19 @@ class TestRecoverChain(unittest.TestCase):
         extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-            import_documents=(
-                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
-                    source_label="renamed-extension.pdf",
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                        source_label="renamed-extension.pdf",
+                    ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -625,20 +672,26 @@ class TestRecoverChain(unittest.TestCase):
         third_doc_id, third_doc_hash = doc_id_and_hash_from_ciphertext(third_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    first_ciphertext,
-                    auth_frames=(_extension_auth_frame(first_doc_id, first_doc_hash),),
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        first_ciphertext,
+                        auth_frames=(_extension_auth_frame(first_doc_id, first_doc_hash),),
+                    ),
+                    _imported_document(
+                        second_ciphertext,
+                        auth_frames=(_extension_auth_frame(second_doc_id, second_doc_hash),),
+                    ),
+                    _imported_document(
+                        third_ciphertext,
+                        auth_frames=(_extension_auth_frame(third_doc_id, third_doc_hash),),
+                    ),
                 ),
-                _imported_document(
-                    second_ciphertext,
-                    auth_frames=(_extension_auth_frame(second_doc_id, second_doc_hash),),
-                ),
-                _imported_document(
-                    third_ciphertext,
-                    auth_frames=(_extension_auth_frame(third_doc_id, third_doc_hash),),
-                ),
+                None,
+                None,
             ),
         )
 
@@ -675,18 +728,24 @@ class TestRecoverChain(unittest.TestCase):
         extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash, extension_index=0),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(
-                        _extension_auth_frame(
-                            extension_doc_id,
-                            extension_doc_hash,
-                            signing_seed=b"\x77" * 32,
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(
+                            _extension_auth_frame(
+                                extension_doc_id,
+                                extension_doc_hash,
+                                signing_seed=b"\x77" * 32,
+                            ),
                         ),
                     ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -715,7 +774,9 @@ class TestRecoverChain(unittest.TestCase):
                 extension_index=0,
                 extension_doc_hash="11" * 32,
             ),
-            import_documents=(_imported_document(root_ciphertext),),
+            loaded_source=LoadedRecoverySource(
+                (), (), (_imported_document(root_ciphertext),), None, None
+            ),
         )
 
         with self.assertRaisesRegex(
@@ -731,18 +792,24 @@ class TestRecoverChain(unittest.TestCase):
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash, extension_index=0),
             allow_unsigned=True,
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(
-                        _extension_auth_frame(
-                            extension_doc_id,
-                            extension_doc_hash,
-                            signing_seed=b"\x77" * 32,
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(
+                            _extension_auth_frame(
+                                extension_doc_id,
+                                extension_doc_hash,
+                                signing_seed=b"\x77" * 32,
+                            ),
                         ),
                     ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -765,12 +832,18 @@ class TestRecoverChain(unittest.TestCase):
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
             allow_unsigned=True,
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                    ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -796,12 +869,18 @@ class TestRecoverChain(unittest.TestCase):
         extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         base_plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                    ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -840,22 +919,28 @@ class TestRecoverChain(unittest.TestCase):
         second_doc_id, second_doc_hash = doc_id_and_hash_from_ciphertext(second_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash, extension_index=1),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    first_ciphertext,
-                    auth_frames=(_extension_auth_frame(first_doc_id, first_doc_hash),),
-                ),
-                _imported_document(
-                    second_ciphertext,
-                    auth_frames=(
-                        _extension_auth_frame(
-                            second_doc_id,
-                            second_doc_hash,
-                            signing_seed=b"\x77" * 32,
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        first_ciphertext,
+                        auth_frames=(_extension_auth_frame(first_doc_id, first_doc_hash),),
+                    ),
+                    _imported_document(
+                        second_ciphertext,
+                        auth_frames=(
+                            _extension_auth_frame(
+                                second_doc_id,
+                                second_doc_hash,
+                                signing_seed=b"\x77" * 32,
+                            ),
                         ),
                     ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -878,12 +963,18 @@ class TestRecoverChain(unittest.TestCase):
         extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash, extension_index=2),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                    ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -921,12 +1012,18 @@ class TestRecoverChain(unittest.TestCase):
                 root_doc_hash,
                 extension_doc_hash=requested_doc_hash,
             ),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                    ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -965,12 +1062,18 @@ class TestRecoverChain(unittest.TestCase):
                 root_doc_hash,
                 extension_doc_hash=selected_doc_hash.hex(),
             ),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    selected_ciphertext,
-                    auth_frames=(_extension_auth_frame(selected_doc_id, selected_doc_hash),),
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        selected_ciphertext,
+                        auth_frames=(_extension_auth_frame(selected_doc_id, selected_doc_hash),),
+                    ),
                 ),
+                None,
+                None,
             ),
         )
 
@@ -996,7 +1099,9 @@ class TestRecoverChain(unittest.TestCase):
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash, extension_index=1),
-            import_documents=(_imported_document(root_ciphertext),),
+            loaded_source=LoadedRecoverySource(
+                (), (), (_imported_document(root_ciphertext),), None, None
+            ),
         )
 
         with (
@@ -1027,18 +1132,24 @@ class TestRecoverChain(unittest.TestCase):
         extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(
-                        _extension_auth_frame(
-                            extension_doc_id,
-                            extension_doc_hash,
-                            signing_seed=b"\x77" * 32,
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(
+                            _extension_auth_frame(
+                                extension_doc_id,
+                                extension_doc_hash,
+                                signing_seed=b"\x77" * 32,
+                            ),
                         ),
                     ),
                 ),
+                None,
+                None,
             ),
         )
         decrypt_calls: list[bytes] = []
@@ -1081,12 +1192,18 @@ class TestRecoverChain(unittest.TestCase):
         )
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(malformed_auth_frame,),
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(malformed_auth_frame,),
+                    ),
                 ),
+                None,
+                None,
             ),
         )
         decrypt_calls: list[bytes] = []
@@ -1125,18 +1242,24 @@ class TestRecoverChain(unittest.TestCase):
                 root_doc_hash,
                 extension_doc_hash=extension_doc_hash.hex(),
             ),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    extension_ciphertext,
-                    auth_frames=(
-                        _extension_auth_frame(
-                            extension_doc_id,
-                            extension_doc_hash,
-                            signing_seed=b"\x77" * 32,
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        extension_ciphertext,
+                        auth_frames=(
+                            _extension_auth_frame(
+                                extension_doc_id,
+                                extension_doc_hash,
+                                signing_seed=b"\x77" * 32,
+                            ),
                         ),
                     ),
                 ),
+                None,
+                None,
             ),
         )
         decrypt_calls: list[bytes] = []
@@ -1204,12 +1327,18 @@ class TestRecoverChain(unittest.TestCase):
         unrelated_ciphertext, unrelated_doc_id, unrelated_doc_hash = _root_ciphertext(b"other")
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-            import_documents=(
-                _imported_document(root_ciphertext),
-                _imported_document(
-                    unrelated_ciphertext,
-                    auth_frames=(_extension_auth_frame(unrelated_doc_id, unrelated_doc_hash),),
+            loaded_source=LoadedRecoverySource(
+                (),
+                (),
+                (
+                    _imported_document(root_ciphertext),
+                    _imported_document(
+                        unrelated_ciphertext,
+                        auth_frames=(_extension_auth_frame(unrelated_doc_id, unrelated_doc_hash),),
+                    ),
                 ),
+                None,
+                None,
             ),
         )
 

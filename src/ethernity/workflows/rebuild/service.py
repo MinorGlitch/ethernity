@@ -28,12 +28,10 @@ from ethernity.crypto.document_identity import doc_id_from_doc_hash
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.errors import ExtensionRecoveryError
-from ethernity.extensions.recovery import recover_chain_entries
 from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.backup.execution import run_backup
 from ethernity.workflows.backup.planning import plan_from_request as plan_backup_request
 from ethernity.workflows.backup.service import apply_qr_chunk_size_override
-from ethernity.workflows.recovery.frame_inputs import frames_from_scan
 from ethernity.workflows.recovery.keys import (
     InsufficientShardError,
     validated_shard_payloads_from_frames,
@@ -44,13 +42,13 @@ from ethernity.workflows.recovery.root_shard_policy import (
     has_potential_root_shard_frames,
     root_shard_quorum_from_frames,
 )
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError as ApiCommandError, emit_phase
 from ethernity.workflows.shared.operation_types import (
     BackupResult,
     InputFile,
 )
-from ethernity.workflows.shared.paths import expanduser_cli_paths
 from ethernity.workflows.shared.requests import (
     BackupRequest,
     RebuildRequest,
@@ -154,9 +152,9 @@ def _recovery_request_for_rebuild(args: RebuildRequest, root_dir: Path | None) -
     )
 
 
-def _recover_rebuild_chain(recover_plan):
+def _recover_rebuild_chain(recover_plan, *, session: RecoverySession):
     try:
-        return recover_chain_entries(recover_plan, debug=False)
+        return session.recover_chain(recover_plan, debug=False)
     except (ApiCommandError, ExtensionRecoveryError) as exc:
         if exc.code != issue_codes.RECOVERY_HEAD_UNTRUSTED:
             raise
@@ -174,8 +172,7 @@ def _rebuild_source_head(recover_plan, chain) -> _RebuildSourceHead:
 
 def _infer_recovery_sheet_settings(
     *,
-    root_dir: str | None,
-    source_scan: Sequence[str | Path] = (),
+    source_key_frames: Sequence[Frame] = (),
     root_doc_id_hex: str | None,
     root_doc_hash: bytes,
     sign_pub: bytes | None,
@@ -183,8 +180,6 @@ def _infer_recovery_sheet_settings(
     signing_key_shard_frames: Sequence[Frame] = (),
     require_quorum: bool = True,
 ) -> _RecoverySheetSettings:
-    scan_inputs = tuple(source_scan) or ((root_dir,) if root_dir else ())
-    source_key_frames = _key_frames_from_source_scan(scan_inputs) if scan_inputs else ()
     root_doc_id = bytes.fromhex(root_doc_id_hex) if root_doc_id_hex else None
     policy_frames = (
         *source_key_frames,
@@ -280,21 +275,10 @@ def _infer_root_quorum(
         ) from exc
 
 
-def _key_frames_from_source_scan(
-    source_scan: Sequence[str | Path],
-) -> tuple[Frame, ...]:
-    try:
-        frames = frames_from_scan(expanduser_cli_paths(source_scan))
-    except ValueError as exc:
-        raise ApiCommandError(
-            code=issue_codes.REBUILD_INVALID_POLICY,
-            message=f"root shard policy scan failed: {exc}",
-            details={"stage": "root_shard_policy"},
-        ) from exc
-    return tuple(frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT)
-
-
-def execute_rebuild_operation(args: RebuildRequest) -> BackupResult:
+def execute_rebuild_operation(
+    args: RebuildRequest, *, session: RecoverySession | None = None
+) -> BackupResult:
+    session = session or RecoverySession()
     emit_phase(phase="source", label="Resolving Rebuild sources")
     validate_rebuild_source_selection(args)
     root_dir = None if args.scan_paths else _validated_rebuild_root_dir(args.backup_folder)
@@ -305,8 +289,10 @@ def execute_rebuild_operation(args: RebuildRequest) -> BackupResult:
         _reject_rebuild_output_inside_root(root_dir, args.output_dir)
         _reject_rebuild_layout_debug_inside_root(root_dir, args.layout_debug_dir)
 
-    recover_plan = plan_recovery_request(_recovery_request_for_rebuild(args, root_dir))
-    chain = _recover_rebuild_chain(recover_plan)
+    recover_plan = plan_recovery_request(
+        _recovery_request_for_rebuild(args, root_dir), session=session
+    )
+    chain = _recover_rebuild_chain(recover_plan, session=session)
     source_head = _rebuild_source_head(recover_plan, chain)
     manifest = chain.manifest
 
@@ -340,8 +326,7 @@ def execute_rebuild_operation(args: RebuildRequest) -> BackupResult:
     )
 
     inherited = _infer_recovery_sheet_settings(
-        root_dir=str(root_dir) if root_dir is not None else None,
-        source_scan=tuple(args.scan_paths or ()),
+        source_key_frames=recover_plan.loaded_source.sheet_frames,
         root_doc_id_hex=recover_plan.doc_id.hex(),
         root_doc_hash=recover_plan.doc_hash,
         sign_pub=sign_pub,

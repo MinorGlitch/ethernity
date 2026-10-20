@@ -3,27 +3,30 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypedDict
 
 from pydantic import BaseModel, Field, PrivateAttr
 
+from ethernity.config import resolve_config_snapshot_path
 from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.encoding.framing import FrameType
 from ethernity.tasks.file_summary import display_path
 from ethernity.tasks.models import TaskIssue, TaskSection, TaskSectionStatus, TaskValidation
 from ethernity.tasks.presentation.recovery import pasted_text_summary
-from ethernity.tasks.recovery_inputs import has_recovery_source, recovery_text_error
+from ethernity.tasks.recovery_inputs import ParsedRecoveryText, has_recovery_source
 from ethernity.tasks.source_types import SourceDescription, SourceKind
 from ethernity.workflows.execution import (
     WorkflowExecutionError,
     inspect_recovery,
 )
-from ethernity.workflows.recovery.frame_inputs import frames_from_fallback_text
 from ethernity.workflows.recovery.models import RecoveryInspection
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared import issue_codes
+from ethernity.workflows.shared.inspection import BlockingIssue
 from ethernity.workflows.shared.requests import RecoveryRequest
+from ethernity.workflows.shared.source_files import source_files_version
 
 _UNLOCK_ONLY_BLOCKERS = frozenset(
     {
@@ -64,6 +67,31 @@ class SourceAssessmentRequest:
     auth_payloads_file: Path | None = None
     config_path: Path | None = None
     allow_unsigned: bool = False
+    parsed_text: ParsedRecoveryText | None = field(default=None, repr=False)
+    session: RecoverySession = field(default_factory=RecoverySession, repr=False, compare=False)
+    files_version: str = field(init=False)
+    config_version: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "files_version",
+            source_files_version(
+                (
+                    self.backup_folder,
+                    *self.scan_paths,
+                    self.recovery_text_file,
+                    self.payloads_file,
+                    self.auth_text_file,
+                    self.auth_payloads_file,
+                )
+            ),
+        )
+        try:
+            config_bytes = resolve_config_snapshot_path(self.config_path).read_bytes()
+        except OSError as exc:
+            config_bytes = f"{type(exc).__name__}:{exc}".encode()
+        object.__setattr__(self, "config_version", hashlib.sha256(config_bytes).hexdigest())
 
     @property
     def key(self) -> str:
@@ -76,8 +104,9 @@ class SourceAssessmentRequest:
             "payloads_file": _path_text(self.payloads_file),
             "auth_text_file": _path_text(self.auth_text_file),
             "auth_payloads_file": _path_text(self.auth_payloads_file),
-            "config_path": _path_text(self.config_path),
+            "config_version": self.config_version,
             "allow_unsigned": self.allow_unsigned,
+            "files_version": self.files_version,
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
@@ -106,6 +135,14 @@ class SourceAssessableTaskState(BaseModel):
     """Base for task states that expose a derived, source-only assessment."""
 
     _source_assessment_cache: _SourceAssessmentCache | None = PrivateAttr(default=None)
+    _recovery_session: RecoverySession = PrivateAttr(default_factory=RecoverySession)
+
+    @property
+    def recovery_session(self) -> RecoverySession:
+        return self._recovery_session
+
+    def use_recovery_session(self, session: RecoverySession) -> None:
+        self._recovery_session = session
 
     def source_assessment_request(self) -> SourceAssessmentRequest | None:
         raise NotImplementedError
@@ -213,6 +250,17 @@ class ContentRecoveryTaskState(RecoveryTaskState):
     recovery_text: str | None = None
     recovery_text_file: Path | None = None
     payloads_file: Path | None = None
+    _parsed_text: ParsedRecoveryText | None = PrivateAttr(default=None)
+
+    def parsed_recovery_text(self, *, allow_unsigned: bool = False) -> ParsedRecoveryText:
+        parsed = self._parsed_text
+        if parsed is None or (parsed.text, parsed.allow_unsigned) != (
+            self.recovery_text,
+            allow_unsigned,
+        ):
+            parsed = ParsedRecoveryText.parse(self.recovery_text, allow_unsigned=allow_unsigned)
+            self._parsed_text = parsed
+        return parsed
 
     @property
     def external_recovery_text_file(self) -> Path | None:
@@ -258,7 +306,7 @@ class ContentRecoveryTaskState(RecoveryTaskState):
     ) -> tuple[TaskIssue, ...]:
         if (
             not self.recovery_text
-            or recovery_text_error(self.recovery_text, allow_invalid_auth=allow_unsigned) is None
+            or self.parsed_recovery_text(allow_unsigned=allow_unsigned).error is None
         ):
             return ()
         return (
@@ -286,6 +334,8 @@ class ContentRecoveryTaskState(RecoveryTaskState):
             auth_payloads_file=auth_payloads_file,
             config_path=self.config_path,
             allow_unsigned=allow_unsigned,
+            parsed_text=self.parsed_recovery_text(allow_unsigned=allow_unsigned),
+            session=self.recovery_session,
         )
 
 
@@ -300,6 +350,8 @@ def recovery_source_request(
     auth_payloads_file: Path | None = None,
     config_path: Path | None = None,
     allow_unsigned: bool = False,
+    parsed_text: ParsedRecoveryText | None = None,
+    session: RecoverySession | None = None,
 ) -> SourceAssessmentRequest | None:
     """Describe selected backup documents, payloads, and fallback text."""
 
@@ -333,6 +385,8 @@ def recovery_source_request(
         auth_payloads_file=auth_payloads_file,
         config_path=config_path,
         allow_unsigned=allow_unsigned,
+        parsed_text=parsed_text,
+        session=session or RecoverySession(),
     )
 
 
@@ -344,6 +398,7 @@ def folder_or_scans_source_request(
     config_path: Path | None = None,
     auth_text_file: Path | None = None,
     auth_payloads_file: Path | None = None,
+    session: RecoverySession | None = None,
 ) -> SourceAssessmentRequest | None:
     """Normalize the folder-or-scans source shape used by maintenance tasks."""
 
@@ -360,6 +415,7 @@ def folder_or_scans_source_request(
             auth_text_file=auth_text_file,
             auth_payloads_file=auth_payloads_file,
             config_path=config_path,
+            session=session or RecoverySession(),
         )
     return SourceAssessmentRequest(
         source_kind="scanned_pages",
@@ -370,6 +426,7 @@ def folder_or_scans_source_request(
         auth_text_file=auth_text_file,
         auth_payloads_file=auth_payloads_file,
         config_path=config_path,
+        session=session or RecoverySession(),
     )
 
 
@@ -378,7 +435,7 @@ def assess_source_request(request: SourceAssessmentRequest) -> SourceAssessment:
 
     try:
         with recovery_kdf_budget():
-            inspection = inspect_recovery(_recovery_request(request))
+            inspection = inspect_recovery(_recovery_request(request), session=request.session)
             return _assessment_from_recovery(request, inspection)
     except WorkflowExecutionError as exc:
         return _failed_assessment(request, code=exc.code, message=exc.message)
@@ -393,10 +450,12 @@ def assess_source_request(request: SourceAssessmentRequest) -> SourceAssessment:
 def _recovery_request(request: SourceAssessmentRequest) -> RecoveryRequest:
     frames = ()
     if request.recovery_text:
-        frames = frames_from_fallback_text(
-            request.recovery_text,
-            allow_invalid_auth=request.allow_unsigned,
-        ).frames
+        parsed = request.parsed_text or ParsedRecoveryText.parse(
+            request.recovery_text, allow_unsigned=request.allow_unsigned
+        )
+        if parsed.text != request.recovery_text or parsed.allow_unsigned != request.allow_unsigned:
+            raise ValueError("Parsed recovery text does not match the current source and policy.")
+        frames = parsed.require_frames()
     return RecoveryRequest(
         config_path=request.config_path,
         frames=frames,
@@ -414,7 +473,7 @@ def _assessment_from_recovery(
     request: SourceAssessmentRequest,
     inspection: RecoveryInspection,
 ) -> SourceAssessment:
-    source_frames = inspection.source_frames or (*inspection.main_frames, *inspection.auth_frames)
+    source_frames = inspection.loaded_source.recovery_frames
     document_ids = {
         frame.doc_id for frame in source_frames if frame.frame_type == FrameType.MAIN_DOCUMENT
     }
@@ -470,26 +529,16 @@ def _source_unlock_summary(inspection: RecoveryInspection) -> str:
 
 def _first_source_issue(
     request: SourceAssessmentRequest,
-    blockers: tuple[dict[str, object], ...],
+    blockers: tuple[BlockingIssue, ...],
 ) -> TaskIssue | None:
-    blocker = next(
-        (item for item in blockers if _issue_code(item) not in _UNLOCK_ONLY_BLOCKERS), None
-    )
+    blocker = next((item for item in blockers if item.code not in _UNLOCK_ONLY_BLOCKERS), None)
     if blocker is None:
         return None
     return TaskIssue(
-        code=_issue_code(blocker) or "SOURCE_ASSESSMENT_FAILED",
-        message=_issue_message(blocker) or "The selected backup source is not usable.",
+        code=blocker.code or "SOURCE_ASSESSMENT_FAILED",
+        message=blocker.message or "The selected backup source is not usable.",
         section=request.issue_section,
     )
-
-
-def _issue_code(issue: dict[str, object]) -> str:
-    return str(issue.get("code") or "")
-
-
-def _issue_message(issue: dict[str, object]) -> str:
-    return str(issue.get("message") or "")
 
 
 def _failed_assessment(
