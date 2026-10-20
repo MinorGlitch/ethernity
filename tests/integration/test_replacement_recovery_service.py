@@ -142,6 +142,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
         _replacement_payloads_from_frames: mock.MagicMock,
     ) -> None:
         args = ReplacementRecoveryRequest(
+            shard_payload_files=("original-shards.txt",),
             passphrase_replacement_count=1,
             create_signing_key_shards=False,
             quiet=True,
@@ -206,6 +207,7 @@ class TestReplacementRecoveryService(unittest.TestCase):
         _replacement_payloads_from_frames: mock.MagicMock,
     ) -> None:
         args = ReplacementRecoveryRequest(
+            shard_payload_files=("original-shards.txt",),
             passphrase_replacement_count=1,
             create_signing_key_shards=False,
             quiet=True,

@@ -11,6 +11,7 @@ from ethernity.app.recovery_check_controller import RecoveryCheckController
 from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.styling import StyledApp
+from ethernity.core.execution_control import OperationCancelled, cancellation_point
 from ethernity.tasks import recovery_check
 from ethernity.tasks.models import TaskExecutionResult
 from tests.support.app import run_app_test
@@ -18,6 +19,11 @@ from tests.support.pilot import wait_for_condition
 
 
 class RecoveryCheckApp(StyledApp):
+    controller: RecoveryCheckController
+
+    def on_task_result_screen_closed(self, event: TaskResultScreen.Closed) -> None:
+        self.controller.cancel(event.screen)
+
     def compose(self) -> ComposeResult:
         yield Footer()
 
@@ -41,13 +47,19 @@ def test_check_runs_in_background_serializes_and_discards_closed_screen(
 ) -> None:
     started = threading.Event()
     release = threading.Event()
+    cancelled = threading.Event()
     caller_thread = threading.get_ident()
     service_threads: list[int] = []
 
-    def check(request: recovery_check.GeneratedRecoveryCheckRequest):
+    def check(request: recovery_check.GeneratedRecoveryCheckRequest, *, session):
         service_threads.append(threading.get_ident())
         started.set()
-        assert release.wait(5)
+        try:
+            while not release.wait(0.01):
+                cancellation_point()
+        except OperationCancelled:
+            cancelled.set()
+            raise
         return recovery_check.GeneratedRecoveryCheckResult(1, 10, 2)
 
     monkeypatch.setattr(recovery_check, "check_generated_recovery", check)
@@ -55,7 +67,7 @@ def test_check_runs_in_background_serializes_and_discards_closed_screen(
     async def run() -> None:
         app = RecoveryCheckApp()
         screen = _result_screen(tmp_path / "backup.pdf")
-        controller = RecoveryCheckController(app)
+        controller = app.controller = RecoveryCheckController(app)
         request = recovery_check.GeneratedRecoveryCheckRequest((tmp_path / "backup.pdf",))
         async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
@@ -70,6 +82,7 @@ def test_check_runs_in_background_serializes_and_discards_closed_screen(
                 checks = screen.query_one("#result-document-checks", Static)
                 await pilot.press("escape")
                 assert screen not in app.screen_stack
+                await wait_for_condition(pilot, cancelled.is_set, "dismissed check cancellation")
             finally:
                 release.set()
             await wait_for_condition(
@@ -90,7 +103,7 @@ def test_worker_start_failure_restores_actions(monkeypatch, tmp_path: Path) -> N
 
     async def run() -> None:
         app = RecoveryCheckApp()
-        controller = RecoveryCheckController(app)
+        controller = app.controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
         async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
@@ -111,14 +124,14 @@ def test_worker_start_failure_restores_actions(monkeypatch, tmp_path: Path) -> N
 
 
 def test_missing_quorum_stays_a_failed_recovery_check(monkeypatch, tmp_path: Path) -> None:
-    def check(request: recovery_check.GeneratedRecoveryCheckRequest):
+    def check(request: recovery_check.GeneratedRecoveryCheckRequest, *, session):
         raise ValueError("Need at least 2 recovery sheets bound to the root backup.")
 
     monkeypatch.setattr(recovery_check, "check_generated_recovery", check)
 
     async def run() -> None:
         app = RecoveryCheckApp()
-        controller = RecoveryCheckController(app)
+        controller = app.controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
         async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
@@ -142,9 +155,11 @@ def test_missing_quorum_stays_a_failed_recovery_check(monkeypatch, tmp_path: Pat
 
 def test_required_phrase_is_masked_and_explicit_input_retries(monkeypatch, tmp_path: Path) -> None:
     phrases: list[str | None] = []
+    sessions = []
 
-    def check(request: recovery_check.GeneratedRecoveryCheckRequest):
+    def check(request: recovery_check.GeneratedRecoveryCheckRequest, *, session):
         phrases.append(request.passphrase)
+        sessions.append(session)
         if request.passphrase is None:
             raise recovery_check.GeneratedRecoveryPassphraseRequired()
         return recovery_check.GeneratedRecoveryCheckResult(2, 20, 0)
@@ -153,7 +168,7 @@ def test_required_phrase_is_masked_and_explicit_input_retries(monkeypatch, tmp_p
 
     async def run() -> None:
         app = RecoveryCheckApp()
-        controller = RecoveryCheckController(app)
+        controller = app.controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
         async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)
@@ -188,19 +203,20 @@ def test_required_phrase_is_masked_and_explicit_input_retries(monkeypatch, tmp_p
 
     asyncio.run(run())
     assert phrases == [None, "explicit phrase"]
+    assert sessions[0] is sessions[1]
 
 
 def test_cancelled_phrase_restores_actions_and_reports_no_completed_check(
     monkeypatch, tmp_path: Path
 ) -> None:
-    def check(request: recovery_check.GeneratedRecoveryCheckRequest):
+    def check(request: recovery_check.GeneratedRecoveryCheckRequest, *, session):
         raise recovery_check.GeneratedRecoveryPassphraseRequired()
 
     monkeypatch.setattr(recovery_check, "check_generated_recovery", check)
 
     async def run() -> None:
         app = RecoveryCheckApp()
-        controller = RecoveryCheckController(app)
+        controller = app.controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
         async with run_app_test(app, size=(100, 30)) as pilot:
             await app.push_screen(screen)

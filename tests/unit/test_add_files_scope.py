@@ -58,19 +58,8 @@ class TestAddFilesScope(unittest.TestCase):
         self.assertEqual(scope.exact_paths, ("alpha.txt",))
         self.assertEqual(scope.directory_prefixes, ("docs/nested",))
         self.assertEqual(scope.input_roots, ("nested",))
-        self.assertEqual(scope.total_bytes, 9)
-        self.assertEqual(
-            scope.to_inspection_payload(),
-            {
-                "files": [str(workspace / "alpha.txt")],
-                "directories": [str(nested)],
-                "base_dir": str(workspace),
-                "file_count": 2,
-                "total_bytes": 9,
-                "input_origin": "mixed",
-                "input_roots": ["nested"],
-            },
-        )
+        self.assertEqual(len(scope.input_files), 2)
+        self.assertEqual(sum(len(item.data) for item in scope.input_files), 9)
 
     def test_summarize_scope_diff_reports_new_changed_unchanged_and_missing_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -105,19 +94,6 @@ class TestAddFilesScope(unittest.TestCase):
         self.assertEqual(diff.unchanged_paths, ("alpha.txt",))
         self.assertEqual(diff.missing_paths, ("docs/missing.txt",))
         self.assertEqual(diff.ambiguous_path_aliases, ())
-        self.assertEqual(
-            diff.to_payload(),
-            {
-                "new_paths": ["docs/gamma.txt"],
-                "changed_paths": ["docs/beta.txt"],
-                "unchanged_paths": ["alpha.txt"],
-                "missing_paths": ["docs/missing.txt"],
-                "new_count": 1,
-                "changed_count": 1,
-                "unchanged_count": 1,
-                "missing_count": 1,
-            },
-        )
 
     def test_summarize_scope_diff_flags_exact_file_path_alias_without_base_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from pypdf import PdfReader
@@ -23,6 +24,7 @@ from ethernity.workflows.add_files.request import AddFilesRequest
 from ethernity.workflows.add_files.service import assess_add_files, execute_add_files
 from ethernity.workflows.backup.service import execute_prepared_backup, prepare_backup_run
 from ethernity.workflows.recovery.service import execute_recover_plan, prepare_recover_plan
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared.requests import (
     BackupRequest,
     RecoveryRequest,
@@ -158,7 +160,13 @@ def test_add_files_replacement_sheets_recover_root_after_update_is_lost(
         )
         with suppress_output():
             state.prepare_review(force=True)
-            update = state.execute()
+            with mock.patch.object(
+                RecoverySession,
+                "recover_chain",
+                side_effect=AssertionError("reviewed Add Files must not recover the source again"),
+            ) as recover_chain:
+                update = state.execute()
+            recover_chain.assert_not_called()
 
         extension_dir = update_output
         extension_names = {path.name for path in extension_dir.iterdir()}

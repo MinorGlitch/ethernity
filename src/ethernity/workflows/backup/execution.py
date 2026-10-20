@@ -368,9 +368,6 @@ def run_backup(
     signing_seed_override: bytes | None = None,
     payload_codec_override: payload_codec_module.PayloadEncodingMode | None = None,
     render_origin: DocumentOrigin,
-    debug: bool = False,
-    debug_max_bytes: int | None = None,
-    debug_reveal_secrets: bool = False,
     publication_durability: PublicationDurability = "best-effort",
     quiet: bool = False,
 ) -> BackupResult:
@@ -724,7 +721,7 @@ def _encode_backup_inputs(
     config: AppConfig,
     payload_codec_override: payload_codec_module.PayloadEncodingMode | None,
 ) -> tuple[bytes, bytes, QrPayloadCodec]:
-    # Encode the backup document and handle debug output.
+    # Encode the backup document.
     emit_phase(phase="prepare", label="Preparing payload")
     payload_codec_mode = payload_codec_override or config.cli_defaults.backup.payload_codec
     qr_payload_codec_mode = config.cli_defaults.backup.qr_payload_codec

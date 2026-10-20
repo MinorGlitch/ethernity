@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from typing import Protocol, cast
 
 from textual.app import App
 
+from ethernity.core.execution_control import (
+    ExecutionControl,
+    OperationCancelled,
+)
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.backup_estimate import estimate_backup
 from ethernity.tasks.task_types import TaskKey
@@ -32,7 +37,7 @@ class BackupEstimateController:
         self._completed: BackupRequest | None = None
         self._running = False
         self._closed = False
-        self._generation = 0
+        self._control: ExecutionControl | None = None
 
     def refresh(self) -> None:
         """Request the current backup estimate without blocking a view refresh."""
@@ -40,6 +45,8 @@ class BackupEstimateController:
         if self._closed or not self._app.is_running:
             return
         request = self._app.backup_state.estimate_request()
+        if request != self._desired and self._control is not None:
+            self._control.request_cancel()
         self._desired = request
         current = self._app.backup_state.current_estimate()
         error = self._app.backup_state.estimate_error()
@@ -60,12 +67,15 @@ class BackupEstimateController:
         """Re-read selected files after an explicit reselection of the same paths."""
 
         self._completed = None
-        self._generation += 1
+        if self._control is not None:
+            self._control.request_cancel()
         self._app.backup_state.clear_estimate()
 
     def close(self) -> None:
         self._closed = True
         self._desired = None
+        if self._control is not None:
+            self._control.request_cancel()
 
     async def _plan_pending(self) -> None:
         try:
@@ -75,21 +85,28 @@ class BackupEstimateController:
                     return
                 estimate = None
                 error = None
-                generation = self._generation
+                control = ExecutionControl()
+                self._control = control
                 try:
-                    estimate = await asyncio.to_thread(estimate_backup, request)
+                    estimate = await control.run_in_thread(partial(estimate_backup, request))
+                except OperationCancelled:
+                    continue
                 except (OSError, RuntimeError, ValueError) as exc:
                     error = str(exc)
                 if self._closed or not self._app.is_running:
                     return
-                if generation != self._generation:
+                if control.cancel_requested:
                     continue
                 self._completed = request
                 if request == self._desired:
                     self._app.backup_state.store_estimate(request, estimate, error=error)
                     if self._app.active_task == "backup":
                         self._app.refresh_task_view()
+        except asyncio.CancelledError:
+            self.close()
+            raise
         finally:
+            self._control = None
             self._running = False
 
 

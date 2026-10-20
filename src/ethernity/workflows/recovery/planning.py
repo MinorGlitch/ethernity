@@ -57,6 +57,7 @@ class RecoveryPlan(RecoveryInspection):
     """Resolved recovery inputs, verification state, and output preferences."""
 
     output_path: str | None = None
+    output_is_directory: bool = False
     extension_index: int | None = None
     extension_doc_hash: str | None = None
     expected_head_doc_hash: str | None = None
@@ -258,6 +259,7 @@ def plan_from_inspection(inspection: RecoveryInspection, args: RecoveryRequest) 
         unlock=inspection.unlock,
         blocking_issues=inspection.blocking_issues,
         output_path=expanduser_cli_path(args.output_path),
+        output_is_directory=args.output_is_directory,
         extension_index=args.extension_index,
         extension_doc_hash=args.extension_doc_hash,
         expected_head_doc_hash=args.expected_head_doc_hash,

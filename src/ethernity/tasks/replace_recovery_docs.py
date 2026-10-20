@@ -287,7 +287,7 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
             )
         return issues
 
-    def source_assessment_request(self) -> SourceAssessmentRequest | None:
+    def _build_source_assessment_request(self) -> SourceAssessmentRequest | None:
         return self.content_source_request()
 
     def preview(self) -> TaskPreview:

@@ -724,14 +724,18 @@ def test_restore_add_files_and_replacement_share_matching_preparation(
         session=session,
     )
     assert added.validated_chain is restored.validated_chain
-    replaced = replacement_service.inspect_replacement_recovery_inputs(
+    generate = mock.Mock()
+    monkeypatch.setattr(replacement_service, "create_replacement_documents", generate)
+    replaced = replacement_service.execute_replacement_recovery_operation(
         ReplacementRecoveryRequest(
             scan_paths=source, passphrase="secret", allow_stale_head=True, quiet=True
         ),
         session=session,
     )
-    assert replaced.manifest is restored.manifest
-    assert replaced.recovery.doc_hash == plan.doc_hash
-    assert not replaced.blocking_issues
+    assert replaced is generate.return_value
+    material = generate.call_args.args[0]
+    assert material.trust.doc_hash == plan.doc_hash
+    assert material.signing_seed == restored.manifest.signing_seed
+    assert material.selected_extension_doc_hash == restored.selected_extension_doc_hash
     assert scan.call_count == replay.call_count == 1
     assert imported_chain.decrypt.call_count == 2

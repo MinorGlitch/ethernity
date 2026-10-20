@@ -55,6 +55,10 @@ class AppEventHandlers(EthernityAppContext):
     async def action_help(self) -> None:
         await self.push_screen(HelpScreen(build_help_content(task=self.active_task)))
 
+    def on_task_result_screen_closed(self, event: TaskResultScreen.Closed) -> None:
+        event.stop()
+        self.recovery_check_controller.cancel(event.screen)
+
     async def on_task_result_screen_context_action_requested(
         self, event: TaskResultScreen.ContextActionRequested
     ) -> None:

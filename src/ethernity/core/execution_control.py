@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from threading import Lock
+from typing import TypeVar
+
+_Result = TypeVar("_Result")
 
 
 class OperationCancelled(BaseException):
@@ -17,6 +21,32 @@ class ExecutionControl:
         self._lock = Lock()
         self._cancel_requested = False
         self._committing = False
+
+    async def run_in_thread(self, work: Callable[[], _Result]) -> _Result:
+        """Keep ownership until a cancelled thread has unwound its cleanup."""
+
+        def run() -> _Result:
+            with execution_session(self):
+                self.checkpoint()
+                result = work()
+                self.checkpoint()
+                return result
+
+        pending = asyncio.create_task(asyncio.to_thread(run))
+        try:
+            return await asyncio.shield(pending)
+        except asyncio.CancelledError:
+            self.request_cancel()
+            while True:
+                try:
+                    await asyncio.shield(pending)
+                    break
+                except asyncio.CancelledError:
+                    if pending.cancelled():
+                        break
+                except (Exception, OperationCancelled):
+                    break
+            raise
 
     @property
     def can_cancel(self) -> bool:

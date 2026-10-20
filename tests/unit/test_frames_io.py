@@ -30,7 +30,6 @@ from ethernity.workflows.recovery.frame_inputs import (
     FrameInputResult,
     NoQrFramesError,
     _all_lines_match_fallback_text,
-    _all_payload_lines_decode,
     _auth_frames_from_fallback_lines,
     _decode_payload,
     _frame_from_fallback_lines,
@@ -42,10 +41,10 @@ from ethernity.workflows.recovery.frame_inputs import (
     _read_text_lines,
     auth_frames_from_fallback,
     auth_frames_from_payloads,
-    detect_recovery_input_mode,
     frame_from_fallback,
     frames_from_payload_text,
     frames_from_scan,
+    parse_recovery_text,
     recovery_frames_from_scan,
 )
 from ethernity.workflows.shared.notices import WorkflowNotice
@@ -249,27 +248,32 @@ class TestFramesIo(unittest.TestCase):
                             missing_error="missing",
                         )
 
-    def test_detect_recovery_input_mode_prefers_marked_fallback(self) -> None:
-        payload = encode_qr_payload(encode_frame(self._frame()))
-        mode = detect_recovery_input_mode(f"AUTH FRAME\n{payload}")
+    def test_parse_recovery_text_prefers_marked_fallback(self) -> None:
+        mode, result = parse_recovery_text(
+            f"MAIN FRAME\n{encode_zbase32(encode_frame(self._frame()))}"
+        )
         self.assertEqual(mode, "fallback_marked")
+        self.assertEqual(result.frames, (self._frame(),))
 
-    def test_detect_recovery_input_mode_detects_payload(self) -> None:
+    def test_parse_recovery_text_detects_payload(self) -> None:
         payload = encode_qr_payload(encode_frame(self._frame()))
-        mode = detect_recovery_input_mode(payload)
+        mode, result = parse_recovery_text(payload)
         self.assertEqual(mode, "payload")
+        self.assertEqual(result.frames, (self._frame(),))
 
-    def test_detect_recovery_input_mode_detects_fallback(self) -> None:
+    def test_parse_recovery_text_detects_fallback(self) -> None:
         line = encode_zbase32(encode_frame(self._frame()))
-        mode = detect_recovery_input_mode(line)
+        mode, result = parse_recovery_text(line)
         self.assertEqual(mode, "fallback")
+        self.assertEqual(result.frames, (self._frame(),))
 
-    def test_detect_recovery_input_mode_rejects_mixed_invalid_lines(self) -> None:
+    def test_parse_recovery_text_rejects_mixed_invalid_lines(self) -> None:
         with self.assertRaisesRegex(ValueError, "neither a valid QR payload list"):
-            detect_recovery_input_mode("%%%\n***")
+            parse_recovery_text("%%%\n***")
 
-    def test_all_payload_lines_decode_returns_false_for_empty_lines(self) -> None:
-        self.assertFalse(_all_payload_lines_decode(["", "   "]))
+    def test_parse_recovery_text_rejects_empty_lines(self) -> None:
+        with self.assertRaisesRegex(ValueError, "neither a valid QR payload list"):
+            parse_recovery_text("\n   ")
 
     def test_all_lines_match_fallback_text_returns_false_for_empty_lines(self) -> None:
         self.assertFalse(_all_lines_match_fallback_text(["", "   "]))

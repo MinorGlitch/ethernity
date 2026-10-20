@@ -89,11 +89,11 @@ def _signed_frames(plaintext: bytes, signing_seed: bytes) -> tuple[Frame, ...]:
     )
 
 
-def _issue_codes(inspection) -> set[str]:
-    return {issue.code for issue in inspection.blocking_issues}
+def _issue_codes(resolved) -> set[str]:
+    return {issue.code for issue in resolved.blocking_issues}
 
 
-def test_inspection_requires_recovery_inputs() -> None:
+def test_preparation_requires_recovery_inputs() -> None:
     with pytest.raises(AddFilesWorkflowError) as exc_info:
         resolve_add_files_state(_request(frames=()))
     assert exc_info.value.code == issue_codes.INPUT_REQUIRED
@@ -112,44 +112,34 @@ def test_shuffled_duplicate_frames_resolve_the_authenticated_chain() -> None:
     supplied = tuple(reversed((*extension_frames, *root_frames, *extension_frames)))
 
     resolved = resolve_add_files_state(_request(frames=supplied))
-    inspection = resolved.inspection
 
-    assert not inspection.blocking_issues
-    assert inspection.root_doc_hash == _hash(root_frames)
-    assert inspection.available_extension_indices == (1,)
-    assert inspection.validated_head_index == 1
-    assert inspection.validated_head_doc_hash == _hash(extension_frames)
-    assert inspection.ancestry_valid is True
-    assert inspection.root_auth_status == "verified"
-    assert inspection.validated_head_auth_status == "verified"
-    assert inspection.validated_head_root_signing_key_verified is True
-    assert inspection.signing_key == {
-        "available": True,
-        "satisfied": True,
-        "source": "embedded_seed",
-    }
-    assert resolved.chain_document_count == 2
+    assert not resolved.blocking_issues
     assert resolved.validated_chain is not None
-    assert {item.path for item in resolved.validated_chain.files} == {
+    chain = resolved.validated_chain
+    assert chain.root_doc_hash.hex() == _hash(root_frames)
+    assert chain.head_index == 1
+    assert chain.head_doc_hash.hex() == _hash(extension_frames)
+    assert len(chain.links) == 1
+    assert chain.links[0].auth_status == "verified"
+    assert chain.links[0].root_signing_key_verified is True
+    assert resolved.chain_document_count == 2
+    assert {item.path for item in chain.files} == {
         "alpha.txt",
         "empty-at-root.txt",
         "nested/inherited.txt",
         "new-empty.txt",
     }
-    assert resolved.source_frames == supplied
 
 
 def test_text_payload_import_matches_preloaded_frame_import() -> None:
-    from_frames = resolve_add_files_state(_request()).inspection
+    from_frames = resolve_add_files_state(_request())
     from_text = resolve_add_files_state(
         _request(frames=(), payloads_file=str(GZIP_CHAIN / "chain_payloads.txt"))
-    ).inspection
+    )
 
     assert not from_text.blocking_issues
-    assert from_text.root_doc_hash == from_frames.root_doc_hash
-    assert from_text.validated_head_doc_hash == from_frames.validated_head_doc_hash
-    assert from_text.available_extension_indices == from_frames.available_extension_indices
-    assert from_text.available_extensions == from_frames.available_extensions
+    assert from_text.validated_chain == from_frames.validated_chain
+    assert from_text.resolved_passphrase == from_frames.resolved_passphrase
 
 
 def test_extra_auth_frames_are_matched_by_document_identity() -> None:
@@ -157,42 +147,42 @@ def test_extra_auth_frames_are_matched_by_document_identity() -> None:
     main_frames = tuple(frame for frame in frames if frame.frame_type == FrameType.MAIN_DOCUMENT)
     auth_frames = tuple(frame for frame in frames if frame.frame_type == FrameType.AUTH)
 
-    inspection = resolve_add_files_state(
+    resolved = resolve_add_files_state(
         _request(frames=tuple(reversed(main_frames)), auth_frames=tuple(reversed(auth_frames)))
-    ).inspection
+    )
 
-    assert not inspection.blocking_issues
-    assert inspection.validated_head_doc_hash == _hash(_frames(name="extension_01"))
+    assert not resolved.blocking_issues
+    assert resolved.validated_chain is not None
+    assert resolved.validated_chain.head_doc_hash.hex() == _hash(_frames(name="extension_01"))
 
 
 @pytest.mark.parametrize("name", ["root", "chain"])
 def test_source_freshness_requires_a_pin_or_explicit_acknowledgement(name: str) -> None:
-    inspection = resolve_add_files_state(
-        _request(frames=_frames(name=name), allow_stale_head=False)
-    ).inspection
+    resolved = resolve_add_files_state(_request(frames=_frames(name=name), allow_stale_head=False))
 
-    assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(inspection)
+    assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(resolved)
 
 
 def test_expected_head_pin_is_normalized_and_enforced() -> None:
     head_hash = _hash(_frames(name="extension_01"))
     pinned = resolve_add_files_state(
         _request(expected_head_doc_hash=f"  {head_hash.upper()}  ", allow_stale_head=False)
-    ).inspection
-    wrong = resolve_add_files_state(_request(expected_head_doc_hash="00" * 32)).inspection
+    )
+    wrong = resolve_add_files_state(_request(expected_head_doc_hash="00" * 32))
 
     assert not pinned.blocking_issues
-    assert pinned.validated_head_doc_hash == head_hash
+    assert pinned.validated_chain is not None
+    assert pinned.validated_chain.head_doc_hash.hex() == head_hash
     assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(wrong)
 
 
 def test_missing_ancestor_cannot_be_used_as_an_append_source() -> None:
     frames = (*_frames(RAW_CHAIN, "root"), *_frames(RAW_CHAIN, "extension_02"))
 
-    inspection = resolve_add_files_state(_request(frames=frames)).inspection
+    resolved = resolve_add_files_state(_request(frames=frames))
 
-    assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(inspection)
-    assert inspection.ancestry_valid is not True
+    assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(resolved)
+    assert resolved.validated_chain is None
 
 
 def test_authenticated_forks_cannot_be_used_as_an_append_source() -> None:
@@ -205,10 +195,10 @@ def test_authenticated_forks_cannot_be_used_as_an_append_source() -> None:
     )
     fork = _signed_frames(extension_plaintext, root_manifest.signing_seed)
 
-    inspection = resolve_add_files_state(_request(frames=(*_frames(), *fork))).inspection
+    resolved = resolve_add_files_state(_request(frames=(*_frames(), *fork)))
 
-    assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(inspection)
-    assert inspection.ancestry_valid is not True
+    assert issue_codes.RECOVERY_HEAD_UNTRUSTED in _issue_codes(resolved)
+    assert resolved.validated_chain is None
 
 
 @pytest.mark.parametrize("role", ["root", "extension_01"])
@@ -227,11 +217,11 @@ def test_invalid_authentication_cannot_be_used_as_an_append_source(role: str) ->
             )
         frames.append(frame)
 
-    inspection = resolve_add_files_state(_request(frames=tuple(frames))).inspection
+    resolved = resolve_add_files_state(_request(frames=tuple(frames)))
 
-    assert inspection.blocking_issues
-    assert inspection.ancestry_valid is not True
-    assert inspection.validated_head_root_signing_key_verified is not True
+    assert resolved.blocking_issues
+    assert resolved.validated_chain is None
+    assert resolved.plan is None
 
 
 def test_sealed_root_cannot_be_used_as_an_append_source() -> None:
@@ -240,10 +230,10 @@ def test_sealed_root_cannot_be_used_as_an_append_source() -> None:
     )
     frames = _signed_frames(encode_backup_document(payload, manifest), b"s" * 32)
 
-    inspection = resolve_add_files_state(_request(frames=frames)).inspection
+    resolved = resolve_add_files_state(_request(frames=frames))
 
-    assert issue_codes.SEALED_ROOT_CANNOT_ACCEPT_UPDATES in _issue_codes(inspection)
-    assert inspection.signing_key["satisfied"] is False
+    assert issue_codes.SEALED_ROOT_CANNOT_ACCEPT_UPDATES in _issue_codes(resolved)
+    assert resolved.plan is None
 
 
 def test_embedded_seed_must_match_authenticated_root_signing_key() -> None:
@@ -254,10 +244,10 @@ def test_embedded_seed_must_match_authenticated_root_signing_key() -> None:
     )
     frames = _signed_frames(encode_backup_document(payload, manifest), b"b" * 32)
 
-    inspection = resolve_add_files_state(_request(frames=frames)).inspection
+    resolved = resolve_add_files_state(_request(frames=frames))
 
-    assert issue_codes.ROOT_SIGNING_KEY_MISMATCH in _issue_codes(inspection)
-    assert inspection.signing_key["satisfied"] is False
+    assert issue_codes.ROOT_SIGNING_KEY_MISMATCH in _issue_codes(resolved)
+    assert resolved.plan is None
 
 
 def test_root_shards_unlock_a_multi_extension_source_without_a_passphrase() -> None:
@@ -268,12 +258,20 @@ def test_root_shards_unlock_a_multi_extension_source_without_a_passphrase() -> N
     )
 
     assert not resolved.blocking_issues
-    assert resolved.inspection.unlock["mode"] == "shards"
-    assert resolved.inspection.unlock["satisfied"] is True
-    assert resolved.inspection.unlock["validated_shard_count"] == 2
-    assert resolved.inspection.available_extension_indices == (1, 2)
-    assert resolved.inspection.validated_head_index == 2
+    assert resolved.validated_chain is not None
+    assert resolved.validated_chain.head_index == 2
+    assert len(resolved.validated_chain.links) == 2
     assert resolved.resolved_passphrase == PASSPHRASE
+
+
+def test_insufficient_root_shards_do_not_produce_append_authority() -> None:
+    shards = tuple(frames_from_payloads(str(RAW_CHAIN / "root_shard_payloads_threshold.txt")))
+    resolved = resolve_add_files_state(
+        _request(frames=_frames(RAW_CHAIN, "root"), passphrase=None, shard_frames=shards[:1])
+    )
+    assert issue_codes.PASSPHRASE_SHARDS_UNDER_QUORUM in _issue_codes(resolved)
+    assert resolved.plan is None
+    assert resolved.validated_chain is None
 
 
 def test_wrong_passphrase_does_not_produce_append_authority() -> None:
@@ -281,10 +279,8 @@ def test_wrong_passphrase_does_not_produce_append_authority() -> None:
     resolved = resolve_add_files_state(request)
 
     assert resolved.blocking_issues
-    assert resolved.inspection.unlock["satisfied"] is False
     assert resolved.plan is None
     assert resolved.validated_chain is None
-    assert resolved.source_frames == request.frames
 
 
 @pytest.mark.parametrize(("existing_path", "selected_path"), [("a", "a/b"), ("a/b", "a")])
@@ -336,17 +332,17 @@ def test_directory_scope_omissions_remain_a_domain_error(tmp_path: Path) -> None
     selected.mkdir()
     (selected / "alpha.txt").write_bytes(b"next alpha")
 
-    inspection = resolve_add_files_state(
+    resolved = resolve_add_files_state(
         _request(input_directories=(str(selected),), base_directory=str(selected))
-    ).inspection
+    )
 
-    assert issue_codes.DELETE_NOT_SUPPORTED in _issue_codes(inspection)
-    assert inspection.diff_summary is not None
-    assert inspection.diff_summary["missing_paths"] == [
+    assert issue_codes.DELETE_NOT_SUPPORTED in _issue_codes(resolved)
+    assert resolved.plan is not None
+    assert resolved.plan.diff.missing_paths == (
         "empty-at-root.txt",
         "nested/inherited.txt",
         "new-empty.txt",
-    ]
+    )
 
 
 def test_ambiguous_backup_paths_still_require_an_explicit_base_directory(tmp_path: Path) -> None:
@@ -355,10 +351,10 @@ def test_ambiguous_backup_paths_still_require_an_explicit_base_directory(tmp_pat
     selected = nested / "inherited.txt"
     selected.write_bytes(b"next inherited")
 
-    inspection = resolve_add_files_state(_request(input_paths=(str(selected),))).inspection
+    resolved = resolve_add_files_state(_request(input_paths=(str(selected),)))
 
-    assert issue_codes.INVALID_INPUT in _issue_codes(inspection)
-    assert inspection.diff_summary is not None
+    assert issue_codes.INVALID_INPUT in _issue_codes(resolved)
+    assert resolved.plan is not None
 
 
 @pytest.mark.parametrize("existing_chain", [False, True])

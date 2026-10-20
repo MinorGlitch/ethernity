@@ -21,6 +21,7 @@ from ethernity.formats.manifest import BackupManifest
 from ethernity.qr.codec import QrConfig
 from ethernity.render.errors import RenderValidationError
 from ethernity.render.types import RenderInputs, RenderResult
+from ethernity.workflows.recovery.keys import RecoveryTrust
 from ethernity.workflows.recovery.models import RecoveryUnlockStatus
 from ethernity.workflows.recovery.planning import RecoveryPlan
 from ethernity.workflows.recovery.source_state import LoadedRecoverySource, recovery_source_fields
@@ -243,3 +244,25 @@ def test_sealed_manifest_requires_signing_key_shards(replacement_run: Replacemen
     assert caught.value.code == "SIGNING_KEY_SHARDS_REQUIRED"
     assert not run.rendered
     _assert_unpublished(run)
+
+
+@pytest.mark.parametrize("invalid_trust", ["wrong_key", "unsigned", "missing_key"])
+def test_sheet_generator_checks_retained_signing_authority(replacement_run, invalid_trust):
+    run = replacement_run
+    seed = run.chain.manifest.signing_seed
+    assert seed is not None
+    sign_pub = None if invalid_trust == "missing_key" else derive_public_key(seed)
+    if invalid_trust == "wrong_key":
+        sign_pub = derive_public_key(b"x" * 32)
+    material = service.ReplacementRecoveryMaterial(
+        trust=RecoveryTrust(
+            run.plan.doc_id, run.plan.doc_hash, sign_pub, allow_unsigned=invalid_trust == "unsigned"
+        ),
+        passphrase=run.plan.passphrase,
+        signing_seed=seed,
+        signing_key_source="embedded signing seed",
+    )
+    with pytest.raises(ValueError, match="signing key does not match"):
+        service.create_replacement_documents(material, config=run.config, args=run.request)
+    assert run.rendered == []
+    assert list(run.parent.iterdir()) == [run.parent / "keep.txt"]

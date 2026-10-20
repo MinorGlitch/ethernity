@@ -14,9 +14,9 @@ from unittest import mock
 
 from ethernity.crypto.signing import AuthPayload, derive_public_key, sign_auth
 from ethernity.encoding.framing import VERSION, Frame, FrameType
+from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import ValidatedRecoveryHead
 from ethernity.workflows.recovery.planning import (
-    RecoveryInspection,
     RecoveryPlan,
     RecoveryUnlockStatus,
 )
@@ -27,12 +27,11 @@ from ethernity.workflows.recovery.source_state import (
 )
 from ethernity.workflows.replacement_recovery.service import (
     _recover_replacement_chain,
+    _replacement_from_plan,
     execute_replacement_recovery_operation,
-    inspect_replacement_recovery_inputs,
 )
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError as ApiCommandError
-from ethernity.workflows.shared.inspection import BlockingIssue
 from ethernity.workflows.shared.requests import RecoveryRequest, ReplacementRecoveryRequest
 
 ROOT_SIGNING_SEED = b"\x33" * 32
@@ -57,42 +56,6 @@ def _state(*, shard_frames: tuple[Frame, ...] = ()) -> SimpleNamespace:
             shard_frames=shard_frames,
         ),
         signing_key_frames=(),
-    )
-
-
-def _recovery(
-    *,
-    auth_payload: AuthPayload | None = None,
-    satisfied: bool = True,
-    passphrase: str | None = "passphrase",
-) -> RecoveryInspection:
-    return RecoveryInspection(
-        loaded_source=LoadedRecoverySource((), (), (), None, None),
-        ciphertext=b"root-ciphertext",
-        doc_id=b"\x66" * 8,
-        doc_hash=b"\x77" * 32,
-        auth_payload=auth_payload,
-        auth_status="verified" if auth_payload is not None else "missing",
-        allow_unsigned=False,
-        unlock=RecoveryUnlockStatus(
-            mode="passphrase" if passphrase is not None else "missing",
-            passphrase_provided=passphrase is not None,
-            validated_shard_count=0,
-            required_shard_threshold=None,
-            satisfied=satisfied,
-            resolved_passphrase=passphrase if satisfied else None,
-        ),
-        blocking_issues=(),
-        source=RecoverySourceFields(
-            input_label="Scan",
-            input_detail="/tmp/root",
-            main_frames=(),
-            auth_frames=(),
-            shard_frames=(),
-            shard_fallback_files=(),
-            shard_payloads_file=(),
-            shard_scan=(),
-        ),
     )
 
 
@@ -163,141 +126,68 @@ def _chain(*, extension: bool = True) -> SimpleNamespace:
     )
 
 
-class TestReplacementRecoveryInspection(unittest.TestCase):
-    def test_inspection_deduplicates_auth_required_blockers(self) -> None:
-        args = ReplacementRecoveryRequest(payloads_file="main.txt", quiet=True)
-        auth_required = BlockingIssue(
-            "AUTH_REQUIRED",
-            "replacement recovery requires an authenticated backup input with an AUTH payload",
-        )
+class TestReplacementRecoveryPreparation(unittest.TestCase):
+    def test_sheets_use_root_binding_after_validating_selected_chain_head(self) -> None:
+        plan = _plan(import_documents=(object(), object()))
+        args = ReplacementRecoveryRequest(allow_stale_head=True)
         with (
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service._load_replacement_input_state",
-                return_value=_state(),
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service.inspect_loaded_recovery",
-                return_value=_recovery(auth_payload=None, satisfied=False, passphrase=None),
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_inspect_replacement_signing_key_state",
-                return_value=(0, None, False, "signing-key shards", [auth_required]),
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_inspect_replacement_replacement_blockers",
-                return_value=[],
-            ),
-        ):
-            inspection = inspect_replacement_recovery_inputs(args)
-
-        issues = [item for item in inspection.blocking_issues if item.code == "AUTH_REQUIRED"]
-        self.assertEqual(len(issues), 1)
-
-    def test_inspection_uses_root_binding_after_validating_selected_chain_head(self) -> None:
-        args = ReplacementRecoveryRequest(
-            scan_paths=["/tmp/root"], passphrase="passphrase", quiet=True
-        )
-        root_plan = _plan(import_documents=(object(), object()))
-        chain = _chain()
-        captured: dict[str, RecoveryInspection] = {}
-
-        def capture_blockers(**kwargs):
-            captured["recovery"] = kwargs["recovery"]
-            return []
-
-        with (
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service._load_replacement_input_state",
-                return_value=_state(),
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service.plan_from_inspection",
-                return_value=root_plan,
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service.inspect_loaded_recovery",
-                return_value=_recovery(auth_payload=_root_auth()),
-            ),
             mock.patch(
                 "ethernity.workflows.replacement_recovery.service._recover_replacement_chain",
-                return_value=chain,
-            ) as recover_chain,
+                return_value=_chain(),
+            ) as recover,
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_inspect_replacement_signing_key_state",
-                return_value=(0, None, True, "embedded signing seed", []),
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_inspect_replacement_replacement_blockers",
-                side_effect=capture_blockers,
-            ),
+                "ethernity.workflows.replacement_recovery.service.create_replacement_documents"
+            ) as generate,
         ):
-            inspection = inspect_replacement_recovery_inputs(args)
+            result = _replacement_from_plan(
+                plan=plan,
+                config=mock.sentinel.config,
+                args=args,
+                passphrase_shard_frames=[],
+                signing_key_frames=[],
+                debug=False,
+            )
+        self.assertIs(result, generate.return_value)
+        material = generate.call_args.args[0]
+        self.assertEqual(material.trust.doc_id, plan.doc_id)
+        self.assertEqual(material.trust.doc_hash, plan.doc_hash)
+        self.assertEqual(material.trust.sign_pub, ROOT_SIGN_PUB)
+        self.assertEqual(material.signing_seed, ROOT_SIGNING_SEED)
+        self.assertEqual(material.selected_extension_index, 1)
+        self.assertEqual(material.selected_extension_doc_hash, "44" * 32)
+        recover.assert_called_once_with(plan, debug=False, allow_stale_head=True, session=None)
 
-        self.assertEqual(inspection.recovery.doc_hash, root_plan.doc_hash)
-        self.assertEqual(inspection.recovery.auth_payload, root_plan.auth_payload)
-        self.assertEqual(inspection.selected_extension_index, 1)
-        self.assertEqual(inspection.selected_extension_doc_hash, "44" * 32)
-        self.assertEqual(captured["recovery"].doc_hash, root_plan.doc_hash)
-        recover_chain.assert_called_once_with(
-            root_plan, debug=False, allow_stale_head=False, session=mock.ANY
-        )
-
-    def test_chain_failure_does_not_add_misleading_unlock_failure(self) -> None:
-        args = ReplacementRecoveryRequest(
-            scan_paths=["/tmp/root"], passphrase="passphrase", quiet=True
-        )
+    def test_chain_failure_stops_generation_and_preserves_the_error(self) -> None:
+        plan = _plan(import_documents=(object(), object()))
         with (
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service._load_replacement_input_state",
-                return_value=_state(),
+                "ethernity.extensions.recovery.recover_chain_entries",
+                side_effect=ExtensionRecoveryError(
+                    issue_codes.RECOVERY_HEAD_UNTRUSTED,
+                    "imported extension chain could not be trusted",
+                ),
             ),
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service.plan_from_inspection",
-                return_value=_plan(import_documents=(object(), object())),
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service.inspect_loaded_recovery",
-                return_value=_recovery(auth_payload=_root_auth()),
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service._recover_replacement_chain",
-                side_effect=ValueError("imported extension chain could not be trusted"),
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_inspect_replacement_signing_key_state",
-                return_value=(0, None, False, "signing-key shards", []),
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_inspect_replacement_replacement_blockers",
-                return_value=[],
-            ),
+                "ethernity.workflows.replacement_recovery.service.create_replacement_documents"
+            ) as generate,
+            self.assertRaises(ApiCommandError) as caught,
         ):
-            inspection = inspect_replacement_recovery_inputs(args)
+            _replacement_from_plan(
+                plan=plan,
+                config=mock.sentinel.config,
+                args=ReplacementRecoveryRequest(),
+                passphrase_shard_frames=[],
+                signing_key_frames=[],
+                debug=False,
+            )
+        self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("chain could not be trusted", caught.exception.message)
+        generate.assert_not_called()
 
-        codes = [item.code for item in inspection.blocking_issues]
-        self.assertIn(issue_codes.RECOVERY_HEAD_UNTRUSTED, codes)
-        self.assertNotIn("UNLOCK_FAILED", codes)
-        self.assertIsNone(inspection.manifest)
-
-    def test_inspection_preserves_plan_shard_unlock(self) -> None:
-        args = ReplacementRecoveryRequest(scan_paths=["/tmp/root"], quiet=True)
-        shard_frame = Frame(
-            version=VERSION,
-            frame_type=FrameType.KEY_DOCUMENT,
-            doc_id=b"\x66" * 8,
-            index=1,
-            total=1,
-            data=b"shard",
-        )
-        plan = _plan()
+    def test_execution_preserves_the_passphrase_recovered_from_shards(self) -> None:
+        shard_frame = Frame(VERSION, FrameType.KEY_DOCUMENT, b"\x66" * 8, 1, 1, b"shard")
         plan = replace(
-            plan,
+            _plan(),
             unlock=RecoveryUnlockStatus(
                 mode="shards",
                 passphrase_provided=False,
@@ -307,12 +197,6 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
                 resolved_passphrase="derived-passphrase",
                 shard_share_count=3,
             ),
-            source=replace(
-                plan.source,
-                shard_frames=(shard_frame,),
-                shard_fallback_files=("shard.txt",),
-                shard_payloads_file=("payloads.txt",),
-            ),
         )
         with (
             mock.patch(
@@ -320,35 +204,21 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
                 return_value=_state(shard_frames=(shard_frame,)),
             ),
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service.plan_from_inspection",
+                "ethernity.workflows.replacement_recovery.service.build_recovery_plan",
                 return_value=plan,
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service.inspect_loaded_recovery",
-                return_value=plan,
-            ) as inspect_recovery,
+            ) as build,
             mock.patch(
                 "ethernity.workflows.replacement_recovery.service._recover_replacement_chain",
                 return_value=_chain(extension=False),
             ),
             mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_inspect_replacement_signing_key_state",
-                return_value=(0, None, True, "embedded signing seed", []),
-            ),
-            mock.patch(
-                "ethernity.workflows.replacement_recovery.service."
-                "_inspect_replacement_replacement_blockers",
-                return_value=[],
-            ),
+                "ethernity.workflows.replacement_recovery.service.create_replacement_documents"
+            ) as generate,
         ):
-            inspection = inspect_replacement_recovery_inputs(args)
-
-        inspect_recovery.assert_called_once()
-        self.assertIs(inspection.recovery, plan)
-        self.assertEqual(inspection.recovery.unlock.mode, "shards")
-        self.assertEqual(inspection.recovery.unlock.required_shard_threshold, 2)
-        self.assertEqual(inspection.recovery.unlock.resolved_passphrase, "derived-passphrase")
+            execute_replacement_recovery_operation(ReplacementRecoveryRequest(quiet=True))
+        self.assertEqual(build.call_args.args[0].shard_frames, (shard_frame,))
+        self.assertEqual(generate.call_args.args[0].passphrase, "derived-passphrase")
+        self.assertEqual(generate.call_args.kwargs["passphrase_shard_frames"], [shard_frame])
 
     def test_execute_passes_selected_head_without_root_directory(self) -> None:
         args = ReplacementRecoveryRequest(
@@ -399,11 +269,15 @@ class TestReplacementRecoveryInspection(unittest.TestCase):
                 "ethernity.workflows.replacement_recovery.service._build_replacement_recovery_plan",
                 return_value=SimpleNamespace(auth_payload=None),
             ),
+            mock.patch(
+                "ethernity.workflows.replacement_recovery.service.create_replacement_documents"
+            ) as generate,
             self.assertRaises(ApiCommandError) as caught,
         ):
             execute_replacement_recovery_operation(args)
 
         self.assertEqual(caught.exception.code, issue_codes.AUTH_REQUIRED)
+        generate.assert_not_called()
 
     def test_replacement_chain_delegates_to_shared_recovery_service(self) -> None:
         plan = _plan(import_documents=(object(), object()))

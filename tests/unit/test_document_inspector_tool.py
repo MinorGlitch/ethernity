@@ -4,8 +4,11 @@ import hashlib
 import json
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import tooling.document_inspector as inspector
+from tooling.document_inspector_app.analysis import _parse_text_to_frames
+from tooling.document_inspector_app.constants import MODE_AUTO
 
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
@@ -18,6 +21,7 @@ from ethernity.formats.document_codec import build_manifest_and_payload, encode_
 from ethernity.formats.extension_constants import CHUNK_ALGORITHM_FASTCDC
 from ethernity.formats.extension_document import ExtensionChunkingProfile
 from ethernity.formats.manifest import BackupFile
+from ethernity.workflows.recovery import frame_inputs
 from ethernity.workflows.shared.operation_types import InputFile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -770,3 +774,13 @@ class TestDocumentInspectorTool(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_auto_input_decodes_each_payload_once():
+    frames = [Frame(1, FrameType.MAIN_DOCUMENT, b"D" * 8, index, 3, b"data") for index in range(3)]
+    text = "\n".join(str(encode_qr_payload(encode_frame(frame))) for frame in frames)
+    with mock.patch.object(frame_inputs, "decode_frame", wraps=frame_inputs.decode_frame) as decode:
+        mode, parsed = _parse_text_to_frames(text, selected_mode=MODE_AUTO)
+    assert mode == "payload"
+    assert parsed == frames
+    assert decode.call_count == len(frames)

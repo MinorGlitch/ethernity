@@ -145,7 +145,7 @@ class RebuildTaskState(RecoveryTaskState):
         issues.extend(backup_destination_issues(self.output_dir))
         return self.validation_with_source_issues(issues)
 
-    def source_assessment_request(self) -> SourceAssessmentRequest | None:
+    def _build_source_assessment_request(self) -> SourceAssessmentRequest | None:
         return folder_or_scans_source_request(
             session=self.recovery_session,
             issue_section="source",

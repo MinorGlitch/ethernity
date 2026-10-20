@@ -220,14 +220,7 @@ class ReviewTaskScreen(EthernityModalScreen[bool | ReviewEditRequest]):
         if not self._plan.output_paths:
             return ("Choose a destination before writing files.",)
 
-        existing_paths = [path for path in self._plan.output_paths if path.exists()]
-        overwrite_notes = (
-            ("Existing files at the destination may be replaced.",) if existing_paths else ()
-        )
-        return (
-            *self._plan.safety_notes,
-            *overwrite_notes,
-        )
+        return self._plan.safety_notes
 
 
 def _preview_detail(item: PreviewItem) -> str:

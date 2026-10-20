@@ -370,7 +370,10 @@ def test_textual_app_print_kit_warns_before_replacing_existing_pdf(tmp_path) -> 
             assert "Warning" in review_text
             assert "Selected PDF file already exists" in review_text
             assert str(output_path) in review_text
-            assert "Existing files at the destination may be replaced." in review_text
+            safety = app.screen.query_one("#review-write-safety")
+            assert "Selected PDF file already exists" in " ".join(
+                str(line.content) for line in safety.query(Static)
+            )
             assert not app.screen.query_one("#review-execute", Button).disabled
 
     asyncio.run(run())

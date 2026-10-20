@@ -38,11 +38,8 @@ def _link(document):
 
 def _scope(**files):
     return SelectedInputScope(
-        raw_files=tuple(files),
-        raw_directories=(),
         base_dir_arg=None,
         input_files=tuple(InputFile(None, path, data, 1) for path, data in files.items()),
-        base_dir=None,
         input_origin="file",
         input_roots=(),
         exact_paths=tuple(files),

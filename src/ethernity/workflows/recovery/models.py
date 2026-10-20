@@ -24,6 +24,7 @@ from typing import Any, Literal
 from ethernity.crypto.signing import AuthPayload
 from ethernity.encoding.framing import Frame
 from ethernity.extensions.recovery import DecodedImportSession
+from ethernity.workflows.recovery.keys import DecodedShard
 from ethernity.workflows.recovery.source_state import LoadedRecoverySource, RecoverySourceFields
 from ethernity.workflows.shared.events import emit_progress
 from ethernity.workflows.shared.inspection import BlockingIssue
@@ -40,6 +41,7 @@ class RecoveryUnlockStatus:
     satisfied: bool
     resolved_passphrase: str | None = None
     shard_share_count: int | None = None
+    validated_shards: tuple[DecodedShard, ...] = ()
     blocking_issues: tuple[BlockingIssue, ...] = ()
 
     @classmethod

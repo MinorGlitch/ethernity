@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.workflow_registry import build_guided_workflow
@@ -400,5 +402,30 @@ def test_replaced_assessment_cannot_publish_over_current_source(monkeypatch) -> 
                 assert not app.workflow_ui_states["restore"].source_assessment_loading
         finally:
             release.set()
+
+    asyncio.run(run())
+
+
+def test_refresh_reads_each_source_revision_once(tmp_path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "page.pdf").write_bytes(b"source")
+    config = tmp_path / "config.toml"
+    config.write_text("config")
+
+    async def run() -> None:
+        app = EthernityApp()
+        async with run_app_test(app, size=(120, 36)) as pilot:
+            await pilot.press("2")
+            app.restore_state = RestoreTaskState(source_paths=[source], config_path=config)
+            with (
+                mock.patch("os.walk", wraps=os.walk) as walk,
+                mock.patch.object(
+                    Path, "read_bytes", autospec=True, return_value=b"config"
+                ) as read,
+            ):
+                app.refresh_task_view()
+            assert walk.call_count == 1
+            assert read.call_count == 1, read.call_args_list
 
     asyncio.run(run())

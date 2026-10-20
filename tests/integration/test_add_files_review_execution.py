@@ -27,6 +27,7 @@ from ethernity.workflows.add_files.service import (
     assess_add_files,
     execute_add_files,
 )
+from ethernity.workflows.recovery.keys import RecoveryTrust
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
 from tests.support.app import run_app_test
@@ -46,7 +47,11 @@ def _fake_assessed(marker: bytes = b"A") -> AssessedAddFilesRun:
         reused_chunks=2,
     )
     prepared = SimpleNamespace(
-        plan=SimpleNamespace(update_mode=UpdateMode.INCREMENTAL),
+        plan=SimpleNamespace(
+            update_mode=UpdateMode.INCREMENTAL,
+            signing_key=SimpleNamespace(trust=RecoveryTrust(b"R" * 8, b"H" * 32, b"K" * 32)),
+        ),
+        signing_seed=b"S" * 32,
         request=SimpleNamespace(base_directory=None),
         next_index=3,
         changed_paths=("changed.txt",),
@@ -54,16 +59,6 @@ def _fake_assessed(marker: bytes = b"A") -> AssessedAddFilesRun:
         unchanged_paths=("same.txt",),
         parent_doc_hash=b"P" * 32,
         encryption_passphrase="resolved-passphrase",
-        source_frames=(
-            Frame(
-                version=1,
-                frame_type=FrameType.MAIN_DOCUMENT,
-                doc_id=b"S" * 8,
-                index=0,
-                total=1,
-                data=b"source",
-            ),
-        ),
     )
     encrypted = SimpleNamespace(
         built=SimpleNamespace(stats=stats),
@@ -211,7 +206,14 @@ def test_optional_recovery_sheets_delegate_to_replacement_recovery(
         lambda *_args, **_kwargs: _fake_executed(assessed, published),
     )
 
-    def create_recovery_sheets(request):
+    def create_recovery_sheets(material, *, config, args):
+        assert config is assessed.output_settings.config
+        assert material.trust is assessed.prepared.plan.signing_key.trust
+        assert material.passphrase == assessed.prepared.encryption_passphrase
+        assert material.signing_seed == assessed.prepared.signing_seed
+        assert material.selected_extension_index == assessed.prepared.next_index
+        assert material.selected_extension_doc_hash == assessed.encrypted.doc_hash.hex()
+        request = args
         replacement_requests.append(request)
         output_dir = request.output_dir
         assert output_dir is not None
@@ -221,7 +223,7 @@ def test_optional_recovery_sheets_delegate_to_replacement_recovery(
         )
 
     monkeypatch.setattr(
-        "ethernity.workflows.add_files.service.execute_replacement_recovery",
+        "ethernity.workflows.add_files.service.create_replacement_documents",
         create_recovery_sheets,
     )
     execution = execute_add_files(assessment)
@@ -252,13 +254,7 @@ def test_optional_recovery_sheets_delegate_to_replacement_recovery(
     assert len(replacement_requests) == 1
     recovery_request = replacement_requests[0]
     assert recovery_request.scan_paths == ()
-    assert recovery_request.frames == (
-        *assessed.prepared.source_frames,
-        *_fake_executed(assessed, published).result.recovery_frames,
-    )
-    assert recovery_request.passphrase == "resolved-passphrase"
-    assert recovery_request.extension_doc_hash == assessed.encrypted.doc_hash.hex()
-    assert recovery_request.expected_head_doc_hash == assessed.encrypted.doc_hash.hex()
+    assert recovery_request.frames == ()
     assert recovery_request.shard_threshold == 2
     assert recovery_request.shard_count == 3
     assert recovery_request.create_passphrase_shards
@@ -303,11 +299,11 @@ def test_recovery_sheet_failure_reports_the_published_update_without_inviting_re
         lambda *_args, **_kwargs: _fake_executed(assessed, published),
     )
 
-    def fail_recovery_sheets(_request):
+    def fail_recovery_sheets(_material, **_kwargs):
         raise ValueError("printer backend failed")
 
     monkeypatch.setattr(
-        "ethernity.workflows.add_files.service.execute_replacement_recovery",
+        "ethernity.workflows.add_files.service.create_replacement_documents",
         fail_recovery_sheets,
     )
     execution = execute_add_files(assessment)

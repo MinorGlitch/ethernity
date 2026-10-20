@@ -9,7 +9,6 @@ import pytest
 from textual.widgets import (
     Button,
     Collapsible,
-    Input,
     MarkdownViewer,
     ProgressBar,
     RichLog,
@@ -90,7 +89,7 @@ def test_textual_app_shows_progress_screen_while_task_runs(monkeypatch) -> None:
 
     def fake_execute(self: BackupTaskState) -> TaskExecutionResult:
         started.set()
-        assert release.wait(timeout=30), "Test did not release the backup worker."
+        release.wait()
         return TaskExecutionResult(
             status="succeeded",
             message="Slow backup complete.",
@@ -108,10 +107,9 @@ def test_textual_app_shows_progress_screen_while_task_runs(monkeypatch) -> None:
         )
         async with run_app_test(app, size=(120, 32)) as pilot:
             assert not list(app.query("#canvas-loading"))
-            await pilot.press("ctrl+r")
-            await click_when_ready(pilot, "#review-execute")
-
             try:
+                await pilot.press("ctrl+r")
+                await click_when_ready(pilot, "#review-execute")
                 await _wait_for_condition(pilot, started.is_set, "worker to start")
                 destination = await wait_for_widget(pilot, "#progress-destination")
                 expected = str(Path("backup-out") / "backup-<id>")
@@ -413,37 +411,26 @@ def test_write_workflows_apply_their_destination_policy(tmp_path) -> None:
             assert any(warning_text in warning.message for warning in output_warnings)
 
 
-def test_textual_app_restore_review_shows_destination_conflict_safety(tmp_path) -> None:
+def test_textual_app_restore_rejects_nonempty_destination_before_review(tmp_path) -> None:
     async def run() -> None:
         restore_dir = tmp_path / "recovered"
         restore_dir.mkdir()
-        (restore_dir / "existing.txt").write_text("keep me")
-        app = EthernityApp(
-            restore_state=RestoreTaskState(
-                source_paths=[Path("scan.pdf")],
-                passphrase="secret",
-                output_path=restore_dir,
-            )
+        existing = restore_dir / "existing.txt"
+        existing.write_text("keep me")
+        state = RestoreTaskState(
+            source_paths=[Path("scan.pdf")],
+            passphrase="secret",
+            output_path=restore_dir,
         )
+        app = EthernityApp(restore_state=state)
         async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("2")
-
-            assert app.query_one("#workflow-restore-destination-body-value", Input).value == str(
-                restore_dir
-            )
-            assert (
-                "The restore folder contains files or folders; restored files with matching "
-                "names may be replaced." in workflow_support.preview_text(app)
-            )
-
+            issues = state.validate_task().issues
+            assert any(issue.code == "RESTORE_DESTINATION_INVALID" for issue in issues)
+            assert "not empty" in state.execution_plan().safety_notes[0]
             await pilot.press("ctrl+r")
-
-            review_text = workflow_support.read_review_text(app)
-            assert f"Destination\n{restore_dir}" in review_text
-            assert (
-                "The restore folder contains files or folders; restored files with matching "
-                "names may be replaced." in review_text
-            )
+            assert not list(app.screen.query("#review-modal"))
+            assert existing.read_text() == "keep me"
 
     asyncio.run(run())
 
@@ -507,7 +494,7 @@ def test_textual_app_review_can_execute_ready_restore(monkeypatch) -> None:
             assert "Verification source: Loaded backup" in review_text
             assert "Unlock: Passphrase" in review_text
             assert workflow_support.button_label(app, "#review-execute") == "Restore files"
-            assert "The restore folder does not exist and will be created." in review_text
+            assert "Recovered files require a new or empty folder." in review_text
 
             await click_when_ready(pilot, "#review-execute")
             await _wait_for_condition(pilot, lambda: bool(calls), "execution to start")

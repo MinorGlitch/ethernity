@@ -20,15 +20,20 @@ from types import SimpleNamespace
 from unittest import mock
 
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext, doc_id_from_doc_hash
-from ethernity.crypto.sharding import encode_shard_payload, split_passphrase, split_signing_seed
+from ethernity.crypto.sharding import (
+    KEY_TYPE_PASSPHRASE,
+    encode_shard_payload,
+    split_passphrase,
+    split_signing_seed,
+)
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.formats.manifest import BackupManifest, ManifestFile
 from ethernity.workflows.rebuild.service import (
-    _infer_passphrase_shard_policy_from_frames,
     _infer_recovery_sheet_settings,
     execute_rebuild_operation,
 )
+from ethernity.workflows.recovery import keys
 from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.recovery.source_state import LoadedRecoverySource
 from ethernity.workflows.shared import issue_codes
@@ -105,6 +110,8 @@ def _signing_seed_shard_frames(
 def _recovery_plan(**kwargs) -> SimpleNamespace:
     return SimpleNamespace(
         **kwargs,
+        unlock=SimpleNamespace(validated_shards=()),
+        allow_unsigned=False,
         loaded_source=LoadedRecoverySource((), (), (), None, None),
     )
 
@@ -355,7 +362,7 @@ class TestRebuildService(unittest.TestCase):
             sign_priv=sign_priv,
         )[:2]
         policy = _infer_recovery_sheet_settings(
-            root_doc_id_hex=doc_id.hex(),
+            root_doc_id=doc_id,
             root_doc_hash=doc_hash,
             sign_pub=sign_pub,
             passphrase_shard_frames=shard_frames,
@@ -386,7 +393,7 @@ class TestRebuildService(unittest.TestCase):
             loaded = _loaded_source([str(renamed)], shard_frames)
             policy = _infer_recovery_sheet_settings(
                 source_key_frames=loaded.sheet_frames,
-                root_doc_id_hex=doc_id.hex(),
+                root_doc_id=doc_id,
                 root_doc_hash=doc_hash,
                 sign_pub=sign_pub,
             )
@@ -414,7 +421,7 @@ class TestRebuildService(unittest.TestCase):
             loaded = _loaded_source([str(renamed)], shard_frames)
             policy = _infer_recovery_sheet_settings(
                 source_key_frames=loaded.sheet_frames,
-                root_doc_id_hex=doc_id.hex(),
+                root_doc_id=doc_id,
                 root_doc_hash=doc_hash,
                 sign_pub=sign_pub,
             )
@@ -449,7 +456,7 @@ class TestRebuildService(unittest.TestCase):
         loaded = _loaded_source(["arbitrary-documents"], [*unrelated_shards, *root_shards])
         policy = _infer_recovery_sheet_settings(
             source_key_frames=loaded.sheet_frames,
-            root_doc_id_hex=doc_id.hex(),
+            root_doc_id=doc_id,
             root_doc_hash=doc_hash,
             sign_pub=derive_public_key(sign_priv),
         )
@@ -472,7 +479,7 @@ class TestRebuildService(unittest.TestCase):
 
         with self.assertRaises(ApiCommandError) as ctx:
             _infer_recovery_sheet_settings(
-                root_doc_id_hex=doc_id.hex(),
+                root_doc_id=doc_id,
                 root_doc_hash=doc_hash,
                 sign_pub=None,
                 passphrase_shard_frames=shard_frames,
@@ -486,13 +493,19 @@ class TestRebuildService(unittest.TestCase):
             "secret passphrase",
             threshold=2,
             share_count=3,
-            doc_id=b"\x22" * 8,
+            doc_id=doc_id_from_doc_hash(b"\x44" * 32),
             doc_hash=b"\x44" * 32,
             sign_priv=b"\x33" * 32,
         )[:2]
 
         with self.assertRaises(ApiCommandError) as ctx:
-            _infer_passphrase_shard_policy_from_frames(shard_frames, sign_pub=None)
+            _infer_recovery_sheet_settings(
+                source_key_frames=shard_frames,
+                sign_pub=None,
+                root_doc_id=b"\x11" * 8,
+                root_doc_hash=b"\x55" * 32,
+                selected_extension_doc_hash=(b"\x44" * 32).hex(),
+            )
 
         self.assertEqual(ctx.exception.code, issue_codes.REBUILD_INVALID_POLICY)
         self.assertEqual(ctx.exception.details, {"stage": "source_shard_policy"})
@@ -1311,3 +1324,53 @@ class TestRebuildService(unittest.TestCase):
                     allow_stale_head=True,
                 )
             )
+
+
+def test_rebuild_policy_decodes_unique_sheets_once_and_reuses_verified_quorum() -> None:
+    doc_id, doc_hash = b"\x22" * 8, b"\x44" * 32
+    sign_pub = derive_public_key(b"\x33" * 32)
+    frames = _passphrase_shard_frames(
+        "secret passphrase",
+        threshold=2,
+        share_count=3,
+        doc_id=doc_id,
+        doc_hash=doc_hash,
+        sign_priv=b"\x33" * 32,
+    )
+    with (
+        mock.patch.object(keys, "decode_shard_payload", wraps=keys.decode_shard_payload) as decode,
+        mock.patch.object(keys, "verify_shard", wraps=keys.verify_shard) as verify,
+    ):
+        policy = _infer_recovery_sheet_settings(
+            source_key_frames=frames,
+            passphrase_shard_frames=frames,
+            root_doc_id=doc_id,
+            root_doc_hash=doc_hash,
+            sign_pub=sign_pub,
+        )
+        assert (policy.passphrase_shard_threshold, policy.passphrase_shard_count) == (2, 3)
+        assert decode.call_count == 3
+        assert verify.call_count == 3
+        validated = keys.validate_decoded_shards(
+            [keys.DecodedShard.decode(frame) for frame in frames],
+            expected_doc_id=doc_id,
+            expected_doc_hash=doc_hash,
+            expected_sign_pub=sign_pub,
+            key_type=KEY_TYPE_PASSPHRASE,
+            secret_label="passphrase",
+        )
+        decode.reset_mock()
+        verify.reset_mock()
+        assert (
+            _infer_recovery_sheet_settings(
+                source_key_frames=frames,
+                passphrase_shard_frames=frames,
+                root_doc_id=doc_id,
+                root_doc_hash=doc_hash,
+                sign_pub=sign_pub,
+                validated_shards=validated,
+            )
+            == policy
+        )
+        assert decode.call_count == 0
+        assert verify.call_count == 0

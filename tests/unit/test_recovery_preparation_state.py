@@ -3,8 +3,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from ethernity.tasks import recovery_inputs
+from ethernity.tasks import recovery_inputs, source_assessment
+from ethernity.tasks.add_files import AddFilesTaskState, _AssessmentCache
 from ethernity.tasks.models import TaskIssue
+from ethernity.tasks.rebuild import RebuildTaskState
+from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
 from ethernity.tasks.source_assessment import SourceAssessment
 
@@ -87,4 +90,99 @@ def test_review_config_copy_keeps_assessment_but_changed_config_invalidates_it(t
     state.config_path = snapshot
     assert state.current_source_assessment() is assessment
     snapshot.write_text("changed configuration")
+    assert state.current_source_assessment() is None
+
+
+@pytest.mark.parametrize(
+    "state_type",
+    [
+        RestoreTaskState,
+        AddFilesTaskState,
+        RebuildTaskState,
+        ReplaceRecoveryDocsTaskState,
+    ],
+)
+def test_presentation_reuses_source_revision_until_the_next_view(tmp_path, monkeypatch, state_type):
+    source = tmp_path / "source"
+    source.mkdir()
+    for index in range(30):
+        (source / f"page-{index}.pdf").write_bytes(b"source")
+    config = tmp_path / "config.toml"
+    config.write_text("config")
+    state = state_type(source_paths=[source], config_path=config)
+    assessment = _save_assessment(state)
+    revision = Mock(wraps=source_assessment.source_files_version)
+    monkeypatch.setattr(source_assessment, "source_files_version", revision)
+    read = Mock(wraps=Path.read_bytes)
+    monkeypatch.setattr(Path, "read_bytes", lambda path: read(path))
+
+    with state.presentation_snapshot():
+        for _ in range(3):
+            assert state.current_source_assessment() is assessment
+            state.sections()
+            state.validate_task()
+            state.preview()
+    assert revision.call_count == read.call_count == 1
+
+    (source / "new-page.pdf").write_bytes(b"changed")
+    with state.presentation_snapshot():
+        assert state.current_source_assessment() is None
+    assert revision.call_count == read.call_count == 2
+
+
+def test_presentation_scope_cleans_up_after_nested_failure(tmp_path):
+    source = tmp_path / "payload.txt"
+    source.write_text("old")
+    state = RestoreTaskState(payloads_file=source)
+    assessment = _save_assessment(state)
+    with pytest.raises(RuntimeError, match="failed view"):
+        with state.presentation_snapshot(), state.presentation_snapshot():
+            assert state.current_source_assessment() is assessment
+            raise RuntimeError("failed view")
+    source.write_text("new")
+    assert state.current_source_assessment() is None
+
+
+@pytest.mark.parametrize("change", ["config", "destination"])
+def test_add_files_display_reuses_review_key_without_retaining_stale_results(
+    tmp_path, monkeypatch, change
+):
+    config = tmp_path / "config.toml"
+    config.write_text("old")
+    state = AddFilesTaskState(source_paths=[tmp_path / "backup.pdf"], config_path=config)
+    cached = _AssessmentCache(
+        state._assessment_key(),
+        issue=TaskIssue(
+            code="REVIEW_FAILED",
+            message="Old review",
+            section="source",
+        ),
+    )
+    state._assessment_cache = cached
+    read = Mock(wraps=Path.read_bytes)
+    monkeypatch.setattr(Path, "read_bytes", lambda path: read(path))
+    with state.presentation_snapshot():
+        state.validate_task()
+        state.preview()
+        assert state._current_assessment_cache() is cached
+    assert read.call_count == 1
+    if change == "config":
+        config.write_text("new")
+    else:
+        state.output_dir = tmp_path / "new-output"
+    with state.presentation_snapshot():
+        assert state._current_assessment_cache() is None
+    assert read.call_count == 2
+
+
+def test_presentation_snapshot_cannot_authorize_a_stale_completion(tmp_path):
+    source = tmp_path / "payload.txt"
+    source.write_text("old")
+    state = RestoreTaskState(payloads_file=source)
+    assessment = _save_assessment(state)
+    with state.presentation_snapshot():
+        request = state.source_assessment_request()
+        assert request is not None
+        source.write_text("changed")
+        assert not state.store_source_assessment(request, assessment)
     assert state.current_source_assessment() is None

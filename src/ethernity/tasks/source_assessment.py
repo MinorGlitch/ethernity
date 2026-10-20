@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypedDict
@@ -71,6 +72,7 @@ class SourceAssessmentRequest:
     session: RecoverySession = field(default_factory=RecoverySession, repr=False, compare=False)
     files_version: str = field(init=False)
     config_version: str = field(init=False)
+    key: str = field(init=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -92,9 +94,9 @@ class SourceAssessmentRequest:
         except OSError as exc:
             config_bytes = f"{type(exc).__name__}:{exc}".encode()
         object.__setattr__(self, "config_version", hashlib.sha256(config_bytes).hexdigest())
+        object.__setattr__(self, "key", self._make_key())
 
-    @property
-    def key(self) -> str:
+    def _make_key(self) -> str:
         payload = {
             "source_kind": self.source_kind,
             "backup_folder": _path_text(self.backup_folder),
@@ -136,6 +138,19 @@ class SourceAssessableTaskState(BaseModel):
 
     _source_assessment_cache: _SourceAssessmentCache | None = PrivateAttr(default=None)
     _recovery_session: RecoverySession = PrivateAttr(default_factory=RecoverySession)
+    _presentation_request: tuple[SourceAssessmentRequest | None] | None = PrivateAttr(default=None)
+
+    @contextmanager
+    def presentation_snapshot(self) -> Iterator[None]:
+        """Read the source revision once while synchronously building one view."""
+        if self._presentation_request is not None:
+            yield
+            return
+        self._presentation_request = (self._build_source_assessment_request(),)
+        try:
+            yield
+        finally:
+            self._presentation_request = None
 
     @property
     def recovery_session(self) -> RecoverySession:
@@ -145,6 +160,11 @@ class SourceAssessableTaskState(BaseModel):
         self._recovery_session = session
 
     def source_assessment_request(self) -> SourceAssessmentRequest | None:
+        if self._presentation_request is not None:
+            return self._presentation_request[0]
+        return self._build_source_assessment_request()
+
+    def _build_source_assessment_request(self) -> SourceAssessmentRequest | None:
         raise NotImplementedError
 
     def current_source_assessment(self) -> SourceAssessment | None:
@@ -157,7 +177,7 @@ class SourceAssessableTaskState(BaseModel):
     def assess_source(self) -> SourceAssessment | None:
         """Assess the current source and publish the result only if the source is unchanged."""
 
-        request = self.source_assessment_request()
+        request = self._build_source_assessment_request()
         if request is None:
             self._source_assessment_cache = None
             return None
@@ -172,7 +192,7 @@ class SourceAssessableTaskState(BaseModel):
     ) -> bool:
         """Store an assessment only while its exact source request remains current."""
 
-        current_request = self.source_assessment_request()
+        current_request = self._build_source_assessment_request()
         if current_request is not None and current_request.key == request.key:
             self._source_assessment_cache = _SourceAssessmentCache(
                 key=request.key,

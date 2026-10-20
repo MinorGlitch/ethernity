@@ -41,6 +41,7 @@ from ethernity.formats.document_codec import (
 from ethernity.formats.manifest import PAYLOAD_CODEC_GZIP, BackupFile
 from ethernity.formats.payload_codec import encode_payload_for_manifest
 from ethernity.render.fallback_text import format_zbase32_lines
+from ethernity.tasks.restore import RestoreTaskState
 from ethernity.workflows.recovery.service import execute_recover_plan, prepare_recover_plan
 from ethernity.workflows.shared.requests import RecoveryRequest
 from tests.test_support import suppress_output
@@ -402,3 +403,38 @@ class TestIntegrationRecover(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_restore_task_creates_a_folder_for_a_single_file_backup(tmp_path: Path) -> None:
+    payload = b"restore folder semantics"
+    manifest = build_single_file_manifest("note.txt", payload, signing_seed=TEST_SIGNING_SEED)
+    document = encode_backup_document(payload, manifest)
+    ciphertext, phrase = encrypt_bytes_with_passphrase(document, passphrase="restore test phrase")
+    doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
+    doc_id = doc_hash[:DOC_ID_LEN]
+    frames = chunk_payload(
+        ciphertext,
+        doc_id=doc_id,
+        frame_type=FrameType.MAIN_DOCUMENT,
+        chunk_size=500,
+    )
+    frames.append(
+        _auth_frame(
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            sign_priv=TEST_SIGNING_SEED,
+            sign_pub=derive_public_key(TEST_SIGNING_SEED),
+        )
+    )
+    source = tmp_path / "payloads.txt"
+    source.write_text("\n".join(_qr_payload_text(frame) for frame in frames))
+    destination = tmp_path / "recovered"
+    state = RestoreTaskState(payloads_file=source, passphrase=phrase, output_path=destination)
+    assert state.validate_task().ready
+    result = state.execute()
+    assert result.ok
+    assert result.output_paths == (destination / "note.txt",)
+    assert (destination / "note.txt").read_bytes() == payload
+    assert any(
+        issue.code == "RESTORE_DESTINATION_INVALID" for issue in state.validate_task().issues
+    )

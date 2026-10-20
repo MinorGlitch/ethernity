@@ -42,6 +42,7 @@ class ReplacementChain:
                 shard_threshold=2,
                 shard_count=3,
                 passphrase_replacement_count=1 if compatible_replacements else None,
+                shard_payload_files=("original-shards.txt",) if compatible_replacements else (),
                 create_signing_key_shards=not compatible_replacements,
                 allow_stale_head=True,
                 quiet=True,

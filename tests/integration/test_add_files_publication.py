@@ -29,6 +29,7 @@ from ethernity.core.execution_control import (
     execution_session,
 )
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
+from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.extensions.build import VerifiedExtensionCandidate
 from ethernity.extensions.chain import ValidatedChainState
@@ -48,6 +49,7 @@ from ethernity.workflows.add_files.planning import (
 )
 from ethernity.workflows.add_files.reporting import EventAddFilesReporter
 from ethernity.workflows.add_files.request import AddFilesRequest
+from ethernity.workflows.recovery.keys import RecoveryTrust
 from ethernity.workflows.shared import events, issue_codes
 from ethernity.workflows.shared.input_scope import InputScopeDiff, SelectedInputScope
 
@@ -75,7 +77,10 @@ def assessed(tmp_path: Path) -> execution.AssessedAddFilesRun:
                 new_paths=("file.txt",), changed_paths=(), unchanged_paths=(), missing_paths=()
             ),
             parent=AppendParent(root_doc_hash=b"r" * 32, head_doc_hash=b"h" * 32, head_index=2),
-            signing_key=AppendSigningKey(signing_seed=b"s" * 32),
+            signing_key=AppendSigningKey(
+                signing_seed=b"s" * 32,
+                trust=RecoveryTrust(b"r" * 8, b"r" * 32, derive_public_key(b"s" * 32)),
+            ),
         ),
         selected_input=mock.Mock(spec=SelectedInputScope),
         validated_chain=mock.Mock(spec=ValidatedChainState),

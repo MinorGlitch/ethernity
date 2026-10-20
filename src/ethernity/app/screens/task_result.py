@@ -60,6 +60,16 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
             assert screen._result is not None
             self.result = screen._result
 
+    class Closed(Message):
+        """Release background work owned by this result."""
+
+        def __init__(self, screen: TaskResultScreen) -> None:
+            super().__init__()
+            self.screen = screen
+
+    def on_unmount(self) -> None:
+        self.app.post_message(self.Closed(self))
+
     def __init__(
         self,
         *,

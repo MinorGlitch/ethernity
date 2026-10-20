@@ -120,8 +120,6 @@ def execute_recovery(
     result = execute_recover_plan(
         plan,
         quiet=request.quiet,
-        debug_max_bytes=request.debug_max_bytes,
-        debug_reveal_secrets=request.debug_reveal_secrets,
         session=session,
     )
     return RecoveryExecutionResult(

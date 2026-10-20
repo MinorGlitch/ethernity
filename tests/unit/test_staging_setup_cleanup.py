@@ -13,6 +13,7 @@ from ethernity.crypto.signing import derive_public_key
 from ethernity.qr.codec import QrConfig
 from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.backup import execution as backup
+from ethernity.workflows.recovery.keys import RecoveryTrust
 from ethernity.workflows.replacement_recovery import service as replacement
 from ethernity.workflows.shared.operation_types import InputFile
 from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
@@ -57,21 +58,16 @@ def staged_workflow(request, tmp_path, monkeypatch, backup_config):
     else:
         module = replacement
         seed = b"s" * 32
-        plan = SimpleNamespace(
-            doc_id=b"d" * 8,
-            doc_hash=b"h" * 32,
+        material = replacement.ReplacementRecoveryMaterial(
+            trust=RecoveryTrust(b"d" * 8, b"h" * 32, derive_public_key(seed)),
             passphrase="test passphrase",
-            auth_payload=SimpleNamespace(sign_pub=derive_public_key(seed)),
-        )
-        monkeypatch.setattr(
-            replacement,
-            "_recover_replacement_chain",
-            Mock(return_value=SimpleNamespace(manifest=SimpleNamespace(signing_seed=seed))),
+            signing_seed=seed,
+            signing_key_source="embedded signing seed",
         )
 
         def run(debug_dir=None):
-            return replacement._replacement_from_plan(
-                plan=plan,
+            return replacement.create_replacement_documents(
+                material,
                 config=backup_config,
                 args=ReplacementRecoveryRequest(
                     output_dir=parent / "replacement",
@@ -80,9 +76,6 @@ def staged_workflow(request, tmp_path, monkeypatch, backup_config):
                     shard_count=3,
                     create_signing_key_shards=False,
                 ),
-                passphrase_shard_frames=[],
-                signing_key_frames=[],
-                debug=False,
             )
 
     return SimpleNamespace(run=run, module=module, parent=parent, debug_file=debug_file)

@@ -27,7 +27,6 @@ from ethernity.workflows.recovery.planning import RecoveryPlan, plan_from_reques
 from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared.events import (
     EventSink,
-    active_event_sink,
     emit_phase,
     emit_progress,
     emit_written_file,
@@ -39,10 +38,6 @@ from ethernity.workflows.shared.outputs import (
 )
 from ethernity.workflows.shared.paths import display_parent_path
 from ethernity.workflows.shared.requests import RecoveryRequest
-
-
-def print_recover_debug(**_: object) -> None:
-    return
 
 
 @dataclass(frozen=True)
@@ -87,8 +82,6 @@ def execute_recover_plan(
     *,
     quiet: bool,
     debug: bool = False,
-    debug_max_bytes: int = 0,
-    debug_reveal_secrets: bool = False,
     emit_written_files: bool = True,
     session: RecoverySession | None = None,
     event_sink: EventSink | None = None,
@@ -151,24 +144,10 @@ def execute_recover_plan(
             unit="step",
             details={"file_count": len(extracted), "manifest_file_count": len(manifest.files)},
         )
-        if debug:
-            print_recover_debug(
-                manifest=manifest,
-                extracted=extracted,
-                ciphertext=plan.ciphertext,
-                passphrase=plan.passphrase,
-                auth_status=plan.auth_status,
-                allow_unsigned=plan.allow_unsigned,
-                output_path=plan.output_path,
-                debug_max_bytes=debug_max_bytes,
-                reveal_secrets=debug_reveal_secrets,
-                stderr=active_event_sink() is not None,
-            )
-
         single_entry_output_is_directory = (
             plan.output_path is not None
             and len(extracted) == 1
-            and manifest.input_origin in {"directory", "mixed"}
+            and (plan.output_is_directory or manifest.input_origin in {"directory", "mixed"})
         )
         single_entry_output_is_directory = single_entry_uses_directory_output(
             plan.output_path,

@@ -67,7 +67,7 @@ from ethernity.tasks.restore import RestoreTarget, RestoreTaskState
     "--output",
     "output_path",
     type=click.Path(path_type=Path),
-    help="Where recovered files will be written.",
+    help="New or empty folder for recovered files, including single-file backups.",
 )
 @click.option("--preview", is_flag=True, help="Preview the task without writing files.")
 @click.option("--yes", is_flag=True, help="Run without interactive confirmation.")

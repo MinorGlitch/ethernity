@@ -33,9 +33,11 @@ from ethernity.extensions.recovery import (
 )
 from ethernity.workflows.recovery.keys import (
     AuthValidationError,
+    DecodedShard,
     InsufficientShardError,
     RecoveryTrust,
     resolve_auth_payload,
+    validate_decoded_shards,
 )
 from ethernity.workflows.recovery.models import (
     RecoveryInspection,
@@ -313,11 +315,16 @@ def _inspect_unlock_status(
         raise ValueError("use either shard inputs or passphrase, not both")
     if shard_frames:
         try:
-            shard_payloads = RecoveryTrust(
-                doc_id, doc_hash, sign_pub, allow_unsigned
-            ).validated_shards(
-                shard_frames, key_type=KEY_TYPE_PASSPHRASE, secret_label="passphrase"
+            validated = validate_decoded_shards(
+                [DecodedShard.decode(frame) for frame in shard_frames],
+                expected_doc_id=doc_id,
+                expected_doc_hash=doc_hash,
+                expected_sign_pub=sign_pub,
+                allow_unsigned=allow_unsigned,
+                key_type=KEY_TYPE_PASSPHRASE,
+                secret_label="passphrase",
             )
+            shard_payloads = [item.payload for item in validated]
         except InsufficientShardError as exc:
             if strict:
                 raise
@@ -345,6 +352,7 @@ def _inspect_unlock_status(
             )
         return RecoveryUnlockStatus(
             mode="shards",
+            validated_shards=validated,
             passphrase_provided=False,
             validated_shard_count=len(shard_payloads),
             required_shard_threshold=shard_payloads[0].threshold if shard_payloads else None,

@@ -142,6 +142,7 @@ class PrintKitTaskState(BaseModel):
             safety_notes=(
                 "Ethernity will create the PDF at the selected path. Its parent folder must be "
                 "writable.",
+                *(issue.message for issue in self._output_warnings()),
             ),
             recovery_notes=(
                 "This offline recovery kit cannot authenticate the latest backup state and does "

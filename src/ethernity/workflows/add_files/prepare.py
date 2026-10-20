@@ -120,7 +120,6 @@ def prepare_add_files_run_from_state(
         chain_ciphertext_bytes=resolved.chain_ciphertext_bytes,
         chain_decoded_chunk_bytes=resolved.chain_decoded_chunk_bytes,
         encryption_passphrase=resolved.resolved_passphrase,
-        source_frames=resolved.source_frames,
     )
 
 
