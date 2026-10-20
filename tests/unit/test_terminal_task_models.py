@@ -202,11 +202,20 @@ def test_task_presentations_only_build_workspace_groups_rendered_outside_guided_
 
 def test_backup_task_diagnostics_redact_sensitive_values(tmp_path) -> None:
     input_path = tmp_path / "secrets.txt"
-    input_path.write_text("hello backup internals", encoding="utf-8")
+    input_text = "hello backup internals"
+    input_path.write_text(input_text, encoding="utf-8")
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        DEFAULT_CONFIG_PATH.read_text(encoding="utf-8").replace(
+            "max_bytes = 1024", "max_bytes = 8"
+        ),
+        encoding="utf-8",
+    )
     state = BackupTaskState(
         input_paths=[input_path],
         output_dir=tmp_path / "backup-out",
         passphrase="super secret",
+        config_path=config_path,
     )
 
     diagnostics = state.diagnostics()
@@ -233,6 +242,11 @@ def test_backup_task_diagnostics_redact_sensitive_values(tmp_path) -> None:
     assert "File data (hex)" in block_titles
     assert "Backup document (hex)" in block_titles
     assert "File data (z-base-32)" in block_titles
+    payload_preview = next(
+        block for block in diagnostics.blocks if block.title == "File data (hex)"
+    )
+    assert f"|{input_text[:8]}|" in payload_preview.content
+    assert "... truncated 14 bytes" in payload_preview.content
     assert "<masked bytes=" in manifest_block.display_content(reveal_sensitive=False)
     assert "<masked bytes=" not in manifest_block.display_content(reveal_sensitive=True)
     metadata_redacted = metadata_block.display_content(reveal_sensitive=False)
