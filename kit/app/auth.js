@@ -16,9 +16,9 @@
  */
 
 import { RecoveryError, asRecoveryError } from "../lib/errors.js";
-import { bytesEqual, bytesToHex, concatBytes } from "../lib/bytes.js";
+import { bytesEqual, concatBytes } from "../lib/bytes.js";
 import { encodeCbor } from "../lib/cbor.js";
-import { getSigningPublicKey, verifySignature } from "../lib/ed25519.js";
+import { getSigningPublicKey, verifySignature, verifyUnchangedSignature } from "../lib/ed25519.js";
 import { AUTH_DOMAIN, AUTH_VERSION, textEncoder } from "./constants.js";
 import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 
@@ -68,15 +68,15 @@ export async function updateDocumentAuthStatus(record) {
     record.authStatus = "waiting for main frames";
     return;
   }
-  const docHashHex = bytesToHex(docHash);
-  if (record.authDocHashHex && record.authDocHashHex !== docHashHex) {
+  if (!bytesEqual(record.authPayload.docHash, docHash)) {
     record.authStatus = "doc_hash mismatch";
     return;
   }
-  const verified = await verifyAuthSignature(
-    docHash,
-    record.authPayload.signPub,
+  const verified = await verifyUnchangedSignature(
+    record.authPayload,
     record.authPayload.signature,
+    authSignatureMessage(docHash, record.authPayload.signPub),
+    record.authPayload.signPub,
   );
   if (verified === true) {
     record.authStatus = "verified";

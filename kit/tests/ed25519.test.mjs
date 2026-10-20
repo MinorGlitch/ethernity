@@ -6,6 +6,8 @@ import {
   signSigningMessage,
   verifySigningSignature,
   verifySignature,
+  verifyUnchangedSignature,
+  copySignatureVerification,
 } from "../lib/ed25519.js";
 import { bytesToHex, hexToBytes } from "../lib/bytes.js";
 
@@ -56,3 +58,19 @@ test("signature verification uses the portable implementation when native Ed2551
     else delete globalThis.crypto;
   }
 });
+
+for (const changed of ["message", "signature", "signPub"]) {
+  test(`collection verification rejects mutated ${changed} after a successful check`, async () => {
+    const signPub = getSigningPublicKey(new Uint8Array(32).fill(9));
+    const message = Uint8Array.of(1, 2, 3);
+    const signature = signSigningMessage(message, new Uint8Array(32).fill(9));
+    const input = { message, signature, signPub };
+    const original = {};
+    assert.equal(await verifyUnchangedSignature(original, signature, message, signPub), true);
+    const draft = {};
+    copySignatureVerification(original, draft);
+    input[changed][0] ^= 1;
+    assert.equal(await verifyUnchangedSignature(draft, signature, message, signPub), false);
+    assert.equal(await verifyUnchangedSignature(original, signature, message, signPub), false);
+  });
+}

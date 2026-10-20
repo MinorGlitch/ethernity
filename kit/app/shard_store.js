@@ -15,6 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { copySignatureVerification } from "../lib/ed25519.js";
 import { bytesEqual, bytesToHex } from "../lib/bytes.js";
 
 function shardSetIdHex(payload) {
@@ -84,7 +85,7 @@ export function cloneShardFrames(shardFrames) {
 }
 
 export function cloneShardPayload(payload) {
-  return {
+  const clone = {
     ...payload,
     share: cloneOptionalBytes(payload.share),
     docHash: cloneOptionalBytes(payload.docHash),
@@ -92,6 +93,8 @@ export function cloneShardPayload(payload) {
     signature: cloneOptionalBytes(payload.signature),
     shardSetId: cloneOptionalBytes(payload.shardSetId),
   };
+  copySignatureVerification(payload, clone);
+  return clone;
 }
 
 function cloneOptionalBytes(value) {

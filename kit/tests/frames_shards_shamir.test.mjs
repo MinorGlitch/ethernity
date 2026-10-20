@@ -1,5 +1,5 @@
 import { primaryDocumentRecord, documentCounts } from "../app/documents/store.js";
-import { activeShardSetRecord, shardCounts } from "../app/shard_store.js";
+import { activeShardSetRecord, shardCounts, cloneShardPayload } from "../app/shard_store.js";
 import {
   signAuthPayload,
   createTestDocument,
@@ -1006,3 +1006,33 @@ test("autoRecoverShardSecret reports ciphertext reassembly failures as shardStat
   assert.match(state.shardStatus.details.join("\n"), /too large for the kit/);
   assert.ok(state.shardStatus.details[0].includes(`limit ${MAX_CIPHERTEXT_BYTES}`));
 });
+
+for (const field of [
+  "version",
+  "threshold",
+  "shareCount",
+  "shareIndex",
+  "secretLen",
+  "keyType",
+  "share",
+  "docHash",
+  "signPub",
+  "signature",
+  "shardSetId",
+]) {
+  test(`a retained sheet check is invalidated by a changed ${field}`, async () => {
+    const state = createInitialState();
+    const shards = createTestShardSet(state);
+    const payload = decodeShardPayload(bytesFromBase64(PYTHON_V2_SHARD_PAYLOAD_B64));
+    shards.shardFrames.set(payload.shareIndex, payload);
+    assert.equal((await verifyCollectedShardSignatures(state)).verified, 1);
+    const draft = cloneShardPayload(payload);
+    if (draft[field] instanceof Uint8Array) draft[field][0] ^= 1;
+    else if (typeof draft[field] === "number") draft[field] += 1;
+    else draft[field] = SHARD_KEY_SIGNING_SEED;
+    draft.signatureVerified = true;
+    shards.shardFrames.set(payload.shareIndex, draft);
+    assert.deepEqual(await verifyCollectedShardSignatures(state), { verified: 0, invalid: 1 });
+    assert.equal(shards.shardFrames.size, 0);
+  });
+}
