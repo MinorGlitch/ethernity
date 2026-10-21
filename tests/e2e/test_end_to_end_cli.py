@@ -59,7 +59,7 @@ def test_run_backup_and_restore_round_trip_via_module_entrypoint(tmp_path: Path)
     repo_root = Path(__file__).resolve().parents[2]
     input_path = tmp_path / "payload.txt"
     backup_dir = tmp_path / "backup"
-    restored_path = tmp_path / "restored.txt"
+    restored_dir = tmp_path / "restored"
     input_path.write_text("subprocess round trip\n", encoding="utf-8")
 
     backup_result = _run_cli(
@@ -87,7 +87,7 @@ def test_run_backup_and_restore_round_trip_via_module_entrypoint(tmp_path: Path)
         "--passphrase",
         "correct horse battery staple",
         "--output",
-        str(restored_path),
+        str(restored_dir),
         "--yes",
     )
 
@@ -95,4 +95,5 @@ def test_run_backup_and_restore_round_trip_via_module_entrypoint(tmp_path: Path)
     assert restore_result.returncode == 0, restore_result.stderr + restore_result.stdout
     assert (backup_dir / "qr_document.pdf").read_bytes().startswith(b"%PDF")
     assert (backup_dir / "recovery_document.pdf").read_bytes().startswith(b"%PDF")
-    assert restored_path.read_text(encoding="utf-8") == "subprocess round trip\n"
+    assert sorted(path.name for path in restored_dir.iterdir()) == [input_path.name]
+    assert (restored_dir / input_path.name).read_bytes() == input_path.read_bytes()

@@ -96,7 +96,7 @@ class TestStableV1Baseline(unittest.TestCase):
                 scenario_id="file_no_shard",
             )
 
-            restored_path = workspace / "restored-file.bin"
+            restored_dir = workspace / "restored-file"
             self._run_cli(
                 [
                     "restore",
@@ -105,13 +105,16 @@ class TestStableV1Baseline(unittest.TestCase):
                     "--passphrase",
                     _TEST_PASSPHRASE,
                     "--output",
-                    str(restored_path),
+                    str(restored_dir),
                 ],
                 workspace,
                 config_path=config_path,
             )
 
-            self.assertEqual(restored_path.read_bytes(), input_file.read_bytes())
+            self.assertEqual(
+                sorted(path.name for path in restored_dir.iterdir()), [input_file.name]
+            )
+            self.assertEqual((restored_dir / input_file.name).read_bytes(), input_file.read_bytes())
 
     def test_directory_mode_no_sharding_backup_and_restore(self) -> None:
         with self._workspace() as workspace:
