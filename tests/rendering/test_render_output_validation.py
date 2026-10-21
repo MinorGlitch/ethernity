@@ -257,6 +257,29 @@ def test_unpainted_qr_resources_are_rejected(tmp_path: Path) -> None:
         _validate(inputs, result)
 
 
+@pytest.mark.parametrize("omit", (True, False), ids=("omitted", "substituted"))
+def test_incorrect_kit_instruction_with_original_layout_is_rejected(tmp_path, omit) -> None:
+    inputs = _inputs(tmp_path, "archive", "kit")
+    draw_text = FpdfSurface.draw_text
+
+    def corrupt_instruction(surface, x, y, text, style):
+        if "Copy both scans" in text:
+            if omit:
+                return
+            text = text.replace("Copy both scans", "Skip both scans")
+        draw_text(surface, x, y, text, style)
+
+    with mock.patch.object(FpdfSurface, "draw_text", corrupt_instruction):
+        result = render_frames_to_pdf(inputs)
+    assert any(
+        "Copy both scans" in line.text
+        for component in result.layout_report.pages[-1].components
+        for line in component.text_lines
+    )
+    with pytest.raises(RenderValidationError, match="painted text"):
+        _validate(inputs, result)
+
+
 def test_correct_number_of_wrong_qr_payloads_is_rejected(tmp_path: Path) -> None:
     inputs = _inputs(tmp_path, "sentinel", "main")
     with mock.patch.object(
