@@ -44,7 +44,7 @@ jobs:
       prerelease: ${{ steps.meta.outputs.prerelease }}
       draft: ${{ steps.meta.outputs.draft }}
       published: ${{ steps.meta.outputs.published }}
-      homebrew: ${{ steps.meta.outputs.homebrew }}
+      channels: ${{ steps.meta.outputs.channels }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -239,7 +239,7 @@ jobs:
 
   homebrew:
     needs: [precheck, release, existing-release]
-    if: always() && !cancelled() && needs.precheck.outputs.homebrew == 'true' && (needs.release.result == 'success' || needs.existing-release.result == 'success')
+    if: always() && !cancelled() && needs.precheck.outputs.channels == 'true' && (needs.release.result == 'success' || needs.existing-release.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -255,7 +255,7 @@ jobs:
 
   pypi:
     needs: [precheck, release, existing-release]
-    if: always() && !cancelled() && needs.precheck.outputs.homebrew == 'true' && (needs.release.result == 'success' || needs.existing-release.result == 'success')
+    if: always() && !cancelled() && needs.precheck.outputs.channels == 'true' && (needs.release.result == 'success' || needs.existing-release.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: release
@@ -274,4 +274,4 @@ jobs:
           RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
         run: uv run python -m tooling.release.python_package --tag "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
       - name: Publish the same distributions to PyPI
-        run: uv publish --trusted-publishing always python-dist/*
+        run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/ python-dist/*

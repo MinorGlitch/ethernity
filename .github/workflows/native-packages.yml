@@ -147,7 +147,7 @@ jobs:
       - name: Verify WinGet with the same Windows archive
         env:
           RELEASE_TAG: ${{ inputs.tag }}
-        run: python -m tooling.release.winget_smoke
+        run: uv run --no-default-groups --extra build python -m tooling.release.winget_smoke
 
   source-archive:
     runs-on: ubuntu-latest
