@@ -4,9 +4,42 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
+import zipfile
 
 import pytest
+from scripts import package_pyinstaller
 from tooling.release import installers, inventory, python_package
+
+
+def test_windows_archive_preserves_tiny_files_without_dangerous_expansion(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    files = {
+        "ethernity.exe": b"executable" * 1000,
+        "_internal/INSTALLER": b"uv",
+        "_internal/flag": b"1",
+        "_internal/py.typed": b"",
+    }
+    for name, content in files.items():
+        path = tmp_path / "dist/ethernity" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    for name, value in {
+        "RELEASE_TAG": "v1.2.0",
+        "TARGET_OS": "windows",
+        "TARGET_ARCH": "x64",
+        "RUNNER_ARCH": "x64",
+        "PACKAGER": "pyinstaller",
+        "PACKAGE_MODE": "onedir",
+    }.items():
+        monkeypatch.setenv(name, value)
+    package_pyinstaller.main()
+    archive = tmp_path / "ethernity-v1.2.0-windows-x64.zip"
+    with zipfile.ZipFile(archive) as zipped:
+        assert len(zipped.infolist()) == len(files)
+        for name, content in files.items():
+            info = zipped.getinfo(f"ethernity-v1.2.0-windows-x64/{name}")
+            assert zipped.read(info) == content
+            assert info.compress_size <= info.file_size
 
 
 @pytest.mark.parametrize("tag", ["v1.2.0", "v1.2.0rc1"])

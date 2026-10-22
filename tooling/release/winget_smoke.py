@@ -6,6 +6,7 @@ import functools
 import http.server
 import os
 import re
+import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -13,6 +14,19 @@ from pathlib import Path
 from tooling.release import smoke
 from tooling.release.install_smoke import fixture, run
 from tooling.release.installers import winget_manifest
+
+
+def uninstall(manifest: Path) -> None:
+    run(
+        "winget",
+        "uninstall",
+        "--manifest",
+        str(manifest),
+        "--scope",
+        "user",
+        "--purge",
+        "--disable-interactivity",
+    )
 
 
 def main() -> None:
@@ -35,11 +49,11 @@ def main() -> None:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         alias = Path(os.environ["LOCALAPPDATA"]) / "Microsoft/WinGet/Links/ethernity.exe"
-        if alias.exists():
+        if alias.exists() or alias.is_symlink():
             raise AssertionError("WinGet test requires a clean runner without Ethernity")
+        manifest = directory / "MinorGlitch.Ethernity.yaml"
         try:
             for action, path, version in (("install", old, "v0.0.1"), ("upgrade", archive, tag)):
-                manifest = directory / "MinorGlitch.Ethernity.yaml"
                 url = f"http://127.0.0.1:{server.server_port}/{path.name}"
                 manifest.write_text(winget_manifest(path, version, url), encoding="utf-8")
                 run("winget", "validate", "--manifest", str(manifest))
@@ -57,35 +71,18 @@ def main() -> None:
                 assert run(str(alias), "--version") == f"ethernity {version.removeprefix('v')}"
             assert not (alias.resolve().parent / "obsolete.txt").exists()
             smoke.smoke(str(alias))
-            run(
-                "winget",
-                "uninstall",
-                "--id",
-                "MinorGlitch.Ethernity",
-                "--exact",
-                "--scope",
-                "user",
-                "--purge",
-                "--disable-interactivity",
-            )
-            assert not alias.exists()
+            uninstall(manifest)
+            assert not alias.exists() and not alias.is_symlink()
             print("WinGet: install, upgrade, command alias and uninstall passed")
         finally:
             server.shutdown()
             server.server_close()
             thread.join()
-            if alias.exists():
-                run(
-                    "winget",
-                    "uninstall",
-                    "--id",
-                    "MinorGlitch.Ethernity",
-                    "--exact",
-                    "--scope",
-                    "user",
-                    "--purge",
-                    "--disable-interactivity",
-                )
+            if alias.exists() or alias.is_symlink():
+                try:
+                    uninstall(manifest)
+                except (AssertionError, subprocess.SubprocessError) as error:
+                    print(f"WinGet cleanup failed after the test failure: {error}")
 
 
 if __name__ == "__main__":
