@@ -108,6 +108,19 @@ jobs:
           brew bottle --json --no-rebuild "${formula_ref}"
           compgen -G 'ethernity--*.bottle.tar.gz' >/dev/null
           compgen -G 'ethernity--*.bottle.json' >/dev/null
+          # Exercise the distributable bottle, including replacement and removal.
+          # Keep all existing source-install, audit, and recovery checks above.
+          bottle_files=(ethernity--*.bottle.tar.gz)
+          [[ "${#bottle_files[@]}" -eq 1 ]]
+          expected_version="$(ethernity --version)"
+          brew uninstall "${formula_ref}"
+          brew install "./${bottle_files[0]}"
+          [[ "$(ethernity --version)" == "$expected_version" ]]
+          brew test "${formula_ref}"
+          brew reinstall "./${bottle_files[0]}"
+          [[ "$(ethernity --version)" == "$expected_version" ]]
+          brew uninstall "${formula_ref}"
+          [[ ! -e "$(brew --prefix)/bin/ethernity" ]]
 
       - name: Upload validated bottle files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

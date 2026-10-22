@@ -155,10 +155,10 @@ def test_release_tag_must_match_project_version(tag):
 
 def test_inventory_rejects_extra_missing_and_empty_files(tmp_path):
     names = inventory.release_files(TAG)
-    assert len(names) == 24
+    assert len(names) == 34
     for name in names:
         (tmp_path / name).write_bytes(b"contents")
-    assert len(inventory.validate_files(tmp_path, names)) == 24
+    assert len(inventory.validate_files(tmp_path, names)) == 34
     (tmp_path / "extra").write_bytes(b"contents")
     with pytest.raises(ValueError, match="mismatch"):
         inventory.validate_files(tmp_path, names)
@@ -340,7 +340,7 @@ def test_signing_verifies_exact_workflow_identity_and_issuer(monkeypatch, tmp_pa
     monkeypatch.setattr(cli, "run", lambda *args: commands.append(args))
     cli.sign(tmp_path, TAG)
     verification = [args for args in commands if args[1] == "verify-blob"]
-    assert len(verification) == 12
+    assert len(verification) == 17
     for args in verification:
         assert args[args.index("--certificate-identity") + 1] == f"https://github.com/{workflow}"
         assert (
@@ -362,7 +362,7 @@ def test_existing_release_retry_verifies_all_signatures_before_success(monkeypat
     monkeypatch.setattr(cli, "run", lambda *args: commands.append(args))
     cli.verify_published(TAG)
     assert checked == [(TAG, SHA), (TAG, SHA)]
-    assert len(commands) == 12
+    assert len(commands) == 17
     assert all(command[1] == "verify-blob" for command in commands)
     assert remote.commands == []
 

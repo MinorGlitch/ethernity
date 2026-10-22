@@ -19,6 +19,12 @@ That tagged source archive is built after injecting the generated recovery-kit b
 the frozen extension test PDFs used by the Homebrew formula. Homebrew must use this
 release archive rather than GitHub's automatically generated tag archive.
 
+Releases also include the verified Python wheel, version-bound `install.sh` and `install.ps1`,
+and `SHA256SUMS`. Stable three-part versions include `MinorGlitch.Ethernity.yaml` for WinGet.
+Each of these files has a Sigstore bundle. SHA256SUMS covers every unsigned payload except
+itself. Direct installers always check the archive checksum and can additionally require
+Sigstore verification. See [installation](install.md).
+
 Verify each Sigstore bundle before using its archive.
 
 Packages include the template fonts and their license notices. PDFs embed subsets of those fonts;
@@ -60,6 +66,38 @@ draft. A fresh run for an already-published release downloads and verifies every
 of rebuilding the release. Missing, unexpected, or mismatched files stop publication. The job publishes the release only after the exact archive, SBOM, and
 Sigstore-bundle set is present. A partial published release is treated as an integrity failure, not
 repaired in place.
+
+## Python and Windows package channels
+
+The source job builds one wheel from the same source archive used by Homebrew, verifies its
+contents, installs it with the locked dependencies, and runs the packaged recovery smoke test.
+CI and release publication reuse that wheel. After a stable, non-draft GitHub release is
+published, the PyPI job downloads and verifies the source archive and wheel from that release.
+It restores the source archive's standard Python filename and publishes the same bytes with
+`uv publish --trusted-publishing always`. It does not rebuild them. Upload retries use uv's
+existing-file checks rather than overwriting distributions.
+
+Before the first publication, configure a PyPI trusted publisher on `ethernity-paper`:
+
+- GitHub owner: `MinorGlitch`
+- Repository: `ethernity`
+- Workflow: `pyinstaller.yml`
+- Environment: `release`
+
+No PyPI API token is used. Missing publisher configuration fails the publication job; it must
+not be treated as a successful release to all channels. Homebrew dispatch and PyPI publication
+are independent, visible downstream jobs and can be retried after GitHub publication.
+
+The WinGet manifest refers to the existing Windows x64 ZIP and its SHA-256 checksum. CI tests
+installation, upgrade, command resolution, and removal on Windows using that same ZIP. It
+also checks upgrades from a small previous-version fixture so stale files cannot hide a bad
+replacement. Submit the manifest to `microsoft/winget-pkgs` after the corresponding stable
+archive is public. Community acceptance is a separate step; do not advertise the WinGet command
+before acceptance. No additional Windows executable build or signing certificate is required.
+
+Before announcing a stable release, check that GitHub, PyPI, and Homebrew all offer that version,
+then update installation notes in the README and wiki. Remove the 1.2 pre-release installation
+notice when publishing 1.2. WinGet may lag while its submission is reviewed; document that state.
 
 ## Homebrew release requirements
 
@@ -106,7 +144,7 @@ source install, test, and bottle build on all three Homebrew platforms. Pull req
 packaging, dependency, workflow, script, or packaged-resource files change. Master push, scheduled,
 and manual CI runs perform the full packaging rehearsal. None of these CI builds publish files.
 
-CI also builds and installs a wheel from the actual release source archive. The Homebrew rehearsal
+The shared native packaging workflow also builds and installs a wheel from the actual release source archive. The Homebrew rehearsal
 uses that archive from the workflow artifact cache, with the formula's normal URL and checksum.
 This checks installation before the public release exists.
 
@@ -125,6 +163,11 @@ Both Linux architectures build and smoke-test on Ubuntu 22.04. The package job c
 ELF file and rejects requirements newer than glibc 2.35. Ubuntu 22.04 is the tested minimum; this is
 not a promise that every distribution with the same glibc version has all required system libraries.
 The native smoke test restores a frozen root and update using the packaged executable.
+Linux x64, Linux ARM64, and Windows x64 also run installer lifecycle checks using the real
+built archive: install, rejection of damaged and invalid replacements, upgrade, reinstall, and
+uninstall. Windows additionally checks migration from the old installer layout. Homebrew's
+separate Intel macOS, Apple silicon, and Linux jobs install, reinstall, test, and remove their
+bottles after the existing source build and recovery test.
 
 ## Extension compatibility checks
 
