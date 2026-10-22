@@ -27,6 +27,7 @@ from ethernity.workflows.add_files.service import (
     assess_add_files,
     execute_add_files,
 )
+from ethernity.workflows.recovery.keys import RecoveryTrust
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.requests import ReplacementRecoveryRequest
 from tests.support.app import run_app_test
@@ -46,7 +47,11 @@ def _fake_assessed(marker: bytes = b"A") -> AssessedAddFilesRun:
         reused_chunks=2,
     )
     prepared = SimpleNamespace(
-        plan=SimpleNamespace(update_mode=UpdateMode.INCREMENTAL),
+        plan=SimpleNamespace(
+            update_mode=UpdateMode.INCREMENTAL,
+            signing_key=SimpleNamespace(trust=RecoveryTrust(b"R" * 8, b"H" * 32, b"K" * 32)),
+        ),
+        signing_seed=b"S" * 32,
         request=SimpleNamespace(base_directory=None),
         next_index=3,
         changed_paths=("changed.txt",),
@@ -54,16 +59,6 @@ def _fake_assessed(marker: bytes = b"A") -> AssessedAddFilesRun:
         unchanged_paths=("same.txt",),
         parent_doc_hash=b"P" * 32,
         encryption_passphrase="resolved-passphrase",
-        source_frames=(
-            Frame(
-                version=1,
-                frame_type=FrameType.MAIN_DOCUMENT,
-                doc_id=b"S" * 8,
-                index=0,
-                total=1,
-                data=b"source",
-            ),
-        ),
     )
     encrypted = SimpleNamespace(
         built=SimpleNamespace(stats=stats),
@@ -211,7 +206,14 @@ def test_optional_recovery_sheets_delegate_to_replacement_recovery(
         lambda *_args, **_kwargs: _fake_executed(assessed, published),
     )
 
-    def create_recovery_sheets(request):
+    def create_recovery_sheets(material, *, config, args):
+        assert config is assessed.output_settings.config
+        assert material.trust is assessed.prepared.plan.signing_key.trust
+        assert material.passphrase == assessed.prepared.encryption_passphrase
+        assert material.signing_seed == assessed.prepared.signing_seed
+        assert material.selected_extension_index == assessed.prepared.next_index
+        assert material.selected_extension_doc_hash == assessed.encrypted.doc_hash.hex()
+        request = args
         replacement_requests.append(request)
         output_dir = request.output_dir
         assert output_dir is not None
@@ -221,11 +223,13 @@ def test_optional_recovery_sheets_delegate_to_replacement_recovery(
         )
 
     monkeypatch.setattr(
-        "ethernity.workflows.add_files.service.execute_replacement_recovery",
+        "ethernity.workflows.add_files.service.create_replacement_documents",
         create_recovery_sheets,
     )
     execution = execute_add_files(assessment)
-    monkeypatch.setattr("ethernity.tasks.add_files.assess_add_files", lambda _request: assessment)
+    monkeypatch.setattr(
+        "ethernity.tasks.add_files.assess_add_files", lambda _request, **_kwargs: assessment
+    )
     monkeypatch.setattr(
         "ethernity.tasks.add_files.execute_add_files",
         lambda _assessment, **_kwargs: execution,
@@ -250,13 +254,7 @@ def test_optional_recovery_sheets_delegate_to_replacement_recovery(
     assert len(replacement_requests) == 1
     recovery_request = replacement_requests[0]
     assert recovery_request.scan_paths == ()
-    assert recovery_request.frames == (
-        *assessed.prepared.source_frames,
-        *_fake_executed(assessed, published).result.recovery_frames,
-    )
-    assert recovery_request.passphrase == "resolved-passphrase"
-    assert recovery_request.extension_doc_hash == assessed.encrypted.doc_hash.hex()
-    assert recovery_request.expected_head_doc_hash == assessed.encrypted.doc_hash.hex()
+    assert recovery_request.frames == ()
     assert recovery_request.shard_threshold == 2
     assert recovery_request.shard_count == 3
     assert recovery_request.create_passphrase_shards
@@ -301,15 +299,17 @@ def test_recovery_sheet_failure_reports_the_published_update_without_inviting_re
         lambda *_args, **_kwargs: _fake_executed(assessed, published),
     )
 
-    def fail_recovery_sheets(_request):
+    def fail_recovery_sheets(_material, **_kwargs):
         raise ValueError("printer backend failed")
 
     monkeypatch.setattr(
-        "ethernity.workflows.add_files.service.execute_replacement_recovery",
+        "ethernity.workflows.add_files.service.create_replacement_documents",
         fail_recovery_sheets,
     )
     execution = execute_add_files(assessment)
-    monkeypatch.setattr("ethernity.tasks.add_files.assess_add_files", lambda _request: assessment)
+    monkeypatch.setattr(
+        "ethernity.tasks.add_files.assess_add_files", lambda _request, **_kwargs: assessment
+    )
     monkeypatch.setattr(
         "ethernity.tasks.add_files.execute_add_files",
         lambda _assessment, **_kwargs: execution,
@@ -355,7 +355,7 @@ def test_existing_recovery_sheet_output_blocks_publication(
     output_dir.mkdir(parents=True)
     monkeypatch.setattr(
         "ethernity.workflows.add_files.service.prepare_add_files_run",
-        lambda _request: object(),
+        lambda _request, **_kwargs: object(),
     )
     monkeypatch.setattr(
         "ethernity.workflows.add_files.service.assess_prepared_add_files",
@@ -371,7 +371,9 @@ def test_existing_recovery_sheet_output_blocks_publication(
         create_recovery_sheets=True,
     )
     assessment = assess_add_files(state.to_add_files_request())
-    monkeypatch.setattr("ethernity.tasks.add_files.assess_add_files", lambda _request: assessment)
+    monkeypatch.setattr(
+        "ethernity.tasks.add_files.assess_add_files", lambda _request, **_kwargs: assessment
+    )
     state.prepare_review(force=True)
 
     validation = state.validate_task()
@@ -390,7 +392,7 @@ def test_review_assessment_is_shared_and_exact_payload_is_executed(
     assessment_calls: list[object] = []
     execution_calls: list[object] = []
 
-    def fake_assess(request):
+    def fake_assess(request, *, session):
         assessment_calls.append(request)
         return AddFilesAssessment(request=request, assessed=assessed)
 
@@ -440,7 +442,7 @@ def test_review_assessment_is_shared_and_exact_payload_is_executed(
 def test_failed_assessment_blocks_review_without_replanning(monkeypatch) -> None:
     calls = 0
 
-    def reject(request):
+    def reject(request, *, session):
         nonlocal calls
         calls += 1
         return AddFilesAssessment(
@@ -505,7 +507,7 @@ def test_add_files_review_routes_invalid_documents_and_head_trust_separately(
     )
     monkeypatch.setattr(
         "ethernity.tasks.add_files.assess_add_files",
-        lambda request: AddFilesAssessment(request=request, issues=(issue,)),
+        lambda request, **_kwargs: AddFilesAssessment(request=request, issues=(issue,)),
     )
     state = AddFilesTaskState(
         source_paths=[Path("documents")],
@@ -539,7 +541,7 @@ def test_reviewed_task_reuses_assessment_and_ignores_later_mutation(
     execution_config_payloads: list[bytes] = []
     reviewed_config_payload = config_path.read_bytes()
 
-    def fake_assess(request):
+    def fake_assess(request, *, session):
         nonlocal assessment_count
         assessment_count += 1
         return AddFilesAssessment(request=request, assessed=assessed)
@@ -592,7 +594,7 @@ def test_automatic_destination_is_shared_by_preview_plan_and_picker(
     destination = tmp_path / "backup-2222222222222222-update-03"
     assessed = _fake_assessed()
 
-    def fake_assess(request):
+    def fake_assess(request, *, session):
         return AddFilesAssessment(
             request=replace(request, output_dir=str(destination)), assessed=assessed
         )

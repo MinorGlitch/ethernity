@@ -20,15 +20,16 @@ from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import AuthPayload, derive_public_key, sign_auth
 from ethernity.formats.document_codec import build_manifest_and_payload, encode_backup_document
 from ethernity.formats.manifest import BackupFile
-from ethernity.workflows.recovery.execution import decrypt_manifest_and_extract
+from ethernity.workflows.recovery.execution import decrypt_manifest_extract_selection
+from ethernity.workflows.recovery.models import RecoveryUnlockStatus
 from ethernity.workflows.recovery.planning import RecoveryPlan
-from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.workflows.recovery.source_state import LoadedRecoverySource, RecoverySourceFields
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError as ApiCommandError
 
 
 class TestRecoverExecution(unittest.TestCase):
-    def test_decrypt_manifest_and_extract_rejects_root_signing_key_mismatch(self) -> None:
+    def test_decrypt_manifest_extract_selection_rejects_root_signing_key_mismatch(self) -> None:
         manifest, payload = build_manifest_and_payload(
             (BackupFile(path="a.txt", data=b"root", mtime=1),),
             sealed=False,
@@ -45,10 +46,19 @@ class TestRecoverExecution(unittest.TestCase):
         wrong_seed = b"\x77" * 32
         wrong_sign_pub = derive_public_key(wrong_seed)
         plan = RecoveryPlan(
+            loaded_source=LoadedRecoverySource((), (), (), None, None),
             ciphertext=ciphertext,
             doc_id=doc_id,
             doc_hash=doc_hash,
-            passphrase="secret",
+            unlock=RecoveryUnlockStatus(
+                mode="passphrase",
+                passphrase_provided=True,
+                validated_shard_count=0,
+                required_shard_threshold=None,
+                satisfied=True,
+                resolved_passphrase="secret",
+            ),
+            blocking_issues=(),
             auth_payload=AuthPayload(
                 version=1,
                 doc_hash=doc_hash,
@@ -74,9 +84,9 @@ class TestRecoverExecution(unittest.TestCase):
             ValueError,
             "embedded signing seed does not match the verified root AUTH signing key",
         ):
-            decrypt_manifest_and_extract(plan, quiet=True, debug=False)
+            decrypt_manifest_extract_selection(plan, debug=False)
 
-    def test_decrypt_manifest_and_extract_rejects_unexpected_root_head(self) -> None:
+    def test_decrypt_manifest_extract_selection_rejects_unexpected_root_head(self) -> None:
         signing_seed = b"\x33" * 32
         manifest, payload = build_manifest_and_payload(
             (BackupFile(path="a.txt", data=b"root", mtime=1),),
@@ -93,10 +103,19 @@ class TestRecoverExecution(unittest.TestCase):
         doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
         sign_pub = derive_public_key(signing_seed)
         plan = RecoveryPlan(
+            loaded_source=LoadedRecoverySource((), (), (), None, None),
             ciphertext=ciphertext,
             doc_id=doc_id,
             doc_hash=doc_hash,
-            passphrase="secret",
+            unlock=RecoveryUnlockStatus(
+                mode="passphrase",
+                passphrase_provided=True,
+                validated_shard_count=0,
+                required_shard_threshold=None,
+                satisfied=True,
+                resolved_passphrase="secret",
+            ),
+            blocking_issues=(),
             auth_payload=AuthPayload(
                 version=1,
                 doc_hash=doc_hash,
@@ -120,7 +139,7 @@ class TestRecoverExecution(unittest.TestCase):
         )
 
         with self.assertRaises(ApiCommandError) as caught:
-            decrypt_manifest_and_extract(plan, quiet=True, debug=False)
+            decrypt_manifest_extract_selection(plan, debug=False)
 
         self.assertEqual(caught.exception.code, issue_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertEqual(caught.exception.details["validated_head_index"], 0)

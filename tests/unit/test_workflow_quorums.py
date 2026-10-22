@@ -9,7 +9,7 @@ from ethernity.workflows.replacement_recovery import service as replacement_serv
 from ethernity.workflows.shared.backup_validation import validate_backup_request
 from ethernity.workflows.shared.requests import BackupRequest, ReplacementRecoveryRequest
 
-Operation = Literal["backup", "replacement", "inspection"]
+Operation = Literal["backup", "replacement"]
 
 
 def _validate_quorum(
@@ -44,12 +44,10 @@ def _validate_quorum(
         )
     else:
         replacement = replace(replacement, shard_threshold=threshold, shard_count=count)
-    replacement_service._validate_replacement_args(
-        replacement, require_output_configuration=operation != "inspection"
-    )
+    replacement_service._validate_replacement_args(replacement)
 
 
-@pytest.mark.parametrize("operation", ["backup", "replacement", "inspection"])
+@pytest.mark.parametrize("operation", ["backup", "replacement"])
 @pytest.mark.parametrize("signing", [False, True])
 @pytest.mark.parametrize("threshold,count", [(1, 1), (1, 255), (2, 3), (255, 255)])
 def test_workflow_quorum_accepts_valid_bounds(
@@ -58,7 +56,7 @@ def test_workflow_quorum_accepts_valid_bounds(
     _validate_quorum(operation, signing, threshold, count)
 
 
-@pytest.mark.parametrize("operation", ["backup", "replacement", "inspection"])
+@pytest.mark.parametrize("operation", ["backup", "replacement"])
 @pytest.mark.parametrize("signing", [False, True])
 @pytest.mark.parametrize(
     "threshold,count,reason",
@@ -85,7 +83,7 @@ def test_workflow_quorum_rejects_invalid_bounds(
     assert str(failure.value) == expected
 
 
-@pytest.mark.parametrize("operation", ["backup", "replacement", "inspection"])
+@pytest.mark.parametrize("operation", ["backup", "replacement"])
 @pytest.mark.parametrize("signing", [False, True])
 @pytest.mark.parametrize("threshold,count", [(None, 3), (2, None)])
 def test_workflow_quorum_requires_both_values_when_either_is_supplied(
@@ -97,7 +95,7 @@ def test_workflow_quorum_requires_both_values_when_either_is_supplied(
     assert str(failure.value) == f"both --{flag}-threshold and --{flag}-count are required"
 
 
-@pytest.mark.parametrize("operation", ["backup", "replacement", "inspection"])
+@pytest.mark.parametrize("operation", ["backup", "replacement"])
 @pytest.mark.parametrize("signing", [False, True])
 def test_workflow_quorum_absence_depends_on_operation(operation: Operation, signing: bool) -> None:
     if operation == "replacement" and not signing:
@@ -142,7 +140,6 @@ def test_replacement_signing_shards_require_a_quorum() -> None:
     )
     with pytest.raises(ValueError, match="creating signing-key shards requires a shard quorum"):
         replacement_service._validate_replacement_args(request)
-    replacement_service._validate_replacement_args(request, require_output_configuration=False)
 
 
 def test_compatible_replacement_uses_existing_shard_quorum() -> None:

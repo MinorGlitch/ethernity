@@ -168,7 +168,7 @@ def test_review_preparation_is_visible_and_locks_the_workspace_at_80_columns(
     def prepare_review(self: AddFilesTaskState, *, force: bool = False) -> None:
         del self, force
         started.set()
-        release.wait(timeout=5)
+        release.wait()
 
     monkeypatch.setattr(AddFilesTaskState, "prepare_review", prepare_review)
 
@@ -274,7 +274,7 @@ def test_progress_locks_navigation_and_failure_returns_to_live_workflow(monkeypa
     def fake_execute(self: BackupTaskState) -> TaskExecutionResult:
         calls.append(self.model_copy(deep=True))
         started.set()
-        release.wait(timeout=5)
+        release.wait()
         return TaskExecutionResult(status="failed", message="First attempt was rejected.")
 
     def fake_exit(self: EthernityApp, *args: object, **kwargs: object) -> None:
@@ -291,23 +291,24 @@ def test_progress_locks_navigation_and_failure_returns_to_live_workflow(monkeypa
             )
         )
         async with run_app_test(app, size=(120, 32)) as pilot:
-            await pilot.press("ctrl+r")
-            await click_when_ready(pilot, "#review-execute")
-            await wait_for_condition(pilot, started.is_set, "worker to start")
-            assert started.is_set()
+            try:
+                await pilot.press("ctrl+r")
+                await click_when_ready(pilot, "#review-execute")
+                await wait_for_condition(pilot, started.is_set, "worker to start")
+                assert started.is_set()
 
-            await pilot.press("2", "ctrl+p", "?")
-            app.backup_state.input_paths = []
-            app.backup_state.output_dir = Path("edited-while-running")
+                await pilot.press("2", "ctrl+p", "?")
+                app.backup_state.input_paths = []
+                app.backup_state.output_dir = Path("edited-while-running")
 
-            assert app.active_task == "backup"
-            assert app.screen.query_one("#progress-modal").display
+                assert app.active_task == "backup"
+                assert app.screen.query_one("#progress-modal").display
 
-            await pilot.press("q")
-            assert exit_calls == []
-            assert app.running_task == "backup"
-
-            release.set()
+                await pilot.press("q")
+                assert exit_calls == []
+                assert app.running_task == "backup"
+            finally:
+                release.set()
             await wait_for_widget(pilot, "#result-close")
             assert app.running_task is None
             failure_text = _screen_text(app)
@@ -436,7 +437,7 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
 
     def fake_execute(self: BackupTaskState) -> TaskExecutionResult:
         started.set()
-        release.wait(timeout=5)
+        release.wait()
         return TaskExecutionResult(status="succeeded", message="Write complete.")
 
     monkeypatch.setattr(BackupTaskState, "execute", fake_execute)
@@ -453,21 +454,22 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
             await app.action_show_task("settings")
             settings_form = app.query_one(SettingsForm)
             await app.action_show_task("backup")
-            await pilot.press("ctrl+r")
-            await click_when_ready(pilot, "#review-execute")
-            await wait_for_condition(pilot, started.is_set, "worker to start")
-            assert started.is_set()
+            try:
+                await pilot.press("ctrl+r")
+                await click_when_ready(pilot, "#review-execute")
+                await wait_for_condition(pilot, started.is_set, "worker to start")
+                assert started.is_set()
 
-            await pilot.press("7")
-            assert settings_form.disabled
-            assert app.screen.query_one("#progress-modal").display
-            assert not app.settings_controller.apply_text("qr_chunk_size", "2048")
+                await pilot.press("7")
+                assert settings_form.disabled
+                assert app.screen.query_one("#progress-modal").display
+                assert not app.settings_controller.apply_text("qr_chunk_size", "2048")
 
-            assert load_app_config(config_path).qr_chunk_size == original_chunk_size
-            assert app.settings_state.setting_value("qr_chunk_size") == original_chunk_size
-            assert app.settings_state.save_status == "Locked while task runs"
-
-            release.set()
+                assert load_app_config(config_path).qr_chunk_size == original_chunk_size
+                assert app.settings_state.setting_value("qr_chunk_size") == original_chunk_size
+                assert app.settings_state.save_status == "Locked while task runs"
+            finally:
+                release.set()
             await wait_for_widget(pilot, "#result-close")
             assert not settings_form.disabled
 
@@ -490,7 +492,7 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
     def fake_execute(self: BackupTaskState) -> TaskExecutionResult:
         execution_calls.append(None)
         started.set()
-        release.wait(timeout=5)
+        release.wait()
         physically_finished.set()
         return TaskExecutionResult(status="succeeded", message="Ignored after cancellation.")
 
@@ -509,34 +511,34 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
             settings_state=settings,
         )
         async with run_app_test(app, size=(120, 32)) as pilot:
-            await pilot.press("ctrl+r")
-            await click_when_ready(pilot, "#review-execute")
-            await wait_for_condition(pilot, started.is_set, "worker to start")
-            assert started.is_set()
-            worker = app.execution_controller.running_worker
-            assert worker is not None
+            try:
+                await pilot.press("ctrl+r")
+                await click_when_ready(pilot, "#review-execute")
+                await wait_for_condition(pilot, started.is_set, "worker to start")
+                worker = app.execution_controller.running_worker
+                assert worker is not None
 
-            worker.cancel()
-            await wait_for_condition(
-                pilot, lambda: worker.state == WorkerState.CANCELLED, "worker cancellation"
-            )
+                worker.cancel()
+                await wait_for_condition(
+                    pilot, lambda: worker.state == WorkerState.CANCELLED, "worker cancellation"
+                )
 
-            assert worker.state == WorkerState.CANCELLED
-            assert app.running_task == "backup"
-            assert app.execution_controller.running_worker is worker
-            assert not physically_finished.is_set()
-            assert not list(app.screen.query("#result-modal"))
+                assert worker.state == WorkerState.CANCELLED
+                assert app.running_task == "backup"
+                assert app.execution_controller.running_worker is worker
+                assert not physically_finished.is_set()
+                assert not list(app.screen.query("#result-modal"))
 
-            await pilot.press("q")
-            assert exit_calls == []
+                await pilot.press("q")
+                assert exit_calls == []
 
-            retry_task = ReviewedTask.capture("backup", app.backup_state)
-            app.execution_controller.start(retry_task)
-            await pilot.pause()
-            assert execution_calls == [None]
-            assert app.execution_controller.running_worker is worker
-
-            release.set()
+                retry_task = ReviewedTask.capture("backup", app.backup_state)
+                app.execution_controller.start(retry_task)
+                await pilot.pause()
+                assert execution_calls == [None]
+                assert app.execution_controller.running_worker is worker
+            finally:
+                release.set()
             await wait_for_widget(pilot, "#result-close")
 
             assert physically_finished.is_set()
@@ -587,7 +589,7 @@ def test_large_result_paths_scroll_while_actions_stay_visible() -> None:
 
 
 def test_replacement_result_reports_only_files_in_the_output_folder(monkeypatch) -> None:
-    def fake_execute_replacement_recovery(request: object) -> SimpleNamespace:
+    def fake_execute_replacement_recovery(request: object, *, session) -> SimpleNamespace:
         return SimpleNamespace(
             shard_paths=(
                 Path("replacement-docs/passphrase-1.pdf"),

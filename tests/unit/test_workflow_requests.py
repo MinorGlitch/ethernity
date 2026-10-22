@@ -16,7 +16,7 @@ from ethernity.workflows.shared import requests
 @pytest.mark.parametrize(
     ("workflow_request", "entry_point", "service_name"),
     (
-        (requests.BackupRequest(debug=True, sealed=True), "execute_backup", "prepare_backup_run"),
+        (requests.BackupRequest(sealed=True), "execute_backup", "prepare_backup_run"),
         (
             requests.RecoveryRequest(extension_index=2, allow_unsigned=True),
             "execute_recovery",
@@ -58,7 +58,7 @@ def test_execution_accepts_the_same_request_as_its_service(
     )
     received = []
 
-    def prepare_or_execute(value):
+    def prepare_or_execute(value, **options):
         received.append(value)
         return result
 
@@ -83,9 +83,6 @@ def test_backup_preparation_retains_paths_and_execution_options(
         output_dir=tmp_path / "output",
         layout_debug_dir=tmp_path / "layout",
         sealed=True,
-        debug=True,
-        debug_max_bytes=4096,
-        debug_reveal_secrets=True,
         quiet=True,
     )
     prepared = backup_service.prepare_backup_run(request)
@@ -105,9 +102,6 @@ def test_backup_preparation_retains_paths_and_execution_options(
     assert backup_service.execute_prepared_backup(prepared) is result
     assert received["output_dir"] == request.output_dir
     assert received["layout_debug_dir"] == request.layout_debug_dir
-    assert received["debug"] is True
-    assert received["debug_max_bytes"] == 4096
-    assert received["debug_reveal_secrets"] is True
     assert received["quiet"] is True
 
 

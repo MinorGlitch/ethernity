@@ -6,12 +6,12 @@ from multiprocessing.connection import Connection
 
 import pytest
 
+from ethernity.core.execution_control import ExecutionControl, OperationCancelled, execution_session
 from ethernity.security import resource_worker
 from ethernity.security.resource_worker import (
     DisposableWorkerError,
     WorkerLimits,
     run_disposable_worker,
-    terminate_active_workers,
 )
 
 pytestmark = pytest.mark.portability
@@ -89,28 +89,51 @@ def test_disposable_worker_enforces_wall_time() -> None:
         )
 
 
-def test_cancellation_terminates_active_worker() -> None:
-    errors: list[BaseException] = []
+def test_cancellation_only_stops_its_own_worker(monkeypatch) -> None:
+    outcomes: dict[str, object] = {}
+    started = {name: threading.Event() for name in ("cancelled", "independent")}
+    control = ExecutionControl()
+    enforce_limits = resource_worker._enforce_parent_observed_limits
 
-    def run_worker() -> None:
+    def observe_start(operation, process, monitored, limits):
+        started[operation].set()
+        enforce_limits(operation, process, monitored, limits)
+
+    monkeypatch.setattr(resource_worker, "_enforce_parent_observed_limits", observe_start)
+
+    def run_worker(name: str, operation_control: ExecutionControl, seconds: float) -> None:
         try:
-            run_disposable_worker(
-                "test",
-                _sleep,
-                (5.0,),
-                limits=_limits(wall_seconds=10),
-            )
+            with execution_session(operation_control):
+                run_disposable_worker(name, _sleep, (seconds,), limits=_limits(wall_seconds=10))
+            outcomes[name] = "completed"
         except BaseException as exc:
-            errors.append(exc)
+            outcomes[name] = exc
 
-    thread = threading.Thread(target=run_worker)
-    thread.start()
-    time.sleep(0.5)
-    terminate_active_workers()
-    thread.join(timeout=2)
+    cancelled = threading.Thread(target=run_worker, args=("cancelled", control, 5.0))
+    independent = threading.Thread(target=run_worker, args=("independent", ExecutionControl(), 0.5))
+    cancelled.start()
+    independent.start()
+    try:
+        assert all(event.wait(timeout=5) for event in started.values())
+        control.request_cancel()
+    finally:
+        cancelled.join(timeout=7)
+        independent.join(timeout=7)
+    assert not cancelled.is_alive() and not independent.is_alive()
+    assert isinstance(outcomes["cancelled"], OperationCancelled)
+    assert outcomes["independent"] == "completed"
 
-    assert not thread.is_alive()
-    assert errors and isinstance(errors[0], DisposableWorkerError)
+
+def test_cancelled_operation_does_not_start_another_worker(monkeypatch) -> None:
+    control = ExecutionControl()
+    control.request_cancel()
+
+    def unexpected_start(*_args):
+        pytest.fail("cancelled operation started a new subprocess")
+
+    monkeypatch.setattr(resource_worker.multiprocessing, "get_context", unexpected_start)
+    with execution_session(control), pytest.raises(OperationCancelled):
+        run_disposable_worker("test", _return_bytes, (8,), limits=_limits())
 
 
 def test_parent_monitor_hard_stops_worker_over_memory_limit(monkeypatch) -> None:

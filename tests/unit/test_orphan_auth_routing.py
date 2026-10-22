@@ -140,7 +140,7 @@ def test_single_document_fallback_preserves_strict_and_unsigned_authentication(
         assert plan.source.auth_frames == (orphan_auth,)
     else:
         assert inspection.auth_status == "invalid"
-        assert inspection.blocking_issues[0]["code"] == "AUTH_PAYLOAD_DOC_ID_MISMATCH"
+        assert inspection.blocking_issues[0].code == "AUTH_PAYLOAD_DOC_ID_MISMATCH"
         with pytest.raises(AuthValidationError) as raised:
             plan_from_request(request)
         assert raised.value.code == "AUTH_PAYLOAD_DOC_ID_MISMATCH"

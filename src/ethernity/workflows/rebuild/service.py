@@ -28,29 +28,24 @@ from ethernity.crypto.document_identity import doc_id_from_doc_hash
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.errors import ExtensionRecoveryError
-from ethernity.extensions.recovery import recover_chain_entries
 from ethernity.render.types import DocumentOrigin
 from ethernity.workflows.backup.execution import run_backup
 from ethernity.workflows.backup.planning import plan_from_request as plan_backup_request
 from ethernity.workflows.backup.service import apply_qr_chunk_size_override
-from ethernity.workflows.recovery.frame_inputs import frames_from_scan
 from ethernity.workflows.recovery.keys import (
+    DecodedShard,
     InsufficientShardError,
-    validated_shard_payloads_from_frames,
+    RecoveryTrust,
+    validate_decoded_shards,
 )
 from ethernity.workflows.recovery.planning import plan_from_request as plan_recovery_request
-from ethernity.workflows.recovery.root_shard_policy import (
-    decoded_shard_candidates,
-    has_potential_root_shard_frames,
-    root_shard_quorum_from_frames,
-)
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError as ApiCommandError, emit_phase
 from ethernity.workflows.shared.operation_types import (
     BackupResult,
     InputFile,
 )
-from ethernity.workflows.shared.paths import expanduser_cli_paths
 from ethernity.workflows.shared.requests import (
     BackupRequest,
     RebuildRequest,
@@ -154,9 +149,9 @@ def _recovery_request_for_rebuild(args: RebuildRequest, root_dir: Path | None) -
     )
 
 
-def _recover_rebuild_chain(recover_plan):
+def _recover_rebuild_chain(recover_plan, *, session: RecoverySession):
     try:
-        return recover_chain_entries(recover_plan, debug=False)
+        return session.recover_chain(recover_plan, debug=False)
     except (ApiCommandError, ExtensionRecoveryError) as exc:
         if exc.code != issue_codes.RECOVERY_HEAD_UNTRUSTED:
             raise
@@ -174,96 +169,122 @@ def _rebuild_source_head(recover_plan, chain) -> _RebuildSourceHead:
 
 def _infer_recovery_sheet_settings(
     *,
-    root_dir: str | None,
-    source_scan: Sequence[str | Path] = (),
-    root_doc_id_hex: str | None,
+    source_key_frames: Sequence[Frame] = (),
+    root_doc_id: bytes,
     root_doc_hash: bytes,
     sign_pub: bytes | None,
     passphrase_shard_frames: Sequence[Frame] = (),
-    signing_key_shard_frames: Sequence[Frame] = (),
-    require_quorum: bool = True,
+    selected_extension_doc_hash: str | None = None,
+    validated_shards: Sequence[DecodedShard] = (),
 ) -> _RecoverySheetSettings:
-    scan_inputs = tuple(source_scan) or ((root_dir,) if root_dir else ())
-    source_key_frames = _key_frames_from_source_scan(scan_inputs) if scan_inputs else ()
-    root_doc_id = bytes.fromhex(root_doc_id_hex) if root_doc_id_hex else None
-    policy_frames = (
-        *source_key_frames,
-        *tuple(passphrase_shard_frames),
-        *tuple(signing_key_shard_frames),
-    )
-    if sign_pub is None:
-        if has_potential_root_shard_frames(
-            policy_frames,
-            expected_doc_id=root_doc_id,
-            expected_doc_hash=root_doc_hash,
-        ):
-            raise ApiCommandError(
-                code=issue_codes.REBUILD_INVALID_POLICY,
-                message=(
-                    "rebuild cannot inherit root shard policy without a verified root signing key"
-                ),
-                details={"stage": "root_shard_policy"},
-            )
-        return _RecoverySheetSettings(
-            passphrase_shard_threshold=None,
-            passphrase_shard_count=0,
-            signing_key_shard_threshold=None,
-            signing_key_shard_count=0,
-        )
-    if root_doc_id is None:
-        raise ApiCommandError(
-            code=issue_codes.REBUILD_INVALID_POLICY,
-            message="rebuild cannot inherit root shard policy without a root document id",
-            details={"stage": "root_shard_policy"},
-        )
-    passphrase_threshold, passphrase_count = _infer_root_quorum(
-        policy_frames,
-        expected_doc_id=root_doc_id,
-        expected_doc_hash=root_doc_hash,
-        sign_pub=sign_pub,
-        require_quorum=require_quorum,
+    frames = dict.fromkeys((*source_key_frames, *passphrase_shard_frames))
+    retained = {item.frame: item for item in validated_shards}
+    sheets: list[DecodedShard] = []
+    for frame in frames:
+        if frame.frame_type != FrameType.KEY_DOCUMENT:
+            continue
+        try:
+            sheets.append(retained[frame] if frame in retained else DecodedShard.decode(frame))
+        except ValueError as exc:
+            if sign_pub is not None and frame.doc_id == root_doc_id:
+                raise ApiCommandError(
+                    code=issue_codes.REBUILD_INVALID_POLICY,
+                    message=f"invalid root shard payload: {exc}",
+                    details={"stage": "root_shard_policy"},
+                ) from exc
+
+    root_sheets = [
+        item
+        for item in sheets
+        if item.frame.doc_id == root_doc_id and item.payload.doc_hash == root_doc_hash
+    ]
+    root_trust = RecoveryTrust(root_doc_id, root_doc_hash, sign_pub)
+    passphrase_policy = _sheet_policy(
+        root_sheets,
         key_type=sharding_module.KEY_TYPE_PASSPHRASE,
         secret_label="passphrase",
+        trust=root_trust,
+        require_quorum=True,
+        stage="root_shard_policy",
+        validated=validated_shards,
     )
-    signing_key_threshold, signing_key_count = _infer_root_quorum(
-        policy_frames,
-        expected_doc_id=root_doc_id,
-        expected_doc_hash=root_doc_hash,
-        sign_pub=sign_pub,
-        require_quorum=require_quorum,
+    signing_policy = _sheet_policy(
+        root_sheets,
         key_type=sharding_module.KEY_TYPE_SIGNING_SEED,
         secret_label="signing key",
+        trust=root_trust,
+        require_quorum=True,
+        stage="root_shard_policy",
+        validated=validated_shards,
     )
-    return _RecoverySheetSettings(
-        passphrase_shard_threshold=passphrase_threshold,
-        passphrase_shard_count=passphrase_count,
-        signing_key_shard_threshold=signing_key_threshold,
-        signing_key_shard_count=signing_key_count,
-    )
+    if selected_extension_doc_hash:
+        selected_hash = bytes.fromhex(selected_extension_doc_hash)
+        selected_id = doc_id_from_doc_hash(selected_hash)
+        selected_sheets = [
+            item
+            for item in sheets
+            if item.payload.doc_hash == selected_hash
+            and item.payload.key_type == sharding_module.KEY_TYPE_PASSPHRASE
+        ]
+        if any(item.frame.doc_id != selected_id for item in selected_sheets):
+            raise ApiCommandError(
+                code=issue_codes.REBUILD_INVALID_POLICY,
+                message="source passphrase shard frame doc_id does not match selected document",
+                details={"stage": "source_shard_policy"},
+            )
+        if selected_sheets:
+            passphrase_policy = _sheet_policy(
+                selected_sheets,
+                trust=RecoveryTrust(selected_id, selected_hash, sign_pub),
+                key_type=sharding_module.KEY_TYPE_PASSPHRASE,
+                secret_label="passphrase",
+                require_quorum=False,
+                stage="source_shard_policy",
+                validated=validated_shards,
+            )
+    return _RecoverySheetSettings(*passphrase_policy, *signing_policy)
 
 
-def _infer_root_quorum(
-    frames: Sequence[Frame],
+def _sheet_policy(
+    sheets: Sequence[DecodedShard],
     *,
-    expected_doc_id: bytes,
-    expected_doc_hash: bytes,
-    sign_pub: bytes,
-    require_quorum: bool = True,
+    trust: RecoveryTrust,
     key_type: str,
     secret_label: str,
+    require_quorum: bool,
+    stage: str,
+    validated: Sequence[DecodedShard],
 ) -> tuple[int | None, int]:
-    if not frames:
+    selected = tuple(item for item in sheets if item.payload.key_type == key_type)
+    if not selected:
         return None, 0
-    try:
-        return root_shard_quorum_from_frames(
-            frames,
-            expected_doc_id=expected_doc_id,
-            expected_doc_hash=expected_doc_hash,
-            sign_pub=sign_pub,
-            key_type=key_type,
-            secret_label=secret_label,
-            require_quorum=require_quorum,
+    if trust.sign_pub is None:
+        raise ApiCommandError(
+            code=issue_codes.REBUILD_INVALID_POLICY,
+            message="rebuild cannot inherit shard policy without a verified root signing key",
+            details={"stage": stage},
         )
+    try:
+        # Reuse inspection only for the same complete set and trusted identity.
+        # A subset must still satisfy its own quorum and set-consistency checks.
+        if not (
+            set(selected) == set(validated)
+            and all(
+                item.frame.doc_id == trust.doc_id
+                and item.payload.doc_hash == trust.doc_hash
+                and item.payload.sign_pub == trust.sign_pub
+                for item in selected
+            )
+        ):
+            selected = validate_decoded_shards(
+                selected,
+                expected_doc_id=trust.doc_id,
+                expected_doc_hash=trust.doc_hash,
+                expected_sign_pub=trust.sign_pub,
+                key_type=key_type,
+                secret_label=secret_label,
+                require_quorum=require_quorum,
+            )
     except InsufficientShardError as exc:
         raise ApiCommandError(
             code=issue_codes.REBUILD_INVALID_POLICY,
@@ -276,25 +297,16 @@ def _infer_root_quorum(
         raise ApiCommandError(
             code=issue_codes.REBUILD_INVALID_POLICY,
             message=str(exc),
-            details={"stage": "root_shard_policy"},
+            details={"stage": stage},
         ) from exc
+    first = selected[0].payload
+    return first.threshold, first.share_count
 
 
-def _key_frames_from_source_scan(
-    source_scan: Sequence[str | Path],
-) -> tuple[Frame, ...]:
-    try:
-        frames = frames_from_scan(expanduser_cli_paths(source_scan))
-    except ValueError as exc:
-        raise ApiCommandError(
-            code=issue_codes.REBUILD_INVALID_POLICY,
-            message=f"root shard policy scan failed: {exc}",
-            details={"stage": "root_shard_policy"},
-        ) from exc
-    return tuple(frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT)
-
-
-def execute_rebuild_operation(args: RebuildRequest) -> BackupResult:
+def execute_rebuild_operation(
+    args: RebuildRequest, *, session: RecoverySession | None = None
+) -> BackupResult:
+    session = session or RecoverySession()
     emit_phase(phase="source", label="Resolving Rebuild sources")
     validate_rebuild_source_selection(args)
     root_dir = None if args.scan_paths else _validated_rebuild_root_dir(args.backup_folder)
@@ -305,8 +317,10 @@ def execute_rebuild_operation(args: RebuildRequest) -> BackupResult:
         _reject_rebuild_output_inside_root(root_dir, args.output_dir)
         _reject_rebuild_layout_debug_inside_root(root_dir, args.layout_debug_dir)
 
-    recover_plan = plan_recovery_request(_recovery_request_for_rebuild(args, root_dir))
-    chain = _recover_rebuild_chain(recover_plan)
+    recover_plan = plan_recovery_request(
+        _recovery_request_for_rebuild(args, root_dir), session=session
+    )
+    chain = _recover_rebuild_chain(recover_plan, session=session)
     source_head = _rebuild_source_head(recover_plan, chain)
     manifest = chain.manifest
 
@@ -316,48 +330,17 @@ def execute_rebuild_operation(args: RebuildRequest) -> BackupResult:
         else (recover_plan.auth_payload.sign_pub if recover_plan.auth_payload is not None else None)
     )
     selected_extension_doc_hash = getattr(chain, "selected_extension_doc_hash", None)
-    unlock_passphrase_frames = _passphrase_shard_frames_for_selected_head(
-        recover_plan.shard_frames,
+    inherited = _infer_recovery_sheet_settings(
+        source_key_frames=recover_plan.loaded_source.sheet_frames,
         root_doc_id=recover_plan.doc_id,
         root_doc_hash=recover_plan.doc_hash,
+        sign_pub=sign_pub,
+        passphrase_shard_frames=recover_plan.shard_frames,
         selected_extension_doc_hash=selected_extension_doc_hash,
-    )
-    unlock_doc_hash = (
-        bytes.fromhex(selected_extension_doc_hash)
-        if selected_extension_doc_hash
-        else recover_plan.doc_hash
-    )
-    unlock_doc_id = (
-        doc_id_from_doc_hash(unlock_doc_hash)
-        if selected_extension_doc_hash
-        else recover_plan.doc_id
-    )
-    unlock_passphrase_policy = _infer_passphrase_shard_policy_from_frames(
-        unlock_passphrase_frames,
-        sign_pub=sign_pub,
-        expected_doc_id=unlock_doc_id,
-        expected_doc_hash=unlock_doc_hash,
-    )
-
-    inherited = _infer_recovery_sheet_settings(
-        root_dir=str(root_dir) if root_dir is not None else None,
-        source_scan=tuple(args.scan_paths or ()),
-        root_doc_id_hex=recover_plan.doc_id.hex(),
-        root_doc_hash=recover_plan.doc_hash,
-        sign_pub=sign_pub,
-        passphrase_shard_frames=_passphrase_shard_frames_for_doc(
-            recover_plan.shard_frames,
-            expected_doc_id=recover_plan.doc_id,
-            expected_doc_hash=recover_plan.doc_hash,
+        validated_shards=(
+            recover_plan.unlock.validated_shards if not recover_plan.allow_unsigned else ()
         ),
     )
-    if unlock_passphrase_policy is not None:
-        inherited = _RecoverySheetSettings(
-            passphrase_shard_threshold=unlock_passphrase_policy[0],
-            passphrase_shard_count=unlock_passphrase_policy[1],
-            signing_key_shard_threshold=inherited.signing_key_shard_threshold,
-            signing_key_shard_count=inherited.signing_key_shard_count,
-        )
     if (
         not manifest.sealed
         and inherited.signing_key_shard_count > 0
@@ -431,116 +414,3 @@ def execute_rebuild_operation(args: RebuildRequest) -> BackupResult:
             else None
         ),
     )
-
-
-def _passphrase_shard_frames_for_doc(
-    frames: Sequence[Frame],
-    *,
-    expected_doc_id: bytes,
-    expected_doc_hash: bytes,
-) -> tuple[Frame, ...]:
-    return _passphrase_shard_frames_for_document(
-        frames,
-        expected_doc_id=expected_doc_id,
-        expected_doc_hash=expected_doc_hash,
-    )
-
-
-def _passphrase_shard_frames_for_selected_head(
-    frames: Sequence[Frame],
-    *,
-    root_doc_id: bytes,
-    root_doc_hash: bytes,
-    selected_extension_doc_hash: str | None,
-) -> tuple[Frame, ...]:
-    if selected_extension_doc_hash:
-        selected_doc_hash = bytes.fromhex(selected_extension_doc_hash)
-        return _passphrase_shard_frames_for_document(
-            frames,
-            expected_doc_id=doc_id_from_doc_hash(selected_doc_hash),
-            expected_doc_hash=selected_doc_hash,
-            strict_doc_id=True,
-        )
-    return _passphrase_shard_frames_for_document(
-        frames,
-        expected_doc_id=root_doc_id,
-        expected_doc_hash=root_doc_hash,
-    )
-
-
-def _passphrase_shard_frames_for_document(
-    frames: Sequence[Frame],
-    *,
-    expected_doc_id: bytes | None,
-    expected_doc_hash: bytes,
-    strict_doc_id: bool = False,
-) -> tuple[Frame, ...]:
-    selected: list[Frame] = []
-    for frame, payload in decoded_shard_candidates(frames):
-        if payload.key_type != sharding_module.KEY_TYPE_PASSPHRASE:
-            continue
-        if payload.doc_hash != expected_doc_hash:
-            continue
-        if expected_doc_id is not None and frame.doc_id != expected_doc_id:
-            if strict_doc_id:
-                raise ApiCommandError(
-                    code=issue_codes.REBUILD_INVALID_POLICY,
-                    message="source passphrase shard frame doc_id does not match selected document",
-                    details={"stage": "source_shard_policy"},
-                )
-            continue
-        selected.append(frame)
-    return tuple(selected)
-
-
-def _infer_passphrase_shard_policy_from_frames(
-    frames: Sequence[Frame],
-    *,
-    sign_pub: bytes | None,
-    expected_doc_id: bytes | None = None,
-    expected_doc_hash: bytes | None = None,
-) -> tuple[int, int] | None:
-    passphrase_frames: list[Frame] = []
-    for frame in frames:
-        if frame.frame_type != FrameType.KEY_DOCUMENT:
-            continue
-        try:
-            payload = sharding_module.decode_shard_payload(frame.data)
-        except ValueError:
-            continue
-        if payload.key_type == sharding_module.KEY_TYPE_PASSPHRASE:
-            passphrase_frames.append(frame)
-    if not passphrase_frames:
-        return None
-    if sign_pub is None:
-        raise ApiCommandError(
-            code=issue_codes.REBUILD_INVALID_POLICY,
-            message=(
-                "rebuild cannot inherit source passphrase shard policy without a verified "
-                "root signing key"
-            ),
-            details={"stage": "source_shard_policy"},
-        )
-
-    try:
-        shares = validated_shard_payloads_from_frames(
-            passphrase_frames,
-            expected_doc_id=expected_doc_id,
-            expected_doc_hash=expected_doc_hash,
-            expected_sign_pub=sign_pub,
-            allow_unsigned=False,
-            key_type=sharding_module.KEY_TYPE_PASSPHRASE,
-            secret_label="passphrase",
-        )
-    except InsufficientShardError as exc:
-        if exc.share_count is not None:
-            return exc.threshold, exc.share_count
-        raise ApiCommandError(
-            code=issue_codes.REBUILD_INVALID_POLICY,
-            message=(
-                "source passphrase shards are under quorum; "
-                f"need at least {exc.threshold}, found {exc.provided_count}"
-            ),
-        ) from exc
-    first = shares[0]
-    return first.threshold, first.share_count

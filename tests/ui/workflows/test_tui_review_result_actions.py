@@ -39,7 +39,11 @@ def test_review_edit_returns_the_decision_and_keeps_write_safety_visible(tmp_pat
         title="Review backup",
         validation=TaskValidation(sections=()),
         preview=TaskPreview(title="Documents"),
-        plan=TaskExecutionPlan(summary="Create documents", output_paths=(destination,)),
+        plan=TaskExecutionPlan(
+            summary="Create documents",
+            output_paths=(destination,),
+            safety_notes=("Only the selected PDF may be replaced.",),
+        ),
         execute_label="Create backup",
         review_details=(ReviewDetail("Destination", str(destination), "output"),),
     )
@@ -77,7 +81,10 @@ def test_review_inventory_does_not_guess_page_counts(tmp_path: Path) -> None:
     assert "Pages" not in details
 
 
-def test_new_destination_does_not_warn_about_overwriting(tmp_path: Path) -> None:
+@pytest.mark.parametrize("exists", [False, True])
+def test_destination_does_not_invent_overwrite_warnings(tmp_path: Path, exists: bool) -> None:
+    if exists:
+        (tmp_path / "new").mkdir()
     screen = ReviewTaskScreen(
         title="Review",
         validation=TaskValidation(sections=()),

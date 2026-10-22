@@ -7,15 +7,15 @@ import pytest
 from pypdf import PdfReader
 
 from ethernity.config import AppConfig
-from ethernity.qr.codec import QrConfig
-from ethernity.render.errors import RenderValidationError
-from ethernity.workflows.kit.service import render_kit_qr_document
-from ethernity.workflows.shared import events
-from ethernity.workflows.shared.execution_control import (
+from ethernity.core.execution_control import (
     ExecutionControl,
     OperationCancelled,
     execution_session,
 )
+from ethernity.qr.codec import QrConfig
+from ethernity.render.errors import RenderValidationError
+from ethernity.workflows.kit.service import render_kit_qr_document
+from ethernity.workflows.shared import events
 
 _CONFIG = AppConfig(
     design_name="sentinel", paper_size="A4", qr_config=QrConfig(), qr_chunk_size=1024

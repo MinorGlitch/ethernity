@@ -35,8 +35,10 @@ from ethernity.workflows.add_files.reporting import (
     AddFilesReporter,
 )
 from ethernity.workflows.add_files.request import AddFilesRequest
-from ethernity.workflows.execution import execute_replacement_recovery
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.replacement_recovery.service import (
+    ReplacementRecoveryMaterial,
+    create_replacement_documents,
     replacement_recovery_directory_name,
     require_replacement_recovery_output_available,
 )
@@ -92,11 +94,13 @@ class AddFilesExecutionResult:
         return self.ok and self.recovery_sheets.status == "failed"
 
 
-def assess_add_files(request: AddFilesRequest) -> AddFilesAssessment:
+def assess_add_files(
+    request: AddFilesRequest, *, session: RecoverySession | None = None
+) -> AddFilesAssessment:
     """Plan and validate a request without publishing files."""
 
     try:
-        prepared = prepare_add_files_run(request)
+        prepared = prepare_add_files_run(request, session=session)
         assessed = assess_prepared_add_files(prepared)
     except AddFilesWorkflowError as exc:
         return AddFilesAssessment(request=request, issues=(exc.issue,))
@@ -194,13 +198,6 @@ def _create_recovery_sheets(
         config = executed.output_settings.config
         doc_hash = executed.result.doc_hash.hex()
         recovery_request = ReplacementRecoveryRequest(
-            config_path=Path(request.config_path) if request.config_path is not None else None,
-            paper_size=config.paper_size,
-            design=config.design_name,
-            frames=(*executed.prepared.source_frames, *executed.result.recovery_frames),
-            passphrase=executed.prepared.encryption_passphrase,
-            extension_doc_hash=doc_hash,
-            expected_head_doc_hash=doc_hash,
             output_dir=output_dir,
             shard_threshold=request.recovery_threshold,
             shard_count=request.recovery_sheet_count,
@@ -208,7 +205,15 @@ def _create_recovery_sheets(
             create_signing_key_shards=False,
             quiet=True,
         )
-        result = execute_replacement_recovery(recovery_request)
+        material = ReplacementRecoveryMaterial(
+            trust=executed.prepared.plan.signing_key.trust,
+            passphrase=executed.prepared.encryption_passphrase,
+            signing_seed=executed.prepared.signing_seed,
+            signing_key_source="embedded signing seed",
+            selected_extension_index=executed.result.index,
+            selected_extension_doc_hash=doc_hash,
+        )
+        result = create_replacement_documents(material, config=config, args=recovery_request)
     except Exception as exc:
         return RecoverySheetCreationResult(
             status="failed",
@@ -219,7 +224,7 @@ def _create_recovery_sheets(
     return RecoverySheetCreationResult(
         status="created",
         output_dir=output_dir,
-        paths=result.shard_paths,
+        paths=tuple(Path(path) for path in result.shard_paths),
     )
 
 

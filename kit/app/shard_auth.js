@@ -16,7 +16,7 @@
  */
 
 import { encodeCbor } from "../lib/cbor.js";
-import { verifySignature } from "../lib/ed25519.js";
+import { verifyUnchangedSignature } from "../lib/ed25519.js";
 import { concatBytes } from "../lib/bytes.js";
 import { SHARD_DOMAIN, SHARD_VERSION, textEncoder } from "./constants.js";
 
@@ -46,7 +46,8 @@ export async function verifyCollectedShardSignatures(state) {
   for (const record of state.shardSets.values()) {
     for (const [shareIndex, payload] of record.shardFrames.entries()) {
       payload.signatureVerified = false;
-      const ok = await verifySignature(
+      const ok = await verifyUnchangedSignature(
+        payload,
         payload.signature,
         shardSignatureMessage(payload),
         payload.signPub,

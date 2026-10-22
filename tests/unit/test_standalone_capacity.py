@@ -54,11 +54,8 @@ def _auth(doc_hash: bytes) -> AuthPayload:
 
 def _scope(path: str, data: bytes) -> SelectedInputScope:
     return SelectedInputScope(
-        raw_files=(path,),
-        raw_directories=(),
         base_dir_arg=None,
         input_files=(InputFile(source_path=None, relative_path=path, data=data, mtime=1),),
-        base_dir=None,
         input_origin="file",
         input_roots=(),
         exact_paths=(path,),

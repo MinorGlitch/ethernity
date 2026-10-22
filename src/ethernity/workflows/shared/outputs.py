@@ -44,6 +44,7 @@ __all__ = [
     "ensure_directory",
     "prepare_backup_output_dir",
     "single_entry_uses_directory_output",
+    "validate_recovery_directory",
     "write_recovered_outputs",
 ]
 
@@ -233,14 +234,8 @@ def _write_atomic_file(path: Path, data: bytes) -> None:
         raise
 
 
-def _write_recovered_directory_outputs(
-    base_dir: Path,
-    entries: Sequence[tuple[object, bytes]],
-    *,
-    on_entry_written: Callable[[object, bytes, str, int, int], None] | None,
-) -> list[str]:
-    """Write recovered directory-style outputs via staging with rollback."""
-
+def validate_recovery_directory(base_dir: Path) -> bool:
+    """Require a new or empty recovery folder; return whether it already exists."""
     destination_exists = base_dir.exists()
     if destination_exists and not base_dir.is_dir():
         raise ValueError(f"output path is not a directory: {base_dir}")
@@ -249,6 +244,18 @@ def _write_recovered_directory_outputs(
             f"output directory already exists and is not empty: {base_dir}; "
             "use a new or empty --output directory"
         )
+    return destination_exists
+
+
+def _write_recovered_directory_outputs(
+    base_dir: Path,
+    entries: Sequence[tuple[object, bytes]],
+    *,
+    on_entry_written: Callable[[object, bytes, str, int, int], None] | None,
+) -> list[str]:
+    """Write recovered directory-style outputs via staging with rollback."""
+
+    destination_exists = validate_recovery_directory(base_dir)
     ensure_directory(base_dir.parent, exist_ok=True)
     staging_dir = Path(
         tempfile.mkdtemp(prefix=f".{base_dir.name or 'recover'}.tmp-", dir=str(base_dir.parent))

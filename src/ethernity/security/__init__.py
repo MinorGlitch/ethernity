@@ -5,7 +5,6 @@ from ethernity.security.resource_worker import (
     WorkerLimits,
     prepare_disposable_worker_runtime,
     run_disposable_worker,
-    terminate_active_workers,
 )
 
 __all__ = [
@@ -13,5 +12,4 @@ __all__ = [
     "WorkerLimits",
     "prepare_disposable_worker_runtime",
     "run_disposable_worker",
-    "terminate_active_workers",
 ]

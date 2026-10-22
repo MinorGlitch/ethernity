@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import ExitStack
 from dataclasses import replace
 from functools import partial
 from typing import cast
@@ -57,6 +58,7 @@ from ethernity.app.workflow_state import WorkflowUiState
 from ethernity.app.workspaces.workspace_controls import BaseWorkspace
 from ethernity.tasks.models import TaskDiagnostics, TaskIssue, TaskValidation
 from ethernity.tasks.presentation.builder import build_task_presentation
+from ethernity.tasks.source_assessment import SourceAssessableTaskState
 from ethernity.tasks.task_types import TaskKey, TaskState
 
 _TASK_ACTIVITY_LABELS: dict[TaskKey, str] = {
@@ -391,6 +393,14 @@ class TaskViewActions(EthernityAppContext):
     def refresh_task_view(self) -> None:
         if not self.is_running:
             return
+        with ExitStack() as snapshots:
+            for task in BACKUP_TASKS:
+                state = getattr(self, f"{task}_state")
+                if isinstance(state, SourceAssessableTaskState):
+                    snapshots.enter_context(state.presentation_snapshot())
+            self._update_task_view()
+
+    def _update_task_view(self) -> None:
         state = self._current_state()
         if self.active_task == "backup" and self.running_task is None:
             self.backup_estimate_controller.refresh()

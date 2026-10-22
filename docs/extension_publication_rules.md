@@ -153,6 +153,10 @@ provide a signed inventory of published sheets.
 
 ## Restore and version checks
 
+The app's Restore task and `ethernity run restore` MUST write recovered files into a new or empty
+destination folder, including when the backup contains one file. They MUST NOT replace existing
+files. Preflight and execution MUST apply the same destination rule.
+
 Restore may select the original backup, an authenticated update index, an authenticated update
 `doc_hash`, or the latest valid version among the supplied documents. It uses the dependencies
 required by the authenticated mode.

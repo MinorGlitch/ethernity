@@ -58,6 +58,7 @@ from ethernity.workflows.add_files.prepare import (
 )
 from ethernity.workflows.add_files.request import AddFilesRequest
 from ethernity.workflows.recovery.frame_inputs import FrameInputResult
+from ethernity.workflows.recovery.keys import RecoveryTrust
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.input_scope import InputScopeDiff, SelectedInputScope
 from ethernity.workflows.shared.operation_types import InputFile
@@ -88,8 +89,6 @@ def _resolved_state(
     issues: tuple[AddFilesIssue, ...] = (),
 ) -> ResolvedAddFilesState:
     scope = SelectedInputScope(
-        raw_files=("/tmp/source.txt",),
-        raw_directories=(),
         base_dir_arg="/tmp",
         input_files=(
             InputFile(
@@ -99,7 +98,6 @@ def _resolved_state(
                 mtime=1,
             ),
         ),
-        base_dir=None,
         input_origin="file",
         input_roots=(),
         exact_paths=("source.txt",),
@@ -116,10 +114,11 @@ def _resolved_state(
             ),
             signing_key=AppendSigningKey(
                 signing_seed=b"\x44" * 32,
+                trust=RecoveryTrust(b"R" * 8, b"\x22" * 32, b"K" * 32),
             ),
         )
     return ResolvedAddFilesState(
-        inspection=mock.Mock(blocking_issues=issues),
+        blocking_issues=issues,
         plan=plan,
         selected_input=scope,
         validated_chain=_validated_chain_state(),

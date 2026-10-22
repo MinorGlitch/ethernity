@@ -79,7 +79,7 @@ __all__ = [
     "NoQrFramesError",
     "auth_frames_from_fallback",
     "auth_frames_from_payloads",
-    "detect_recovery_input_mode",
+    "parse_recovery_text",
     "frame_from_fallback",
     "frame_from_scanned_payload",
     "format_recovery_input_error",
@@ -408,20 +408,6 @@ def _non_empty_lines(lines: list[str]) -> list[str]:
     return [line.strip() for line in lines if line.strip()]
 
 
-def _all_payload_lines_decode(lines: list[str]) -> bool:
-    """Return whether every non-empty line decodes as a QR payload frame."""
-
-    non_empty = _non_empty_lines(lines)
-    if not non_empty:
-        return False
-    for line in non_empty:
-        try:
-            _frame_from_payload_text(line)
-        except ValueError:
-            return False
-    return True
-
-
 def _all_lines_match_fallback_text(lines: list[str]) -> bool:
     """Return whether all non-empty lines look like fallback text content."""
 
@@ -435,25 +421,23 @@ def _all_lines_match_fallback_text(lines: list[str]) -> bool:
     return len(filtered) == len(non_empty)
 
 
-def _detect_recovery_input_mode(lines: list[str]) -> str:
-    """Classify recovery input lines as payload list or fallback text."""
-
+def parse_recovery_text(text: str) -> tuple[str, FrameInputResult]:
+    """Detect the printed format and retain the frames decoded during detection."""
+    lines = text.splitlines()
     if _contains_fallback_markers(lines):
-        return "fallback_marked"
-    if _all_payload_lines_decode(lines):
-        return "payload"
+        return "fallback_marked", _frames_from_fallback_lines(lines, allow_invalid_auth=False)
+    try:
+        frames = _frames_from_payload_lines(lines)
+    except ValueError:
+        pass
+    else:
+        return "payload", FrameInputResult(frames=tuple(frames))
     if _all_lines_match_fallback_text(lines):
-        return "fallback"
+        return "fallback", _frames_from_fallback_lines(lines, allow_invalid_auth=False)
     raise ValueError(
         "input is neither a valid QR payload list nor valid fallback text; "
         "provide one format per input"
     )
-
-
-def detect_recovery_input_mode(text: str) -> str:
-    """Classify pasted recovery input without exposing line-parser internals."""
-
-    return _detect_recovery_input_mode(text.splitlines())
 
 
 def _auth_frames_from_fallback_lines(

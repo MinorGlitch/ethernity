@@ -34,9 +34,9 @@ from ethernity.formats.document_codec import extract_payloads
 from ethernity.formats.extension_document import ExtensionDocument
 from ethernity.formats.manifest import BackupManifest, ManifestFile
 from ethernity.workflows.recovery.frame_inputs import (
-    detect_recovery_input_mode,
     frames_from_fallback_text,
     frames_from_payload_text,
+    parse_recovery_text,
 )
 from ethernity.workflows.recovery.keys import (
     InsufficientShardError,
@@ -100,7 +100,10 @@ class _DecodedMainDocument:
 def _parse_text_to_frames(text: str, *, selected_mode: str) -> tuple[str, list[Frame]]:
     if not any(line.strip() for line in text.splitlines()):
         raise ValueError("paste QR payloads or fallback text to inspect")
-    input_mode = detect_recovery_input_mode(text) if selected_mode == MODE_AUTO else selected_mode
+    if selected_mode == MODE_AUTO:
+        input_mode, result = parse_recovery_text(text)
+        return input_mode, list(result.frames)
+    input_mode = selected_mode
     if input_mode == MODE_PAYLOADS:
         result = frames_from_payload_text(text)
     elif input_mode in {MODE_FALLBACK, "fallback_marked"}:

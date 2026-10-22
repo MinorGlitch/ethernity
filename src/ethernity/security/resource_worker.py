@@ -19,6 +19,8 @@ from typing import Any, TypeVar, cast
 
 import psutil
 
+from ethernity.core.execution_control import cancellation_point
+
 ResultT = TypeVar("ResultT")
 
 
@@ -46,8 +48,7 @@ class DisposableWorkerError(RuntimeError):
     """A bounded worker failed, exceeded a limit, or was terminated."""
 
 
-_active_workers: set[BaseProcess] = set()
-_active_workers_lock = threading.Lock()
+_runtime_lock = threading.Lock()
 _windows_job_handle: int | None = None
 
 
@@ -56,7 +57,7 @@ def prepare_disposable_worker_runtime() -> None:
 
     if os.name == "nt":
         return
-    with _active_workers_lock:
+    with _runtime_lock:
         resource_tracker.ensure_running()
 
 
@@ -69,6 +70,7 @@ def run_disposable_worker(
 ) -> ResultT:
     """Run one picklable operation in a fresh, resource-bounded subprocess."""
 
+    cancellation_point()
     context = multiprocessing.get_context("spawn")
     parent_connection, child_connection = context.Pipe(duplex=False)
     process = context.Process(
@@ -84,13 +86,12 @@ def run_disposable_worker(
         child_connection.close()
         raise DisposableWorkerError(f"{operation} worker could not start") from exc
     child_connection.close()
-    with _active_workers_lock:
-        _active_workers.add(process)
     monitored_process = psutil.Process(process.pid)
 
     deadline = time.monotonic() + limits.wall_seconds
     try:
         while True:
+            cancellation_point()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 _terminate_process(process)
@@ -115,8 +116,6 @@ def run_disposable_worker(
             _terminate_process(process)
         else:
             process.join(timeout=1)
-        with _active_workers_lock:
-            _active_workers.discard(process)
 
 
 def _receive_worker_result(
@@ -137,15 +136,6 @@ def _receive_worker_result(
     if status == "ok":
         return cast(ResultT, value)
     raise DisposableWorkerError(f"{operation} worker failed: {value}")
-
-
-def terminate_active_workers() -> None:
-    """Terminate every active hostile-input worker in this application process."""
-
-    with _active_workers_lock:
-        workers = tuple(_active_workers)
-    for process in workers:
-        _terminate_process(process)
 
 
 def _worker_main(

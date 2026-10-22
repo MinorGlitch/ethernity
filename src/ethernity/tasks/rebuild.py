@@ -145,8 +145,9 @@ class RebuildTaskState(RecoveryTaskState):
         issues.extend(backup_destination_issues(self.output_dir))
         return self.validation_with_source_issues(issues)
 
-    def source_assessment_request(self) -> SourceAssessmentRequest | None:
+    def _build_source_assessment_request(self) -> SourceAssessmentRequest | None:
         return folder_or_scans_source_request(
+            session=self.recovery_session,
             issue_section="source",
             backup_folder=self.backup_folder,
             scan_paths=self.source_paths,
@@ -216,7 +217,7 @@ class RebuildTaskState(RecoveryTaskState):
         validation = self.validate_task()
         validation.require_ready("Rebuild is not ready.")
 
-        result = execute_rebuild(self.to_rebuild_request())
+        result = execute_rebuild(self.to_rebuild_request(), session=self.recovery_session)
         output_paths = generated_output_paths(result)
         signing_note = "An embedded signing key is preserved."
         if result.signing_key_preserved is True:

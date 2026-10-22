@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,8 +60,6 @@ from ethernity.tasks.presentation.recovery import (
 from ethernity.tasks.recovery_inputs import (
     has_recovery_source,
     has_unlock_inputs,
-    recovery_text_error,
-    recovery_text_frames,
 )
 from ethernity.tasks.source_assessment import (
     ContentRecoveryTaskState,
@@ -109,6 +109,18 @@ class AddFilesTaskState(ContentRecoveryTaskState):
     recovery_sheet_count: int = 3
 
     _assessment_cache: _AssessmentCache | None = PrivateAttr(default=None)
+    _presentation_assessment_key: bytes | None = PrivateAttr(default=None)
+
+    @contextmanager
+    def presentation_snapshot(self) -> Iterator[None]:
+        previous_key = self._presentation_assessment_key
+        with super().presentation_snapshot():
+            if self._assessment_cache is not None:
+                self._presentation_assessment_key = self._assessment_key()
+            try:
+                yield
+            finally:
+                self._presentation_assessment_key = previous_key
 
     @model_validator(mode="after")
     def _validate_advanced_options(self) -> AddFilesTaskState:
@@ -173,7 +185,7 @@ class AddFilesTaskState(ContentRecoveryTaskState):
             issues.append(cache.issue)
         return self.validation_with_source_issues(issues)
 
-    def source_assessment_request(self) -> SourceAssessmentRequest | None:
+    def _build_source_assessment_request(self) -> SourceAssessmentRequest | None:
         return self.content_source_request(
             auth_text_file=self.auth_text_file,
             auth_payloads_file=self.auth_payloads_file,
@@ -189,7 +201,9 @@ class AddFilesTaskState(ContentRecoveryTaskState):
             self._assessment_cache = None
             return
         key = self._assessment_key()
-        assessment = assess_add_files(self.to_add_files_request(quiet=True))
+        assessment = assess_add_files(
+            self.to_add_files_request(quiet=True), session=self.recovery_session
+        )
         if assessment.issues:
             issue = assessment.issues[0]
             self._assessment_cache = _AssessmentCache(
@@ -213,7 +227,7 @@ class AddFilesTaskState(ContentRecoveryTaskState):
                     section="source",
                 )
             )
-        if self.recovery_text and recovery_text_error(self.recovery_text) is not None:
+        if self.recovery_text and self.parsed_recovery_text().error is not None:
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_RECOVERY_TEXT_INVALID",
@@ -561,7 +575,7 @@ class AddFilesTaskState(ContentRecoveryTaskState):
             if self.recovery_text_file is not None
             else None,
             payloads_file=str(self.payloads_file) if self.payloads_file is not None else None,
-            frames=tuple(recovery_text_frames(self.recovery_text, quiet=quiet) or ()),
+            frames=self.parsed_recovery_text().require_frames(),
             auth_text_file=str(self.auth_text_file) if self.auth_text_file is not None else None,
             auth_payloads_file=str(self.auth_payloads_file)
             if self.auth_payloads_file is not None
@@ -586,13 +600,19 @@ class AddFilesTaskState(ContentRecoveryTaskState):
         )
 
     def _assessment_key(self) -> bytes:
+        if self._presentation_assessment_key is not None:
+            return self._presentation_assessment_key
         state_payload = self.model_dump_json(exclude={"config_path"}).encode("utf-8")
-        try:
-            config_path = resolve_config_snapshot_path(self.config_path)
-            config_payload = config_path.read_bytes()
-        except OSError as exc:
-            config_payload = f"{type(exc).__qualname__}:{exc}".encode()
-        return hashlib.sha256(state_payload + b"\0" + config_payload).digest()
+        request = self._presentation_request[0] if self._presentation_request else None
+        if request is not None:
+            config_version = request.config_version
+        else:
+            try:
+                config_payload = resolve_config_snapshot_path(self.config_path).read_bytes()
+            except OSError as exc:
+                config_payload = f"{type(exc).__name__}:{exc}".encode()
+            config_version = hashlib.sha256(config_payload).hexdigest()
+        return hashlib.sha256(state_payload + b"\0" + config_version.encode()).digest()
 
     def _current_assessment_cache(self) -> _AssessmentCache | None:
         cache = self._assessment_cache

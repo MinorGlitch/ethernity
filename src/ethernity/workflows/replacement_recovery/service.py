@@ -25,14 +25,12 @@ from typing import Any, NoReturn, cast
 
 from ethernity.config import AppConfig, apply_render_style, load_app_config
 from ethernity.core.models import ShardingConfig
-from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     KEY_TYPE_SIGNING_SEED,
     LEGACY_SHARD_VERSION,
     ShardPayload,
     create_replacement_shards,
-    decode_shard_payload,
     split_passphrase,
     split_signing_seed,
 )
@@ -41,11 +39,7 @@ from ethernity.encoding.framing import Frame
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
     ChainRecoveryResult,
-    recover_chain_entries,
 )
-from ethernity.formats.document_codec import decode_backup_document
-from ethernity.formats.manifest import BackupManifest
-from ethernity.formats.manifest_summary import manifest_summary_payload
 from ethernity.publication import create_sibling_staging_dir
 from ethernity.render.layout_debug import resolve_layout_debug_dir
 from ethernity.render.service import RenderService
@@ -57,12 +51,12 @@ from ethernity.workflows.recovery.keys import (
     signing_seed_from_shard_frames,
 )
 from ethernity.workflows.recovery.planning import (
-    RecoveryInspection,
     RecoveryPlan,
     build_recovery_plan,
-    inspect_recovery_inputs,
     normalize_recovery_request,
 )
+from ethernity.workflows.recovery.session import RecoverySession
+from ethernity.workflows.recovery.source_state import LoadedRecoveryInputs
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import (
     CommandError as ApiCommandError,
@@ -71,10 +65,6 @@ from ethernity.workflows.shared.events import (
     emit_progress,
     event_session,
     report_render_page,
-)
-from ethernity.workflows.shared.inspection import (
-    blocking_issue,
-    blocking_issue_from_exception,
 )
 from ethernity.workflows.shared.operation_types import ReplacementRecoveryOperationResult
 from ethernity.workflows.shared.outputs import (
@@ -110,35 +100,20 @@ class _ReplacementShardResolution:
 class _ReplacementInputState:
     config: AppConfig
     recover_args: RecoveryRequest
-    frames: tuple[Frame, ...]
-    extra_auth_frames: tuple[Frame, ...]
-    shard_frames: tuple[Frame, ...]
-    shard_fallback_files: tuple[str, ...]
-    shard_payloads_file: tuple[str, ...]
-    shard_scan: tuple[str, ...]
+    loaded: LoadedRecoveryInputs
     signing_key_frames: tuple[Frame, ...]
-    input_label: str | None
-    input_detail: str | None
 
 
 @dataclass(frozen=True)
-class ReplacementRecoveryInspection:
-    recovery: RecoveryInspection
-    manifest: BackupManifest | None
-    source_summary: dict[str, object] | None
-    selected_extension_index: int | None
-    selected_extension_doc_hash: str | None
-    signing_key_frame_count: int
-    signing_key_validated_shard_count: int
-    signing_key_required_threshold: int | None
-    signing_key_satisfied: bool
-    signing_key_source: str | None
-    replacement_capabilities: dict[str, bool]
-    blocking_issues: tuple[dict[str, Any], ...]
+class ReplacementRecoveryMaterial:
+    """Root credentials and selected version already verified by the consuming workflow."""
 
-
-_PASSPHRASE_REPLACEMENT_BLOCKER_CODES = frozenset({"PASSPHRASE_REPLACEMENT_NOT_READY"})
-_SIGNING_KEY_REPLACEMENT_BLOCKER_CODES = frozenset({"SIGNING_KEY_REPLACEMENT_NOT_READY"})
+    trust: RecoveryTrust
+    passphrase: str
+    signing_seed: bytes
+    signing_key_source: str
+    selected_extension_index: int | None = None
+    selected_extension_doc_hash: str | None = None
 
 
 def execute_replacement_recovery_operation(
@@ -146,14 +121,16 @@ def execute_replacement_recovery_operation(
     *,
     debug: bool = False,
     event_sink: EventSink | None = None,
+    session: RecoverySession | None = None,
 ) -> ReplacementRecoveryOperationResult:
     """Create replacement recovery documents and return the result."""
 
+    session = session or RecoverySession()
     with event_session(event_sink):
         emit_phase(phase="plan", label="Resolving replacement recovery inputs")
-        state = _load_replacement_input_state(args)
-        shard_frames = list(state.shard_frames)
-        plan = _build_replacement_recovery_plan(args, state, passphrase_shard_frames=shard_frames)
+        state = _load_replacement_input_state(args, session=session)
+        shard_frames = list(state.loaded.shard_frames)
+        plan = _build_replacement_recovery_plan(args, state, session=session)
         if plan.auth_payload is None:
             raise ApiCommandError(
                 code=issue_codes.AUTH_REQUIRED,
@@ -165,8 +142,8 @@ def execute_replacement_recovery_operation(
 
         plan.emit_plan_progress(
             details={
-                "input_label": state.input_label,
-                "input_detail": state.input_detail,
+                "input_label": state.loaded.source.input_label,
+                "input_detail": state.loaded.source.input_detail,
                 "shard_frame_count": len(shard_frames),
                 "signing_key_shard_frame_count": len(state.signing_key_frames),
             }
@@ -180,358 +157,48 @@ def execute_replacement_recovery_operation(
             passphrase_shard_frames=shard_frames,
             signing_key_frames=list(state.signing_key_frames),
             debug=debug,
+            session=session,
         )
 
 
-def inspect_replacement_recovery_inputs(
-    args: ReplacementRecoveryRequest, *, debug: bool = False
-) -> ReplacementRecoveryInspection:
-    state = _load_replacement_input_state(args, require_output_configuration=False)
-    recovery_shard_frames, recovery_shard_fallback_files, recovery_shard_payloads_file = (
-        _recovery_shard_inputs_for_plan(
-            passphrase=args.passphrase,
-            shard_frames=list(state.shard_frames),
-            shard_fallback_files=list(state.shard_fallback_files),
-            shard_payloads_file=list(state.shard_payloads_file),
-        )
+def _replacement_plan_inputs(
+    args: ReplacementRecoveryRequest, state: _ReplacementInputState
+) -> LoadedRecoveryInputs:
+    shard_frames, fallback_files, payload_files = _recovery_shard_inputs_for_plan(
+        passphrase=args.passphrase,
+        shard_frames=list(state.loaded.shard_frames),
+        shard_fallback_files=list(state.loaded.shard_fallback_files),
+        shard_payloads_file=list(state.loaded.shard_payload_files),
     )
-    plan = _try_build_replacement_recovery_plan(
-        args,
-        state,
-        passphrase_shard_frames=list(state.shard_frames),
+    return replace(
+        state.loaded,
+        shard_frames=tuple(shard_frames),
+        shard_fallback_files=tuple(fallback_files),
+        shard_payload_files=tuple(payload_files),
     )
-    recovery = _inspect_replacement_root(
-        args,
-        state,
-        plan,
-        recovery_shard_frames,
-        recovery_shard_fallback_files,
-        recovery_shard_payloads_file,
-    )
-    blocking_issues = [dict(item) for item in recovery.blocking_issues]
-    if recovery.auth_payload is None:
-        _append_unique_blocking_issue(
-            blocking_issues,
-            blocking_issue(
-                "AUTH_REQUIRED",
-                "replacement recovery requires an authenticated backup input with an AUTH payload",
-            ),
-        )
-
-    if plan is None and recovery.auth_payload is not None and recovery.unlock.satisfied:
-        plan = _try_build_replacement_recovery_plan(
-            args,
-            state,
-            passphrase_shard_frames=list(state.shard_frames),
-        )
-    chain = None
-    selected_extension_index: int | None = None
-    selected_extension_doc_hash: str | None = None
-    chain_target_trusted = True
-    if plan is not None:
-        try:
-            chain = _recover_replacement_chain(
-                plan,
-                debug=debug,
-                allow_stale_head=args.allow_stale_head,
-            )
-            recovery = _replacement_recovery_inspection_with_root(recovery, plan)
-        except Exception as exc:
-            chain_target_trusted = False
-            _append_unique_blocking_issue(
-                blocking_issues,
-                dict(
-                    blocking_issue_from_exception(
-                        exc,
-                        fallback_code=issue_codes.RECOVERY_HEAD_UNTRUSTED,
-                        fallback_details={"stage": "replay"},
-                    )
-                ),
-            )
-
-    manifest: BackupManifest | None = None
-    source_summary: dict[str, object] | None = None
-    if (
-        chain_target_trusted
-        and recovery.unlock.satisfied
-        and recovery.unlock.resolved_passphrase is not None
-    ):
-        if chain is not None:
-            manifest = chain.manifest
-            selected_extension_index = chain.selected_extension_index
-            selected_extension_doc_hash = chain.selected_extension_doc_hash
-            source_summary = manifest_summary_payload(manifest)
-        else:
-            try:
-                ciphertext = recovery.ciphertext
-                passphrase = recovery.unlock.resolved_passphrase
-                plaintext = decrypt_bytes(
-                    ciphertext,
-                    passphrase=passphrase,
-                    debug=debug,
-                )
-                manifest, _payload = decode_backup_document(plaintext)
-                source_summary = manifest_summary_payload(manifest)
-            except Exception as exc:
-                _append_unique_blocking_issue(
-                    blocking_issues,
-                    blocking_issue("UNLOCK_FAILED", str(exc), details={"stage": "decrypt"}),
-                )
-
-    (
-        signing_key_validated_shard_count,
-        signing_key_required_threshold,
-        signing_key_satisfied,
-        signing_key_source,
-        signing_key_issues,
-    ) = _inspect_replacement_signing_key_state(
-        manifest=manifest,
-        recovery=recovery,
-        signing_key_frames=list(state.signing_key_frames),
-    )
-    _append_unique_blocking_issues(blocking_issues, signing_key_issues)
-    _append_unique_blocking_issues(
-        blocking_issues,
-        _inspect_replacement_replacement_blockers(
-            args=args,
-            recovery=recovery,
-            passphrase_shard_frames=list(state.shard_frames),
-            signing_key_frames=list(state.signing_key_frames),
-        ),
-    )
-
-    replacement_capabilities = _inspect_replacement_capabilities(
-        args=args,
-        recovery=recovery,
-        manifest=manifest,
-        signing_key_satisfied=signing_key_satisfied,
-        blocking_issues=blocking_issues,
-    )
-    return ReplacementRecoveryInspection(
-        recovery=recovery,
-        manifest=manifest,
-        source_summary=source_summary,
-        selected_extension_index=selected_extension_index,
-        selected_extension_doc_hash=selected_extension_doc_hash,
-        signing_key_frame_count=len(state.signing_key_frames),
-        signing_key_validated_shard_count=signing_key_validated_shard_count,
-        signing_key_required_threshold=signing_key_required_threshold,
-        signing_key_satisfied=signing_key_satisfied,
-        signing_key_source=signing_key_source,
-        replacement_capabilities=replacement_capabilities,
-        blocking_issues=tuple(blocking_issues),
-    )
-
-
-def _inspect_replacement_root(
-    args: ReplacementRecoveryRequest,
-    state: _ReplacementInputState,
-    plan: RecoveryPlan | None,
-    recovery_shard_frames: list[Frame],
-    recovery_shard_fallback_files: list[str],
-    recovery_shard_payloads_file: list[str],
-) -> RecoveryInspection:
-    inspection_frames = list(state.frames)
-    inspection_extra_auth_frames = list(state.extra_auth_frames)
-    inspection_passphrase = args.passphrase
-    inspection_shard_frames = recovery_shard_frames
-    inspection_shard_fallback_files = recovery_shard_fallback_files
-    inspection_shard_payloads_file = recovery_shard_payloads_file
-    if plan is not None:
-        inspection_frames = list(plan.main_frames)
-        inspection_extra_auth_frames = list(plan.auth_frames)
-        if inspection_passphrase is None:
-            inspection_passphrase = plan.passphrase
-            inspection_shard_frames = []
-            inspection_shard_fallback_files = []
-            inspection_shard_payloads_file = []
-
-    recovery = inspect_recovery_inputs(
-        frames=inspection_frames,
-        extra_auth_frames=inspection_extra_auth_frames,
-        shard_frames=inspection_shard_frames,
-        passphrase=inspection_passphrase,
-        allow_unsigned=False,
-        input_label=state.input_label,
-        input_detail=state.input_detail,
-        shard_fallback_files=inspection_shard_fallback_files,
-        shard_payloads_file=inspection_shard_payloads_file,
-        shard_scan=list(state.shard_scan),
-        quiet=args.quiet,
-    )
-    if plan is not None and args.passphrase is None and plan.shard_frames:
-        recovery = _replacement_recovery_inspection_with_plan_shard_unlock(recovery, plan)
-
-    return recovery
 
 
 def _build_replacement_recovery_plan(
-    args: ReplacementRecoveryRequest,
-    state: _ReplacementInputState,
-    *,
-    passphrase_shard_frames: list[Frame],
+    args: ReplacementRecoveryRequest, state: _ReplacementInputState, *, session: RecoverySession
 ) -> RecoveryPlan:
-    recovery_shard_frames, recovery_shard_fallback_files, recovery_shard_payloads_file = (
-        _recovery_shard_inputs_for_plan(
-            passphrase=args.passphrase,
-            shard_frames=passphrase_shard_frames,
-            shard_fallback_files=list(state.shard_fallback_files),
-            shard_payloads_file=list(state.shard_payloads_file),
-        )
-    )
     return build_recovery_plan(
-        frames=list(state.frames),
-        extra_auth_frames=list(state.extra_auth_frames),
-        shard_frames=recovery_shard_frames,
-        passphrase=args.passphrase,
-        allow_unsigned=False,
-        input_label=state.input_label,
-        input_detail=state.input_detail,
-        shard_fallback_files=recovery_shard_fallback_files,
-        shard_payloads_file=recovery_shard_payloads_file,
-        shard_scan=list(state.shard_scan),
-        output_path=None,
-        extension_index=args.extension_index,
-        extension_doc_hash=args.extension_doc_hash,
-        expected_head_doc_hash=args.expected_head_doc_hash,
-        args=state.recover_args,
-        quiet=args.quiet,
+        _replacement_plan_inputs(args, state),
+        replace(state.recover_args, expected_head_doc_hash=args.expected_head_doc_hash),
+        session=session,
     )
-
-
-def _try_build_replacement_recovery_plan(
-    args: ReplacementRecoveryRequest,
-    state: _ReplacementInputState,
-    *,
-    passphrase_shard_frames: list[Frame],
-) -> RecoveryPlan | None:
-    if not (args.passphrase or passphrase_shard_frames):
-        return None
-    try:
-        return _build_replacement_recovery_plan(
-            args,
-            state,
-            passphrase_shard_frames=passphrase_shard_frames,
-        )
-    except Exception:
-        return None
-
-
-def _replacement_recovery_inspection_with_root(
-    recovery: RecoveryInspection,
-    plan: RecoveryPlan,
-) -> RecoveryInspection:
-    return replace(
-        recovery,
-        ciphertext=plan.ciphertext,
-        doc_id=plan.doc_id,
-        doc_hash=plan.doc_hash,
-        auth_payload=plan.auth_payload,
-        auth_status=plan.auth_status,
-    )
-
-
-def _replacement_recovery_inspection_with_plan_shard_unlock(
-    recovery: RecoveryInspection,
-    plan: RecoveryPlan,
-) -> RecoveryInspection:
-    shard_payloads = _replacement_passphrase_shard_payloads_for_inspection(plan.shard_frames)
-    if not shard_payloads:
-        return recovery
-    unique_share_indexes = {payload.share_index for payload in shard_payloads}
-    first_payload = shard_payloads[0]
-    return replace(
-        recovery,
-        unlock=replace(
-            recovery.unlock,
-            mode="shards",
-            passphrase_provided=False,
-            validated_shard_count=len(unique_share_indexes),
-            required_shard_threshold=first_payload.threshold,
-            shard_share_count=first_payload.share_count,
-            satisfied=True,
-            resolved_passphrase=plan.passphrase,
-        ),
-        source=replace(
-            recovery.source,
-            shard_frames=tuple(plan.shard_frames),
-            shard_fallback_files=tuple(plan.shard_fallback_files),
-            shard_payloads_file=tuple(plan.shard_payloads_file),
-            shard_scan=tuple(plan.shard_scan),
-        ),
-    )
-
-
-def _replacement_passphrase_shard_payloads_for_inspection(
-    shard_frames: tuple[Frame, ...],
-) -> tuple[ShardPayload, ...]:
-    payloads: list[ShardPayload] = []
-    for frame in shard_frames:
-        try:
-            payload = decode_shard_payload(frame.data)
-        except ValueError:
-            continue
-        if payload.key_type == KEY_TYPE_PASSPHRASE:
-            payloads.append(payload)
-    return tuple(payloads)
-
-
-def _append_unique_blocking_issue(
-    blocking_issues: list[dict[str, Any]],
-    issue: dict[str, Any],
-) -> None:
-    for existing in blocking_issues:
-        if (
-            existing.get("code") == issue.get("code")
-            and existing.get("message") == issue.get("message")
-            and existing.get("details") == issue.get("details")
-        ):
-            return
-    blocking_issues.append(issue)
-
-
-def _append_unique_blocking_issues(
-    blocking_issues: list[dict[str, Any]],
-    issues: list[dict[str, Any]],
-) -> None:
-    for issue in issues:
-        _append_unique_blocking_issue(blocking_issues, issue)
 
 
 def _load_replacement_input_state(
     args: ReplacementRecoveryRequest,
     *,
-    require_output_configuration: bool = True,
+    session: RecoverySession | None = None,
 ) -> _ReplacementInputState:
-    _validate_replacement_args(args, require_output_configuration=require_output_configuration)
     config = load_app_config(args.config_path, paper_size=args.paper_size)
     config = apply_render_style(config, args.design)
     recover_args = _recovery_request_for_replacement(args)
-    frames: list[Frame]
-    input_label: str | None
-    input_detail: str | None
-    if args.frames:
-        frames = list(args.frames)
-        input_label = args.input_label or "Backup recovery input"
-        input_detail = args.input_detail
-    else:
-        frames, input_label, input_detail = recover_inputs.load_recovery_frames(
-            recover_args,
-            allow_unsigned=False,
-            quiet=args.quiet,
-            include_recovery_sheets=True,
-        )
-    extra_auth_frames = recover_inputs.load_extra_auth_frames(
-        recover_args,
-        allow_unsigned=False,
-        quiet=args.quiet,
-    )
-    shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
-        recover_inputs.load_shard_frames(
-            recover_args,
-            quiet=args.quiet,
-        )
-    )
+    loaded = (session or RecoverySession()).load(recover_args)
+    frames = list(loaded.source.frames)
+    shard_frames = list(loaded.shard_frames)
     detected_signing_key_frames = recover_inputs.document_sheet_frames(
         frames, key_type=KEY_TYPE_SIGNING_SEED
     )
@@ -545,165 +212,13 @@ def _load_replacement_input_state(
     return _ReplacementInputState(
         config=config,
         recover_args=recover_args,
-        frames=tuple(frames),
-        extra_auth_frames=tuple(extra_auth_frames),
-        shard_frames=tuple(shard_frames),
-        shard_fallback_files=tuple(shard_fallback_files),
-        shard_payloads_file=tuple(shard_payloads_file),
-        shard_scan=tuple(shard_scan),
+        loaded=replace(
+            loaded,
+            source=replace(loaded.source, frames=tuple(frames)),
+            shard_frames=tuple(shard_frames),
+        ),
         signing_key_frames=tuple(signing_key_frames),
-        input_label=input_label,
-        input_detail=input_detail,
     )
-
-
-def _inspect_replacement_signing_key_state(
-    *,
-    manifest: BackupManifest | None,
-    recovery: RecoveryInspection,
-    signing_key_frames: list[Frame],
-) -> tuple[int, int | None, bool, str | None, list[dict[str, Any]]]:
-    if manifest is None:
-        return 0, None, False, None, []
-    if manifest.signing_seed is not None:
-        return 0, None, True, "embedded signing seed", []
-
-    source = "signing-key shards"
-    if recovery.auth_payload is None:
-        return (
-            0,
-            None,
-            False,
-            source,
-            [
-                blocking_issue(
-                    "AUTH_REQUIRED",
-                    "replacement recovery requires an authenticated backup input with an AUTH "
-                    "payload",
-                )
-            ],
-        )
-    if not signing_key_frames:
-        return (
-            0,
-            None,
-            False,
-            source,
-            [
-                blocking_issue(
-                    "SIGNING_KEY_SHARDS_REQUIRED",
-                    (
-                        "backup is sealed; provide signing-key shard inputs "
-                        "to create replacement shard documents"
-                    ),
-                )
-            ],
-        )
-    try:
-        payloads = RecoveryTrust(
-            recovery.doc_id, recovery.doc_hash, recovery.auth_payload.sign_pub, False
-        ).validated_shards(
-            signing_key_frames, key_type=KEY_TYPE_SIGNING_SEED, secret_label="signing key"
-        )
-    except InsufficientShardError as exc:
-        return (
-            exc.provided_count,
-            exc.threshold,
-            False,
-            source,
-            [
-                blocking_issue(
-                    "SIGNING_KEY_SHARDS_UNDER_QUORUM",
-                    f"need at least {exc.threshold} shard(s) to recover signing key",
-                    details={
-                        "provided_count": exc.provided_count,
-                        "required_threshold": exc.threshold,
-                    },
-                )
-            ],
-        )
-    except ValueError as exc:
-        return (
-            0,
-            None,
-            False,
-            source,
-            [blocking_issue("SIGNING_KEY_SHARDS_INVALID", str(exc))],
-        )
-    return (
-        len(payloads),
-        payloads[0].threshold if payloads else None,
-        True,
-        source,
-        [],
-    )
-
-
-def _inspect_replacement_replacement_blockers(
-    *,
-    args: ReplacementRecoveryRequest,
-    recovery: RecoveryInspection,
-    passphrase_shard_frames: list[Frame],
-    signing_key_frames: list[Frame],
-) -> list[dict[str, Any]]:
-    if recovery.auth_payload is None:
-        return []
-
-    blockers: list[dict[str, Any]] = []
-    if args.passphrase_replacement_count is not None:
-        resolution = _replacement_payloads_from_frames(
-            passphrase_shard_frames,
-            doc_id=recovery.doc_id,
-            doc_hash=recovery.doc_hash,
-            sign_pub=recovery.auth_payload.sign_pub,
-            key_type=KEY_TYPE_PASSPHRASE,
-            secret_label="passphrase",
-        )
-        try:
-            _require_replacement_payloads(resolution, secret_label="passphrase")
-        except ValueError as exc:
-            blockers.append(blocking_issue("PASSPHRASE_REPLACEMENT_NOT_READY", str(exc)))
-    if args.signing_key_replacement_count is not None:
-        resolution = _replacement_payloads_from_frames(
-            signing_key_frames,
-            doc_id=recovery.doc_id,
-            doc_hash=recovery.doc_hash,
-            sign_pub=recovery.auth_payload.sign_pub,
-            key_type=KEY_TYPE_SIGNING_SEED,
-            secret_label="signing key",
-        )
-        try:
-            _require_replacement_payloads(resolution, secret_label="signing key")
-        except ValueError as exc:
-            blockers.append(blocking_issue("SIGNING_KEY_REPLACEMENT_NOT_READY", str(exc)))
-    return blockers
-
-
-def _inspect_replacement_capabilities(
-    *,
-    args: ReplacementRecoveryRequest,
-    recovery: RecoveryInspection,
-    manifest: BackupManifest | None,
-    signing_key_satisfied: bool,
-    blocking_issues: list[dict[str, Any]],
-) -> dict[str, bool]:
-    blocker_codes = {
-        str(issue.get("code"))
-        for issue in blocking_issues
-        if isinstance(issue, dict) and issue.get("code") is not None
-    }
-    passphrase_ready = (
-        recovery.auth_payload is not None and recovery.unlock.satisfied and manifest is not None
-    )
-    signing_key_ready = passphrase_ready and signing_key_satisfied
-    return {
-        "can_replacement_passphrase_shards": passphrase_ready
-        and args.create_passphrase_shards
-        and not bool(blocker_codes & _PASSPHRASE_REPLACEMENT_BLOCKER_CODES),
-        "can_replacement_signing_key_shards": signing_key_ready
-        and args.create_signing_key_shards
-        and not bool(blocker_codes & _SIGNING_KEY_REPLACEMENT_BLOCKER_CODES),
-    }
 
 
 def _raise_extension_recovery_error(exc: ExtensionRecoveryError) -> NoReturn:
@@ -715,9 +230,10 @@ def _recover_replacement_chain(
     *,
     debug: bool,
     allow_stale_head: bool = False,
+    session: RecoverySession | None = None,
 ) -> ChainRecoveryResult:
     try:
-        chain = recover_chain_entries(plan, debug=debug)
+        chain = (session or RecoverySession()).recover_chain(plan, debug=debug)
     except ExtensionRecoveryError as exc:
         _raise_extension_recovery_error(exc)
     _require_replacement_head_acknowledgement(
@@ -777,71 +293,42 @@ def _recovery_request_for_replacement(args: ReplacementRecoveryRequest) -> Recov
     return normalize_recovery_request(recovery_request)
 
 
-def _validate_replacement_args(
-    args: ReplacementRecoveryRequest, *, require_output_configuration: bool = True
-) -> None:
-    if (
-        require_output_configuration
-        and not args.create_passphrase_shards
-        and not args.create_signing_key_shards
-    ):
+def _validate_replacement_args(args: ReplacementRecoveryRequest) -> None:
+    if not args.create_passphrase_shards and not args.create_signing_key_shards:
         raise ValueError("replacement recovery must create at least one shard document type")
-    if (
-        require_output_configuration
-        and args.passphrase_replacement_count is not None
-        and not args.create_passphrase_shards
-    ):
+    if args.passphrase_replacement_count is not None and not args.create_passphrase_shards:
         raise ValueError(
             "cannot request passphrase replacement shards when passphrase output is off"
         )
-    if (
-        require_output_configuration
-        and args.signing_key_replacement_count is not None
-        and not args.create_signing_key_shards
-    ):
+    if args.signing_key_replacement_count is not None and not args.create_signing_key_shards:
         raise ValueError(
             "cannot request replacement signing-key shards when signing-key output is off"
         )
-    _validate_replacement_counts(args, require_output_configuration=require_output_configuration)
+    _validate_replacement_counts(args)
 
 
-def _validate_replacement_counts(
-    args: ReplacementRecoveryRequest, *, require_output_configuration: bool
-) -> None:
+def _validate_replacement_counts(args: ReplacementRecoveryRequest) -> None:
     if args.passphrase_replacement_count is not None and args.passphrase_replacement_count < 1:
         raise ValueError("passphrase replacement count must be >= 1")
     if args.signing_key_replacement_count is not None and args.signing_key_replacement_count < 1:
         raise ValueError("signing key replacement count must be >= 1")
-    if (
-        require_output_configuration
-        and args.passphrase_replacement_count is not None
-        and not _has_existing_shard_inputs(
-            args.shard_text_files,
-            args.shard_payload_files,
-            args.shard_scan_paths,
-        )
+    if args.passphrase_replacement_count is not None and not _has_existing_shard_inputs(
+        args.shard_text_files,
+        args.shard_payload_files,
+        args.shard_scan_paths,
     ):
         raise ValueError("passphrase shard replacement requires existing passphrase shard inputs")
-    if (
-        require_output_configuration
-        and args.signing_key_replacement_count is not None
-        and not _has_existing_shard_inputs(
-            args.signing_key_shard_text_files,
-            args.signing_key_shard_payload_files,
-            args.signing_key_shard_scan_paths,
-        )
+    if args.signing_key_replacement_count is not None and not _has_existing_shard_inputs(
+        args.signing_key_shard_text_files,
+        args.signing_key_shard_payload_files,
+        args.signing_key_shard_scan_paths,
     ):
         raise ValueError("signing-key shard replacement requires existing signing-key shard inputs")
-    _recovery_request_for_replacement(args)
     validate_quorum_pair(
         args.shard_threshold,
         args.shard_count,
         pair_label="--shard-threshold and --shard-count",
-        required=(
-            require_output_configuration
-            and args.create_passphrase_shards
-            and args.passphrase_replacement_count is None
-        ),
+        required=(args.create_passphrase_shards and args.passphrase_replacement_count is None),
     )
     validate_quorum_pair(
         args.signing_key_shard_threshold,
@@ -850,7 +337,7 @@ def _validate_replacement_counts(
         pair_label=("--signing-key-shard-threshold and --signing-key-shard-count"),
         required=False,
     )
-    if require_output_configuration and args.create_signing_key_shards:
+    if args.create_signing_key_shards:
         if args.signing_key_replacement_count is not None:
             return
         has_explicit_signing_quorum = (
@@ -893,11 +380,13 @@ def _replacement_from_plan(
     passphrase_shard_frames: list[Frame],
     signing_key_frames: list[Frame],
     debug: bool,
+    session: RecoverySession | None = None,
 ) -> ReplacementRecoveryOperationResult:
     chain = _recover_replacement_chain(
         plan,
         debug=debug,
         allow_stale_head=args.allow_stale_head,
+        session=session,
     )
     if plan.auth_payload is None:
         raise ValueError("replacement recovery requires a verified root AUTH payload")
@@ -908,20 +397,48 @@ def _replacement_from_plan(
         doc_hash=plan.doc_hash,
         expected_sign_pub=plan.auth_payload.sign_pub,
     )
+    material = ReplacementRecoveryMaterial(
+        trust=RecoveryTrust(plan.doc_id, plan.doc_hash, plan.auth_payload.sign_pub, False),
+        passphrase=plan.passphrase,
+        signing_seed=sign_priv,
+        signing_key_source=signing_key_source,
+        selected_extension_index=chain.selected_extension_index,
+        selected_extension_doc_hash=chain.selected_extension_doc_hash,
+    )
+    return create_replacement_documents(
+        material,
+        config=config,
+        args=args,
+        passphrase_shard_frames=passphrase_shard_frames,
+        signing_key_frames=signing_key_frames,
+    )
+
+
+def create_replacement_documents(
+    material: ReplacementRecoveryMaterial,
+    *,
+    config: AppConfig,
+    args: ReplacementRecoveryRequest,
+    passphrase_shard_frames: Sequence[Frame] = (),
+    signing_key_frames: Sequence[Frame] = (),
+) -> ReplacementRecoveryOperationResult:
+    """Generate sheets from verified credentials without reopening the backup."""
+    _validate_replacement_args(args)
+    sign_priv = material.signing_seed
     sign_pub = derive_public_key(sign_priv)
-    if sign_pub != plan.auth_payload.sign_pub:
+    if material.trust.allow_unsigned or sign_pub != material.trust.sign_pub:
         raise ValueError("signing key does not match the authenticated backup")
 
     passphrase_resolution, shard_payloads = _create_passphrase_output(
-        plan, args, passphrase_shard_frames, sign_priv, sign_pub
+        material, args, list(passphrase_shard_frames), sign_priv, sign_pub
     )
     signing_resolution, signing_key_payloads = _create_signing_key_output(
-        plan, args, signing_key_frames, sign_priv, sign_pub
+        material, args, list(signing_key_frames), sign_priv, sign_pub
     )
     emit_phase(phase="output", label="Preparing replacement destination")
     output_dir = _ensure_replacement_output_dir(
         args.output_dir,
-        plan.doc_id.hex(),
+        material.trust.doc_id.hex(),
         existing_directory_is_parent=args.output_dir_existing_parent,
     )
     staging_output_dir = _prepare_replacement_staging_dir(output_dir)
@@ -943,14 +460,14 @@ def _replacement_from_plan(
             details={
                 "passphrase_shard_count": len(shard_payloads),
                 "signing_key_shard_count": len(signing_key_payloads),
-                "signing_key_source": signing_key_source,
+                "signing_key_source": material.signing_key_source,
             },
         )
         shard_paths, signing_key_shard_paths = _render_replacement_documents(
             shard_payloads,
             signing_key_payloads,
             context=ShardRenderContext(
-                doc_id=plan.doc_id,
+                doc_id=material.trust.doc_id,
                 output_dir=staging_output_dir,
                 render_service=render_service,
                 layout_debug_dir=layout_debug_dir,
@@ -976,15 +493,15 @@ def _replacement_from_plan(
     )
 
     return ReplacementRecoveryOperationResult(
-        doc_id=plan.doc_id,
-        doc_hash=plan.doc_hash,
+        doc_id=material.trust.doc_id,
+        doc_hash=material.trust.doc_hash,
         output_dir=output_dir,
         shard_paths=final_shard_paths,
         signing_key_shard_paths=final_signing_key_shard_paths,
-        signing_key_source=signing_key_source,
+        signing_key_source=material.signing_key_source,
         notes=notes,
-        selected_extension_index=chain.selected_extension_index,
-        selected_extension_doc_hash=chain.selected_extension_doc_hash,
+        selected_extension_index=material.selected_extension_index,
+        selected_extension_doc_hash=material.selected_extension_doc_hash,
     )
 
 
@@ -1022,22 +539,21 @@ def _render_replacement_documents(
 
 
 def _create_signing_key_output(
-    plan: RecoveryPlan,
+    material: ReplacementRecoveryMaterial,
     args: ReplacementRecoveryRequest,
     signing_key_frames: list[Frame],
     sign_priv: bytes,
     sign_pub: bytes,
 ) -> tuple[_ReplacementShardResolution, list[ShardPayload]]:
     signing_resolution = _ReplacementShardResolution()
-    assert plan.auth_payload is not None
     signing_key_payloads: list[ShardPayload] = []
     if args.create_signing_key_shards:
         if args.signing_key_replacement_count is not None:
             signing_resolution = _replacement_payloads_from_frames(
                 signing_key_frames,
-                doc_id=plan.doc_id,
-                doc_hash=plan.doc_hash,
-                sign_pub=plan.auth_payload.sign_pub,
+                doc_id=material.trust.doc_id,
+                doc_hash=material.trust.doc_hash,
+                sign_pub=sign_pub,
                 key_type=KEY_TYPE_SIGNING_SEED,
                 secret_label="signing key",
             )
@@ -1056,7 +572,7 @@ def _create_signing_key_output(
                 sign_priv,
                 threshold=signing_key_sharding.threshold,
                 shares=signing_key_sharding.shares,
-                doc_hash=plan.doc_hash,
+                doc_hash=material.trust.doc_hash,
                 sign_priv=sign_priv,
                 sign_pub=sign_pub,
             )
@@ -1065,22 +581,21 @@ def _create_signing_key_output(
 
 
 def _create_passphrase_output(
-    plan: RecoveryPlan,
+    material: ReplacementRecoveryMaterial,
     args: ReplacementRecoveryRequest,
     passphrase_shard_frames: list[Frame],
     sign_priv: bytes,
     sign_pub: bytes,
 ) -> tuple[_ReplacementShardResolution, list[ShardPayload]]:
     passphrase_resolution = _ReplacementShardResolution()
-    assert plan.auth_payload is not None
     shard_payloads: list[ShardPayload] = []
     if args.create_passphrase_shards:
         if args.passphrase_replacement_count is not None:
             passphrase_resolution = _replacement_payloads_from_frames(
                 passphrase_shard_frames,
-                doc_id=plan.doc_id,
-                doc_hash=plan.doc_hash,
-                sign_pub=plan.auth_payload.sign_pub,
+                doc_id=material.trust.doc_id,
+                doc_hash=material.trust.doc_hash,
+                sign_pub=sign_pub,
                 key_type=KEY_TYPE_PASSPHRASE,
                 secret_label="passphrase",
             )
@@ -1099,10 +614,10 @@ def _create_passphrase_output(
                 shares=_required_int(args.shard_count, label="shard count"),
             )
             shard_payloads = split_passphrase(
-                plan.passphrase,
+                material.passphrase,
                 threshold=passphrase_sharding.threshold,
                 shares=passphrase_sharding.shares,
-                doc_hash=plan.doc_hash,
+                doc_hash=material.trust.doc_hash,
                 sign_priv=sign_priv,
                 sign_pub=sign_pub,
             )
@@ -1224,23 +739,6 @@ def _require_replacement_payloads(
     raise ValueError(
         f"cannot create compatible replacement {secret_label} shards: "
         f"provide existing {secret_label} shard inputs"
-    )
-
-
-def _raise_if_under_quorum_replacement_inputs(
-    resolution: _ReplacementShardResolution,
-    *,
-    secret_label: str,
-) -> None:
-    if not resolution.under_quorum:
-        return
-    threshold = cast(int, resolution.threshold)
-    raise ValueError(
-        f"cannot evaluate compatible replacement {secret_label} shards: "
-        f"need at least {threshold} validated shard(s), got {resolution.provided_count}; "
-        f"provide a full quorum or remove existing {secret_label} shard inputs to create a "
-        "fresh set"
-        f"{_legacy_replacement_resolution_hint(resolution, secret_label=secret_label)}"
     )
 
 

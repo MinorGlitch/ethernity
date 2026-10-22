@@ -16,6 +16,7 @@
  */
 
 import * as ed25519 from "@noble/ed25519";
+import { bytesEqual } from "./bytes.js";
 import { sha512 } from "@noble/hashes/sha2.js";
 
 ed25519.hashes.sha512 = sha512;
@@ -47,4 +48,34 @@ export async function verifySignature(signature, message, signPub) {
   } catch {
     return false;
   }
+}
+
+// Collection drafts may share a successful check, but never mutable trust flags.
+// Weak keys release the saved bytes when the collected payload is discarded.
+const verifiedInputs = new WeakMap();
+
+export async function verifyUnchangedSignature(owner, signature, message, signPub) {
+  const previous = verifiedInputs.get(owner);
+  if (
+    previous &&
+    bytesEqual(previous.signature, signature) &&
+    bytesEqual(previous.message, message) &&
+    bytesEqual(previous.signPub, signPub)
+  ) {
+    return true;
+  }
+  verifiedInputs.delete(owner);
+  const input = {
+    signature: signature.slice(),
+    message: message.slice(),
+    signPub: signPub.slice(),
+  };
+  const verified = await verifySignature(input.signature, input.message, input.signPub);
+  if (verified === true) verifiedInputs.set(owner, input);
+  return verified;
+}
+
+export function copySignatureVerification(source, target) {
+  const verified = verifiedInputs.get(source);
+  if (verified) verifiedInputs.set(target, verified);
 }

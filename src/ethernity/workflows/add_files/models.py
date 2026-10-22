@@ -44,7 +44,6 @@ class PreparedAddFilesRun:
     chain_ciphertext_bytes: int
     chain_decoded_chunk_bytes: int
     encryption_passphrase: str
-    source_frames: tuple[Frame, ...] = ()
 
     @property
     def root_doc_hash(self) -> bytes:

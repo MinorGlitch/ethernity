@@ -22,8 +22,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from ethernity.core.execution_control import begin_final_write, cancellation_point
 from ethernity.core.failures import FailureStage
-from ethernity.workflows.shared.execution_control import begin_final_write, cancellation_point
 
 
 @dataclass

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
+from ethernity.core.execution_control import cancellation_point
 from ethernity.crypto import signing
 from ethernity.encoding import framing
 from ethernity.encoding.chunking import chunk_payload
@@ -37,6 +38,7 @@ def estimate_backup(request: BackupRequest) -> BackupEstimate:
     expected encrypted length; it cannot be used to recover any input file.
     """
 
+    cancellation_point()
     prepared = prepare_backup(request)
     parts = [
         BackupFile(path=item.relative_path, data=item.data, mtime=item.mtime)
@@ -50,6 +52,7 @@ def estimate_backup(request: BackupRequest) -> BackupEstimate:
         input_roots=prepared.input_roots,
         payload_codec_mode=prepared.config.cli_defaults.backup.payload_codec,
     )
+    cancellation_point()
     ciphertext_size = _estimated_age_size(len(document))
     if ciphertext_size > MAX_CIPHERTEXT_BYTES:
         raise ValueError(
@@ -65,6 +68,7 @@ def estimate_backup(request: BackupRequest) -> BackupEstimate:
         qr_config=prepared.config.qr_config,
         payload_codec=codec,
     )
+    cancellation_point()
     frames = chunk_payload(
         b"\xff" * ciphertext_size,
         doc_id=doc_id,
@@ -82,6 +86,7 @@ def estimate_backup(request: BackupRequest) -> BackupEstimate:
             data=auth_payload,
         )
     )
+    cancellation_point()
     service = RenderService(prepared.config)
     inputs = service.qr_inputs(
         frames,
@@ -89,7 +94,9 @@ def estimate_backup(request: BackupRequest) -> BackupEstimate:
         qr_payloads=service.build_qr_payloads(frames, codec=codec),
         origin=DocumentOrigin(kind="root_backup"),
     )
+    cancellation_point()
     summary = plan_document_summary(inputs)
+    cancellation_point()
     return BackupEstimate(
         file_count=len(prepared.input_files),
         input_bytes=len(raw_payload),

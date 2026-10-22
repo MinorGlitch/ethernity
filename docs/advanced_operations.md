@@ -123,8 +123,9 @@ By default, Restore selects the latest valid version among the supplied document
 `--extension-doc-hash "<full update fingerprint>"` to select an update by fingerprint. Use only one
 selection option. If you also pass `--expected-head`, it must match the selected version.
 
-Supply the documents required by that version's update mode and choose a new output destination.
-Conflicting updates cannot be merged.
+Supply the documents required by that version's update mode and choose a new or empty output
+folder. Restore writes recovered files inside that folder, including single-file backups, and
+does not replace existing files. Conflicting updates cannot be merged.
 
 ## Rebuild a standalone backup
 

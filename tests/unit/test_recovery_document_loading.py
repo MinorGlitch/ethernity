@@ -95,7 +95,7 @@ def test_detected_sheet_cannot_establish_unlock_with_wrong_document_binding(
     assert not has_unlock_inputs(state)
     assert any(issue.section == "unlock" for issue in state.validate_task().issues)
     inspection = inspect_recovery(RecoveryRequest(scan_paths=tuple(state.source_paths)))
-    assert any(issue["code"] == "PASSPHRASE_SHARDS_INVALID" for issue in inspection.blocking_issues)
+    assert any(issue.code == "PASSPHRASE_SHARDS_INVALID" for issue in inspection.blocking_issues)
 
     state.passphrase = "chosen-passphrase"
     assert has_unlock_inputs(state)

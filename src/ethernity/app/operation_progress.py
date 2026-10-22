@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from time import monotonic
 from typing import Any
 
-from ethernity.workflows.shared.execution_control import ExecutionControl
+from ethernity.core.execution_control import ExecutionControl
 
 _PHASES = {
     "configuration": "Checking configuration",

@@ -18,10 +18,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 
-from ethernity.workflows.shared.events import CommandError
 
-BlockingIssue = dict[str, object]
+@dataclass(frozen=True)
+class BlockingIssue:
+    """A recovery failure retained as domain data until an adapter presents it."""
+
+    code: str
+    message: str
+    details: dict[str, object] = field(default_factory=dict)
 
 
 def blocking_issue(
@@ -32,40 +38,10 @@ def blocking_issue(
 ) -> BlockingIssue:
     """Keep an issue code, message, and details together."""
 
-    return {
-        "code": code,
-        "message": message,
-        "details": dict(details or {}),
-    }
-
-
-def blocking_issue_from_exception(
-    exc: Exception,
-    *,
-    fallback_code: str,
-    fallback_details: Mapping[str, object] | None = None,
-) -> BlockingIssue:
-    """Convert an exception to an issue, preserving its code and details."""
-
-    if isinstance(exc, CommandError):
-        return blocking_issue(code=exc.code, message=str(exc), details=exc.details)
-    code = getattr(exc, "code", None)
-    details = getattr(exc, "details", None)
-    if isinstance(code, str) and code:
-        return blocking_issue(
-            code=code,
-            message=str(exc),
-            details=details if isinstance(details, Mapping) else {},
-        )
-    return blocking_issue(
-        code=fallback_code,
-        message=str(exc),
-        details=dict(fallback_details or {}),
-    )
+    return BlockingIssue(code, message, dict(details or {}))
 
 
 __all__ = [
     "BlockingIssue",
     "blocking_issue",
-    "blocking_issue_from_exception",
 ]

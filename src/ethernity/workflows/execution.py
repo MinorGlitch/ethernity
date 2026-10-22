@@ -17,6 +17,7 @@ from ethernity.workflows.rebuild.service import execute_rebuild_operation
 from ethernity.workflows.recovery.models import RecoveryInspection
 from ethernity.workflows.recovery.planning import inspect_from_request
 from ethernity.workflows.recovery.service import execute_recover_plan, prepare_recover_plan
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.replacement_recovery.service import execute_replacement_recovery_operation
 from ethernity.workflows.shared.events import CommandError
 from ethernity.workflows.shared.file_inputs import InputFile
@@ -100,22 +101,26 @@ def execute_backup(request: BackupRequest) -> BackupExecutionResult:
     return _backup_result(result)
 
 
-def inspect_recovery(request: RecoveryRequest) -> RecoveryInspection:
+def inspect_recovery(
+    request: RecoveryRequest, *, session: RecoverySession | None = None
+) -> RecoveryInspection:
     try:
-        return inspect_from_request(request)
+        return inspect_from_request(request, session=session)
     except CommandError as exc:
         raise WorkflowExecutionError(
             code=exc.code, message=exc.message, stage=exc.stage, details=dict(exc.details)
         ) from exc
 
 
-def execute_recovery(request: RecoveryRequest) -> RecoveryExecutionResult:
-    plan = prepare_recover_plan(request)
+def execute_recovery(
+    request: RecoveryRequest, *, session: RecoverySession | None = None
+) -> RecoveryExecutionResult:
+    session = session or RecoverySession()
+    plan = prepare_recover_plan(request, session=session)
     result = execute_recover_plan(
         plan,
         quiet=request.quiet,
-        debug_max_bytes=request.debug_max_bytes,
-        debug_reveal_secrets=request.debug_reveal_secrets,
+        session=session,
     )
     return RecoveryExecutionResult(
         written_paths=tuple(Path(path) for path in result.written_paths),
@@ -124,15 +129,17 @@ def execute_recovery(request: RecoveryRequest) -> RecoveryExecutionResult:
     )
 
 
-def execute_rebuild(request: RebuildRequest) -> BackupExecutionResult:
-    result = execute_rebuild_operation(request)
+def execute_rebuild(
+    request: RebuildRequest, *, session: RecoverySession | None = None
+) -> BackupExecutionResult:
+    result = execute_rebuild_operation(request, session=session)
     return _backup_result(result)
 
 
 def execute_replacement_recovery(
-    request: ReplacementRecoveryRequest,
+    request: ReplacementRecoveryRequest, *, session: RecoverySession | None = None
 ) -> ReplacementRecoveryResult:
-    result = execute_replacement_recovery_operation(request)
+    result = execute_replacement_recovery_operation(request, session=session)
     return ReplacementRecoveryResult(
         shard_paths=tuple(Path(path) for path in result.shard_paths),
         signing_key_shard_paths=tuple(Path(path) for path in result.signing_key_shard_paths),

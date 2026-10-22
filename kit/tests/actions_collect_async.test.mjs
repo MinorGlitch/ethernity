@@ -163,7 +163,7 @@ test("updateAuthStatus uses portable verification when WebCrypto is unavailable"
   document.authPayload = {
     signPub: new Uint8Array(32),
     signature: new Uint8Array(64),
-    docHash: new Uint8Array(32),
+    docHash: blake2b256(Uint8Array.of(1, 2, 3)),
   };
   document.total = 1;
   document.mainFrames.set(0, { data: new Uint8Array([1, 2, 3]) });
@@ -555,4 +555,78 @@ test("sheet verification preserves edits and publishes the recovered secret", as
     assert.equal(store.getState().shardPayloadText, "next sheet");
     assert.equal(store.getState().isAddingShards, false);
   });
+});
+
+test("collection checks each unchanged AUTH and sheet once across additions and duplicate pastes", async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  let checks = 0;
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: {
+      subtle: {
+        async importKey() {
+          return {};
+        },
+        async verify() {
+          checks += 1;
+          return true;
+        },
+      },
+    },
+  });
+  try {
+    const store = createStore();
+    const ciphertext = Uint8Array.of(8, 9);
+    const hash = blake2b256(ciphertext);
+    const docId = hash.slice(0, 8);
+    const sheets = [1, 2].map((index) =>
+      toUnpaddedBase64(
+        buildFrame({
+          frameType: FRAME_TYPE_KEY,
+          docId,
+          data: encodeCbor({
+            ...shardPayload({
+              shareIndex: index,
+              shareHex: FIXTURE_SHARES[`share${index}`],
+              docHash: hash,
+            }),
+            pub: AUTH_SIGN_PUB,
+          }),
+        }),
+      ),
+    );
+    for (const sheet of sheets) {
+      await addScannedShardPayload(store.dispatch, store.getState, sheet);
+    }
+    assert.equal(checks, 2);
+    const backup = [
+      buildFrame({ frameType: FRAME_TYPE_MAIN, docId, data: ciphertext }),
+      buildFrame({
+        frameType: FRAME_TYPE_AUTH,
+        docId,
+        data: encodeCbor({
+          version: AUTH_VERSION,
+          hash,
+          pub: AUTH_SIGN_PUB,
+          sig: new Uint8Array(64),
+        }),
+      }),
+    ]
+      .map(toUnpaddedBase64)
+      .join("\n");
+    for (let i = 0; i < 5; i += 1) {
+      store.getState().payloadText = backup;
+      await addPayloads(store.dispatch, store.getState);
+      await addScannedShardPayload(store.dispatch, store.getState, sheets[0]);
+    }
+    assert.equal(checks, 3);
+    assert.equal(primaryDocumentRecord(store.getState()).authStatus, "verified");
+    resetAll(store.dispatch);
+    store.getState().payloadText = backup;
+    await addPayloads(store.dispatch, store.getState);
+    assert.equal(checks, 4);
+  } finally {
+    if (original) Object.defineProperty(globalThis, "crypto", original);
+    else delete globalThis.crypto;
+  }
 });

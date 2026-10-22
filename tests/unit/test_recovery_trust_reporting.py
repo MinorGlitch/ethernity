@@ -9,9 +9,10 @@ from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.signing import AuthPayload, derive_public_key, sign_auth
 from ethernity.formats.document_codec import build_manifest_and_payload, encode_backup_document
 from ethernity.formats.manifest import BackupFile
+from ethernity.workflows.recovery.models import RecoveryUnlockStatus
 from ethernity.workflows.recovery.planning import RecoveryPlan
 from ethernity.workflows.recovery.service import execute_recover_plan
-from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.workflows.recovery.source_state import LoadedRecoverySource, RecoverySourceFields
 
 
 @pytest.mark.parametrize(
@@ -52,10 +53,19 @@ def test_root_recovery_reports_only_the_trust_established_by_verification(
         signature=sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=seed),
     )
     plan = RecoveryPlan(
+        loaded_source=LoadedRecoverySource((), (), (), None, None),
         ciphertext=ciphertext,
         doc_id=doc_id,
         doc_hash=doc_hash,
-        passphrase=passphrase,
+        unlock=RecoveryUnlockStatus(
+            mode="passphrase",
+            passphrase_provided=True,
+            validated_shard_count=0,
+            required_shard_threshold=None,
+            satisfied=True,
+            resolved_passphrase=passphrase,
+        ),
+        blocking_issues=(),
         auth_payload=auth if authenticated else None,
         auth_status="verified" if authenticated else "skipped",
         allow_unsigned=not authenticated,

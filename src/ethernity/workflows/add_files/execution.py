@@ -27,6 +27,7 @@ from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ethernity.core.execution_control import cancellation_point
 from ethernity.extensions.staging import (
     preflight_extension_publish_target,
     validate_staged_extension_dir,
@@ -64,7 +65,6 @@ from ethernity.workflows.add_files.reporting import (
 )
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import emit_finalizing
-from ethernity.workflows.shared.execution_control import cancellation_point
 
 DirectoryIdentity = tuple[int, int]
 

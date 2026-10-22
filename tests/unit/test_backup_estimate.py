@@ -9,6 +9,7 @@ import pytest
 from pypdf import PdfReader
 
 from ethernity.app.backup_estimate_controller import BackupEstimateController
+from ethernity.core.execution_control import OperationCancelled, cancellation_point
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.backup_estimate import BackupEstimate, estimate_backup
 from ethernity.workflows.shared.requests import BackupRequest
@@ -214,6 +215,99 @@ def test_estimate_controller_does_not_refresh_during_app_shutdown(
             release.set()
         await asyncio.wait_for(asyncio.gather(*host.tasks), 3)
 
+        assert host.refreshes == 0
+        assert host.backup_state.current_estimate() is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("operation", ["edit", "invalidate", "close"])
+def test_estimate_controller_cancels_obsolete_work_before_starting_another(
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    started = threading.Event()
+    cancelled = threading.Event()
+    escape = threading.Event()
+    calls = []
+
+    def estimate(request: BackupRequest) -> BackupEstimate:
+        calls.append(request)
+        if len(calls) == 1:
+            started.set()
+            try:
+                while not escape.wait(0.01):
+                    cancellation_point()
+            except OperationCancelled:
+                cancelled.set()
+                raise
+        else:
+            assert cancelled.is_set()
+        return BackupEstimate(1, 10, 200, 1, 2)
+
+    monkeypatch.setattr("ethernity.app.backup_estimate_controller.estimate_backup", estimate)
+
+    async def run() -> None:
+        host = _EstimateHost()
+        host.controller.refresh()
+        try:
+            assert await asyncio.to_thread(started.wait, 3)
+            if operation == "edit":
+                host.backup_state.paper_size = "LETTER"
+                host.controller.refresh()
+            elif operation == "invalidate":
+                host.controller.invalidate()
+                host.controller.refresh()
+            else:
+                host.controller.close()
+            assert await asyncio.to_thread(cancelled.wait, 3)
+            await asyncio.wait_for(asyncio.gather(*host.tasks), 3)
+            assert len(calls) == (1 if operation == "close" else 2)
+            assert host.refreshes == (0 if operation == "close" else 1)
+        finally:
+            escape.set()
+            host.controller.close()
+
+    asyncio.run(run())
+
+
+def test_cancelled_ui_worker_waits_for_estimate_cleanup_before_releasing_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    cleaning = threading.Event()
+    release_cleanup = threading.Event()
+
+    def estimate(request: BackupRequest) -> BackupEstimate:
+        started.set()
+        try:
+            while not release_cleanup.wait(0.01):
+                cancellation_point()
+            raise AssertionError("The estimate should have been cancelled")
+        finally:
+            cleaning.set()
+            assert release_cleanup.wait(3)
+
+    monkeypatch.setattr("ethernity.app.backup_estimate_controller.estimate_backup", estimate)
+
+    async def run() -> None:
+        host = _EstimateHost()
+        host.controller.refresh()
+        worker = host.tasks[0]
+        try:
+            assert await asyncio.to_thread(started.wait, 3)
+            worker.cancel()
+            assert await asyncio.to_thread(cleaning.wait, 3)
+            worker.cancel()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            host.controller.refresh()
+            assert len(host.tasks) == 1
+            assert not worker.done()
+        finally:
+            release_cleanup.set()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
         assert host.refreshes == 0
         assert host.backup_state.current_estimate() is None
 

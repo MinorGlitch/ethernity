@@ -4,9 +4,11 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 import pytest
 
+from ethernity.core.execution_control import OperationCancelled
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.document_identity import doc_id_and_hash_from_ciphertext
 from ethernity.crypto.sharding import (
@@ -32,9 +34,12 @@ from ethernity.tasks.recovery_check import (
 )
 from ethernity.workflows.execution import (
     RecoveryExecutionResult,
-    execute_recovery,
 )
+from ethernity.workflows.recovery import frame_inputs, keys, root_selection
 from ethernity.workflows.recovery.frame_inputs import frames_from_payloads
+from ethernity.workflows.recovery.planning import RecoveryPlan
+from ethernity.workflows.recovery.service import execute_recover_plan
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared.requests import RecoveryRequest
 
 _FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -113,7 +118,7 @@ def temporary_checks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[Pa
 
 
 def _scan_frames(monkeypatch: pytest.MonkeyPatch, frames: tuple[Frame, ...]) -> None:
-    monkeypatch.setattr(recovery_check.frame_inputs, "frames_from_scan", lambda paths: list(frames))
+    monkeypatch.setattr(frame_inputs, "frames_from_scan", lambda paths: list(frames))
 
 
 def test_generated_check_recovers_using_only_minimum_quorum_and_removes_plaintext(
@@ -121,13 +126,13 @@ def test_generated_check_recovers_using_only_minimum_quorum_and_removes_plaintex
 ) -> None:
     main, sheets, signing_sheet = signed_frames
     _scan_frames(monkeypatch, (*main, sheets[2], *sheets, signing_sheet))
-    requests: list[RecoveryRequest] = []
+    requests: list[RecoveryPlan] = []
 
-    def recover(request: RecoveryRequest):
+    def recover(request: RecoveryPlan, **options):
         requests.append(request)
-        return execute_recovery(request)
+        return execute_recover_plan(request, **options)
 
-    monkeypatch.setattr(recovery_check, "execute_recovery", recover)
+    monkeypatch.setattr(recovery_check, "execute_recover_plan", recover)
     result = check_generated_recovery(
         GeneratedRecoveryCheckRequest(
             documents=(Path("arbitrary-name.pdf"),), passphrase="wrong cached phrase"
@@ -138,8 +143,8 @@ def test_generated_check_recovers_using_only_minimum_quorum_and_removes_plaintex
     assert result.total_bytes == len(_PAYLOAD)
     assert result.recovery_sheet_count == 2
     assert requests[0].shard_frames == sheets[:2]
-    assert requests[0].passphrase is None
-    assert requests[0].frames == main
+    assert requests[0].passphrase == _PASSPHRASE
+    assert (*requests[0].main_frames, *requests[0].auth_frames) == main
     assert temporary_checks
     assert all(not path.exists() for path in temporary_checks)
 
@@ -236,12 +241,12 @@ def test_generated_check_cleans_temporary_files_after_execution_failure(
     main, sheets, _ = signed_frames
     _scan_frames(monkeypatch, (*main, *sheets))
 
-    def fail_after_write(request: RecoveryRequest):
+    def fail_after_write(request: RecoveryPlan, **options):
         assert request.output_path is not None
-        request.output_path.write_bytes(b"partial recovered plaintext")
+        Path(request.output_path).write_bytes(b"partial recovered plaintext")
         raise ValueError("failed file validation")
 
-    monkeypatch.setattr(recovery_check, "execute_recovery", fail_after_write)
+    monkeypatch.setattr(recovery_check, "execute_recover_plan", fail_after_write)
     with pytest.raises(ValueError, match="failed file validation"):
         check_generated_recovery(GeneratedRecoveryCheckRequest(documents=(Path("document.pdf"),)))
 
@@ -312,8 +317,8 @@ def test_generated_check_rejects_empty_recovery_results_and_removes_temporary_st
     _scan_frames(monkeypatch, (*main, *sheets))
     monkeypatch.setattr(
         recovery_check,
-        "execute_recovery",
-        lambda request: RecoveryExecutionResult(written_paths=()),
+        "execute_recover_plan",
+        lambda request, **options: RecoveryExecutionResult(written_paths=()),
     )
 
     with pytest.raises(ValueError, match="No files were recovered"):
@@ -321,3 +326,47 @@ def test_generated_check_rejects_empty_recovery_results_and_removes_temporary_st
 
     assert temporary_checks
     assert all(not path.exists() for path in temporary_checks)
+
+
+def test_prompt_retry_reuses_scanning_and_authentication_with_a_fresh_check_session(
+    signed_frames,
+    temporary_checks,
+) -> None:
+    main, _, _ = signed_frames
+    session = RecoverySession()
+    request = GeneratedRecoveryCheckRequest(documents=(Path("document.pdf"),))
+    with (
+        mock.patch.object(frame_inputs, "frames_from_scan", return_value=list(main)) as scan,
+        mock.patch.object(
+            root_selection,
+            "import_recovery_documents",
+            wraps=root_selection.import_recovery_documents,
+        ) as imports,
+        mock.patch.object(keys, "verify_auth", wraps=keys.verify_auth) as auth,
+    ):
+        with pytest.raises(GeneratedRecoveryPassphraseRequired):
+            check_generated_recovery(request, session=session)
+        result = check_generated_recovery(replace(request, passphrase=_PASSPHRASE), session=session)
+        assert result.file_count == 1
+        assert scan.call_count == 1
+        assert imports.call_count == 1
+        assert auth.call_count == 1
+    assert temporary_checks and all(not path.exists() for path in temporary_checks)
+
+
+def test_generated_check_removes_partial_plaintext_on_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+    signed_frames,
+    temporary_checks,
+) -> None:
+    main, sheets, _ = signed_frames
+    _scan_frames(monkeypatch, (*main, *sheets))
+
+    def cancel_after_write(plan, **options):
+        Path(plan.output_path).write_bytes(b"temporary plaintext")
+        raise OperationCancelled
+
+    monkeypatch.setattr(recovery_check, "execute_recover_plan", cancel_after_write)
+    with pytest.raises(OperationCancelled):
+        check_generated_recovery(GeneratedRecoveryCheckRequest(documents=(Path("document.pdf"),)))
+    assert temporary_checks and all(not path.exists() for path in temporary_checks)

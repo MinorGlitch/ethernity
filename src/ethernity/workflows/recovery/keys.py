@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import hmac
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypedDict
 
@@ -38,8 +38,17 @@ from ethernity.encoding.framing import Frame, FrameType
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.notices import WorkflowNoticeSink, send_notice
 
-ShardPayloadDecoder = Callable[[bytes], ShardPayload]
-ShardVerifier = Callable[..., bool]
+
+@dataclass(frozen=True)
+class DecodedShard:
+    """A carrier and its parsed payload; authentication is a separate check."""
+
+    frame: Frame
+    payload: ShardPayload
+
+    @classmethod
+    def decode(cls, frame: Frame) -> DecodedShard:
+        return cls(frame, decode_shard_payload(frame.data))
 
 
 class AuthVerificationOptions(TypedDict):
@@ -281,77 +290,66 @@ def validated_shard_payloads_from_frames(
 ) -> list[ShardPayload]:
     """Validate and deduplicate one shard set, requiring a complete quorum."""
 
-    return _validated_shard_payloads_from_frames(
-        frames,
-        expected_doc_id=expected_doc_id,
-        expected_doc_hash=expected_doc_hash,
-        expected_sign_pub=expected_sign_pub,
-        allow_unsigned=allow_unsigned,
-        key_type=key_type,
-        secret_label=secret_label,
-        payload_decoder=decode_shard_payload,
-        shard_verifier=verify_shard,
-    )
+    decoded = []
+    for frame in frames:
+        _validate_shard_frame(frame, expected_doc_id)
+        decoded.append(DecodedShard.decode(frame))
+    return [
+        item.payload
+        for item in validate_decoded_shards(
+            decoded,
+            expected_doc_id=expected_doc_id,
+            expected_doc_hash=expected_doc_hash,
+            expected_sign_pub=expected_sign_pub,
+            allow_unsigned=allow_unsigned,
+            key_type=key_type,
+            secret_label=secret_label,
+        )
+    ]
 
 
-def _validated_shard_payloads_from_frames(
-    frames: Sequence[Frame],
+def validate_decoded_shards(
+    decoded: Sequence[DecodedShard],
     *,
     expected_doc_id: bytes | None,
     expected_doc_hash: bytes | None,
     expected_sign_pub: bytes | None,
-    allow_unsigned: bool,
+    allow_unsigned: bool = False,
     key_type: str,
     secret_label: str,
-    payload_decoder: ShardPayloadDecoder,
-    shard_verifier: ShardVerifier,
-) -> list[ShardPayload]:
-    """Dependency-injected core used by the public validator and focused tests."""
-
-    shares: dict[int, ShardPayload] = {}
-    doc_hash: bytes | None = expected_doc_hash
-    sign_pub: bytes | None = expected_sign_pub
-    for frame in frames:
-        payload = _decode_shard_frame(
-            frame,
-            expected_doc_id=expected_doc_id,
-            key_type=key_type,
-            secret_label=secret_label,
-            payload_decoder=payload_decoder,
-        )
+    require_quorum: bool = True,
+) -> tuple[DecodedShard, ...]:
+    """Bind, authenticate and deduplicate parsed sheets before using their values."""
+    shares: dict[int, DecodedShard] = {}
+    doc_hash, sign_pub = expected_doc_hash, expected_sign_pub
+    for item in decoded:
+        frame, payload = item.frame, item.payload
+        _validate_shard_frame(frame, expected_doc_id)
+        if payload.key_type != key_type:
+            raise ValueError(f"shard payloads must be {secret_label} shards")
         doc_hash, sign_pub = _bind_shard_identity(payload, doc_hash=doc_hash, sign_pub=sign_pub)
-        if not allow_unsigned and not verify_shard_payload(payload, verifier=shard_verifier):
-            raise ValueError("invalid shard signature")
         existing = shares.get(payload.share_index)
         if existing is not None:
-            if existing != payload:
+            if existing.payload != payload:
                 raise ValueError("duplicate shard index with mismatched data")
             continue
-        shares[payload.share_index] = payload
+        if not allow_unsigned and not verify_shard_payload(payload, verifier=verify_shard):
+            raise ValueError("invalid shard signature")
+        shares[payload.share_index] = item
 
-    share_list = list(shares.values())
-    _require_shard_quorum(share_list, secret_label=secret_label)
-    return share_list
+    result = tuple(shares.values())
+    payloads = [item.payload for item in result]
+    _require_shard_quorum(payloads, secret_label=secret_label, require_quorum=require_quorum)
+    return result
 
 
-def _decode_shard_frame(
-    frame: Frame,
-    *,
-    expected_doc_id: bytes | None,
-    key_type: str,
-    secret_label: str,
-    payload_decoder: ShardPayloadDecoder,
-) -> ShardPayload:
+def _validate_shard_frame(frame: Frame, expected_doc_id: bytes | None) -> None:
     if frame.frame_type != FrameType.KEY_DOCUMENT:
         raise ValueError("shard payloads must be KEY_DOCUMENT type")
     if expected_doc_id is not None and frame.doc_id != expected_doc_id:
         raise ValueError("shard payload doc_id does not match ciphertext")
     if frame.total != 1 or frame.index != 0:
         raise ValueError("shard payloads must be single-frame payloads")
-    payload = payload_decoder(frame.data)
-    if payload.key_type != key_type:
-        raise ValueError(f"shard payloads must be {secret_label} shards")
-    return payload
 
 
 def _bind_shard_identity(
@@ -367,7 +365,9 @@ def _bind_shard_identity(
     return payload.doc_hash, payload.sign_pub
 
 
-def _require_shard_quorum(share_list: list[ShardPayload], *, secret_label: str) -> None:
+def _require_shard_quorum(
+    share_list: list[ShardPayload], *, secret_label: str, require_quorum: bool
+) -> None:
     if not share_list:
         raise ValueError("no shard payloads provided")
 
@@ -379,7 +379,7 @@ def _require_shard_quorum(share_list: list[ShardPayload], *, secret_label: str) 
         if share.share_count != share_total:
             raise ValueError("shard share counts do not match")
     validate_shard_set_consistency(share_list, verify_signatures=False)
-    if len(share_list) < threshold:
+    if require_quorum and len(share_list) < threshold:
         raise InsufficientShardError(
             threshold=threshold,
             provided_count=len(share_list),
@@ -391,6 +391,8 @@ def _require_shard_quorum(share_list: list[ShardPayload], *, secret_label: str) 
 
 __all__ = [
     "AuthValidationError",
+    "DecodedShard",
+    "validate_decoded_shards",
     "InsufficientShardError",
     "RecoveryTrust",
     "passphrase_from_shard_frames",

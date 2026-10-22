@@ -121,9 +121,6 @@ def execute_prepared_backup(
             passphrase_words=prepared.request.passphrase_words,
             config=prepared.config,
             render_origin=DocumentOrigin(kind="root_backup"),
-            debug=prepared.request.debug,
-            debug_max_bytes=prepared.request.debug_max_bytes,
-            debug_reveal_secrets=prepared.request.debug_reveal_secrets,
             quiet=prepared.request.quiet,
         )
 

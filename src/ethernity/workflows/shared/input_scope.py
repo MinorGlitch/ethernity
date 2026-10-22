@@ -31,19 +31,12 @@ from ethernity.workflows.shared.file_inputs import InputFile, load_input_files
 class SelectedInputScope:
     """Validated local input scope for backup-like file selection."""
 
-    raw_files: tuple[str, ...]
-    raw_directories: tuple[str, ...]
     base_dir_arg: str | None
     input_files: tuple[InputFile, ...]
-    base_dir: Path | None
     input_origin: Literal["file", "directory", "mixed"]
     input_roots: tuple[str, ...]
     exact_paths: tuple[str, ...]
     directory_prefixes: tuple[str, ...]
-
-    @property
-    def total_bytes(self) -> int:
-        return sum(len(item.data) for item in self.input_files)
 
     def contains_path(self, path: str) -> bool:
         if path in self.exact_paths:
@@ -51,17 +44,6 @@ class SelectedInputScope:
         return any(
             _path_matches_directory_prefix(path, prefix) for prefix in self.directory_prefixes
         )
-
-    def to_inspection_payload(self) -> dict[str, object]:
-        return {
-            "files": list(self.raw_files),
-            "directories": list(self.raw_directories),
-            "base_dir": self.base_dir_arg,
-            "file_count": len(self.input_files),
-            "total_bytes": self.total_bytes,
-            "input_origin": self.input_origin,
-            "input_roots": list(self.input_roots),
-        }
 
 
 @dataclass(frozen=True)
@@ -73,30 +55,6 @@ class InputScopeDiff:
     unchanged_paths: tuple[str, ...]
     missing_paths: tuple[str, ...]
     ambiguous_path_aliases: tuple[tuple[str, str], ...] = ()
-
-    def to_payload(self) -> dict[str, object]:
-        return {
-            "new_paths": list(self.new_paths),
-            "changed_paths": list(self.changed_paths),
-            "unchanged_paths": list(self.unchanged_paths),
-            "missing_paths": list(self.missing_paths),
-            "new_count": len(self.new_paths),
-            "changed_count": len(self.changed_paths),
-            "unchanged_count": len(self.unchanged_paths),
-            "missing_count": len(self.missing_paths),
-        }
-
-
-def empty_scope_inspection_payload(*, base_dir_arg: str | None) -> dict[str, object]:
-    return {
-        "files": [],
-        "directories": [],
-        "base_dir": base_dir_arg,
-        "file_count": 0,
-        "total_bytes": 0,
-        "input_origin": None,
-        "input_roots": [],
-    }
 
 
 def load_input_scope(
@@ -125,11 +83,8 @@ def load_input_scope(
         base_dir=base_dir,
     )
     return SelectedInputScope(
-        raw_files=files,
-        raw_directories=directories,
         base_dir_arg=base_dir_arg,
         input_files=tuple(input_files),
-        base_dir=base_dir,
         input_origin=input_origin,
         input_roots=tuple(input_roots),
         exact_paths=exact_paths,
@@ -267,7 +222,6 @@ def _backup_path_matches_source_tail(backup_path: str, source_path: Path) -> boo
 __all__ = [
     "InputScopeDiff",
     "SelectedInputScope",
-    "empty_scope_inspection_payload",
     "load_input_scope",
     "scope_path_selectors",
     "summarize_input_scope_diff",

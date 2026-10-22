@@ -27,7 +27,7 @@ def test_run_backup_and_restore_round_trip(tmp_path: Path) -> None:
     payload = "terminal runner round trip\n"
     input_path = tmp_path / "secret.txt"
     backup_dir = tmp_path / "backup"
-    restored_path = tmp_path / "restored.txt"
+    restored_dir = tmp_path / "restored"
     input_path.write_text(payload, encoding="utf-8")
 
     runner = CliRunner()
@@ -56,7 +56,7 @@ def test_run_backup_and_restore_round_trip(tmp_path: Path) -> None:
                 "--passphrase",
                 "correct horse battery staple",
                 "--output",
-                str(restored_path),
+                str(restored_dir),
                 "--yes",
             ],
         )
@@ -66,4 +66,4 @@ def test_run_backup_and_restore_round_trip(tmp_path: Path) -> None:
     assert (backup_dir / "qr_document.pdf").read_bytes().startswith(b"%PDF")
     assert (backup_dir / "recovery_document.pdf").read_bytes().startswith(b"%PDF")
     assert any(backup_dir.glob("shard-*-1-of-3.pdf"))
-    assert restored_path.read_text(encoding="utf-8") == payload
+    assert (restored_dir / input_path.name).read_text(encoding="utf-8") == payload

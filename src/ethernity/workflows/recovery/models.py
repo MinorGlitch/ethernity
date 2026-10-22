@@ -18,14 +18,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from ethernity.crypto.signing import AuthPayload
 from ethernity.encoding.framing import Frame
-from ethernity.extensions.recovery import DecodedImportSession, ImportedRecoveryDocument
-from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.extensions.recovery import DecodedImportSession
+from ethernity.workflows.recovery.keys import DecodedShard
+from ethernity.workflows.recovery.source_state import LoadedRecoverySource, RecoverySourceFields
 from ethernity.workflows.shared.events import emit_progress
+from ethernity.workflows.shared.inspection import BlockingIssue
 
 
 @dataclass(frozen=True)
@@ -39,13 +41,14 @@ class RecoveryUnlockStatus:
     satisfied: bool
     resolved_passphrase: str | None = None
     shard_share_count: int | None = None
-    blocking_issues: tuple[dict[str, Any], ...] = ()
+    validated_shards: tuple[DecodedShard, ...] = ()
+    blocking_issues: tuple[BlockingIssue, ...] = ()
 
     @classmethod
     def unavailable(
         cls,
         mode: Literal["missing", "passphrase", "shards"],
-        issues: tuple[dict[str, Any], ...],
+        issues: tuple[BlockingIssue, ...],
         *,
         provided_count: int = 0,
         threshold: int | None = None,
@@ -73,6 +76,7 @@ class RecoveryDocumentState:
     auth_payload: AuthPayload | None
     auth_status: str
     allow_unsigned: bool
+    loaded_source: LoadedRecoverySource = field(kw_only=True)
 
     def emit_plan_progress(self, *, details: dict[str, Any] | None = None) -> None:
         emit_progress(
@@ -126,37 +130,21 @@ class RecoveryInspection(RecoveryDocumentState):
     """Best-effort recovery inspection state assembled from decoded frames."""
 
     unlock: RecoveryUnlockStatus
-    blocking_issues: tuple[dict[str, Any], ...]
-    source_frames: tuple[Frame, ...] = ()
-    source_extra_auth_frames: tuple[Frame, ...] = ()
+    blocking_issues: tuple[BlockingIssue, ...]
     decoded_import_session: DecodedImportSession | None = None
 
 
 @dataclass(frozen=True)
 class RecoveryRootSelection:
-    """Frames and unlock state to use after resolving a multi-document root."""
+    """Unlock inputs and decoded session after resolving a multi-document root."""
 
-    frames: tuple[Frame, ...]
-    extra_auth_frames: tuple[Frame, ...]
     shard_frames: tuple[Frame, ...]
     passphrase: str | None
     shard_unlock: RecoveryUnlockStatus | None = None
     decoded_import_session: DecodedImportSession | None = None
 
 
-@dataclass(frozen=True)
-class PassphraseShardRootSelection:
-    """Root selection proven by passphrase shards bound to one imported document."""
-
-    root_document: ImportedRecoveryDocument
-    target_document: ImportedRecoveryDocument
-    target_shard_frames: tuple[Frame, ...]
-    unlock: RecoveryUnlockStatus
-    decoded_import_session: DecodedImportSession | None = None
-
-
 __all__ = [
-    "PassphraseShardRootSelection",
     "RecoveryInspection",
     "RecoveryRootSelection",
     "RecoveryUnlockStatus",

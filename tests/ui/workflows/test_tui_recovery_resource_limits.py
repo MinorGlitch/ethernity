@@ -47,7 +47,7 @@ def test_restore_resource_limit_is_a_failure_without_override(
 def test_source_resource_limit_blocks_restore(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    def inspect(_request):
+    def inspect(_request, *, session):
         raise RecoveryResourceLimitError("cumulative scrypt work exceeds the recovery KDF budget")
 
     monkeypatch.setattr(source_assessment, "inspect_recovery", inspect)

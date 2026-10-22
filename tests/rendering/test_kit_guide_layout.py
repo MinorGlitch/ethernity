@@ -3,7 +3,6 @@
 import re
 
 import pytest
-from pypdf import PdfReader
 from scripts.render_visual_baselines import VisualBaselineCase, build_sample_inputs
 
 from ethernity.page_sizes import resolve_paper_size
@@ -22,7 +21,8 @@ def test_kit_guide_cards_preserve_instructions_and_contain_their_text(tmp_path, 
     result = render_frames_to_pdf(inputs)
     validate_rendered_pdf_document(inputs=inputs, result=result, document_label="kit guide")
     guide = result.layout_report.pages[-1]
-    text = " ".join(PdfReader(inputs.output_path).pages[-1].extract_text().split())
+    # Validation matches these exact lines and positions to the PDF paint operations.
+    text = " ".join(line.text for component in guide.components for line in component.text_lines)
     assert_guide_copy(text, design, paper)
     assert len(re.findall(r"\bPAGE \d+ / \d+\b", text.upper())) == 1
     assert "8888888888888888" not in text
@@ -51,7 +51,8 @@ def test_kit_guide_other_designs_fit_the_same_reconstruction_steps(tmp_path, des
     inputs = build_sample_inputs(VisualBaselineCase(design, "kit", paper), tmp_path / "kit.pdf")
     result = render_frames_to_pdf(inputs)
     validate_rendered_pdf_document(inputs=inputs, result=result, document_label="kit guide")
-    text = " ".join(PdfReader(inputs.output_path).pages[-1].extract_text().split())
+    guide = result.layout_report.pages[-1]
+    text = " ".join(line.text for component in guide.components for line in component.text_lines)
     copy = build_copy_bundle(doc_type="kit", context={})
     if paper == "A5":
         for line in build_instruction_copy(doc_type="kit", context={}).lines:

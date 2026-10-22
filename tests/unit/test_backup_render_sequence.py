@@ -6,6 +6,11 @@ from unittest.mock import Mock
 
 import pytest
 
+from ethernity.core.execution_control import (
+    ExecutionControl,
+    OperationCancelled,
+    execution_session,
+)
 from ethernity.crypto import sharding
 from ethernity.render.errors import RenderValidationError
 from ethernity.render.types import (
@@ -16,11 +21,6 @@ from ethernity.render.types import (
 )
 from ethernity.workflows.backup import execution
 from ethernity.workflows.shared import events, shard_rendering
-from ethernity.workflows.shared.execution_control import (
-    ExecutionControl,
-    OperationCancelled,
-    execution_session,
-)
 
 
 @pytest.fixture

@@ -39,7 +39,7 @@ from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.recovery_inputs import RecoverySourceInputs, detected_unlock_summary
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
-from ethernity.tasks.source_assessment import SourceAssessableTaskState, recovery_source_request
+from ethernity.tasks.source_assessment import SourceAssessableTaskState
 from ethernity.tasks.task_types import TaskKey
 
 GUIDED_WORKFLOW_SECTIONS: dict[TaskKey, tuple[tuple[str, tuple[str, ...]], ...]] = {
@@ -452,15 +452,9 @@ def _recovery_source_method(state: RecoverySourceInputs) -> str | None:
 
 
 def _recovery_source_assessment(
-    state: RecoverySourceInputs,
+    state: UnlockTaskState,
 ) -> SourceAssessmentPresentation | None:
-    request = recovery_source_request(
-        issue_section="source",
-        scan_paths=tuple(state.source_paths),
-        recovery_text=state.recovery_text,
-        recovery_text_file=state.recovery_text_file,
-        payloads_file=state.payloads_file,
-    )
+    request = state.source_assessment_request()
     if request is None:
         return None
     return SourceAssessmentPresentation(

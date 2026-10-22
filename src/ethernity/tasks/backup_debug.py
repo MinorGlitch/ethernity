@@ -35,17 +35,15 @@ from ethernity.tasks.models import TaskDiagnosticBlock, TaskDiagnostics
 from ethernity.workflows.execution import BackupPreparation
 from ethernity.workflows.shared.file_inputs import InputFile
 
-DEFAULT_DEBUG_MAX_BYTES = 1024
-
 
 def build_backup_internals_diagnostics(
     prepared: BackupPreparation,
     *,
     passphrase: str | None,
-    max_bytes: int | None = DEFAULT_DEBUG_MAX_BYTES,
 ) -> TaskDiagnostics:
     """Build a no-write snapshot for the backup diagnostics modal."""
 
+    max_bytes = prepared.config.cli_defaults.debug.max_bytes
     sign_priv, sign_pub = signing_module.generate_signing_keypair()
     document, payload, manifest, manifest_bytes = _prepare_debug_document(prepared, sign_priv)
     masked_passphrase = (

@@ -5,6 +5,7 @@ import errno
 import pytest
 from click.testing import CliRunner
 
+from ethernity.core.execution_control import OperationCancelled
 from ethernity.crypto.age_runtime import AgeError
 from ethernity.qr.scan import QrScanError
 from ethernity.run.cli import cli
@@ -12,7 +13,6 @@ from ethernity.security.resource_worker import DisposableWorkerError
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.workflows.add_files.errors import AddFilesWorkflowError
 from ethernity.workflows.execution import WorkflowExecutionError
-from ethernity.workflows.shared.execution_control import OperationCancelled
 
 
 @pytest.fixture

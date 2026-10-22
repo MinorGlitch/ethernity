@@ -17,9 +17,11 @@ async def wait_for_condition(
     deadline = monotonic() + timeout
     # Settle once before inspecting state, including previously rendered content.
     await pilot.pause()
-    while monotonic() < deadline:
+    while True:
         if condition():
             return
+        if monotonic() >= deadline:
+            break
         await pilot.pause(0.05)
     screen = pilot.app.screen
     focused = screen.focused

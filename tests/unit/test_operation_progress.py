@@ -7,13 +7,13 @@ from types import SimpleNamespace
 import pytest
 
 from ethernity.app.operation_progress import OperationProgress, OperationProgressSink
-from ethernity.workflows.shared import events, outputs
-from ethernity.workflows.shared.execution_control import (
+from ethernity.core.execution_control import (
     ExecutionControl,
     OperationCancelled,
     cancellation_point,
     execution_session,
 )
+from ethernity.workflows.shared import events, outputs
 
 
 def test_cancellation_and_commit_are_mutually_exclusive() -> None:

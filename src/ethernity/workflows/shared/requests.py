@@ -32,9 +32,6 @@ class BackupRequest(BackupRecoveryOptions):
     layout_debug_dir: str | Path | None = None
     passphrase_generate: bool = False
     sealed: bool = False
-    debug: bool = False
-    debug_max_bytes: int = 0
-    debug_reveal_secrets: bool = False
     quiet: bool = False
 
 
@@ -77,9 +74,8 @@ class RecoveryRequest(RecoveryUnlockInputs):
     extension_doc_hash: str | None = None
     expected_head_doc_hash: str | None = None
     output_path: str | Path | None = None
+    output_is_directory: bool = False
     allow_unsigned: bool = False
-    debug_max_bytes: int = 0
-    debug_reveal_secrets: bool = False
     quiet: bool = False
 
 

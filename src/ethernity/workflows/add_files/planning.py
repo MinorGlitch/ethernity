@@ -18,58 +18,29 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ethernity.config import load_app_config
 from ethernity.core.validation import validate_manifest_file_tree
 from ethernity.crypto.age_policy import recovery_kdf_budget
 from ethernity.crypto.document_identity import normalize_doc_hash_hex
-from ethernity.encoding.framing import Frame
 from ethernity.extensions.chain import ValidatedChainState, replay_authenticated_chain
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
     ChainRecoveryResult,
-    imported_documents_from_recovery_frames,
-    recover_chain_entries,
 )
-from ethernity.formats.extension_document import derive_chain_id
 from ethernity.formats.extension_mode import UpdateMode, resolve_update_mode
-from ethernity.formats.manifest_summary import manifest_summary_payload
 from ethernity.workflows.add_files.errors import AddFilesIssue, AddFilesWorkflowError
 from ethernity.workflows.add_files.request import AddFilesRequest
 from ethernity.workflows.add_files.scope import load_selected_scope, summarize_scope_diff
+from ethernity.workflows.recovery.keys import RecoveryTrust
 from ethernity.workflows.recovery.models import RecoveryInspection
-from ethernity.workflows.recovery.planning import RecoveryPlan, inspect_from_request
-from ethernity.workflows.recovery.source_state import RecoverySourceFields
+from ethernity.workflows.recovery.planning import inspect_from_request, plan_from_inspection
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared import issue_codes
 from ethernity.workflows.shared.events import CommandError
 from ethernity.workflows.shared.input_scope import InputScopeDiff, SelectedInputScope
 from ethernity.workflows.shared.requests import RecoveryRequest
-
-
-@dataclass(frozen=True)
-class AddFilesInspection:
-    input_label: str
-    input_detail: str
-    input_kind: str
-    source_summary: dict[str, object] | None
-    frame_counts: dict[str, int]
-    root_doc_id: str
-    root_doc_hash: str
-    chain_id: str
-    root_auth_status: str
-    unlock: dict[str, object]
-    available_extension_indices: tuple[int, ...]
-    validated_head_index: int | None
-    validated_head_doc_hash: str | None
-    available_extensions: tuple[dict[str, object], ...]
-    ancestry_valid: bool | None
-    validated_head_auth_status: str | None
-    validated_head_root_signing_key_verified: bool | None
-    signing_key: dict[str, object]
-    selected_scope: dict[str, object] | None
-    diff_summary: dict[str, object] | None
-    blocking_issues: tuple[AddFilesIssue, ...]
 
 
 @dataclass(frozen=True)
@@ -86,6 +57,7 @@ class AppendSigningKey:
     """Signing seed verified against the root backup's public key."""
 
     signing_seed: bytes
+    trust: RecoveryTrust
 
 
 @dataclass(frozen=True)
@@ -100,7 +72,7 @@ class ResolvedAddFilesPlan:
 
 @dataclass(frozen=True)
 class ResolvedAddFilesState:
-    inspection: AddFilesInspection
+    blocking_issues: tuple[AddFilesIssue, ...]
     plan: ResolvedAddFilesPlan | None
     selected_input: SelectedInputScope | None
     validated_chain: ValidatedChainState | None
@@ -108,18 +80,11 @@ class ResolvedAddFilesState:
     chain_ciphertext_bytes: int
     chain_decoded_chunk_bytes: int
     resolved_passphrase: str | None
-    source_frames: tuple[Frame, ...] = ()
-
-    @property
-    def blocking_issues(self) -> tuple[AddFilesIssue, ...]:
-        return self.inspection.blocking_issues
 
 
-def inspect_add_files(request: AddFilesRequest) -> AddFilesInspection:
-    return resolve_add_files_state(request).inspection
-
-
-def resolve_add_files_state(request: AddFilesRequest) -> ResolvedAddFilesState:
+def resolve_add_files_state(
+    request: AddFilesRequest, *, session: RecoverySession | None = None
+) -> ResolvedAddFilesState:
     """Capture one authenticated source version for inspection and later publication."""
 
     if not (
@@ -130,13 +95,15 @@ def resolve_add_files_state(request: AddFilesRequest) -> ResolvedAddFilesState:
             message="Provide backup PDFs, images, recovery text, or QR payloads for Add Files.",
         )
     with recovery_kdf_budget():
-        return _resolve_content_state(request)
+        return _resolve_content_state(request, session=session or RecoverySession())
 
 
-def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
+def _resolve_content_state(
+    request: AddFilesRequest, *, session: RecoverySession
+) -> ResolvedAddFilesState:
     try:
         selected_input = load_selected_scope(request)
-        root = inspect_from_request(_recovery_request(request))
+        root = inspect_from_request(_recovery_request(request), session=session)
     except FileNotFoundError as exc:
         raise AddFilesWorkflowError(
             code=issue_codes.NOT_FOUND, message=str(exc), details={"path": exc.filename}
@@ -148,19 +115,27 @@ def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
     except ValueError as exc:
         raise AddFilesWorkflowError(code=issue_codes.INVALID_INPUT, message=str(exc)) from exc
 
-    source_frames = (*root.source_frames, *root.source_extra_auth_frames)
-    documents = (
-        imported_documents_from_recovery_frames(list(source_frames)) if source_frames else ()
-    )
-    issues = [AddFilesIssue.from_mapping(issue) for issue in root.blocking_issues]
+    documents = root.loaded_source.documents
+    issues = [
+        AddFilesIssue(issue.code, issue.message, dict(issue.details))
+        for issue in root.blocking_issues
+    ]
     chain: ValidatedChainState | None = None
-    recovered: ChainRecoveryResult | None = None
     signing_seed: bytes | None = None
     diff: InputScopeDiff | None = None
     update_mode = resolve_update_mode(None, request.update_mode)
     if root.unlock.satisfied and root.unlock.resolved_passphrase and not issues:
         try:
-            recovered = recover_chain_entries(_recovery_plan(root, request), debug=False)
+            recovered = session.recover_chain(
+                plan_from_inspection(
+                    root,
+                    replace(
+                        _recovery_request(request),
+                        expected_head_doc_hash=request.expected_head_doc_hash,
+                    ),
+                ),
+                debug=False,
+            )
             if recovered.manifest.sealed:
                 issues.append(
                     AddFilesIssue(
@@ -180,73 +155,21 @@ def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
         except ValueError as exc:
             issues.append(AddFilesIssue(code=issue_codes.CHAIN_INVALID, message=str(exc)))
 
-    head_index = chain.head_index if chain is not None else None
     head_hash = chain.head_doc_hash.hex() if chain is not None else None
     issues.extend(_freshness_issues(request, head_hash))
-    extensions: tuple[dict[str, object], ...] = tuple(
-        {
-            "index": link.document.header.index,
-            "doc_id": link.doc_hash[:8].hex(),
-            "doc_hash": link.doc_hash.hex(),
-            "auth_status": link.auth_status,
-            "root_signing_key_verified": link.root_signing_key_verified,
-        }
-        for link in (chain.links if chain is not None else ())
-    )
-    inspection = AddFilesInspection(
-        input_label=root.input_label or "Backup documents",
-        input_detail=root.input_detail or "Imported document content",
-        input_kind="extended_root" if len(documents) > 1 else "standalone_root",
-        source_summary=manifest_summary_payload(recovered.manifest)
-        if recovered is not None
-        else None,
-        frame_counts={
-            "main": len(root.main_frames),
-            "auth": len(root.auth_frames),
-            "shard": len(root.shard_frames),
-        },
-        root_doc_id=root.doc_id.hex(),
-        root_doc_hash=root.doc_hash.hex(),
-        chain_id=derive_chain_id(root.doc_hash).hex() if root.doc_hash else "",
-        root_auth_status=root.auth_status,
-        unlock={
-            "mode": root.unlock.mode,
-            "passphrase_provided": root.unlock.passphrase_provided,
-            "validated_shard_count": root.unlock.validated_shard_count,
-            "required_shard_threshold": root.unlock.required_shard_threshold,
-            "shard_share_count": root.unlock.shard_share_count,
-            "satisfied": recovered is not None,
-        },
-        available_extension_indices=tuple(
-            link.document.header.index for link in (chain.links if chain is not None else ())
-        ),
-        validated_head_index=head_index,
-        validated_head_doc_hash=head_hash,
-        available_extensions=extensions,
-        ancestry_valid=chain is not None,
-        validated_head_auth_status=recovered.head.auth_status if recovered is not None else None,
-        validated_head_root_signing_key_verified=chain is not None,
-        signing_key={
-            "available": signing_seed is not None,
-            "satisfied": chain is not None and signing_seed is not None,
-            "source": "embedded_seed" if signing_seed is not None else None,
-        },
-        selected_scope=selected_input.to_inspection_payload()
-        if selected_input is not None
-        else None,
-        diff_summary=diff.to_payload() if diff is not None else None,
-        blocking_issues=tuple(issues),
-    )
     plan = None
     if chain is not None and diff is not None and signing_seed is not None:
+        assert root.auth_payload is not None
         plan = ResolvedAddFilesPlan(
             diff=diff,
             parent=AppendParent(root.doc_hash, chain.head_index, chain.head_doc_hash),
-            signing_key=AppendSigningKey(signing_seed),
+            signing_key=AppendSigningKey(
+                signing_seed, RecoveryTrust(root.doc_id, root.doc_hash, root.auth_payload.sign_pub)
+            ),
             update_mode=update_mode,
         )
     return ResolvedAddFilesState(
-        inspection=inspection,
+        blocking_issues=tuple(issues),
         plan=plan,
         selected_input=selected_input,
         validated_chain=chain,
@@ -254,7 +177,6 @@ def _resolve_content_state(request: AddFilesRequest) -> ResolvedAddFilesState:
         chain_ciphertext_bytes=sum(len(document.ciphertext) for document in documents),
         chain_decoded_chunk_bytes=chain.decoded_chunk_bytes if chain is not None else 0,
         resolved_passphrase=root.unlock.resolved_passphrase,
-        source_frames=tuple(source_frames),
     )
 
 
@@ -300,36 +222,6 @@ def _recovery_request(request: AddFilesRequest) -> RecoveryRequest:
         auth_payloads_file=request.auth_payloads_file,
         auth_frames=request.auth_frames,
         quiet=request.quiet,
-    )
-
-
-def _recovery_plan(root: RecoveryInspection, request: AddFilesRequest) -> RecoveryPlan:
-    if root.unlock.resolved_passphrase is None:
-        raise ValueError("Backup passphrase is missing.")
-    return RecoveryPlan(
-        ciphertext=root.ciphertext,
-        doc_id=root.doc_id,
-        doc_hash=root.doc_hash,
-        passphrase=root.unlock.resolved_passphrase,
-        auth_payload=root.auth_payload,
-        auth_status=root.auth_status,
-        allow_unsigned=False,
-        output_path=None,
-        import_documents=imported_documents_from_recovery_frames(
-            [*root.source_frames, *root.source_extra_auth_frames]
-        ),
-        decoded_import_session=root.decoded_import_session,
-        expected_head_doc_hash=request.expected_head_doc_hash,
-        source=RecoverySourceFields(
-            input_label=root.input_label,
-            input_detail=root.input_detail,
-            main_frames=root.main_frames,
-            auth_frames=root.auth_frames,
-            shard_frames=root.shard_frames,
-            shard_fallback_files=root.shard_fallback_files,
-            shard_payloads_file=root.shard_payloads_file,
-            shard_scan=root.shard_scan,
-        ),
     )
 
 

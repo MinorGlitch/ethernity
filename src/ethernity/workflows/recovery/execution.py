@@ -14,84 +14,26 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Recover decrypted manifests and write extracted files."""
+"""Recover decrypted files with the selected version and workflow errors."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from ethernity.crypto import decrypt_bytes
 from ethernity.extensions.errors import ExtensionRecoveryError
-from ethernity.extensions.recovery import (
-    recover_chain_entries,
-    validate_expected_recovery_head,
-    validate_root_signing_key_binding,
-)
-from ethernity.formats.document_codec import decode_backup_document, extract_payloads
-from ethernity.formats.manifest import BackupManifest, ManifestFile
+from ethernity.extensions.recovery import ChainRecoveryResult
 from ethernity.workflows.recovery.planning import RecoveryPlan
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared.events import CommandError
-
-
-@dataclass(frozen=True)
-class RecoverDecryptResult:
-    manifest: BackupManifest
-    extracted: list[tuple[ManifestFile, bytes]]
-    selected_extension_index: int | None = None
-    selected_extension_doc_hash: str | None = None
 
 
 def decrypt_manifest_extract_selection(
     plan: RecoveryPlan,
     *,
-    quiet: bool,
     debug: bool = False,
-) -> RecoverDecryptResult:
+    session: RecoverySession | None = None,
+) -> ChainRecoveryResult:
     """Decrypt a recovery plan and preserve any explicit replay-target metadata."""
 
     try:
-        if plan.import_documents:
-            chain = recover_chain_entries(plan, debug=debug)
-            return RecoverDecryptResult(
-                manifest=chain.manifest,
-                extracted=list(chain.extracted),
-                selected_extension_index=chain.selected_extension_index,
-                selected_extension_doc_hash=chain.selected_extension_doc_hash,
-            )
-
-        plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
-        manifest, payload = decode_backup_document(plaintext)
-        extracted = extract_payloads(manifest, payload)
-        validate_root_signing_key_binding(manifest, plan.auth_payload, doc_hash=plan.doc_hash)
-        validate_expected_recovery_head(
-            plan,
-            selected_extension_index=None,
-            selected_extension_doc_hash=None,
-        )
-        return RecoverDecryptResult(manifest=manifest, extracted=extracted)
+        return (session or RecoverySession()).recover_chain(plan, debug=debug)
     except ExtensionRecoveryError as exc:
         raise CommandError(code=exc.code, message=str(exc), details=dict(exc.details)) from exc
-
-
-def decrypt_manifest_and_extract(
-    plan: RecoveryPlan,
-    *,
-    quiet: bool,
-    debug: bool = False,
-) -> tuple[BackupManifest, list[tuple[ManifestFile, bytes]]]:
-    """Decrypt a recovery plan ciphertext and extract manifest payload entries."""
-
-    result = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
-    return result.manifest, result.extracted
-
-
-def decrypt_and_extract(
-    plan: RecoveryPlan,
-    *,
-    quiet: bool,
-    debug: bool = False,
-) -> list[tuple[ManifestFile, bytes]]:
-    """Decrypt and extract payload entries, discarding the parsed manifest."""
-
-    _manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
-    return extracted

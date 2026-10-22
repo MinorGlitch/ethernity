@@ -41,15 +41,20 @@ from ethernity.workflows.add_files.models import (
 )
 from ethernity.workflows.add_files.planning import ResolvedAddFilesState, resolve_add_files_state
 from ethernity.workflows.add_files.request import AddFilesRequest
+from ethernity.workflows.recovery.session import RecoverySession
 from ethernity.workflows.shared import issue_codes
 
 
-def prepare_add_files_run(request: AddFilesRequest) -> PreparedAddFilesRun:
+def prepare_add_files_run(
+    request: AddFilesRequest, *, session: RecoverySession | None = None
+) -> PreparedAddFilesRun:
     """Validate an Add Files request and retain its authenticated chain state."""
 
     _require_selected_input(request)
 
-    return prepare_add_files_run_from_state(request, resolve_add_files_state(request))
+    return prepare_add_files_run_from_state(
+        request, resolve_add_files_state(request, session=session)
+    )
 
 
 def prepare_add_files_run_from_state(
@@ -115,7 +120,6 @@ def prepare_add_files_run_from_state(
         chain_ciphertext_bytes=resolved.chain_ciphertext_bytes,
         chain_decoded_chunk_bytes=resolved.chain_decoded_chunk_bytes,
         encryption_passphrase=resolved.resolved_passphrase,
-        source_frames=resolved.source_frames,
     )
 
 

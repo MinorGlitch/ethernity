@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -13,8 +14,7 @@ __all__ = [
     "has_recovery_source",
     "has_unlock_inputs",
     "detected_unlock_summary",
-    "recovery_text_error",
-    "recovery_text_frames",
+    "ParsedRecoveryText",
 ]
 
 
@@ -84,29 +84,24 @@ def has_recovery_source(inputs: RecoverySourceInputs) -> bool:
     )
 
 
-def recovery_text_frames(
-    value: str | None,
-    *,
-    allow_invalid_auth: bool = False,
-    quiet: bool,
-) -> list[Frame] | None:
-    _ = quiet
-    if not value:
-        return None
-    result = frames_from_fallback_text(
-        value,
-        allow_invalid_auth=allow_invalid_auth,
-    )
-    return list(result.frames)
+@dataclass(frozen=True)
+class ParsedRecoveryText:
+    text: str | None
+    allow_unsigned: bool
+    frames: tuple[Frame, ...] = ()
+    error: str | None = None
 
+    @classmethod
+    def parse(cls, text: str | None, *, allow_unsigned: bool = False) -> ParsedRecoveryText:
+        if not text:
+            return cls(text, allow_unsigned)
+        try:
+            result = frames_from_fallback_text(text, allow_invalid_auth=allow_unsigned)
+        except ValueError as exc:
+            return cls(text, allow_unsigned, error=str(exc))
+        return cls(text, allow_unsigned, frames=tuple(result.frames))
 
-def recovery_text_error(
-    value: str | None,
-    *,
-    allow_invalid_auth: bool = False,
-) -> str | None:
-    try:
-        recovery_text_frames(value, allow_invalid_auth=allow_invalid_auth, quiet=True)
-    except ValueError as exc:
-        return str(exc)
-    return None
+    def require_frames(self) -> tuple[Frame, ...]:
+        if self.error is not None:
+            raise ValueError(self.error)
+        return self.frames

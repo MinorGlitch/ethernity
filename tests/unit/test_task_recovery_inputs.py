@@ -11,10 +11,9 @@ from ethernity.tasks.presentation.recovery import (
     unlock_input_summary,
 )
 from ethernity.tasks.recovery_inputs import (
+    ParsedRecoveryText,
     has_recovery_source,
     has_unlock_inputs,
-    recovery_text_error,
-    recovery_text_frames,
 )
 
 
@@ -77,6 +76,6 @@ def test_recovery_presentation_preserves_user_facing_text() -> None:
 
 
 def test_recovery_text_parsers_share_empty_and_invalid_input_handling() -> None:
-    assert recovery_text_frames(None, quiet=True) is None
-    assert recovery_text_error(None) is None
-    assert recovery_text_error("not recovery text") is not None
+    assert ParsedRecoveryText.parse(None).require_frames() == ()
+    assert ParsedRecoveryText.parse(None).error is None
+    assert ParsedRecoveryText.parse("not recovery text").error is not None

@@ -41,21 +41,16 @@ from ethernity.tasks.presentation.recovery import (
 from ethernity.tasks.recovery_inputs import (
     has_recovery_source,
     has_unlock_inputs,
-    recovery_text_error,
-    recovery_text_frames,
 )
 from ethernity.tasks.source_assessment import (
     ContentRecoveryTaskState,
     SourceAssessmentRequest,
 )
 from ethernity.workflows.execution import execute_recovery
+from ethernity.workflows.shared.outputs import validate_recovery_directory
 from ethernity.workflows.shared.requests import RecoveryRequest
 
 RestoreTarget = Literal["latest", "original", "specific_update"]
-RESTORE_DESTINATION_NON_EMPTY_WARNING = (
-    "The restore folder contains files or folders; restored files with matching names may be "
-    "replaced."
-)
 
 
 class RestoreTaskState(ContentRecoveryTaskState):
@@ -70,11 +65,8 @@ class RestoreTaskState(ContentRecoveryTaskState):
     allow_unsigned: bool = False
 
     def sections(self) -> tuple[TaskSection, ...]:
-        destination_warning = self._destination_warning()
-        source_error = recovery_text_error(
-            self.recovery_text,
-            allow_invalid_auth=self.allow_unsigned,
-        )
+        destination_issue = self._destination_issue()
+        source_error = self.parsed_recovery_text(allow_unsigned=self.allow_unsigned).error
         return (
             self.source_section(
                 "Backup source",
@@ -95,14 +87,16 @@ class RestoreTaskState(ContentRecoveryTaskState):
                 status=(
                     "missing"
                     if self.output_path is None
-                    else "warning"
-                    if destination_warning
+                    else "blocked"
+                    if destination_issue
                     else "ready"
                 ),
                 summary=(
                     "No restore folder selected."
                     if self.output_path is None
-                    else destination_warning or display_path(self.output_path)
+                    else destination_issue.message
+                    if destination_issue
+                    else display_path(self.output_path)
                 ),
                 action_label="Choose restore folder...",
             ),
@@ -139,6 +133,8 @@ class RestoreTaskState(ContentRecoveryTaskState):
                     section="output",
                 )
             )
+        if destination_issue := self._destination_issue():
+            issues.append(destination_issue)
         if (
             self.target == "specific_update"
             and self.extension_index is None
@@ -161,7 +157,7 @@ class RestoreTaskState(ContentRecoveryTaskState):
             )
         return self.validation_with_source_issues(issues)
 
-    def source_assessment_request(self) -> SourceAssessmentRequest | None:
+    def _build_source_assessment_request(self) -> SourceAssessmentRequest | None:
         return self.content_source_request(
             auth_text_file=self.auth_text_file,
             auth_payloads_file=self.auth_payloads_file,
@@ -177,16 +173,6 @@ class RestoreTaskState(ContentRecoveryTaskState):
                     message="Unsigned legacy recovery is allowed; signatures will not be required.",
                     severity="warning",
                     section="authentication",
-                )
-            )
-        destination_warning = self._destination_warning()
-        if destination_warning is not None:
-            warnings.append(
-                TaskIssue(
-                    code="RESTORE_DESTINATION_CONFLICT_WARNING",
-                    message=destination_warning,
-                    severity="warning",
-                    section="output",
                 )
             )
         return TaskPreview(
@@ -226,7 +212,7 @@ class RestoreTaskState(ContentRecoveryTaskState):
         validation = self.validate_task()
         validation.require_ready("Restore is not ready.")
 
-        result = execute_recovery(self.to_recovery_request())
+        result = execute_recovery(self.to_recovery_request(), session=self.recovery_session)
         return TaskExecutionResult(
             status="succeeded",
             message="Recovered files written.",
@@ -261,42 +247,28 @@ class RestoreTaskState(ContentRecoveryTaskState):
     def _destination_safety_notes(self) -> tuple[str, ...]:
         if self.output_path is None:
             return ()
-        if not self.output_path.exists():
-            return ("The restore folder does not exist and will be created.",)
-        if not self.output_path.is_dir():
-            return ("The restore path exists but is not a folder.",)
-        try:
-            has_existing_entries = any(self.output_path.iterdir())
-        except OSError as exc:
-            return (f"Ethernity could not inspect the restore folder: {exc}",)
-        if has_existing_entries:
-            return (RESTORE_DESTINATION_NON_EMPTY_WARNING,)
-        return ("The restore folder exists and is empty.",)
+        issue = self._destination_issue()
+        if issue is not None:
+            return (issue.message,)
+        return ("Recovered files require a new or empty folder. Existing files are not replaced.",)
 
-    def _destination_warning(self) -> str | None:
-        if self.output_path is None or not self.output_path.exists():
+    def _destination_issue(self) -> TaskIssue | None:
+        if self.output_path is None:
             return None
-        if not self.output_path.is_dir():
-            return "The restore path exists but is not a folder."
         try:
-            has_existing_entries = any(self.output_path.iterdir())
-        except OSError as exc:
-            return f"Ethernity could not inspect the restore folder: {exc}"
-        if has_existing_entries:
-            return RESTORE_DESTINATION_NON_EMPTY_WARNING
+            validate_recovery_directory(self.output_path)
+        except (OSError, ValueError) as exc:
+            return TaskIssue(
+                code="RESTORE_DESTINATION_INVALID",
+                message=str(exc),
+                section="output",
+            )
         return None
 
     def to_recovery_request(self) -> RecoveryRequest:
         return RecoveryRequest(
             config_path=self.config_path,
-            frames=tuple(
-                recovery_text_frames(
-                    self.recovery_text,
-                    allow_invalid_auth=self.allow_unsigned,
-                    quiet=True,
-                )
-                or ()
-            ),
+            frames=self.parsed_recovery_text(allow_unsigned=self.allow_unsigned).require_frames(),
             recovery_text_file=self.external_recovery_text_file,
             payloads_file=self.payloads_file,
             scan_paths=tuple(self.source_paths),
@@ -305,6 +277,7 @@ class RestoreTaskState(ContentRecoveryTaskState):
             extension_doc_hash=self.extension_doc_hash,
             expected_head_doc_hash=self.expected_head_doc_hash,
             output_path=self.output_path,
+            output_is_directory=True,
             allow_unsigned=self.allow_unsigned,
             quiet=True,
         )
