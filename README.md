@@ -10,10 +10,13 @@ No account or online service is required.
 Use it for seed phrases, private keys, certificates, and configuration files.
 
 <p align="center">
-  <a href="images/readme/terminal_app_preview.svg">
-    <img src="images/readme/terminal_app_preview.svg" alt="Creating a backup in Ethernity" width="900">
+  <a href="images/readme/backup_flow.gif">
+    <img src="images/readme/backup_flow.gif" alt="Creating a backup: select files, choose recovery settings, review the PDFs, and test recovery" width="900">
   </a>
 </p>
+
+Recorded with demonstration files, including a successful recovery check of the generated PDFs.
+[View a static preview](images/readme/terminal_app_preview.png).
 
 ## What you keep
 
@@ -26,8 +29,30 @@ Ethernity creates two kinds of pages:
 To restore, you need the backup pages and enough recovery sheets, or the passphrase itself.
 Keep the recovery sheets in separate places, apart from the backup pages.
 
-A standalone backup supports up to 2,048 files and 1 MiB of encrypted data. The size limit applies
-after compression and encryption.
+## How much fits on paper?
+
+A recovery phrase or short note is usually well under 1 KB. A collection of keys, certificates,
+or configuration files can take several pages. Photos and large archives quickly become
+impractical to print and scan.
+
+For a single file that does not shrink with compression, the default Sentinel design on A4 gives
+these examples:
+
+| File size | QR backup pages | Pages if you print the complete set |
+| --- | --- | --- |
+| 1 KB | 1 | 8 |
+| 10 KB | 3 | 19 |
+| 100 KB | 23 | 121 |
+
+The complete set includes the text fallback, three recovery sheets, and an inventory. A printed
+browser recovery kit is extra. Text often compresses well, so your files may need fewer pages;
+the paper size and design also affect the count. The app estimates QR pages before you create
+the backup and reports the total page count afterwards.
+
+A standalone backup supports up to 2,048 files and 1 MiB of encrypted data, roughly 1 MB after
+compression and encryption. That is a size ceiling, not a recommended amount to print.
+See [capacity and page counts](https://github.com/MinorGlitch/ethernity/wiki/Capacity-and-page-counts)
+for compression examples, other paper sizes, and how to check your own files.
 
 ## Install
 

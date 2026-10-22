@@ -8,6 +8,16 @@ conventional backup system for large archives, continuous sync, or unattended jo
 A standalone backup is limited to **1 MiB of ciphertext** and **2,048 recovered files**.
 Updated backups also have chain-wide limits.
 
+## How much fits on paper?
+
+A recovery phrase or short note usually fits on one QR page. With the default Sentinel design
+on A4, a 10 KB file that does not compress takes 3 QR pages, or 19 pages if you print the text
+fallback, recovery sheets, and inventory too. Text often compresses well; photos and ZIP files
+usually shrink little. The 1 MiB limit is a ceiling, not a recommended amount to print.
+
+See [capacity and page counts](https://github.com/MinorGlitch/ethernity/wiki/Capacity-and-page-counts)
+for more examples and how to check your files before printing.
+
 ## Installation
 
 Install Ethernity in an isolated environment. With [uv](https://docs.astral.sh/uv/getting-started/installation/):
