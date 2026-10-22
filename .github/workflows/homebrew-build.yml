@@ -114,6 +114,9 @@ jobs:
           [[ "${#bottle_files[@]}" -eq 1 ]]
           expected_version="$(ethernity --version)"
           brew uninstall "${formula_ref}"
+          # Uninstall removes formula-specific trust. Restore it for this exact
+          # staged formula before loading the bottle by path.
+          brew trust --formula "${formula_ref}"
           # Homebrew 7 permits local bottle paths only in developer mode.
           # Scope it to these two commands; normal formula checks stay unchanged.
           HOMEBREW_DEVELOPER=1 brew install "./${bottle_files[0]}"
