@@ -114,13 +114,16 @@ jobs:
           [[ "${#bottle_files[@]}" -eq 1 ]]
           expected_version="$(ethernity --version)"
           brew uninstall "${formula_ref}"
-          brew install "./${bottle_files[0]}"
+          # Homebrew 7 permits local bottle paths only in developer mode.
+          # Scope it to these two commands; normal formula checks stay unchanged.
+          HOMEBREW_DEVELOPER=1 brew install "./${bottle_files[0]}"
           [[ "$(ethernity --version)" == "$expected_version" ]]
           brew test "${formula_ref}"
-          brew reinstall "./${bottle_files[0]}"
+          HOMEBREW_DEVELOPER=1 brew reinstall "./${bottle_files[0]}"
           [[ "$(ethernity --version)" == "$expected_version" ]]
           brew uninstall "${formula_ref}"
-          [[ ! -e "$(brew --prefix)/bin/ethernity" ]]
+          command_path="$(brew --prefix)/bin/ethernity"
+          [[ ! -e "$command_path" && ! -L "$command_path" ]]
 
       - name: Upload validated bottle files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
