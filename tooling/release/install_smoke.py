@@ -11,6 +11,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from tooling.release import smoke
 from tooling.release.publish import digest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -162,12 +163,17 @@ def exercise(archive: Path, tag: str, target: str, arch: str, directory: Path) -
         install(archive, tag)
         assert not (root / "current/obsolete.txt").exists()
         assert run(str(executable), "--version") == f"ethernity {tag.removeprefix('v')}"
-        run(str(executable), "run", "--help")
+        smoke.smoke(str(executable))
         install(archive, tag)
         assert run(str(executable), "--version") == f"ethernity {tag.removeprefix('v')}"
         if target == "windows":
             entries = windows_user_path().split(";")
-            assert entries.count(str(root / "current")) == 1
+            installed_entries = [
+                entry
+                for entry in entries
+                if entry and Path(entry).exists() and Path(entry).samefile(root / "current")
+            ]
+            assert len(installed_entries) == 1, f"Expected one installed command path: {entries}"
         run(*command, remove)
         assert not executable.exists()
         assert not root.exists()

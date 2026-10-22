@@ -10,6 +10,7 @@ import tempfile
 import threading
 from pathlib import Path
 
+from tooling.release import smoke
 from tooling.release.install_smoke import fixture, run
 from tooling.release.installers import winget_manifest
 
@@ -55,7 +56,7 @@ def main() -> None:
                 )
                 assert run(str(alias), "--version") == f"ethernity {version.removeprefix('v')}"
             assert not (alias.resolve().parent / "obsolete.txt").exists()
-            run(str(alias), "run", "--help")
+            smoke.smoke(str(alias))
             run(
                 "winget",
                 "uninstall",
