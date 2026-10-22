@@ -142,8 +142,27 @@ jobs:
       - name: Install the pinned Microsoft WinGet client
         shell: powershell
         run: |
-          Install-Module Microsoft.WinGet.Client -RequiredVersion 1.29.380 -Repository PSGallery -Force -Scope CurrentUser
-          Repair-WinGetPackageManager -Version 1.29.380 -AllUsers -Force
+          $ProgressPreference = 'SilentlyContinue'
+          $release = 'https://github.com/microsoft/winget-cli/releases/download/v1.29.380'
+          $directory = Join-Path $env:RUNNER_TEMP 'winget-client'
+          New-Item -ItemType Directory -Path $directory | Out-Null
+          $bundle = Join-Path $directory 'client.msixbundle'
+          $dependencies = Join-Path $directory 'dependencies.zip'
+          Invoke-WebRequest "$release/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle" -OutFile $bundle
+          Invoke-WebRequest "$release/DesktopAppInstaller_Dependencies.zip" -OutFile $dependencies
+          Expand-Archive $dependencies -DestinationPath "$directory/dependencies"
+          $packages = @(Get-ChildItem "$directory/dependencies/x64" -Recurse -File |
+            Where-Object { $_.Extension -in '.appx', '.msix' } |
+            Select-Object -ExpandProperty FullName)
+          if (-not $packages) { throw 'Missing WinGet x64 dependencies' }
+          # Install the signed release directly. Repair can select a stale provisioned
+          # bundle on Server 2025 instead of registering the requested x64 package.
+          Add-AppxPackage -Path $bundle -DependencyPath $packages -ForceApplicationShutdown
+          $appPath = Join-Path $env:LOCALAPPDATA 'Microsoft/WindowsApps'
+          Add-Content $env:GITHUB_PATH $appPath
+          if ((& "$appPath/winget.exe" --version) -ne 'v1.29.380') {
+            throw 'Unexpected WinGet version'
+          }
       - name: Verify WinGet with the same Windows archive
         env:
           RELEASE_TAG: ${{ inputs.tag }}
