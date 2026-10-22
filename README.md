@@ -31,33 +31,26 @@ after compression and encryption.
 
 ## Install
 
-### macOS and Linux
+Ethernity runs in a terminal. The packaged downloads include Python and everything needed to
+create and restore backups.
 
-```sh
-brew install minorglitch/tap/ethernity
-```
+**Release note:** this checkout describes the forthcoming 1.2 app. The current GitHub release
+and the Homebrew/PyPI packages are older. For a published version, download it from
+[GitHub Releases](https://github.com/MinorGlitch/ethernity/releases/latest) and follow the README
+at that release tag. The new direct installers below will ship with 1.2.
 
-### Windows
+| Platform | Installation | Start |
+| --- | --- | --- |
+| macOS | `brew install minorglitch/tap/ethernity` with [Homebrew](https://brew.sh/) | `ethernity` |
+| Windows x64 | Download the release's `install.ps1`, then run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1` | Open a new terminal, run `ethernity` |
+| Linux x64 / ARM64 | Download the release's `install.sh`, then run `sh install.sh` | `ethernity` |
 
-Run in PowerShell, then open a new terminal:
+Run `ethernity --version` to check the installed version. Linux native builds require glibc 2.35
+or newer; Ubuntu 22.04 is the tested minimum. WinGet support is being prepared and is not yet
+available in the community repository.
 
-```powershell
-Invoke-WebRequest "https://raw.githubusercontent.com/MinorGlitch/ethernity/master/install.ps1" -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
-
-### With Python
-
-If you use pipx, install with Python 3.11 or newer:
-
-```sh
-pipx install ethernity-paper
-```
-
-The package name is `ethernity-paper`; the command is `ethernity`.
-
-You can also download an archive from [GitHub Releases](https://github.com/MinorGlitch/ethernity/releases).
-See [release verification](docs/release_files.md#verification-example) for signature checks.
+See the [installation guide](docs/install.md) for prerequisites, updates, uninstall, portable
+downloads, verification, and Python installation with uv or pipx.
 
 ## Make a backup and try restoring it
 
