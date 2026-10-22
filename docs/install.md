@@ -16,7 +16,7 @@ release by default. Download a fresh script when upgrading; do not fetch install
 
 ## macOS
 
-With [Homebrew](https://brew.sh/) installed:
+On Apple silicon, with [Homebrew](https://brew.sh/) installed:
 
 ```sh
 brew install minorglitch/tap/ethernity
@@ -27,10 +27,13 @@ ethernity
 Update with `brew update`, then `brew upgrade ethernity`. Remove the application with
 `brew uninstall ethernity`. These commands keep your backups and application settings.
 
-Without Homebrew, use a [portable download](#portable-downloads). Choose `macos-arm64` for an
-Apple silicon Mac or `macos-x64` for an Intel Mac. Builds are not notarized. See
+Without Homebrew, use the `macos-arm64` [portable download](#portable-downloads) for Apple
+silicon. Builds are not notarized. See
 [download verification](release_files.md#verification-example) before deciding whether to allow
 an unsigned executable through macOS security settings. Do not disable Gatekeeper globally.
+
+Starting with 1.2, we no longer build native Intel Mac archives or Homebrew bottles. Intel Mac
+users can use the [Python installation route](#python-users); Intel macOS is not tested in CI.
 
 ## Windows
 

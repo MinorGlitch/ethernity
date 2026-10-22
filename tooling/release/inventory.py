@@ -24,7 +24,6 @@ class Target:
 TARGETS = (
     Target("ubuntu-22.04", "linux", "x64"),
     Target("ubuntu-22.04-arm", "linux", "arm64"),
-    Target("macos-15-intel", "macos", "x64"),
     Target("macos-14", "macos", "arm64"),
     Target("windows-2022", "windows", "x64", "zip"),
 )

@@ -230,8 +230,8 @@ jobs:
           mapfile -t json_files < <(
             find "${BOTTLE_DIR}" -type f -name 'ethernity--*.bottle.json' | sort
           )
-          if [[ "${#bottle_files[@]}" -ne 3 ]] || [[ "${#json_files[@]}" -ne 3 ]]; then
-            echo "expected exactly three bottle tarballs and JSON files" >&2
+          if [[ "${#bottle_files[@]}" -ne 2 ]] || [[ "${#json_files[@]}" -ne 2 ]]; then
+            echo "expected exactly two bottle tarballs and JSON files" >&2
             exit 1
           fi
 

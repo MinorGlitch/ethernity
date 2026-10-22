@@ -19,6 +19,11 @@ That tagged source archive is built after injecting the generated recovery-kit b
 the frozen extension test PDFs used by the Homebrew formula. Homebrew must use this
 release archive rather than GitHub's automatically generated tag archive.
 
+Starting with 1.2, native archives cover Apple silicon macOS, Linux x64 and ARM64, and Windows
+x64. Native Intel Mac archives and Homebrew bottles are no longer built. Intel Mac users can
+use the [Python installation route](install.md#python-users), which is not tested on Intel macOS
+in CI. Previously published release assets remain unchanged.
+
 Releases also include the verified Python wheel, version-bound `install.sh` and `install.ps1`,
 and `SHA256SUMS`. Stable three-part versions include `MinorGlitch.Ethernity.yaml` for WinGet.
 Each of these files has a Sigstore bundle. SHA256SUMS covers every unsigned payload except
@@ -102,8 +107,8 @@ notice when publishing 1.2. WinGet may lag while its submission is reviewed; doc
 ## Homebrew release requirements
 
 Homebrew publication consumes only an already-published stable `vX.Y.Z` source release. It stages
-one formula, validates that exact formula on Intel macOS, Apple silicon, and Linux, and assembles
-the three bottles before updating the tap. Builders receive no tap credential. The
+one formula, validates that exact formula on Apple silicon macOS and Linux x64, and assembles
+the two bottles before updating the tap. Builders receive no tap credential. The
 `homebrew-production` environment is restricted to `master` and `v*` and is the only job allowed
 to read `HOMEBREW_TAP_TOKEN`. It has no required reviewers or self-approval restrictions.
 
@@ -114,7 +119,7 @@ On macOS, `cbor2` is built from source because its wheels lack space for Homebre
 the library path. Other compatible wheels remain in use. Selection checks the CPython version and ABI,
 architecture, and minimum platform version: macOS 13 or glibc 2.35. These wheel limits do not
 extend the operating systems covered by the bottle tests. Shared and universal wheels are reused
-where applicable; Intel macOS, Apple silicon, and Linux still have separate bottles and tests.
+where applicable; Apple silicon macOS and Linux x64 have separate bottles and tests.
 
 `HOMEBREW_TAP_REPO` is the configured GitHub repository name, for example
 `MinorGlitch/homebrew-tap`. The workflow derives the Homebrew tap name, `MinorGlitch/tap`, from
@@ -138,9 +143,9 @@ finish a failed formula push, but cannot downgrade a newer formula or overwrite 
 Linux, macOS, and Windows still run the full Python test suite. Linux collects branch coverage in
 that same run. Browser, visual, portability, compatibility, and audit gates remain separate.
 
-`native-packages.yml` builds the same five native archives for CI and releases. On pull requests,
+`native-packages.yml` builds the same four native archives for CI and releases. On pull requests,
 documentation-only changes skip native builds. `homebrew-build.yml` runs the same formula audit,
-source install, test, and bottle build on all three Homebrew platforms. Pull requests run it when
+source install, test, and bottle build on both Homebrew platforms. Pull requests run it when
 packaging, dependency, workflow, script, or packaged-resource files change. Master push, scheduled,
 and manual CI runs perform the full packaging rehearsal. None of these CI builds publish files.
 
@@ -166,7 +171,7 @@ The native smoke test restores a frozen root and update using the packaged execu
 Linux x64, Linux ARM64, and Windows x64 also run installer lifecycle checks using the real
 built archive: install, rejection of damaged and invalid replacements, upgrade, reinstall, and
 uninstall. Windows additionally checks migration from the old installer layout. Homebrew's
-separate Intel macOS, Apple silicon, and Linux jobs install, reinstall, test, and remove their
+separate Apple silicon macOS and Linux x64 jobs install, reinstall, test, and remove their
 bottles after the existing source build and recovery test.
 
 ## Extension compatibility checks

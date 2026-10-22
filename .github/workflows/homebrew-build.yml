@@ -24,8 +24,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15-intel
-            id: macos-15-intel
           - runner: macos-14
             id: macos-14
           - runner: ubuntu-24.04

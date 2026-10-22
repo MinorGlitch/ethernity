@@ -22,8 +22,8 @@ def validate_payload(directory: Path, *, tag: str, source_sha: str) -> dict[str,
         raise ValueError("bottle publication belongs to a different source release")
     files = manifest["files"]
     bottles = [name for name in files if re.fullmatch(r"ethernity--[^/\\]+\.bottle\.tar\.gz", name)]
-    if len(bottles) != 3 or set(files) != {*bottles, FORMULA}:
-        raise ValueError("publication must contain one formula and three bottles")
+    if len(bottles) != 2 or set(files) != {*bottles, FORMULA}:
+        raise ValueError("publication must contain one formula and two bottles")
     actual = {path.name for path in directory.iterdir()}
     if actual != {*files, MANIFEST}:
         raise ValueError("unexpected or missing bottle publication files")
@@ -60,8 +60,8 @@ def assemble(
     directory.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(formula, directory / FORMULA)
     paths = list(bottles.rglob("*.bottle.tar.gz"))
-    if len(paths) != 3 or len({path.name for path in paths}) != 3:
-        raise ValueError("expected three distinct bottle tarballs")
+    if len(paths) != 2 or len({path.name for path in paths}) != 2:
+        raise ValueError("expected two distinct bottle tarballs")
     for path in paths:
         shutil.copyfile(path, directory / path.name)
     files = {path.name: digest(path) for path in directory.iterdir()}

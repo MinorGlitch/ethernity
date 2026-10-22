@@ -66,13 +66,16 @@ at that release tag. The new direct installers below will ship with 1.2.
 
 | Platform | Installation | Start |
 | --- | --- | --- |
-| macOS | `brew install minorglitch/tap/ethernity` with [Homebrew](https://brew.sh/) | `ethernity` |
+| macOS, Apple silicon | `brew install minorglitch/tap/ethernity` with [Homebrew](https://brew.sh/) | `ethernity` |
 | Windows x64 | Download the release's `install.ps1`, then run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1` | Open a new terminal, run `ethernity` |
 | Linux x64 / ARM64 | Download the release's `install.sh`, then run `sh install.sh` | `ethernity` |
 
 Run `ethernity --version` to check the installed version. Linux native builds require glibc 2.35
 or newer; Ubuntu 22.04 is the tested minimum. WinGet support is being prepared and is not yet
 available in the community repository.
+
+Intel Mac users can use the [Python installation route](docs/install.md#python-users).
+Starting with 1.2, we no longer build native Intel Mac archives or Homebrew bottles.
 
 See the [installation guide](docs/install.md) for prerequisites, updates, uninstall, portable
 downloads, verification, and Python installation with uv or pipx.

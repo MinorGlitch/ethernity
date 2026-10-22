@@ -155,14 +155,16 @@ def test_release_tag_must_match_project_version(tag):
 
 def test_inventory_rejects_extra_missing_and_empty_files(tmp_path):
     names = inventory.release_files(TAG)
-    assert len(names) == 34
+    assert len(names) == 30
+    assert not any("macos-x64" in name for name in names)
     for name in names:
         (tmp_path / name).write_bytes(b"contents")
-    assert len(inventory.validate_files(tmp_path, names)) == 34
-    (tmp_path / "extra").write_bytes(b"contents")
+    assert len(inventory.validate_files(tmp_path, names)) == 30
+    extra = tmp_path / f"ethernity-{TAG}-macos-x64.tar.gz"
+    extra.write_bytes(b"contents")
     with pytest.raises(ValueError, match="mismatch"):
         inventory.validate_files(tmp_path, names)
-    (tmp_path / "extra").unlink()
+    extra.unlink()
     (tmp_path / names[0]).write_bytes(b"")
     with pytest.raises(ValueError, match="empty"):
         inventory.validate_files(tmp_path, names)
@@ -216,7 +218,7 @@ def test_only_confirmed_not_found_can_create_a_release(monkeypatch, stderr, abse
 def bottle_payload(tmp_path):
     bottles = tmp_path / "bottles"
     bottles.mkdir()
-    for platform in ("arm64_sonoma", "sequoia", "x86_64_linux"):
+    for platform in ("arm64_sonoma", "x86_64_linux"):
         (bottles / f"ethernity--1.2.0.{platform}.bottle.tar.gz").write_bytes(platform.encode())
     formula = tmp_path / "formula.rb"
     formula.write_text(
@@ -225,6 +227,28 @@ def bottle_payload(tmp_path):
     directory = tmp_path / "publication"
     homebrew.assemble(directory, formula, bottles, tag=TAG, source_sha=SHA, tap_base=SHA)
     return directory
+
+
+@pytest.mark.parametrize("invalid", ["missing", "extra", "duplicate"])
+def test_homebrew_assembly_requires_two_distinct_bottles(tmp_path, invalid):
+    names = ["arm64_sonoma", "x86_64_linux"]
+    if invalid == "missing":
+        names.pop()
+    elif invalid == "extra":
+        names.append("sequoia")
+    else:
+        names[1] = names[0]
+    bottles = tmp_path / "bottles"
+    for index, platform in enumerate(names):
+        directory = bottles / str(index)
+        directory.mkdir(parents=True)
+        (directory / f"ethernity--1.2.0.{platform}.bottle.tar.gz").write_bytes(b"bottle")
+    formula = tmp_path / "formula.rb"
+    formula.write_text("formula")
+    with pytest.raises(ValueError, match="two distinct bottle tarballs"):
+        homebrew.assemble(
+            tmp_path / "publication", formula, bottles, tag=TAG, source_sha=SHA, tap_base=SHA
+        )
 
 
 def test_fresh_homebrew_retry_keeps_bottle_origin_and_updates_current_tap_base(
@@ -242,7 +266,7 @@ def test_fresh_homebrew_retry_keeps_bottle_origin_and_updates_current_tap_base(
     assert remote.commands == []
 
 
-@pytest.mark.parametrize("corruption", ["bytes", "source", "extra", "traversal"])
+@pytest.mark.parametrize("corruption", ["bytes", "source", "extra", "traversal", "extra_bottle"])
 def test_homebrew_reuse_rejects_corrupt_payload(bottle_payload, corruption):
     manifest_path = bottle_payload / homebrew.MANIFEST
     manifest = json.loads(manifest_path.read_text())
@@ -252,6 +276,10 @@ def test_homebrew_reuse_rejects_corrupt_payload(bottle_payload, corruption):
         manifest["source_sha"] = "b" * 40
     elif corruption == "traversal":
         manifest["files"]["../escape"] = "bad"
+    elif corruption == "extra_bottle":
+        bottle = bottle_payload / "ethernity--1.2.0.sequoia.bottle.tar.gz"
+        bottle.write_bytes(b"intel")
+        manifest["files"][bottle.name] = homebrew.digest(bottle)
     else:
         (bottle_payload / "extra").write_text("bad")
     manifest_path.write_text(json.dumps(manifest))
@@ -340,7 +368,9 @@ def test_signing_verifies_exact_workflow_identity_and_issuer(monkeypatch, tmp_pa
     monkeypatch.setattr(cli, "run", lambda *args: commands.append(args))
     cli.sign(tmp_path, TAG)
     verification = [args for args in commands if args[1] == "verify-blob"]
-    assert len(verification) == 17
+    assert sorted(Path(args[-1]).name for args in verification) == sorted(
+        inventory.release_files(TAG, signed=False)
+    )
     for args in verification:
         assert args[args.index("--certificate-identity") + 1] == f"https://github.com/{workflow}"
         assert (
@@ -362,7 +392,9 @@ def test_existing_release_retry_verifies_all_signatures_before_success(monkeypat
     monkeypatch.setattr(cli, "run", lambda *args: commands.append(args))
     cli.verify_published(TAG)
     assert checked == [(TAG, SHA), (TAG, SHA)]
-    assert len(commands) == 17
+    assert sorted(Path(command[-1]).name for command in commands) == sorted(
+        inventory.release_files(TAG, signed=False)
+    )
     assert all(command[1] == "verify-blob" for command in commands)
     assert remote.commands == []
 
