@@ -34,7 +34,11 @@ function Confirm-Archive([string]$ZipPath, [string]$ChecksumPath, [string]$Name)
     })
     if ($entries.Count -ne 1) { throw 'Archive is missing or duplicated in SHA256SUMS.' }
     $expected = $entries[0].Substring(0, 64)
-    if ((Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash -ne $expected) {
+    $stream = [IO.File]::OpenRead($ZipPath)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $actual = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
+    finally { $sha.Dispose(); $stream.Dispose() }
+    if ($actual -ne $expected) {
         throw 'Archive checksum does not match. Existing installation was kept.'
     }
 }
@@ -52,7 +56,7 @@ function Expand-Release([string]$ZipPath, [string]$Destination, [string]$Expecte
         }
     }
     finally { $zip.Dispose() }
-    Expand-Archive -LiteralPath $ZipPath -DestinationPath $Destination
+    [IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $Destination)
 }
 
 $InstallRoot = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
