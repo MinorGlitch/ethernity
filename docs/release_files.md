@@ -143,6 +143,12 @@ finish a failed formula push, but cannot downgrade a newer formula or overwrite 
 Linux, macOS, and Windows still run the full Python test suite. Linux collects branch coverage in
 that same run. Browser, visual, portability, compatibility, and audit gates remain separate.
 
+The kit verification job uses the official Playwright container, pinned by version and digest,
+with its browsers and system libraries already installed. Keep that image aligned with the
+Playwright version in `kit/package-lock.json`. The job still verifies the generated bundle files,
+runs the Node tests, and checks both kit variants in Chromium and WebKit. It does not download
+browser dependencies through apt or raise the job's 20-minute limit.
+
 `native-packages.yml` builds the same four native archives for CI and releases. On pull requests,
 documentation-only changes skip native builds. `homebrew-build.yml` runs the same formula audit,
 source install, test, and bottle build on both Homebrew platforms. Pull requests run it when
