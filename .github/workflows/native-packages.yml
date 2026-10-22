@@ -157,7 +157,7 @@ jobs:
           if (-not $packages) { throw 'Missing WinGet x64 dependencies' }
           # Install the signed release directly. Repair can select a stale provisioned
           # bundle on Server 2025 instead of registering the requested x64 package.
-          Add-AppxPackage -Path $bundle -DependencyPath $packages -ForceApplicationShutdown
+          Add-AppxPackage -Path $bundle -DependencyPath $packages -ForceApplicationShutdown -ForceUpdateFromAnyVersion
           $appPath = Join-Path $env:LOCALAPPDATA 'Microsoft/WindowsApps'
           Add-Content $env:GITHUB_PATH $appPath
           if ((& "$appPath/winget.exe" --version) -ne 'v1.29.380') {
