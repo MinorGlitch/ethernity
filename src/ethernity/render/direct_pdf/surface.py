@@ -115,6 +115,7 @@ class FpdfSurface:
         self._pdf = FPDF(unit="mm", format=(page_width_mm, page_height_mm))
         self._pdf.set_auto_page_break(False)
         self._registered_fonts: set[tuple[str, FontStyle]] = set()
+        self._pending_fonts: dict[tuple[str, FontStyle], Path] = {}
         self._glyph_bounds: dict[tuple[str, str], tuple[float, float]] = {}
 
     def add_page(self) -> None:
@@ -127,10 +128,10 @@ class FpdfSurface:
         font_path = Path(path)
         if not font_path.is_file():
             raise FileNotFoundError(font_path)
-        # fpdf2 reserves the standard PDF family names for unembedded fonts.
-        # Keep template names stable while registering explicit font programs.
-        self._pdf.add_font(f"embedded-{family}", style, str(font_path))
-        self._registered_fonts.add((family, style))
+        key = (family, style)
+        if key not in self._registered_fonts:
+            self._registered_fonts.add(key)
+            self._pending_fonts[key] = font_path
 
     def measure_text_width(self, text: str, style: TextStyle) -> float:
         self._set_text_style(style)
@@ -307,11 +308,16 @@ class FpdfSurface:
         return frozenset(self._registered_fonts)
 
     def _set_text_style(self, style: TextStyle) -> None:
-        family = (
-            f"embedded-{style.family}"
-            if (style.family, style.style) in self._registered_fonts
-            else style.family
-        )
+        key = (style.family, style.style)
+        if key in self._pending_fonts:
+            # Parse only fonts this document measures or paints. Each surface
+            # keeps its own font objects and glyph subsets.
+            self._pdf.add_font(
+                f"embedded-{style.family}", style.style, str(self._pending_fonts[key])
+            )
+            del self._pending_fonts[key]
+        # fpdf2 reserves the standard PDF names for unembedded fonts.
+        family = f"embedded-{style.family}" if key in self._registered_fonts else style.family
         self._pdf.set_font(family, style=style.style, size=cast(int, style.size_pt))
         self._pdf.set_char_spacing(style.char_spacing_pt)
 
