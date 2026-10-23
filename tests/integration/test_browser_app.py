@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 from pathlib import Path
 
@@ -123,20 +124,42 @@ def test_stopping_server_closes_active_app(monkeypatch, tmp_path, browser_comman
     asyncio.run(check())
 
 
-def test_unresponsive_child_is_stopped_without_shell_quoting(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("launcher", [False, True], ids=["direct", "launcher"])
+def test_unresponsive_child_is_stopped_without_shell_quoting(
+    monkeypatch, tmp_path, launcher
+) -> None:
     script = tmp_path / "child & data.py"
-    script.write_text("import time\nprint('__GANGLION__', flush=True)\ntime.sleep(60)\n")
-    monkeypatch.setattr(browser, "app_command", lambda: [sys.executable, str(script)])
+    script.write_text(
+        "import signal, sys, time\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "sys.stdout.buffer.write(b'__GANGLION__\\nD\\x00\\x00\\x00\\x05ready')\n"
+        "sys.stdout.buffer.flush()\n"
+        "time.sleep(60)\n"
+    )
+    command = [sys.executable, str(script)]
+    if launcher:
+        wrapper = tmp_path / "launcher.py"
+        wrapper.write_text(
+            "import subprocess, sys\nsys.exit(subprocess.call([sys.executable, *sys.argv[1:]]))\n"
+        )
+        command.insert(1, str(wrapper))
+    monkeypatch.setattr(browser, "app_command", lambda: command)
     monkeypatch.setattr(browser, "STOP_TIMEOUT", 0.1)
 
     async def ignore(*args) -> None:
         pass
 
     async def check() -> None:
+        ready = asyncio.Event()
+
+        async def receive(data: bytes) -> None:
+            assert data == b"ready"
+            ready.set()
+
         server = browser.LocalServer(0)
         service = browser.LocalAppService(
             "ethernity",
-            write_bytes=ignore,
+            write_bytes=receive,
             write_str=ignore,
             close=ignore,
             download_manager=server.download_manager,
@@ -144,8 +167,23 @@ def test_unresponsive_child_is_stopped_without_shell_quoting(monkeypatch, tmp_pa
         await service.start(80, 24)
         process = service._process
         assert process is not None
-        await service.stop()
-        assert process.returncode is not None
+        descendants = []
+        try:
+            await asyncio.wait_for(ready.wait(), 10)
+            descendants = psutil.Process(process.pid).children(recursive=True)
+            if launcher:
+                assert descendants
+            await asyncio.wait_for(service.stop(), 5)
+            assert process.returncode is not None
+            _, alive = await asyncio.to_thread(psutil.wait_procs, descendants, timeout=5)
+            assert not alive
+        finally:
+            for descendant in descendants:
+                with contextlib.suppress(psutil.NoSuchProcess):
+                    descendant.kill()
+            if process.returncode is None:
+                process.kill()
+            await process.wait()
 
     asyncio.run(check())
 

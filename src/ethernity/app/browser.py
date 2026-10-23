@@ -11,6 +11,7 @@ import webbrowser
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+import psutil
 from aiohttp import web
 from textual_serve.app_service import AppService
 from textual_serve.server import Server
@@ -46,12 +47,18 @@ class LocalAppService(AppService):
         return process
 
     async def stop(self) -> None:
+        process = self._process
+        children: list[psutil.Process] = []
+        if process is not None and process.returncode is None:
+            # Capture ownership before quit can make a launcher exit and orphan its child.
+            with contextlib.suppress(psutil.NoSuchProcess):
+                children = psutil.Process(process.pid).children(recursive=True)
         try:
             await asyncio.wait_for(super().stop(), timeout=STOP_TIMEOUT)
         except (TimeoutError, BrokenPipeError, ConnectionResetError):
             pass
         finally:
-            process = self._process
+            await _stop_children(children)
             if process is not None:
                 if process.returncode is None:
                     with contextlib.suppress(ProcessLookupError):
@@ -63,6 +70,21 @@ class LocalAppService(AppService):
                         process.kill()
                     await process.wait()
                 self._process = None
+
+
+async def _stop_children(children: list[psutil.Process]) -> None:
+    if not children:
+        return
+    # Stop descendants first so waiting launchers can reap them and exit normally.
+    for child in reversed(children):
+        with contextlib.suppress(psutil.NoSuchProcess):
+            child.terminate()
+    _, alive = await asyncio.to_thread(psutil.wait_procs, children, timeout=STOP_TIMEOUT)
+    for child in alive:
+        with contextlib.suppress(psutil.NoSuchProcess):
+            child.kill()
+    if alive:
+        await asyncio.to_thread(psutil.wait_procs, alive, timeout=STOP_TIMEOUT)
 
 
 class LocalServer(Server):
