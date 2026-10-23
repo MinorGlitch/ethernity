@@ -11,11 +11,12 @@ Use it for seed phrases, private keys, certificates, and configuration files.
 
 <p align="center">
   <a href="images/readme/backup_flow.gif">
-    <img src="images/readme/backup_flow.gif" alt="Creating a backup: select files, choose recovery settings, review the PDFs, and test recovery" width="900">
+    <img src="images/readme/backup_flow.gif" alt="Selecting files, creating paper backup PDFs, and checking recovery with two recovery sheets" width="900">
   </a>
 </p>
 
-Recorded with demonstration files, including a successful recovery check of the generated PDFs.
+A guided backup walkthrough with demonstration files and settings. Recovery is checked from the
+generated PDFs; processing waits are shortened. Test your printed copies before storing them.
 [View a static preview](images/readme/terminal_app_preview.png).
 
 ## What you keep
@@ -56,8 +57,8 @@ for compression examples, other paper sizes, and how to check your own files.
 
 ## Install
 
-Ethernity runs in a terminal. The packaged downloads include Python and everything needed to
-create and restore backups.
+Ethernity opens in your terminal by default. Run `ethernity --web` to use the same app in your
+browser. The packaged downloads include Python and everything needed to create and restore backups.
 
 **Release note:** this checkout describes the forthcoming 1.2 app. The current GitHub release
 and the Homebrew/PyPI packages are older. For a published version, download it from
@@ -87,6 +88,10 @@ Start the terminal app:
 ```sh
 ethernity
 ```
+
+For the same interface in a browser, run `ethernity --web`. It runs on your computer and works
+offline, using your usual settings and local files. Keep the launching terminal open; press
+Ctrl+C there to stop it. This is separate from the standalone HTML recovery kit.
 
 1. Choose **Create backup** and add a test file.
 2. Keep the default recovery setting: three sheets, any two needed.
