@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import subprocess
 import sys
 from pathlib import Path
 
@@ -16,10 +15,10 @@ from ethernity.app import browser
 pytestmark = pytest.mark.portability
 
 
-@pytest.mark.parametrize("launcher", [False, True])
-def test_browser_launches_app_and_cleans_up_disconnected_tabs(tmp_path, launcher) -> None:
+@pytest.fixture(params=[False, True], ids=["direct", "launcher"])
+def browser_command(tmp_path, request) -> list[str]:
     command = [sys.executable, "-m", "ethernity"]
-    if launcher:
+    if request.param:
         # Model the persistent interpreter child of Windows virtualenv launchers.
         script = tmp_path / "launcher.py"
         script.write_text(
@@ -27,7 +26,11 @@ def test_browser_launches_app_and_cleans_up_disconnected_tabs(tmp_path, launcher
             "sys.exit(subprocess.call([sys.executable, '-m', 'ethernity', *sys.argv[1:]]))\n"
         )
         command = [sys.executable, str(script)]
-    asyncio.run(check_browser(command))
+    return command
+
+
+def test_browser_launches_app_and_cleans_up_disconnected_tabs(browser_command) -> None:
+    asyncio.run(check_browser(browser_command))
 
 
 def test_browser_scroll_reports_move_one_cell_each(monkeypatch, tmp_path) -> None:
@@ -53,12 +56,48 @@ def test_browser_scroll_reports_move_one_cell_each(monkeypatch, tmp_path) -> Non
     asyncio.run(check())
 
 
-def test_stopping_server_closes_active_app(monkeypatch, tmp_path) -> None:
+def test_stopping_server_closes_active_app(monkeypatch, tmp_path, browser_command) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(browser, "app_command", lambda: browser_command)
 
     async def check() -> None:
+        # This existing process launches another interpreter only after the snapshot.
+        # Windows virtualenv launchers can do the same while Popen is returning.
+        unrelated = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            "import subprocess, sys\n"
+            "print('ready', flush=True)\n"
+            "sys.stdin.readline()\n"
+            "with subprocess.Popen([sys.executable, '-c', "
+            "'import os, sys; print(os.getpid(), flush=True); sys.stdin.read()'], "
+            "stdin=subprocess.PIPE) as child:\n"
+            "    sys.stdin.read()\n"
+            "    child.communicate(timeout=5)\n",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+        )
+        assert unrelated.stdin is not None
+        assert unrelated.stdout is not None
+        try:
+            assert await asyncio.wait_for(unrelated.stdout.readline(), 10) == b"ready\n"
+            await check_shutdown(unrelated)
+            assert unrelated.returncode is None
+        finally:
+            unrelated.stdin.close()
+            await asyncio.wait_for(unrelated.communicate(), 10)
+        assert unrelated.returncode == 0
+
+    async def check_shutdown(unrelated: asyncio.subprocess.Process) -> None:
         parent = psutil.Process()
-        existing = set(parent.children(recursive=True))
+        # Ownership follows direct child roots, not the time a descendant appears.
+        existing_roots = set(parent.children())
+        assert unrelated.stdin is not None
+        assert unrelated.stdout is not None
+        unrelated.stdin.write(b"launch\n")
+        await unrelated.stdin.drain()
+        interpreter = psutil.Process(int(await asyncio.wait_for(unrelated.stdout.readline(), 10)))
+        assert psutil.Process(unrelated.pid) in existing_roots
         server = browser.LocalServer(0)
         async with TestClient(
             TestServer(await server._make_app()), cookie_jar=aiohttp.CookieJar(unsafe=True)
@@ -68,22 +107,19 @@ def test_stopping_server_closes_active_app(monkeypatch, tmp_path) -> None:
             await client.get(f"/?token={server.token}")
             async with client.ws_connect("/ws", origin=server.public_url) as ws:
                 await expect_screen(ws, "Choose files")
-                children = [
-                    child for child in parent.children(recursive=True) if child not in existing
+                session_roots = set(parent.children()) - existing_roots
+                assert len(session_roots) == 1
+                session_processes = [
+                    process
+                    for root in session_roots
+                    for process in (root, *root.children(recursive=True))
                 ]
-                assert children
                 await asyncio.wait_for(asyncio.gather(client.server.close(), ws.receive()), 15)
-                _, alive = await asyncio.to_thread(psutil.wait_procs, children, timeout=5)
+                _, alive = await asyncio.to_thread(psutil.wait_procs, session_processes, timeout=5)
                 assert not alive
+                assert interpreter.is_running()
 
-    # Other tests may leave a multiprocessing resource tracker alive in this worker.
-    unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-    try:
-        asyncio.run(check())
-        assert unrelated.poll() is None
-    finally:
-        unrelated.terminate()
-        unrelated.wait(timeout=5)
+    asyncio.run(check())
 
 
 def test_unresponsive_child_is_stopped_without_shell_quoting(monkeypatch, tmp_path) -> None:
