@@ -80,7 +80,8 @@ def test_stopping_server_closes_active_app(monkeypatch, tmp_path, browser_comman
         assert unrelated.stdin is not None
         assert unrelated.stdout is not None
         try:
-            assert await asyncio.wait_for(unrelated.stdout.readline(), 10) == b"ready\n"
+            greeting = await asyncio.wait_for(unrelated.stdout.readline(), 10)
+            assert greeting in (b"ready\n", b"ready\r\n")
             await check_shutdown(unrelated)
             assert unrelated.returncode is None
         finally:
