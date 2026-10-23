@@ -58,14 +58,14 @@ def test_menu_selection_leaves_focus_in_a_coherent_workflow() -> None:
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("menu,choice", [("manage", "rebuild"), ("tools", "settings")])
+@pytest.mark.parametrize("choice", ["add_files", "rebuild"])
 @pytest.mark.parametrize("row", [0, 2])
 @pytest.mark.portability
-def test_menu_padding_selects_the_whole_choice(menu: str, choice: str, row: int) -> None:
+def test_menu_padding_selects_the_whole_choice(choice: str, row: int) -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(80, 24)) as pilot:
-            assert await pilot.click(f"#nav-{menu}")
+            assert await pilot.click("#nav-manage")
             await wait_for_condition(pilot, lambda: app._nav_menu_open, "navigation menu to open")
             assert await pilot.click(f"#{choice}", offset=(1, row))
             await wait_for_condition(

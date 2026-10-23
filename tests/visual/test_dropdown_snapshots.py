@@ -92,11 +92,9 @@ def test_open_dropdown_snapshot(
     assert_svg_snapshot(svg, SNAPSHOT_DIR / f"{name}.svg", update=update_tui_snapshots)
 
 
-@pytest.mark.parametrize("menu", ["manage", "tools"])
 @pytest.mark.parametrize("size", [(120, 32), (80, 24)])
 @pytest.mark.parametrize("theme", ["ethernity-dark", "ethernity-light"])
 def test_navigation_dropdown_snapshot(
-    menu: str,
     size: tuple[int, int],
     theme: str,
     update_tui_snapshots: bool,
@@ -107,7 +105,7 @@ def test_navigation_dropdown_snapshot(
         return app
 
     async def open_menu(app, pilot) -> None:
-        await pilot.click(f"#nav-{menu}")
+        await pilot.click("#nav-manage")
         await pilot.press("down")
         nav = app.query_one("#nav-list", ListView)
         assert app.focused is nav
@@ -116,6 +114,32 @@ def test_navigation_dropdown_snapshot(
                 assert item.region.height == 3
                 assert item.query_one(".nav-row").region.y == item.region.y + 1
 
-    name = f"dropdown-navigation-{menu}-{theme}-{size[0]}x{size[1]}"
+    name = f"dropdown-navigation-manage-{theme}-{size[0]}x{size[1]}"
     svg = capture_svg(make_app, terminal_size=size, title=name, run_before=open_menu)
+    assert_svg_snapshot(svg, SNAPSHOT_DIR / f"{name}.svg", update=update_tui_snapshots)
+
+
+@pytest.mark.parametrize("task", ["kit", "settings"])
+@pytest.mark.parametrize("size", [(120, 32), (80, 24)])
+@pytest.mark.parametrize("theme", ["ethernity-dark", "ethernity-light"])
+def test_direct_navigation_snapshot(
+    task: str, size: tuple[int, int], theme: str, update_tui_snapshots: bool
+) -> None:
+    def make_app() -> EthernityApp:
+        app = ProductionVisualApp(production_case("backup-empty"))
+        app.theme = theme
+        return app
+
+    async def open_task(app, pilot) -> None:
+        await pilot.click(f"#nav-{task}")
+        assert app.active_task == task
+        assert not app._nav_menu_open
+        await pilot.press("ctrl+b")
+        button = app.query_one(f"#nav-{task}", Button)
+        assert app.focused is button
+        assert button.has_class("active-task")
+        assert Region(0, 0, *size).contains_region(button.region)
+
+    name = f"navigation-{task}-{theme}-{size[0]}x{size[1]}"
+    svg = capture_svg(make_app, terminal_size=size, title=name, run_before=open_task)
     assert_svg_snapshot(svg, SNAPSHOT_DIR / f"{name}.svg", update=update_tui_snapshots)

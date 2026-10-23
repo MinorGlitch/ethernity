@@ -21,7 +21,6 @@ from ethernity.app.events import AppEventHandlers
 from ethernity.app.execution import ReviewedTask
 from ethernity.app.execution_controller import ExecutionController
 from ethernity.app.mutations.actions import TaskMutationActions
-from ethernity.app.navigation import NavMenu
 from ethernity.app.output_paths import open_folder, single_output_folder
 from ethernity.app.recovery_check_controller import RecoveryCheckController
 from ethernity.app.settings_controller import SettingsController
@@ -183,7 +182,6 @@ class EthernityApp(
         self.recovery_check_controller = RecoveryCheckController(self)
         self._nav_menu_open = False
         self._loaded_backup_context: LoadedBackupContext | None = None
-        self._nav_menu: NavMenu = "manage"
 
     def _task_payloads(self) -> dict[TaskKey, str]:
         return {

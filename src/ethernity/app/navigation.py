@@ -17,19 +17,21 @@ from ethernity.tasks.models import TaskIssue
 from ethernity.tasks.task_types import TaskKey
 from ethernity.version import get_ethernity_version
 
-NavMenu = Literal["manage", "tools"]
-NAV_MENUS: dict[NavMenu, tuple[TaskKey, ...]] = {
-    "manage": ("add_files", "rebuild", "replace_recovery_docs"),
-    "tools": ("kit", "settings"),
+MANAGE_TASKS: tuple[TaskKey, ...] = ("add_files", "rebuild", "replace_recovery_docs")
+DIRECT_NAV_TASKS: dict[str, TaskKey] = {
+    "nav-create": "backup",
+    "nav-restore": "restore",
+    "nav-kit": "kit",
+    "nav-settings": "settings",
 }
 NAV_NUMBERS: dict[TaskKey, str] = {workflow.key: workflow.shortcut for workflow in WORKFLOWS}
 NAV_LABELS: dict[TaskKey, str] = {
-    "backup": "Create backup",
-    "restore": "Restore files",
+    "backup": "Backup",
+    "restore": "Restore",
     "add_files": "Add files",
     "rebuild": "Rebuild backup",
     "replace_recovery_docs": "Replace sheets",
-    "kit": "Offline recovery kit",
+    "kit": "Recovery Kit",
     "settings": "Settings",
 }
 
@@ -46,11 +48,7 @@ async def run_directional_widget_binding(focused: Widget | None, key: str) -> bo
 
 
 def nav_items(active_task: TaskKey | None = None) -> tuple[ListItem, ...]:
-    return tuple(
-        _nav_item(task_key, active_task)
-        for task_keys in NAV_MENUS.values()
-        for task_key in task_keys
-    )
+    return tuple(_nav_item(task_key, active_task) for task_key in MANAGE_TASKS)
 
 
 NavTaskState = Literal["", "in-progress", "ready", "attention"]
@@ -60,17 +58,12 @@ def sync_nav_active(
     nav: ListView,
     active_task: TaskKey,
     task_states: Mapping[TaskKey, NavTaskState] | None = None,
-    *,
-    menu: NavMenu = "manage",
 ) -> None:
     for item in nav.query(ListItem):
         task_key = _nav_item_task(item)
         if task_key is None:
             continue
         active = task_key == active_task
-        visible = task_key in NAV_MENUS[menu]
-        item.display = visible
-        item.disabled = not visible
         item.set_class(active, "active")
         update_static_text(item.query_one(".nav-row-marker", Label), ">" if active else "")
         state = task_states.get(task_key, "") if task_states is not None else ""

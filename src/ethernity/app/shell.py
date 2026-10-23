@@ -4,7 +4,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Label, ListView
 
-from ethernity.app.navigation import app_version_label, nav_items
+from ethernity.app.navigation import NAV_LABELS, app_version_label, nav_items
 from ethernity.app.widgets.task_canvas import TaskCanvas
 
 
@@ -21,11 +21,11 @@ def _compose_workbench() -> ComposeResult:
         yield Label(app_version_label(), id="app-header-status")
     with Horizontal(id="workbench-navigation"):
         yield Button(
-            "1 Create backup",
+            f"1 {NAV_LABELS['backup']}",
             id="nav-create",
         )
         yield Button(
-            "2 Restore files",
+            f"2 {NAV_LABELS['restore']}",
             id="nav-restore",
         )
         yield Button(
@@ -33,8 +33,12 @@ def _compose_workbench() -> ComposeResult:
             id="nav-manage",
         )
         yield Button(
-            "Tools",
-            id="nav-tools",
+            NAV_LABELS["kit"],
+            id="nav-kit",
+        )
+        yield Button(
+            NAV_LABELS["settings"],
+            id="nav-settings",
         )
         yield Button(
             "Help", id="nav-help", action="app.help", tooltip="Help and keyboard shortcuts (?)"

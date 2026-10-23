@@ -262,7 +262,7 @@ def test_escape_closes_navigation_menu_without_affecting_closed_shell() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(80, 24)) as pilot:
-            await pilot.click("#nav-tools")
+            await pilot.click("#nav-manage")
             await pilot.pause()
             assert app._nav_menu_open
 

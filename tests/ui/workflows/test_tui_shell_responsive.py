@@ -35,7 +35,7 @@ def test_shell_breakpoints_drive_navigation_and_header_priority() -> None:
 
                 assert app.screen.has_class(width_class)
                 assert app.screen.has_class(height_class)
-                nav_button = app.query_one("#nav-tools", Button)
+                nav_button = app.query_one("#nav-settings", Button)
                 header_title = app.query_one("#app-header-title", Label)
                 header_status = app.query_one("#app-header-status", Label)
 
@@ -68,6 +68,10 @@ def test_shell_fills_editor_width_and_reserves_the_action_row() -> None:
                 for selector in ("#app-header", "#workbench-navigation", "#shell"):
                     region = app.query_one(selector).region
                     assert (region.x, region.width) == (frame.x, frame.width)
+                navigation = app.query_one("#workbench-navigation").region
+                for button in app.query("#workbench-navigation Button"):
+                    assert navigation.contains_region(button.region)
+                    assert len(str(button.label)) <= button.content_size.width
                 assert canvas.x == workspace.x
                 assert canvas.width == workspace.width
                 assert (
@@ -88,38 +92,37 @@ def test_shell_fills_editor_width_and_reserves_the_action_row() -> None:
     asyncio.run(run())
 
 
-def test_navigation_menus_fit_below_their_buttons_and_close_on_resize() -> None:
+def test_manage_menu_fits_below_its_button_and_closes_on_resize() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(160, 48)) as pilot:
-            for menu, items in (("manage", 3), ("tools", 2)):
-                for width, rows in ((160, 48), (120, 32), (80, 24), (60, 20)):
-                    await pilot.resize_terminal(width, rows)
-                    await pilot.pause()
-                    assert not app._nav_menu_open
-                    await pilot.click(f"#nav-{menu}")
-                    await pilot.pause()
-                    dropdown = app.query_one("#nav-menu").region
-                    owner = app.query_one(f"#nav-{menu}", Button).region
-                    assert dropdown.width == 34
-                    assert dropdown.height == items * 3 + 2
-                    assert dropdown.y == owner.bottom
-                    assert dropdown.x == min(owner.x, width - dropdown.width)
-                    assert dropdown.right <= width
-                    assert not dropdown.overlaps(owner)
-                    choices = [item for item in app.query("#nav-list > ListItem") if item.display]
-                    for current, following in zip(choices, choices[1:], strict=False):
-                        assert following.region.y == current.region.bottom
-                    for choice in choices:
-                        number = choice.query_one(".nav-row-number").region
-                        label = choice.query_one(".nav-row-label").region
-                        assert number.y == label.y == choice.region.y + 1
-                        assert number.height == label.height == 1
-                        assert choice.region.height == 3
-                    for label in app.query_one("#nav-list", ListView).query(".nav-row-label"):
-                        if label.region.width:
-                            assert len(str(label.content)) <= label.region.width
-                await pilot.press("escape")
+            for width, rows in ((160, 48), (120, 32), (80, 24), (60, 20)):
+                await pilot.resize_terminal(width, rows)
+                await pilot.pause()
+                assert not app._nav_menu_open
+                await pilot.click("#nav-manage")
+                await pilot.pause()
+                dropdown = app.query_one("#nav-menu").region
+                owner = app.query_one("#nav-manage", Button).region
+                assert dropdown.width == 34
+                assert dropdown.height == 3 * 3 + 2
+                assert dropdown.y == owner.bottom
+                assert dropdown.x == min(owner.x, width - dropdown.width)
+                assert dropdown.right <= width
+                assert not dropdown.overlaps(owner)
+                choices = [item for item in app.query("#nav-list > ListItem") if item.display]
+                for current, following in zip(choices, choices[1:], strict=False):
+                    assert following.region.y == current.region.bottom
+                for choice in choices:
+                    number = choice.query_one(".nav-row-number").region
+                    label = choice.query_one(".nav-row-label").region
+                    assert number.y == label.y == choice.region.y + 1
+                    assert number.height == label.height == 1
+                    assert choice.region.height == 3
+                for label in app.query_one("#nav-list", ListView).query(".nav-row-label"):
+                    if label.region.width:
+                        assert len(str(label.content)) <= label.region.width
+            await pilot.press("escape")
 
     asyncio.run(run())
 

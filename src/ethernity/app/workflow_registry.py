@@ -51,7 +51,6 @@ def _settings_state(settings_config_path: Path | None) -> BaseModel:
 class WorkflowDefinition:
     key: TaskKey
     title: str
-    nav_group: str
     shortcut: str
     state_attribute: str
     workspace_id: str | None
@@ -93,7 +92,6 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         key="backup",
         title="Create backup",
-        nav_group="Start",
         shortcut="1",
         state_attribute="backup_state",
         workspace_id="backup-workspace",
@@ -148,7 +146,6 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         key="restore",
         title="Restore files",
-        nav_group="Start",
         shortcut="2",
         state_attribute="restore_state",
         workspace_id="restore-workspace",
@@ -198,7 +195,6 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         key="add_files",
         title="Add files to backup",
-        nav_group="Loaded backup",
         shortcut="3",
         state_attribute="add_files_state",
         workspace_id="add_files-workspace",
@@ -251,7 +247,6 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         key="rebuild",
         title="Rebuild backup",
-        nav_group="Loaded backup",
         shortcut="4",
         state_attribute="rebuild_state",
         workspace_id="rebuild-workspace",
@@ -299,7 +294,6 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         key="replace_recovery_docs",
         title="Create replacement recovery sheets",
-        nav_group="Loaded backup",
         shortcut="5",
         state_attribute="replace_recovery_docs_state",
         workspace_id="replace_recovery_docs-workspace",
@@ -370,7 +364,6 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         key="kit",
         title="Create offline recovery kit",
-        nav_group="Tools",
         shortcut="6",
         state_attribute="kit_state",
         workspace_id="kit-workspace",
@@ -401,7 +394,6 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         key="settings",
         title="Settings",
-        nav_group="Tools",
         shortcut="7",
         state_attribute="settings_state",
         workspace_id=None,
@@ -416,26 +408,10 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
 )
 
 WORKFLOW_BY_KEY = {workflow.key: workflow for workflow in WORKFLOWS}
-WORKFLOW_GROUPS = tuple(dict.fromkeys(workflow.nav_group for workflow in WORKFLOWS))
 
 
 def workflow_definition(task: TaskKey) -> WorkflowDefinition:
     return WORKFLOW_BY_KEY[task]
-
-
-def workflows_in_group(group: str) -> tuple[WorkflowDefinition, ...]:
-    return tuple(workflow for workflow in WORKFLOWS if workflow.nav_group == group)
-
-
-def nav_option_indices() -> dict[TaskKey, int]:
-    indices: dict[TaskKey, int] = {}
-    index = 0
-    for group in WORKFLOW_GROUPS:
-        index += 1
-        for workflow in workflows_in_group(group):
-            indices[workflow.key] = index
-            index += 1
-    return indices
 
 
 def build_guided_workflow(
