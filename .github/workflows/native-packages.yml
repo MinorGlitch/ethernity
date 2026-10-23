@@ -82,7 +82,7 @@ jobs:
           elif [[ "$TARGET_OS" == "linux" ]]; then
             args+=(--glibc-directory dist/ethernity)
           fi
-          python -m tooling.release.smoke "${args[@]}"
+          uv run --no-default-groups --extra build python -m tooling.release.smoke "${args[@]}"
 
       - name: Package release archive
         env:
@@ -100,7 +100,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           TARGET_OS: ${{ matrix.target_os }}
           TARGET_ARCH: ${{ matrix.target_arch }}
-        run: python -m tooling.release.install_smoke
+        run: uv run --no-default-groups --extra build python -m tooling.release.install_smoke
 
       - name: Generate archive SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0

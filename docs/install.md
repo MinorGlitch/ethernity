@@ -1,7 +1,24 @@
 # Install Ethernity
 
-Ethernity runs in a terminal. Packaged downloads include Python, the PDF fonts, and the
-browser recovery kits. You do not need to install Python for those downloads.
+Ethernity opens in your terminal by default. Packaged downloads include Python, the PDF fonts,
+browser mode, and the browser recovery kits. You do not need to install Python for those downloads.
+
+## Browser mode
+
+Run `ethernity --web` to open the same app in your default browser. The app runs on your computer,
+uses your usual settings, and reads and writes your local files. Fonts and scripts are local too;
+an internet connection is not needed. No additional installation is required.
+
+Keep the launching terminal open. Ctrl+C stops the server and its open sessions. Closing or
+refreshing a browser tab ends that tab's app session; reopening starts a new one. Files already
+written remain on disk.
+
+The server listens only on `127.0.0.1`, chooses an available port, and prints a private link for
+that launch. Use `ethernity --web --no-open` to open that link yourself. It cannot be used from
+another computer. The file picker and Open folder actions operate on the computer running Ethernity.
+
+Browser mode is separate from the standalone HTML recovery kit, which needs no running Ethernity
+process and can be kept with a backup.
 
 ## Choose a release
 

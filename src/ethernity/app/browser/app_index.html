@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ethernity</title>
+    <link rel="stylesheet" href="{{ config.static.url }}css/xterm.css">
+    <script src="{{ config.static.url }}js/textual.js"></script>
+    <style>
+      body { margin: 0; background: #171918; color: #eae6da; }
+      .dialog-container {
+        position: fixed; inset: 0; display: flex; align-items: center;
+        justify-content: center; z-index: 10; background: #171918;
+        font: 16px system-ui, sans-serif;
+      }
+      .intro { text-align: center; padding: 24px; }
+      button {
+        display: block; margin: 24px auto 0; padding: 12px 24px; border: 0;
+        background: #e0b56d; color: #171918; font: inherit; cursor: pointer;
+      }
+      body.-first-byte .intro-dialog, .closed-dialog, #start { display: none; }
+      body.-closed .closed-dialog, #start.-delay { display: flex; }
+    </style>
+    <script>
+      function refresh() { window.location.reload(); }
+    </script>
+  </head>
+  <body>
+    <div class="dialog-container intro-dialog">
+      <div class="intro">Opening Ethernity...<button id="start" onclick="refresh()">Open</button></div>
+    </div>
+    <div class="dialog-container closed-dialog">
+      <div class="intro">
+        <div class="message">Session ended.</div>
+        <button onclick="refresh()">Start again</button>
+      </div>
+    </div>
+    <div id="terminal" class="textual-terminal"
+      data-session-websocket-url="{{ app_websocket_url }}" data-font-size="{{ font_size }}"></div>
+  </body>
+</html>

@@ -35,6 +35,10 @@ Verify each Sigstore bundle before using its archive.
 Packages include the template fonts and their license notices. PDFs embed subsets of those fonts;
 users do not need to install matching system fonts to view or print them.
 
+Packages also include the local assets for `ethernity --web`. Browser mode uses the same app as
+the terminal launcher and needs no extra downloads. Native package smoke checks open a real
+browser session over its WebSocket and verify that disconnecting stops its app process.
+
 SBOMs are platform-specific. The release workflow scans each final archive with the
 repository-pinned Anchore SBOM action and Syft version. It does not reuse a dependency manifest as
 the SBOM for multiple release files.

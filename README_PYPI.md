@@ -48,6 +48,10 @@ Open the guided terminal app:
 ethernity
 ```
 
+Use `ethernity --web` to open the same app in a browser. It runs locally, works offline, and uses
+the same settings and files as the terminal app. Keep the terminal open and press Ctrl+C there
+when finished. Use `ethernity --web --no-open` to print the link without opening a browser.
+
 1. Choose **Create backup** and select a disposable test file or folder.
 2. Keep the recommended recovery method: three recovery sheets, any two can restore.
 3. Review the destination and create the backup.

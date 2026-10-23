@@ -19,6 +19,37 @@ def test_root_help_points_to_new_terminal_app_and_runner(capsys) -> None:
     assert result == 0
     assert "Launch the Ethernity terminal app" in captured.out
     assert "ethernity run backup" in captured.out
+    assert "ethernity --web" in captured.out
+
+
+def test_root_defaults_to_terminal_app(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(root_entrypoint, "run_app", lambda: calls.append("terminal"))
+    assert main([]) == 0
+    assert calls == ["terminal"]
+
+
+@pytest.mark.parametrize("args, open_browser", [(["--web"], True), (["--web", "--no-open"], False)])
+def test_root_browser_mode(monkeypatch, args, open_browser) -> None:
+    calls = []
+    monkeypatch.setattr(root_entrypoint, "run_browser", lambda **options: calls.append(options))
+    assert main(args) == 0
+    assert calls == [{"open_browser": open_browser}]
+
+
+def test_root_browser_mode_rejects_unknown_options() -> None:
+    with pytest.raises(SystemExit) as error:
+        main(["--web", "--host", "0.0.0.0"])
+    assert error.value.code == 2
+
+
+def test_root_browser_startup_failure_is_reported(monkeypatch, capsys) -> None:
+    def fail(**options):
+        raise OSError("cannot bind socket")
+
+    monkeypatch.setattr(root_entrypoint, "run_browser", fail)
+    assert main(["--web"]) == 1
+    assert "Could not start browser mode: cannot bind socket" in capsys.readouterr().err
 
 
 def test_root_version_prints_package_version(capsys, monkeypatch) -> None:
