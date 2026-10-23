@@ -180,8 +180,12 @@ not a promise that every distribution with the same glibc version has all requir
 The native smoke test restores a frozen root and update using the packaged executable.
 Linux x64, Linux ARM64, and Windows x64 also run installer lifecycle checks using the real
 built archive: install, rejection of damaged and invalid replacements, upgrade, reinstall, and
-uninstall. Windows additionally checks migration from the old installer layout. Homebrew's
-separate Apple silicon macOS and Linux x64 jobs install, reinstall, test, and remove their
+uninstall. Windows additionally checks migration from the old installer layout. The Windows
+installer retries atomic directory renames for up to ten seconds when Windows reports access
+or sharing conflicts. A failed replacement restores the previous installation and PATH. If
+rollback itself fails, the previous files are kept in the reported staging directory. Integration
+tests exercise both temporary and persistent directory locks with real Windows file handles.
+Homebrew's separate Apple silicon macOS and Linux x64 jobs install, reinstall, test, and remove their
 bottles after the existing source build and recovery test.
 
 ## Extension compatibility checks

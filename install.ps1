@@ -28,6 +28,31 @@ function Assert-RealDirectory([string]$Path) {
         throw "Installation directories must not be links: $Path"
     }
 }
+function Move-InstallDirectory([string]$Source, [string]$Destination) {
+    # A scanner or an exiting process can briefly deny a directory rename on
+    # Windows. Retry only these native errors, using an atomic, same-volume move.
+    # Never fall back to copying files into a partially installed directory.
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
+    $reported = $false
+    while ($true) {
+        try {
+            [IO.Directory]::Move($Source, $Destination)
+            return
+        }
+        catch {
+            $cause = $_.Exception.GetBaseException()
+            $code = $cause.HResult -band 0xFFFF
+            if ($code -notin @(5, 32, 33) -or $elapsed.Elapsed.TotalSeconds -ge 10) {
+                throw "Could not move '$Source' to '$Destination': $($cause.Message)"
+            }
+            if (-not $reported) {
+                Write-Verbose "Waiting for Windows to release '$Source'."
+                $reported = $true
+            }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+}
 function Confirm-Archive([string]$ZipPath, [string]$ChecksumPath, [string]$Name) {
     $entries = @(Get-Content -LiteralPath $ChecksumPath | Where-Object {
         $_ -cmatch ('^[a-fA-F0-9]{64}  ' + [regex]::Escape($Name) + '$')
@@ -152,8 +177,8 @@ try {
         }
         Set-Content -LiteralPath (Join-Path $candidate '.installed-version') -Value $tag -Encoding ascii
         $previous = Join-Path $stage 'previous'
-        if (Test-Path -LiteralPath $Current) { Move-Item -LiteralPath $Current -Destination $previous }
-        Move-Item -LiteralPath $candidate -Destination $Current
+        if (Test-Path -LiteralPath $Current) { Move-InstallDirectory $Current $previous }
+        Move-InstallDirectory $candidate $Current
         $replaced = $true
         Set-CommandPath $false
         Set-Content -LiteralPath $Marker -Value 'ethernity-installer-v1' -Encoding ascii
@@ -163,14 +188,30 @@ try {
     }
 }
 finally {
-    if (-not $committed) {
-        if ($replaced) { Remove-Item -LiteralPath $Current -Recurse -Force }
-        if ($previous -and (Test-Path -LiteralPath $previous)) { Move-Item -LiteralPath $previous -Destination $Current }
-        [Environment]::SetEnvironmentVariable('Path', $originalPath, 'User')
+    try {
+        if (-not $committed) {
+            try {
+                if ($replaced) { Remove-Item -LiteralPath $Current -Recurse -Force }
+                if ($previous -and (Test-Path -LiteralPath $previous)) {
+                    Move-InstallDirectory $previous $Current
+                }
+            }
+            catch {
+                # Leave the staging directory intact if rollback cannot finish.
+                $kept = if ($previous -and (Test-Path -LiteralPath $previous)) { $previous } else { $Current }
+                throw "Could not roll back the installation. Files were kept at '$kept'. $($_.Exception.Message)"
+            }
+            finally { [Environment]::SetEnvironmentVariable('Path', $originalPath, 'User') }
+        }
+        if ($stage -and (Test-Path -LiteralPath $stage)) {
+            try { Remove-Item -LiteralPath $stage -Recurse -Force }
+            catch { Write-Warning "Could not remove temporary installation files at '$stage': $($_.Exception.Message)" }
+        }
     }
-    if ($stage -and (Test-Path -LiteralPath $stage)) { Remove-Item -LiteralPath $stage -Recurse -Force }
-    $lock.Dispose()
-    Remove-Item -LiteralPath $lockPath -Force
+    finally {
+        $lock.Dispose()
+        Remove-Item -LiteralPath $lockPath -Force
+    }
     if ($Uninstall -and $committed -and -not (Get-ChildItem -LiteralPath $InstallRoot -Force)) {
         Remove-Item -LiteralPath $InstallRoot
     }
