@@ -12,7 +12,7 @@ hiddenimports = (
     + collect_submodules("zxingcpp")
 )
 datas = collect_data_files("ethernity") + copy_metadata("ethernity-paper")
-datas += collect_data_files("textual_serve") + copy_metadata("textual-serve")
+datas += copy_metadata("textual-serve")
 datas += collect_data_files("pypdfium2", includes=["version.json"])
 datas += collect_data_files("pypdfium2_raw", includes=["version.json"])
 binaries = collect_dynamic_libs("pypdfium2_raw")

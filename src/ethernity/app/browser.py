@@ -70,7 +70,12 @@ class LocalServer(Server):
 
     def __init__(self, port: int) -> None:
         super().__init__(
-            "ethernity", host=HOST, port=port, title="Ethernity", templates_path=TEMPLATES
+            "ethernity",
+            host=HOST,
+            port=port,
+            title="Ethernity",
+            templates_path=TEMPLATES,
+            statics_path=TEMPLATES / "static",
         )
         self.token = secrets.token_urlsafe(32)
         self.cookie_name = f"ethernity-{port}"

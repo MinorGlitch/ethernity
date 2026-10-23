@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import sys
+from pathlib import Path
 
 import aiohttp
 import psutil
@@ -14,12 +16,24 @@ from ethernity.app import browser
 pytestmark = pytest.mark.portability
 
 
-def test_browser_launches_app_and_cleans_up_disconnected_tabs() -> None:
-    asyncio.run(check_browser([sys.executable, "-m", "ethernity"]))
+@pytest.mark.parametrize("launcher", [False, True])
+def test_browser_launches_app_and_cleans_up_disconnected_tabs(tmp_path, launcher) -> None:
+    command = [sys.executable, "-m", "ethernity"]
+    if launcher:
+        # Model the persistent interpreter child of Windows virtualenv launchers.
+        script = tmp_path / "launcher.py"
+        script.write_text(
+            "import subprocess, sys\n"
+            "sys.exit(subprocess.call([sys.executable, '-m', 'ethernity', *sys.argv[1:]]))\n"
+        )
+        command = [sys.executable, str(script)]
+    asyncio.run(check_browser(command))
 
 
-def test_stopping_server_closes_active_app(monkeypatch, tmp_path) -> None:
+def test_browser_scroll_reports_move_one_cell_each(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    script = Path(__file__).parents[1] / "support" / "browser_scroll_app.py"
+    monkeypatch.setattr(browser, "app_command", lambda: [sys.executable, str(script)])
 
     async def check() -> None:
         server = browser.LocalServer(0)
@@ -29,15 +43,47 @@ def test_stopping_server_closes_active_app(monkeypatch, tmp_path) -> None:
             server.port = client.server.port
             server.public_url = str(client.make_url("/")).rstrip("/")
             await client.get(f"/?token={server.token}")
+            async with client.ws_connect("/ws?width=100&height=35", origin=server.public_url) as ws:
+                await expect_screen(ws, "SCROLL=0")
+                await ws.send_json(["stdin", "\x1b[<65;40;15M" * 20])
+                await expect_screen(ws, "SCROLL=20")
+                await ws.send_json(["stdin", "\x1b[<64;40;15M" * 5])
+                await expect_screen(ws, "SCROLL=15")
+
+    asyncio.run(check())
+
+
+def test_stopping_server_closes_active_app(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    async def check() -> None:
+        parent = psutil.Process()
+        existing = set(parent.children(recursive=True))
+        server = browser.LocalServer(0)
+        async with TestClient(
+            TestServer(await server._make_app()), cookie_jar=aiohttp.CookieJar(unsafe=True)
+        ) as client:
+            server.port = client.server.port
+            server.public_url = str(client.make_url("/")).rstrip("/")
+            await client.get(f"/?token={server.token}")
             async with client.ws_connect("/ws", origin=server.public_url) as ws:
                 await expect_screen(ws, "Choose files")
-                children = psutil.Process().children()
+                children = [
+                    child for child in parent.children(recursive=True) if child not in existing
+                ]
                 assert children
                 await asyncio.wait_for(asyncio.gather(client.server.close(), ws.receive()), 15)
                 _, alive = await asyncio.to_thread(psutil.wait_procs, children, timeout=5)
                 assert not alive
 
-    asyncio.run(check())
+    # Other tests may leave a multiprocessing resource tracker alive in this worker.
+    unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        asyncio.run(check())
+        assert unrelated.poll() is None
+    finally:
+        unrelated.terminate()
+        unrelated.wait(timeout=5)
 
 
 def test_unresponsive_child_is_stopped_without_shell_quoting(monkeypatch, tmp_path) -> None:
@@ -75,7 +121,7 @@ def test_browser_access_and_offline_assets() -> None:
         ) as client:
             server.port = client.server.port
             server.public_url = str(client.make_url("/")).rstrip("/")
-            for path in ("/", "/ws", "/static/js/textual.js", "/download/missing", "/?token=wrong"):
+            for path in ("/", "/ws", "/static/app.js", "/download/missing", "/?token=wrong"):
                 assert (await client.get(path)).status == 403
             response = await client.get(f"/?token={server.token}", allow_redirects=False)
             assert response.status == 302
@@ -89,7 +135,7 @@ def test_browser_access_and_offline_assets() -> None:
             assert "https://" not in html
             assert "no-store" in response.headers["Cache-Control"]
             assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
-            for asset in ("/static/js/textual.js", "/static/css/xterm.css"):
+            for asset in ("/static/app.js", "/static/app.css"):
                 response = await client.get(asset)
                 assert response.status == 200
                 assert len(await response.read()) > 100

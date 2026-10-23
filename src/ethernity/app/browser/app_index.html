@@ -4,10 +4,11 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Ethernity</title>
-    <link rel="stylesheet" href="{{ config.static.url }}css/xterm.css">
-    <script src="{{ config.static.url }}js/textual.js"></script>
+    <link rel="stylesheet" href="{{ config.static.url }}app.css">
+    <script defer src="{{ config.static.url }}app.js"></script>
     <style>
-      body { margin: 0; background: #171918; color: #eae6da; }
+      body { margin: 0; overflow: hidden; background: #171918; color: #eae6da; }
+      .textual-terminal { width: 100vw; height: 100vh; }
       .dialog-container {
         position: fixed; inset: 0; display: flex; align-items: center;
         justify-content: center; z-index: 10; background: #171918;

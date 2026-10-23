@@ -70,6 +70,14 @@ jobs:
       - name: Biome format check
         working-directory: kit
         run: npm run format:check
+      - name: Verify local browser client
+        working-directory: browser
+        run: |
+          npm ci
+          npm run lint
+          npm run format:check
+          npm test
+          npm run check
 
   render-visual:
     runs-on: ubuntu-latest
@@ -360,6 +368,11 @@ jobs:
       - name: Smoke generated recovery kits in Chromium and WebKit
         working-directory: kit
         run: npm run test:browser
+      - name: Verify local browser input and rendering
+        working-directory: browser
+        run: |
+          npm ci
+          npm run test:browser
 
   python-audit:
     runs-on: ubuntu-latest
@@ -399,6 +412,9 @@ jobs:
           cache-dependency-path: kit/package-lock.json
       - name: Audit npm dependencies
         working-directory: kit
+        run: npm audit --audit-level=low
+      - name: Audit local browser dependencies
+        working-directory: browser
         run: npm audit --audit-level=low
 
   ci-gate:

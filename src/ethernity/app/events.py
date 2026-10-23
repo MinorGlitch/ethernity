@@ -34,6 +34,9 @@ class AppEventHandlers(EthernityAppContext):
     """Textual lifecycle and event routing for the app shell."""
 
     def on_mount(self) -> None:
+        if self.is_web:
+            # The browser converts physical wheel distance to terminal cells.
+            self.scroll_sensitivity_x = self.scroll_sensitivity_y = 1
         self.refresh_task_view()
         self.call_after_refresh(self._focus_active_task, self.active_task)
 

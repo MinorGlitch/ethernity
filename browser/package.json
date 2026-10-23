@@ -1,0 +1,26 @@
+{
+  "name": "ethernity-browser",
+  "private": true,
+  "version": "1.2.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node tests/client.mjs",
+    "check": "node build.mjs --check",
+    "lint": "biome lint --error-on-warnings .",
+    "format:check": "biome check --linter-enabled=false --assist-enabled=false ."
+  },
+  "dependencies": {
+    "@xterm/addon-clipboard": "0.2.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-unicode11": "0.9.0",
+    "@xterm/addon-web-links": "0.12.0",
+    "@xterm/xterm": "6.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.8",
+    "esbuild": "0.28.2",
+    "playwright": "1.61.1"
+  }
+}
