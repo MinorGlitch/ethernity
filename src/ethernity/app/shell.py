@@ -5,6 +5,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Label, ListView
 
 from ethernity.app.navigation import NAV_LABELS, app_version_label, nav_items
+from ethernity.app.widgets.navigation import NavigationBar
 from ethernity.app.widgets.task_canvas import TaskCanvas
 
 
@@ -19,7 +20,7 @@ def _compose_workbench() -> ComposeResult:
         yield Label("ETHERNITY", id="app-header-brand")
         yield Label("Paper backup & recovery", id="app-header-title")
         yield Label(app_version_label(), id="app-header-status")
-    with Horizontal(id="workbench-navigation"):
+    with NavigationBar(id="workbench-navigation"):
         yield Button(
             f"1 {NAV_LABELS['backup']}",
             id="nav-create",

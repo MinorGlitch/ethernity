@@ -641,7 +641,8 @@ class TaskViewActions(EthernityAppContext):
             assert menu.styles.width is not None
             menu_width = int(menu.styles.width.resolve(self.size, self.size))
             x = max(0, min(owner.region.x, self.size.width - menu_width))
-            menu.styles.offset = (x - anchor.region.x, owner.region.bottom - anchor.region.y)
+            y = self.query_one("#workbench-navigation").content_region.bottom
+            menu.styles.offset = (x - anchor.region.x, y - anchor.region.y)
         self.refresh_bindings()
 
     def _current_state(self) -> TaskState:

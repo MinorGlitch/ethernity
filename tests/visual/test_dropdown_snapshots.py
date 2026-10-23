@@ -97,7 +97,7 @@ def test_open_dropdown_snapshot(
     assert_svg_snapshot(svg, SNAPSHOT_DIR / f"{name}.svg", update=update_tui_snapshots)
 
 
-@pytest.mark.parametrize("size", [(120, 32), (80, 24)])
+@pytest.mark.parametrize("size", [(120, 32), (80, 24), (60, 20)])
 @pytest.mark.parametrize("theme", ["ethernity-dark", "ethernity-light"])
 def test_navigation_dropdown_snapshot(
     size: tuple[int, int],
@@ -125,7 +125,7 @@ def test_navigation_dropdown_snapshot(
 
 
 @pytest.mark.parametrize("task", ["kit", "settings"])
-@pytest.mark.parametrize("size", [(120, 32), (80, 24)])
+@pytest.mark.parametrize("size", [(120, 32), (80, 24), (60, 20)])
 @pytest.mark.parametrize("theme", ["ethernity-dark", "ethernity-light"])
 def test_direct_navigation_snapshot(
     task: str, size: tuple[int, int], theme: str, update_tui_snapshots: bool

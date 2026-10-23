@@ -92,7 +92,7 @@ def test_shell_fills_editor_width_and_reserves_the_action_row() -> None:
     asyncio.run(run())
 
 
-def test_manage_menu_fits_below_its_button_and_closes_on_resize() -> None:
+def test_manage_menu_fits_below_navigation_and_closes_on_resize() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(160, 48)) as pilot:
@@ -104,12 +104,14 @@ def test_manage_menu_fits_below_its_button_and_closes_on_resize() -> None:
                 await pilot.pause()
                 dropdown = app.query_one("#nav-menu").region
                 owner = app.query_one("#nav-manage", Button).region
+                navigation = list(app.query("#workbench-navigation Button"))
                 assert dropdown.width == 34
                 assert dropdown.height == 3 * 3 + 2
-                assert dropdown.y == owner.bottom
+                assert dropdown.y == max(button.region.bottom for button in navigation)
                 assert dropdown.x == min(owner.x, width - dropdown.width)
                 assert dropdown.right <= width
-                assert not dropdown.overlaps(owner)
+                assert dropdown.bottom <= rows
+                assert all(not dropdown.overlaps(button.region) for button in navigation)
                 choices = [item for item in app.query("#nav-list > ListItem") if item.display]
                 for current, following in zip(choices, choices[1:], strict=False):
                     assert following.region.y == current.region.bottom

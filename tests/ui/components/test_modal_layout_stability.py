@@ -20,10 +20,12 @@ def test_help_and_nested_dialogs_keep_the_workspace_geometry(size: tuple[int, in
             selectors = ("#app-shell", "#workspace", "#task-action-bar", "#canvas-primary")
             before = {selector: main.query_one(selector).region for selector in selectors}
             assert before["#app-shell"].height == size[1]
-            help_button = main.query_one("#nav-help", Button)
-            assert main.query_one("#workbench-navigation").content_region.contains_region(
-                help_button.region
+            navigation = main.query_one("#workbench-navigation")
+            assert all(
+                navigation.content_region.contains_region(button.region)
+                for button in navigation.query(Button)
             )
+            help_button = main.query_one("#nav-help", Button)
 
             await pilot.click(help_button)
             help_screen = app.screen
