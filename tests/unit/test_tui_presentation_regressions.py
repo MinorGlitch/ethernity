@@ -189,12 +189,6 @@ def test_workflow_registry_is_the_single_metadata_source() -> None:
     assert all("workspace-rebuild-paper" not in selector for selector in selectors)
 
 
-def test_footer_does_not_advertise_contextual_review_on_settings() -> None:
-    review = next(binding for binding in APP_BINDINGS if binding.key == "ctrl+r")
-
-    assert not review.show
-
-
 def test_blocking_issue_focus_targets_the_actual_advanced_control() -> None:
     cases = (
         (

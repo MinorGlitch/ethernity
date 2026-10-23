@@ -26,11 +26,11 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.content import Content
 from textual.geometry import Size
+from textual.screen import ModalScreen
 from textual.widgets import Button, DirectoryTree, Input, Label, SelectionList, Static
 from textual.widgets.selection_list import Selection
 
 from ethernity.app.path_selection import complete_picker_path, resolve_picker_path
-from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 
 
@@ -66,7 +66,7 @@ class FilePickerMode(StrEnum):
         }
 
 
-class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
+class FilePickerScreen(ModalScreen[tuple[Path, ...] | None]):
     """Modal file picker built on Textual's DirectoryTree."""
 
     BINDINGS = [
@@ -203,13 +203,9 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
         event: DirectoryTree.DirectorySelected,
     ) -> None:
         event.stop()
-        path = Path(event.path)
+        # Tree activation also expands/collapses folders. Only the folder action
+        # should add one to the selection or change the save destination.
         self._refresh_location()
-        if self._mode.is_save:
-            self._selected_paths = (path,)
-            self._refresh_selection_state()
-        elif self._mode.allows_directories:
-            self._add_path(path)
 
     def on_selection_list_selection_toggled(
         self,
@@ -506,8 +502,8 @@ class FilePickerScreen(EthernityModalScreen[tuple[Path, ...] | None]):
         if self._mode == FilePickerMode.OPEN_FILES:
             return "Select at least one file."
         if self._mode == FilePickerMode.OPEN_DIRECTORY:
-            return "Select a folder."
-        return "Select at least one file or folder."
+            return "Highlight a folder, then choose Use folder."
+        return "Click a file to add it. For a folder, highlight it and choose Add folder."
 
     def _show_error(self, message: str | None) -> None:
         error = self.query_one("#file-picker-error", Static)

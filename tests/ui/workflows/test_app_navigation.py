@@ -82,7 +82,7 @@ def test_primary_navigation_keeps_expert_tasks_in_the_palette() -> None:
         async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.pause()
             assert not app.query_one("#nav-menu").display
-            assert len(app.query("#workbench-navigation Button")) == 4
+            assert len(app.query("#workbench-navigation Button")) == 5
             command_titles = {command.title for command in app.get_system_commands(app.screen)}
             assert {workflow.title for workflow in WORKFLOWS} <= command_titles
             assert app.query_one("#app-header").region.height == 1
@@ -161,7 +161,7 @@ def test_tools_menu_can_be_opened_and_selected_with_the_keyboard() -> None:
             await pilot.press("ctrl+b")
             assert app.screen.focused is app.query_one("#nav-create", Button)
             assert not app._nav_menu_open
-            await pilot.press("left", "enter")
+            await pilot.press("left", "left", "enter")
             nav = app.query_one("#nav-list", ListView)
             assert app.screen.focused is nav
             assert nav.highlighted_child is app.query_one("#kit", ListItem)
@@ -193,6 +193,9 @@ def test_top_navigation_actions_do_not_need_a_render_between_keys() -> None:
             assert app.screen.focused is app.query_one("#nav-manage", Button)
             await app.action_move_left()
             await app.action_move_left()
+            await app.action_move_left()
+            await pilot.pause()
+            assert app.screen.focused is app.query_one("#nav-help", Button)
             await app.action_move_left()
             await pilot.pause()
             assert app.screen.focused is app.query_one("#nav-tools", Button)

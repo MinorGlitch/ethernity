@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, Footer, Label, ListView
+from textual.widgets import Button, Label, ListView
 
 from ethernity.app.navigation import app_version_label, nav_items
 from ethernity.app.widgets.task_canvas import TaskCanvas
@@ -12,7 +12,6 @@ def compose_app_shell() -> ComposeResult:
     with Vertical(id="app-shell"):
         with Vertical(id="workbench-frame"):
             yield from _compose_workbench()
-    yield Footer(show_command_palette=False, compact=True)
 
 
 def _compose_workbench() -> ComposeResult:
@@ -36,6 +35,9 @@ def _compose_workbench() -> ComposeResult:
         yield Button(
             "Tools",
             id="nav-tools",
+        )
+        yield Button(
+            "Help", id="nav-help", action="app.help", tooltip="Help and keyboard shortcuts (?)"
         )
     with Horizontal(id="shell"):
         with Vertical(id="nav-menu-anchor"):

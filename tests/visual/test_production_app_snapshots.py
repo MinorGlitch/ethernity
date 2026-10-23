@@ -643,14 +643,14 @@ def _assert_production_geometry(
     width, height = terminal_size
     body = app.query_one("#canvas-task-workspaces")
     action_bar = app.query_one("#task-action-bar")
-    footer = app.query_one(Footer)
+    assert not app.query(Footer)
     primary = action_bar.query_one("#canvas-primary", Button)
 
     assert _inside(Region(0, 0, width, height), body.region)
     assert _inside(Region(0, 0, width, height), action_bar.region)
     _assert_editor_alignment(app, body, action_bar)
     assert body.region.y + body.region.height <= action_bar.region.y
-    assert action_bar.region.y + action_bar.region.height <= footer.region.y
+    assert action_bar.region.bottom <= height
     assert _inside(action_bar.region, primary.region)
     assert len(str(primary.label)) <= primary.region.width
     assert app.query_one("#canvas-title").region.height == 1
@@ -766,7 +766,7 @@ def _assert_settings_geometry(
     active_pane = settings_form.active_pane
     tab_bar = settings_form.query_one("#settings-heading")
     save_row = app.query_one("#settings-save-row")
-    footer = app.query_one(Footer)
+    assert not app.query(Footer)
 
     assert app.active_task == "settings"
     assert app.current_theme.name == expected_theme
@@ -780,7 +780,7 @@ def _assert_settings_geometry(
     assert _inside(workspace.region, save_row.region)
     assert tab_bar.region.bottom <= active_pane.region.y
     assert active_pane.region.bottom <= save_row.region.y
-    assert workspace.region.bottom <= footer.region.y
+    assert workspace.region.bottom <= height
     assert active_pane.max_scroll_x == 0
     assert not app.query_one("#task-action-bar").display
 
@@ -888,10 +888,7 @@ def _assert_modal_geometry(
     assert _inside(modal.region, actions.region)
     assert body.region.bottom <= actions.region.y
     assert body.max_scroll_x == 0
-    footer = screen.query_one("#modal-shortcuts", Footer)
-    assert footer.display
-    assert _inside(viewport, footer.region)
-    assert modal.region.bottom <= footer.region.y
+    assert not screen.query(Footer)
 
     action_buttons = list(actions.query(Button))
     assert action_buttons

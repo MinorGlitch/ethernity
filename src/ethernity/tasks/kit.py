@@ -171,6 +171,11 @@ class PrintKitTaskState(BaseModel):
                 f"from {format_count(result.bytes_total, 'byte')}."
             ),
             output_paths=(result.output_path,),
+            next_steps=(
+                "Print the PDF at 100% (actual size).",
+                "The kit restores the documents you supply. Keep a separate record of the "
+                "latest backup fingerprint to check you have the newest version.",
+            ),
         )
 
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:

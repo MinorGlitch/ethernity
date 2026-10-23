@@ -13,6 +13,9 @@ COMMON_SHORTCUTS = (
     HelpShortcut(("h", "l"), "Switch pane"),
     HelpShortcut(("Ctrl+R",), "Review"),
     HelpShortcut(("Ctrl+P",), "Actions"),
+    HelpShortcut(("Ctrl+B",), "Navigation"),
+    HelpShortcut(("?",), "Help"),
+    HelpShortcut(("q",), "Quit"),
 )
 SETTINGS_SHORTCUTS = (
     HelpShortcut(("Esc",), "Close"),
@@ -20,6 +23,9 @@ SETTINGS_SHORTCUTS = (
     HelpShortcut(("j", "k"), "Navigate"),
     HelpShortcut(("h", "l"), "Switch pane"),
     HelpShortcut(("Ctrl+P",), "Actions"),
+    HelpShortcut(("Ctrl+B",), "Navigation"),
+    HelpShortcut(("?",), "Help"),
+    HelpShortcut(("q",), "Quit"),
 )
 
 

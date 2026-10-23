@@ -123,9 +123,7 @@ class AppPilot(Pilot[Result]):
         while True:
             generation = self._activity.generation
             await self._drain_messages()
-            rendered = _Barrier()
-            self.app.call_after_refresh(rendered)
-            await rendered.done.wait()
+            await self._wait_for_refresh()
             await self.app.animator.wait_until_complete()
             await self._drain_messages()
             if generation != self._activity.generation:
@@ -137,6 +135,28 @@ class AppPilot(Pilot[Result]):
             # every widget. Each wake must pass through the same drain/render
             # cycle, including the child work produced by a screen resize.
             await self._wait_for_timer_activity()
+
+    async def _wait_for_refresh(self) -> None:
+        screen = self.app.screen
+        rendered = _Barrier()
+        self.app.call_after_refresh(rendered)
+        refreshed = asyncio.create_task(rendered.done.wait())
+        try:
+            while not rendered.done.is_set():
+                self._activity.changed.clear()
+                # A suspended screen may retain its refresh callback until it
+                # resumes. Settle the new screen instead of waiting on that one.
+                if self.app.screen is not screen:
+                    return
+                changed = asyncio.create_task(self._activity.changed.wait())
+                try:
+                    await asyncio.wait((refreshed, changed), return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    changed.cancel()
+                    await asyncio.gather(changed, return_exceptions=True)
+        finally:
+            refreshed.cancel()
+            await asyncio.gather(refreshed, return_exceptions=True)
 
     async def _wait_for_timer_activity(self) -> None:
         self._activity.changed.clear()

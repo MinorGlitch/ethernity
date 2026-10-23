@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from textual.containers import VerticalScroll
+from textual.pilot import Pilot
 from textual.widgets import Button, OptionList, Static
 
 from ethernity.app.application import EthernityApp
@@ -32,6 +33,11 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
         message="Backup created.",
         output_paths=paths,
         recovery_check_paths=paths,
+        next_steps=(
+            "Print every PDF at 100% (actual size).",
+            "Scan the printed pages, then use Restore files to test recovery.",
+            "Store recovery sheets separately from the encrypted backup documents.",
+        ),
         details=(
             TaskResultDetail(key="doc_hash", label="Fingerprint", value="ab" * 32),
             TaskResultDetail(key="printed_pages", label="PDF pages", value=5),
@@ -53,6 +59,14 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
             assert screen.query_one("#result-modal").region.width <= 100
             assert body.region.bottom <= footer.region.y < footer.region.bottom < size[1]
             assert body.max_scroll_x == 0
+            _assert_next_steps(screen, result)
+            for row in screen.query("#result-overview FormRow"):
+                if not row.has_class("stacked"):
+                    assert (
+                        row.query_one(".form-label").region.y
+                        == row.query_one(".detail-value").region.y
+                    )
+            assert screen.query_one("#result-check-row").region.right <= body.region.right
             assert sum(str(node.content) == str(folder) for node in screen.query(Static)) == 1
             path_list = screen.query_one("#result-output-paths", OptionList)
             assert [str(path_list.get_option_at_index(i).prompt) for i in range(2)] == [
@@ -60,22 +74,7 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
                 str(Path("sheets") / "recovery.pdf"),
             ]
 
-            buttons = set(screen.query(Button).results(Button))
-            visited = set()
-            for _ in range(len(screen.focus_chain) + 1):
-                await pilot.press("tab")
-                button = screen.focused
-                if button not in buttons:
-                    continue
-                visited.add(button)
-                owner = footer if button.id == "result-close" else body
-                await wait_for_visible(pilot, button, within=owner)
-                assert owner.region.x <= button.region.x < button.region.right <= owner.region.right
-                assert (
-                    owner.region.y <= button.region.y < button.region.bottom <= owner.region.bottom
-                )
-                assert button.region.height == screen.query_one("#result-close").region.height
-            assert visited == buttons
+            await _assert_reachable_buttons(pilot, screen)
 
             for button_id in ("copy-paths", "open-folder", "open-documents"):
                 screen.query_one(f"#result-{button_id}", Button).press()
@@ -94,5 +93,31 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
             assert checks.has_class("success")
             assert body.region.y <= checks.region.y < checks.region.bottom <= body.region.bottom
             assert not screen.query_one("#result-test-recovery", Button).disabled
+            _assert_next_steps(screen, result)
 
     asyncio.run(run())
+
+
+def _assert_next_steps(screen: task_result.TaskResultScreen, result: TaskExecutionResult) -> None:
+    assert [
+        str(step.content) for step in screen.query(".result-step-text").results(Static)
+    ] == list(result.next_steps)
+
+
+async def _assert_reachable_buttons(pilot: Pilot, screen: task_result.TaskResultScreen) -> None:
+    buttons = set(screen.query(Button).results(Button))
+    visited = set()
+    for _ in range(len(screen.focus_chain) + 1):
+        await pilot.press("tab")
+        button = screen.focused
+        if button not in buttons:
+            continue
+        visited.add(button)
+        owner = screen.query_one(
+            "#result-actions" if button.id == "result-close" else "#result-body"
+        )
+        await wait_for_visible(pilot, button, within=owner)
+        assert owner.region.x <= button.region.x < button.region.right <= owner.region.right
+        assert owner.region.y <= button.region.y < button.region.bottom <= owner.region.bottom
+        assert button.region.height == screen.query_one("#result-close").region.height
+    assert visited == buttons

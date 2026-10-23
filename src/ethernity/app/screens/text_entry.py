@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from ethernity.app.screens.modal import EthernityModalScreen
+from textual.screen import ModalScreen
 
 
-class TextEntryScreen(EthernityModalScreen[str | None]):
+class TextEntryScreen(ModalScreen[str | None]):
     BINDINGS = [("escape", "cancel", "Cancel")]
 
     def __init__(self, *, title: str, prompt: str, value: str = "", placeholder: str = "") -> None:

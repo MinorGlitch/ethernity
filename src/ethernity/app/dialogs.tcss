@@ -352,6 +352,15 @@ ReviewTaskScreen {
     text-style: none;
 }
 
+#result-overview .detail-value {
+    padding: 0;
+}
+
+#result-overview .form-label {
+    height: auto;
+    content-align: left top;
+}
+
 .review-safety-line,
 #result-document-checks {
     width: 1fr;
@@ -373,8 +382,7 @@ ReviewTaskScreen {
 }
 
 .review-notice,
-#result-context-actions,
-#result-next-actions {
+#result-context-actions {
     width: 1fr;
     height: auto;
     margin-top: 1;
@@ -467,13 +475,37 @@ ReviewTaskScreen {
 
 .result-next-step {
     height: auto;
-    margin-top: 1;
+}
+
+.result-step-number {
+    width: 3;
+    color: $text-muted;
+}
+
+.result-step-text {
+    width: 1fr;
+    height: auto;
+}
+
+#result-check-row {
+    height: auto;
+    align-vertical: middle;
+}
+
+#result-next-actions {
+    width: 18;
+    height: auto;
+    margin-right: 2;
+}
+
+#result-check-feedback {
+    width: 1fr;
+    height: auto;
 }
 
 #result-test-guidance {
     width: 1fr;
     color: $text-muted;
-    margin-top: 1;
 }
 
 #result-log {

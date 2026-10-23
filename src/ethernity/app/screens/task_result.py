@@ -21,9 +21,10 @@ from pathlib import Path
 from typing import Literal
 
 from textual.app import ComposeResult
-from textual.containers import Vertical, VerticalGroup, VerticalScroll
+from textual.containers import HorizontalGroup, Vertical, VerticalGroup, VerticalScroll
 from textual.content import Content
 from textual.message import Message
+from textual.screen import ModalScreen
 from textual.widgets import Button, Label, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
@@ -33,7 +34,6 @@ from ethernity.app.output_paths import (
     open_folder,
     single_output_folder,
 )
-from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, action_grid, modal_action_row
 from ethernity.app.widgets.collapsible import collapsible_panel
 from ethernity.app.widgets.form import FormRow, FormSection
@@ -44,7 +44,7 @@ _DOCUMENT_FINGERPRINT_RE = re.compile(r"[0-9a-fA-F]{64}")
 ResultContextAction = Literal["test_recovery"]
 
 
-class TaskResultScreen(EthernityModalScreen[str | None]):
+class TaskResultScreen(ModalScreen[str | None]):
     """Post-run success or failure summary."""
 
     BINDINGS = [("escape", "close", "Close")]
@@ -167,8 +167,6 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
 
     def on_mount(self) -> None:
         self.call_after_refresh(self._refresh_result_log)
-        for checks in self.query("#result-document-checks"):
-            checks.display = False
         selector = (
             "#result-return" if not self._is_success() and self._allow_return else "#result-close"
         )
@@ -237,30 +235,40 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
                         result.output_paths, base_dir=single_output_folder(result.output_paths)
                     )
 
-        if next_steps or (self._context_actions_enabled and self._document_paths()):
-            with FormSection("Next steps", id="result-next-steps"):
-                if self._context_actions_enabled and self._document_paths():
+        if self._context_actions_enabled and self._document_paths():
+            with FormSection("PDF recovery check", id="result-recovery-check"):
+                with HorizontalGroup(id="result-check-row"):
                     yield action_grid(
                         ActionButton(
-                            "Test recovery",
+                            "Check PDFs",
                             "result-test-recovery",
                             disabled=not result.recovery_check_paths,
                         ),
                         id="result-next-actions",
                     )
-                    yield Static(
-                        "Checks this backup's generated PDFs without keeping restored files.",
-                        id="result-test-guidance",
-                        classes="detail-text",
-                        markup=False,
-                    )
-                    yield Static("", id="result-document-checks", markup=False)
+                    with VerticalGroup(id="result-check-feedback"):
+                        yield Static(
+                            "Not checked" if result.recovery_check_paths else "No backup to check",
+                            id="result-document-checks",
+                            markup=False,
+                        )
+                        yield Static(
+                            "Restored files are deleted after the check.",
+                            id="result-test-guidance",
+                            markup=False,
+                        )
+
+        if next_steps:
+            title = (
+                "Before storing the paper copies"
+                if self._task_key != "restore" and self._document_paths()
+                else "Next steps"
+            )
+            with FormSection(title, id="result-next-steps"):
                 for index, step in enumerate(next_steps, start=1):
-                    yield Static(
-                        f"{index}. {step}",
-                        classes="result-next-step detail-text",
-                        markup=False,
-                    )
+                    with HorizontalGroup(classes="result-next-step"):
+                        yield Label(str(index), classes="result-step-number")
+                        yield Static(step, classes="result-step-text", markup=False)
 
     def _compose_failure_body(self) -> ComposeResult:
         result = self._result
@@ -393,9 +401,7 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
                     )
                 )
             )
-        task_steps = _success_guidance(self._task_key)
-        result_steps = self._result.next_steps if self._result is not None else ()
-        return tuple(dict.fromkeys((*task_steps, *result_steps)))
+        return self._result.next_steps if self._result is not None else ()
 
     def _return_step_label(self) -> str:
         for issue in self._recoverable_errors:
@@ -458,9 +464,8 @@ class TaskResultScreen(EthernityModalScreen[str | None]):
         self._set_context_actions_disabled(True)
         checks = self.query_one("#result-document-checks", Static)
         checks.remove_class("success", "failure")
-        checks.update("Testing recovery from generated PDFs...")
+        checks.update("Checking PDFs...")
         checks.display = True
-        checks.call_after_refresh(checks.scroll_visible, animate=False)
 
     def _set_context_actions_disabled(self, disabled: bool) -> None:
         for button in self.query("#result-next-actions Button").results(Button):
@@ -685,41 +690,3 @@ def _result_detail_value(value: str | int | bool | None | tuple[str, ...]) -> st
     if isinstance(value, tuple):
         return ", ".join(value) if value else "none"
     return "none" if value is None else str(value)
-
-
-def _success_guidance(task: TaskKey) -> tuple[str, ...]:
-    if task == "backup":
-        return (
-            "Print every PDF at actual size.",
-            "Test recovery from scans of the printed set before storing it.",
-            "Store recovery sheets apart from encrypted backup documents.",
-        )
-    if task == "kit":
-        return (
-            "Print the PDF at actual size.",
-            "The kit restores supplied documents. It cannot check for newer copies elsewhere.",
-        )
-    if task == "restore":
-        return (
-            "Check the restored files before deleting scans or backup media.",
-            "Compare same-name files in the destination with the source files.",
-        )
-    if task == "replace_recovery_docs":
-        return (
-            "Print every replacement sheet at actual size.",
-            "Test recovery using the required number of matching replacement sheets.",
-            "Store the new sheets before retiring the old set.",
-        )
-    if task == "add_files":
-        return (
-            "Print every new PDF at actual size.",
-            "Test the new backup with the reusable recovery kit.",
-            "Keep the original backup and every update needed for recovery.",
-        )
-    if task == "rebuild":
-        return (
-            "Print every new PDF at actual size.",
-            "Test recovery from the rebuilt documents and new recovery sheets.",
-            "Store the sheets with the matching backup version.",
-        )
-    return ()

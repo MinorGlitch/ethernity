@@ -698,7 +698,7 @@ def test_add_files_result_shows_version_history_and_storage_guidance(monkeypatch
             )
             summary = "\n".join(
                 str(line.content)
-                for line in screen.query("#result-next-steps .detail-text").results(Static)
+                for line in screen.query("#result-next-steps .result-step-text").results(Static)
             )
             assert "New full fingerprint" in metadata
             assert fingerprint in metadata

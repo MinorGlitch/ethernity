@@ -384,6 +384,11 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
             status="succeeded",
             message="Replacement recovery sheets created.",
             output_paths=output_paths,
+            next_steps=(
+                "Print every replacement sheet at 100% (actual size).",
+                "Test recovery with scans of the required number of matching replacement sheets.",
+                "Store the new sheets before retiring the old set.",
+            ),
         )
 
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:

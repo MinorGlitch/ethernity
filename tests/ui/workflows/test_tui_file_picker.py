@@ -10,6 +10,111 @@ from ethernity.app.application import EthernityApp
 from ethernity.app.path_selection import complete_picker_path, resolve_picker_path
 from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
 from tests.support.app import run_app_test
+from tests.support.pilot import wait_for_condition
+
+
+@pytest.mark.parametrize("mode", tuple(FilePickerMode))
+def test_folder_browsing_keeps_selection_until_explicit_folder_action(
+    tmp_path: Path, mode: FilePickerMode
+) -> None:
+    folder = tmp_path / "documents"
+    folder.mkdir()
+    (folder / "notes.txt").touch()
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    results: list[tuple[Path, ...] | None] = []
+
+    async def run() -> None:
+        app = EthernityApp()
+        async with run_app_test(app, size=(100, 32)) as pilot:
+            initial = (existing,) if mode.allows_directories else ()
+            picker = FilePickerScreen(
+                title="Choose a path",
+                prompt="Browse files and folders.",
+                root=tmp_path,
+                mode=mode,
+                selected_paths=initial,
+                save_name="backup.pdf" if mode == FilePickerMode.SAVE_FILE else "",
+            )
+            await app.push_screen(picker, results.append)
+            tree = picker.query_one("#file-picker-tree", DirectoryTree)
+            await wait_for_condition(pilot, lambda: bool(tree.root.children), "folders to load")
+            node = next(child for child in tree.root.children if child.data.path == folder)
+            # Click the folder name, the same activation that used to add it.
+            assert await pilot.click(tree, offset=(10, node.line + 1))
+            await wait_for_condition(pilot, lambda: bool(node.children), "folder contents to load")
+            assert node.is_expanded
+            assert tree.cursor_node is node
+            assert picker._selected_paths == initial
+
+            await pilot.press("enter")
+            assert not node.is_expanded
+            assert picker._selected_paths == initial
+            await pilot.press("space")
+            assert node.is_expanded
+            assert picker._selected_paths == initial
+
+            if mode == FilePickerMode.OPEN_FILES:
+                await pilot.click("#file-picker-cancel")
+                assert results == [None]
+                return
+
+            await pilot.click("#file-picker-current")
+            if mode == FilePickerMode.OPEN_DIRECTORY:
+                assert results == [(folder,)]
+                return
+
+            expected = (*initial, folder) if mode == FilePickerMode.OPEN_PATHS else (folder,)
+            assert picker._selected_paths == expected
+            await pilot.click("#file-picker-choose")
+            if mode == FilePickerMode.SAVE_FILE:
+                expected = (folder / "backup.pdf",)
+            assert results == [expected]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("activation", ("click", "enter"))
+def test_choosing_file_inside_folder_does_not_include_the_folder(
+    tmp_path: Path, activation: str
+) -> None:
+    folder = tmp_path / "documents"
+    folder.mkdir()
+    file = folder / "notes.txt"
+    file.touch()
+    results: list[tuple[Path, ...] | None] = []
+
+    async def run() -> None:
+        app = EthernityApp()
+        async with run_app_test(app, size=(80, 24)) as pilot:
+            picker = FilePickerScreen(
+                title="Backup files",
+                prompt="Add files or folders.",
+                root=tmp_path,
+                mode=FilePickerMode.OPEN_PATHS,
+            )
+            await app.push_screen(picker, results.append)
+            tree = picker.query_one("#file-picker-tree", DirectoryTree)
+            await wait_for_condition(pilot, lambda: bool(tree.root.children), "folders to load")
+            tree.focus()
+            tree.move_cursor(tree.root.children[0])
+            await pilot.press("enter")
+            folder_node = tree.root.children[0]
+            await wait_for_condition(
+                pilot, lambda: bool(folder_node.children), "folder contents to load"
+            )
+            assert picker._selected_paths == ()
+            assert picker.query_one("#file-picker-choose", Button).disabled
+            file_node = folder_node.children[0]
+            if activation == "click":
+                assert await pilot.click(tree, offset=(14, file_node.line + 1))
+            else:
+                await pilot.press("down", "enter")
+            assert picker._selected_paths == (file,)
+            await pilot.click("#file-picker-choose")
+            assert results == [(file,)]
+
+    asyncio.run(run())
 
 
 def test_picker_path_resolution_uses_browsing_folder_and_expands_home(

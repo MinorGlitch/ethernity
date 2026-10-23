@@ -49,6 +49,8 @@ Conditional fields appear only when applicable. Files own base folders; print se
 density. Recovery separates its method, passphrase and signing-key recovery.
 Do not reintroduce catch-all Advanced panels or per-workflow field layouts.
 Put background explanations in Help or control tooltips; keep actionable warnings visible.
+Help stays in the top navigation and lists the keyboard shortcuts. Main screens and dialogs
+have no shortcut footer, so opening a dialog does not resize the underlying workspace.
 
 Dialogs use `dialog`; Review and Results use `document`, `document-header`, `document-body`
 and the shared detail text classes. Keep IDs for events and queries; add ID styles only for

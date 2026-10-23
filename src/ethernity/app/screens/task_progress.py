@@ -8,15 +8,15 @@ from time import monotonic
 
 from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalGroup, VerticalScroll
+from textual.screen import ModalScreen
 from textual.widgets import Button, ProgressBar, Static
 
 from ethernity.app.operation_progress import OperationProgress, operation_steps
-from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 from ethernity.app.widgets.collapsible import collapsible_panel
 
 
-class TaskProgressScreen(EthernityModalScreen[None]):
+class TaskProgressScreen(ModalScreen[None]):
     """Keep the operation visible until its worker and cleanup have finished."""
 
     BINDINGS = [("escape", "request_cancel", "Cancel")]

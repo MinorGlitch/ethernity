@@ -47,6 +47,7 @@ from ethernity.app.task_catalog import (
 )
 from ethernity.app.widgets.form import FormScroll
 from ethernity.app.widgets.settings_form import SettingsForm
+from ethernity.app.widgets.static_text import update_static_text
 from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.workflow_presenter import (
@@ -485,7 +486,7 @@ class TaskViewActions(EthernityAppContext):
 
     def _refresh_execution_status(self) -> None:
         status = self.query_one("#app-header-status", Label)
-        status.update(app_version_label())
+        update_static_text(status, app_version_label())
         status.tooltip = None
 
     def _refresh_navigation(self) -> None:
@@ -516,7 +517,6 @@ class TaskViewActions(EthernityAppContext):
             self.query_one(f"#{button_id}", Button).set_class(
                 self.active_task in tasks, "active-task"
             )
-        self.refresh_bindings()
 
     def _navigation_task_states(self) -> dict[TaskKey, NavTaskState]:
         states: dict[TaskKey, NavTaskState] = {}

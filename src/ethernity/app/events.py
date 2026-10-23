@@ -53,6 +53,7 @@ class AppEventHandlers(EthernityAppContext):
         self._close_nav_menu(restore_focus=False)
 
     async def action_help(self) -> None:
+        self._close_nav_menu(restore_focus=False)
         await self.push_screen(HelpScreen(build_help_content(task=self.active_task)))
 
     def on_task_result_screen_closed(self, event: TaskResultScreen.Closed) -> None:

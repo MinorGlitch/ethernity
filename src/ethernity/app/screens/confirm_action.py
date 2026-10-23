@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
-from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 
 
-class ConfirmActionScreen(EthernityModalScreen[bool]):
+class ConfirmActionScreen(ModalScreen[bool]):
     """Confirmation for a destructive action with no implicit default."""
 
     BINDINGS = [("escape", "cancel", "Cancel")]

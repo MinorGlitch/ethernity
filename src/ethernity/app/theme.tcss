@@ -6,6 +6,11 @@ Widget {
     scrollbar-size: 1 3;
 }
 
+/* Wrapping form controls must keep the same width when scrolling becomes necessary. */
+FormScroll {
+    scrollbar-gutter: stable;
+}
+
 ScrollBar.-ethernity-vertical {
     padding: 0 0 0 2;
 }

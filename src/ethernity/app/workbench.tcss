@@ -11,12 +11,6 @@
     height: 1fr;
 }
 
-Footer {
-    height: 1;
-    background: $footer-background;
-    color: $footer-foreground;
-}
-
 #nav-list {
     height: auto;
     border: none;

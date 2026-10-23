@@ -2,7 +2,6 @@
 
 from textual.app import ComposeResult
 from textual.widget import Widget
-from textual.widgets import Footer
 
 from ethernity.app.application import ETHERNITY_DARK_THEME, ETHERNITY_LIGHT_THEME, EthernityApp
 from ethernity.app.styling import StyledApp
@@ -21,4 +20,3 @@ class WidgetApp(StyledApp):
 
     def compose(self) -> ComposeResult:
         yield from self._test_widgets
-        yield Footer()

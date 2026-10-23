@@ -21,9 +21,9 @@ from dataclasses import dataclass
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Button, MarkdownViewer, Static
 
-from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 
 
@@ -55,7 +55,7 @@ class HelpContent:
     mode: HelpMode
 
 
-class HelpScreen(EthernityModalScreen[None]):
+class HelpScreen(ModalScreen[None]):
     """Contextual help for the active workflow."""
 
     BINDINGS = [("escape", "close", "Close")]

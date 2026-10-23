@@ -77,11 +77,10 @@ class ResponsiveActions(Grid):
         rows = (len(buttons) + capacity - 1) // capacity
         columns = (len(buttons) + rows - 1) // rows
         self.styles.grid_size_columns = columns
-        for button in buttons:
-            button.styles.column_span = 1
-            button.styles.max_width = max(34, minimum) if len(buttons) == 1 else None
-        if len(buttons) == 3 and columns == 2 and buttons[0].variant == "primary":
-            buttons[0].styles.column_span = 2
+        wide_primary = len(buttons) == 3 and columns == 2 and buttons[0].variant == "primary"
+        for index, button in enumerate(buttons):
+            button.styles.column_span = 2 if wide_primary and index == 0 else 1
+            button.styles.max_width = max(34, minimum) if len(buttons) == 1 else "100%"
 
 
 def inline_action_group(

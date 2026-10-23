@@ -63,7 +63,7 @@ def test_textual_app_editors_and_review_open_centered() -> None:
             assert review_region.x == (120 - review_region.width) // 2
             assert review_region.y == 0
             assert review_region.width == 100
-            assert review_region.height == 31
+            assert review_region.height == 32
 
     asyncio.run(run())
 
@@ -147,6 +147,7 @@ def test_textual_app_review_can_execute_ready_backup(monkeypatch) -> None:
             status="succeeded",
             message="Fake backup complete.",
             output_paths=(Path("backup-out/main.pdf"),),
+            next_steps=("Print every PDF at 100% (actual size).",),
         )
 
     def fake_copy_to_clipboard(self: EthernityApp, text: str) -> None:
@@ -194,7 +195,7 @@ def test_textual_app_review_can_execute_ready_backup(monkeypatch) -> None:
             assert "Destination\nbackup-out" in result_text
             assert "Files\n1 PDF" in result_text
             assert "\nmain.pdf" in result_text
-            assert "Print every PDF at actual size." in result_text
+            assert "Print every PDF at 100% (actual size)." in result_text
             assert "Create and store a recovery kit if you do not already have one." not in (
                 result_text
             )
@@ -264,6 +265,7 @@ def test_textual_app_review_can_execute_print_kit(monkeypatch) -> None:
             status="succeeded",
             message="Fake kit complete.",
             output_paths=(Path("kit.pdf"),),
+            next_steps=("Print the PDF at 100% (actual size).",),
         )
 
     monkeypatch.setattr(PrintKitTaskState, "execute", fake_execute)
@@ -301,7 +303,7 @@ def test_textual_app_review_can_execute_print_kit(monkeypatch) -> None:
             workflow_support.assert_success_result_modal_layout(app)
             assert "Files\n1 PDF" in result_text
             assert "kit.pdf" in result_text
-            assert "Print the PDF at actual size." in result_text
+            assert "Print the PDF at 100% (actual size)." in result_text
             assert workflow_support.button_label(app, "#result-open-folder") == "Open folder"
             await pilot.click("#result-close")
             await pilot.pause()
@@ -467,6 +469,10 @@ def test_textual_app_review_can_execute_ready_restore(monkeypatch) -> None:
         return TaskExecutionResult(
             status="succeeded",
             message="Fake restore complete.",
+            next_steps=(
+                "Check the restored files before deleting any scans.",
+                "Compare files with the same name against your originals.",
+            ),
             output_paths=(Path("recovered/secrets.txt"), Path("recovered/notes.txt")),
         )
 
@@ -509,7 +515,7 @@ def test_textual_app_review_can_execute_ready_restore(monkeypatch) -> None:
             assert "2 restored paths" in result_text
             assert "\nsecrets.txt\nnotes.txt" in result_text
             assert "Check the restored files" in result_text
-            assert "Compare same-name files in the destination" in result_text
+            assert "Compare files with the same name" in result_text
 
     asyncio.run(run())
 
@@ -547,6 +553,7 @@ def test_textual_app_review_can_execute_maintenance_workflows(monkeypatch) -> No
         return TaskExecutionResult(
             status="succeeded",
             message="Fake update complete.",
+            next_steps=("Print every new PDF at 100% (actual size).",),
             output_paths=(
                 Path("update-out/update.pdf"),
                 Path("update-out/update-recovery.pdf"),
@@ -558,6 +565,7 @@ def test_textual_app_review_can_execute_maintenance_workflows(monkeypatch) -> No
         return TaskExecutionResult(
             status="succeeded",
             message="Fake rebuild complete.",
+            next_steps=("Keep the sheets with the matching backup version.",),
             output_paths=(Path("rebuilt/main.pdf"), Path("rebuilt/recovery.pdf")),
         )
 
@@ -566,6 +574,10 @@ def test_textual_app_review_can_execute_maintenance_workflows(monkeypatch) -> No
         return TaskExecutionResult(
             status="succeeded",
             message="Fake replacement complete.",
+            next_steps=(
+                "Print every replacement sheet at 100% (actual size).",
+                "Store the new sheets before retiring the old set.",
+            ),
             output_paths=(
                 Path("replacement-docs/recovery.pdf"),
                 Path("replacement-docs/recovery-sheet-01.pdf"),
