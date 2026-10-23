@@ -61,11 +61,13 @@ class TaskResultScreen(ModalScreen[str | None]):
             self.result = screen._result
 
     class Closed(Message):
-        """Release background work owned by this result."""
+        """Notify the app when the user leaves this completed run."""
 
         def __init__(self, screen: TaskResultScreen) -> None:
             super().__init__()
             self.screen = screen
+            self.task = screen._task_key
+            self.result = screen._result
 
     def on_unmount(self) -> None:
         self.app.post_message(self.Closed(self))

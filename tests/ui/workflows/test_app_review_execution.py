@@ -208,7 +208,8 @@ def test_textual_app_review_can_execute_ready_backup(monkeypatch) -> None:
 
             await pilot.click("#result-close")
             await pilot.pause()
-            assert "Fake backup complete." in workflow_support.preview_text(app)
+            assert not app.backup_state.input_paths
+            assert "Fake backup complete." not in workflow_support.preview_text(app)
 
     asyncio.run(run())
 

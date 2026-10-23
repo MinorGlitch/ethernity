@@ -63,6 +63,16 @@ class AppEventHandlers(EthernityAppContext):
     def on_task_result_screen_closed(self, event: TaskResultScreen.Closed) -> None:
         event.stop()
         self.recovery_check_controller.cancel(event.screen)
+        if (
+            event.task == "backup"
+            and event.result is not None
+            and event.result.status == "succeeded"
+            and event.result is self._last_execution_result
+            and self.active_task == "backup"
+            and self.screen is self.screen_stack[0]
+        ):
+            self.action_clear_task()
+            self.call_after_refresh(self._focus_active_task, "backup")
 
     async def on_task_result_screen_context_action_requested(
         self, event: TaskResultScreen.ContextActionRequested
