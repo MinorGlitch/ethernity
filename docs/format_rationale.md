@@ -264,6 +264,16 @@ Automatic detection checks for fallback section markers first: `MAIN FRAME`, `AU
 then z-base-32 fallback lines. If neither interpretation succeeds for the whole input, it rejects
 the input as invalid or ambiguous. Mixing payload and fallback lines in one block is unsupported.
 
+The app and recovery kit show line numbers beside manual text entry. These numbers are not part
+of the input. Alternating colors separate text groups; they do not verify the backup. Dotted
+labels copied from paper, such as `01.`, are ignored. Bare digits remain data. Add the dot when
+typing a line label yourself.
+
+Use **Tidy** to remove one dotted label per line and collapse extra spaces. Line breaks,
+section headings, letter case, and payload digits are preserved. Repeated labels and unrecognized
+characters remain errors rather than being guessed away. The app supports undo for this edit;
+the kit offers **Undo tidy**. Passphrases are separate fields and are not changed by this cleanup.
+
 ### Paths and encoding
 
 Unicode NFC makes equivalent path spellings compare consistently across systems. For example,

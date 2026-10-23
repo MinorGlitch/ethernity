@@ -646,7 +646,7 @@ Decoding:
   `MAX_RECOVERY_TEXT_BYTES` (Section 17).
 - For each fallback section, decoders MUST apply the following deterministic filtering algorithm:
   1. Split section text into lines using `\n`, `\r\n`, or `\r`.
-  2. For each line, if a leading rendered line label matches `[0-9]{1,4}\.` followed by optional
+  2. For each line, if a leading rendered line label matches `[0-9]{1,5}\.` followed by optional
      whitespace, decoders MUST remove exactly one such prefix. A second prefix, and any undotted
      digit prefix, MUST NOT be treated as a rendered line label.
   3. Remove all Unicode whitespace code points and ASCII dashes (`-`).

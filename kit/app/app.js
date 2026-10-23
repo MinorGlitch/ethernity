@@ -113,6 +113,7 @@ export function mountApp(root) {
     window.removeEventListener("offline", syncNetwork);
     window.removeEventListener("pagehide", stopScanners);
     for (const scanner of scanners) scanner.dispose();
+    view.dispose();
     root.replaceChildren();
   };
 }

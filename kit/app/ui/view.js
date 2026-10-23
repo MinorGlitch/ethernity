@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 Alex Stoyanov. SPDX-License-Identifier: GPL-3.0-or-later */
 import { SCANNER_ENABLED } from "#kit-scanner";
 import { formatBytes } from "../format.js";
+import { createRecoveryEditor, recoveryTextField } from "./recovery_text.js";
 import {
   selectActionState,
   selectFrameCollectionComplete,
@@ -29,7 +30,7 @@ function step(title, summary, body) {
 
 function collector(id, inputId, label, action, extra = "") {
   return `<div id="${id}-input" class="step-section">
-    ${field(inputId, label, { textarea: true })}<div id="${id}-hint" class="hint" hidden></div>
+    ${recoveryTextField(inputId, label)}<div id="${id}-hint" class="hint" hidden></div>
     <div class="collector-controls"><div class="row">${button(`${id}-add`, action)}</div>
       ${SCANNER_ENABLED ? `<div id="${id}-scanner" class="scan-panel"></div>` : ""}</div>${extra}</div>`;
 }
@@ -85,6 +86,8 @@ export function createView(root, downloadFile) {
     </section></main>`;
   const nodes = new Map(Array.from(root.querySelectorAll("[id]"), (node) => [node.id, node]));
   const get = (id) => nodes.get(id);
+  const backupEditor = createRecoveryEditor(get("payload-text"));
+  const sheetEditor = createRecoveryEditor(get("shard-payload-text"));
   const table = root.querySelector("tbody");
   let previous = {};
   let collectionComplete = false;
@@ -105,8 +108,8 @@ export function createView(root, downloadFile) {
       updateDiagnostics(get("sheets-status"), selectShardDiagnostics(state));
     }
     const actions = selectActionState(state);
-    setValue(get("payload-text"), state.payloadText);
-    setValue(get("shard-payload-text"), state.shardPayloadText);
+    backupEditor.update(state.payloadText);
+    sheetEditor.update(state.shardPayloadText);
     setValue(get("passphrase-input"), state.agePassphrase);
     setValue(get("extension-target-input"), state.extensionTargetText);
     setValue(get("expected-head-doc-hash-input"), state.expectedHeadDocHashText);
@@ -202,5 +205,13 @@ export function createView(root, downloadFile) {
     get("offline-guard").hidden = !locked;
     get("workspace").hidden = locked;
   }
-  return { get, update, lock };
+  return {
+    get,
+    update,
+    lock,
+    dispose() {
+      backupEditor.dispose();
+      sheetEditor.dispose();
+    },
+  };
 }

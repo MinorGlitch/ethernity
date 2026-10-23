@@ -293,6 +293,48 @@ input[type="text"]::placeholder,
 input[type="password"]::placeholder { color: var(--placeholder); }
 input[readonly], textarea[readonly] { background: var(--muted-background); }
 
+.recovery-editor {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-background);
+  font: var(--fs-base)/var(--lh-relaxed) var(--font-mono);
+}
+.recovery-editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(31, 95, 206, 0.15); }
+.recovery-editor textarea {
+  display: block;
+  position: relative;
+  height: 160px;
+  border: 0;
+  border-radius: 0;
+  padding: 10px 12px 10px calc(5ch + 24px);
+  background: transparent;
+  color: transparent;
+  caret-color: var(--ink);
+  box-shadow: none;
+  font: inherit;
+  tab-size: 4;
+}
+.recovery-editor textarea::selection { background: rgba(31, 95, 206, 0.2); }
+.recovery-mirror { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.recovery-mirror > div { padding: 10px 12px; }
+.recovery-line { display: grid; grid-template-columns: 5ch minmax(0, 1fr); gap: 12px; }
+.recovery-line-number { text-align: right; color: var(--muted); user-select: none; }
+.recovery-line-text { white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+.recovery-group { color: var(--accent); }
+.recovery-label { color: var(--muted); text-decoration: line-through; }
+.recovery-invalid { color: var(--err); text-decoration: underline; }
+.recovery-entry-tools { align-items: start; }
+.recovery-entry-tools .hint { flex: 1; }
+.recovery-entry-tools button { font-size: var(--fs-base); white-space: nowrap; padding: 2px 8px; }
+.recovery-plain .recovery-mirror { display: none; }
+.recovery-plain textarea { padding-left: 12px; color: var(--ink); }
+@media (forced-colors: active) {
+  .recovery-mirror { display: none; }
+  .recovery-editor textarea { color: CanvasText; }
+}
+
 /* ── Buttons ── */
 button {
   border: 1px solid var(--accent);

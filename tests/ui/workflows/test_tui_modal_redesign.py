@@ -102,7 +102,7 @@ def test_paste_editor_keeps_enter_for_newlines_and_saves_full_text() -> None:
             await app.push_screen(screen, results.append)
             await pilot.pause()
             field = screen.query_one("#paste-text-input", TextArea)
-            assert str(screen.query_one("#paste-text-save", Button).label) == "Use text"
+            assert str(screen.query_one("#paste-text-save", Button).label) == "Use"
             field.load_text("first")
             field.move_cursor((0, 5))
             await pilot.press("enter")

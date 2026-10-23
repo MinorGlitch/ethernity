@@ -31,7 +31,7 @@ _FALLBACK_SECTION_PATTERNS = {
     "key": re.compile(r"^[=\-:\s]*(?:key|shard) frame[=\-:\s]*$", re.IGNORECASE),
     "main": re.compile(r"^[=\-:\s]*main frame[=\-:\s]*$", re.IGNORECASE),
 }
-_FALLBACK_RENDERED_LINE_PREFIX_RE = re.compile(r"^\d{1,5}\.\s*")
+_FALLBACK_RENDERED_LINE_PREFIX_RE = re.compile(r"^\s*[0-9]{1,5}\.\s*")
 
 
 def _is_valid_zbase32_line(line: str) -> bool:
@@ -51,10 +51,24 @@ def _is_valid_zbase32_line(line: str) -> bool:
     return has_payload_char
 
 
-def _strip_rendered_line_prefix(line: str) -> str:
-    """Remove the visible line label emitted by recovery documents."""
+def split_fallback_line_label(line: str) -> tuple[str, str]:
+    """Separate one printed line label without interpreting payload digits."""
+    match = _FALLBACK_RENDERED_LINE_PREFIX_RE.match(line)
+    end = match.end() if match else 0
+    return line[:end], line[end:]
 
-    return _FALLBACK_RENDERED_LINE_PREFIX_RE.sub("", line, count=1)
+
+def tidy_recovery_text(text: str) -> str:
+    """Clean entry formatting, preserving case, line boundaries, and invalid input."""
+    lines = []
+    for line in re.split(r"\r\n|\r|\n", text):
+        label, body = split_fallback_line_label(line)
+        # Repeated labels are malformed. Removing one here and another during
+        # decoding would accidentally accept them, or change a later tidy pass.
+        if label and not split_fallback_line_label(body)[0]:
+            line = body
+        lines.append(" ".join(line.split()))
+    return "\n".join(lines)
 
 
 def filter_fallback_lines(lines: Sequence[str]) -> list[str]:
@@ -62,7 +76,7 @@ def filter_fallback_lines(lines: Sequence[str]) -> list[str]:
     filtered: list[str] = []
 
     for line in lines:
-        stripped = _strip_rendered_line_prefix(line.strip())
+        _, stripped = split_fallback_line_label(line.strip())
         if not stripped:
             continue
 

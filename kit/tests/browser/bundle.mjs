@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import { waitForPageState } from "./support.mjs";
 import { checkScannerImages } from "./scanner.mjs";
 import { checkOfflineTransitions } from "./network.mjs";
+import { checkRecoveryEntry } from "./recovery_entry.mjs";
 
 async function checkBundleInteractions(backups) {
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -162,6 +163,7 @@ export async function smokeBundle(browser, bundlePath, backups, isPrintedKit = f
       const result = await page.evaluate(checkBundleInteractions, backups);
       if (result !== "ui-ok") throw new Error(`Kit interaction check failed: ${result}`);
       if (bundlePath.includes(".scanner.")) await checkScannerImages(page);
+      await checkRecoveryEntry(page);
       await checkOfflineTransitions(page);
     },
   });
