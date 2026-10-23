@@ -112,8 +112,10 @@ is fast enough for this check.
 
 UI tests use `run_app_test` from `tests/support/app.py`. It drains event chains, waits for layout
 and animations, and finishes each key before sending the next. This avoids relying on CPU-idle
-timing, which differs between platforms. Tests for rapid input should send actions without an
-intervening pause, as the navigation regression does.
+timing, which differs between platforms. Ordinary keys use Textual's public `simulate_key()` API;
+keys that need character normalization and explicit `wait:` commands use the native Pilot.
+Both paths finish through the same message and render checks. Tests for rapid input should send
+actions without an intervening pause, as the navigation regression does.
 `press()` already settles each key, so an immediate extra `pause()` is unnecessary. The helper
 waits for in-flight handlers and deferred layout callbacks, and interrupts its wait when the app
 fails. It tracks handler dispatch and completion through Textual's test hook and message signals.

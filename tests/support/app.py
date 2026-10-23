@@ -12,12 +12,16 @@ from weakref import WeakKeyDictionary, WeakSet, ref
 
 from textual import events, messages
 from textual.app import App
+from textual.keys import Keys, key_to_character
 from textual.message import Message
 from textual.message_pump import MessagePump
 from textual.pilot import Pilot
 from textual.screen import Screen
 
 Result = TypeVar("Result")
+
+# simulate_key accepts key identifiers but does not normalize printable names.
+_DIRECT_KEYS = frozenset(key.value for key in Keys if key_to_character(key.value) is None)
 
 
 @dataclass
@@ -216,7 +220,13 @@ class AppPilot(Pilot[Result]):
     async def press(self, *keys: str) -> None:
         await self.pause()
         for key in keys:
-            await super().press(key)
+            if (len(key) == 1 and key.isalnum()) or key in _DIRECT_KEYS:
+                # Use Textual's public key injection without its CPU-idle polling.
+                # Our message/render barrier below still completes every key.
+                self.app.simulate_key(key)
+            else:
+                # Preserve Pilot's character normalization and wait: commands.
+                await super().press(key)
             await self.pause()
 
     async def resize_terminal(self, width: int, height: int) -> None:

@@ -8,6 +8,7 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import VerticalGroup
 from textual.message import Message
+from textual.pilot import Pilot
 from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
@@ -76,17 +77,100 @@ def test_pause_finishes_nested_messages_rendering_and_deferred_focus() -> None:
     asyncio.run(run())
 
 
-def test_session_preserves_application_exceptions() -> None:
+@pytest.mark.parametrize("activation", ["click", "key"])
+def test_session_preserves_application_exceptions(activation: str) -> None:
     async def run() -> None:
         app = DeferredApp()
         async with run_app_test(app) as pilot:
-            await pilot.click("#done")
+            if activation == "click":
+                await pilot.click("#done")
+            else:
+                app.query_one(Button).focus()
+                await pilot.press("enter")
 
     started = monotonic()
     with pytest.raises(ValueError, match="Application handler failed"):
         asyncio.run(run())
     # An exception must interrupt synchronization, not wait out its 30-second cap.
     assert monotonic() - started < 5
+
+
+def test_keys_match_textual_pilot_characters_and_aliases() -> None:
+    class KeyRecorder(Static, can_focus=True):
+        def on_key(self, event: events.Key) -> None:
+            event.stop()
+            event.prevent_default()
+            received.append((event.key, event.character, event.aliases))
+
+    class KeyboardApp(App[None]):
+        def compose(self) -> ComposeResult:
+            yield KeyRecorder()
+
+    received: list[tuple[str, str | None, list[str]]] = []
+    keys = (
+        "a",
+        "Z",
+        "7",
+        "\u00e9",
+        "\u4e2d",
+        "?",
+        ",",
+        " ",
+        "+",
+        "\t",
+        "space",
+        "comma",
+        "question_mark",
+        "plus",
+        "enter",
+        "tab",
+        "escape",
+        "backspace",
+        "delete",
+        "left",
+        "home",
+        "ctrl+a",
+        "shift+tab",
+        "ctrl+left",
+        "f2",
+    )
+
+    async def run() -> None:
+        app = KeyboardApp()
+        async with run_app_test(app) as pilot:
+            native = Pilot(app)
+            for key in keys:
+                await native.press(key)
+                await pilot.pause()
+                assert len(received) == 1, key
+                expected = received.pop()
+                await pilot.press(key)
+                assert received == [expected], key
+                received.clear()
+
+    asyncio.run(run())
+
+
+def test_key_sequence_waits_for_async_changes_and_post_render_focus() -> None:
+    class SequenceApp(DeferredApp):
+        presses = 0
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            event.prevent_default()
+            self.presses += 1
+
+    async def run() -> None:
+        app = SequenceApp()
+        async with run_app_test(app) as pilot:
+            app.query_one(Input).focus()
+            await pilot.press("x", "enter")
+            assert app.value == "x"
+            assert app.focus_callbacks == 0
+            assert "x" in app.query_one("#result").render_line(0).text
+            assert app.focused is app.query_one(Button)
+            assert app.presses == 1
+
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize("quiet_style", [False, True])
