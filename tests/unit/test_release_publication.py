@@ -218,12 +218,52 @@ def test_only_confirmed_not_found_can_create_a_release(monkeypatch, stderr, abse
     monkeypatch.setattr(
         subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", stderr)
     )
+    monkeypatch.setattr(github, "run", lambda *args: "[[]]")
     remote = github.GitHub("example/repo")
     if absent:
         assert remote.release(TAG) is None
     else:
         with pytest.raises(RuntimeError):
             remote.release(TAG)
+
+
+def test_release_lookup_finds_draft_on_later_page(monkeypatch):
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args, 1, "", "gh: Not Found (HTTP 404)"
+        ),
+    )
+    draft = {"tag_name": TAG, "draft": True, "assets": []}
+    commands = []
+
+    def pages(*args):
+        commands.append(args)
+        return json.dumps([[{"tag_name": "v0.0.1", "draft": False}], [draft]])
+
+    monkeypatch.setattr(github, "run", pages)
+    assert github.GitHub("example/repo").release(TAG) == draft
+    assert commands == [
+        ("gh", "api", "repos/example/repo/releases?per_page=100", "--paginate", "--slurp")
+    ]
+
+
+def test_draft_lookup_errors_are_not_treated_as_absence(monkeypatch):
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args, 1, "", "gh: Not Found (HTTP 404)"
+        ),
+    )
+
+    def failed_list(*args):
+        raise subprocess.CalledProcessError(1, args)
+
+    monkeypatch.setattr(github, "run", failed_list)
+    with pytest.raises(subprocess.CalledProcessError):
+        github.GitHub("example/repo").release(TAG)
 
 
 @pytest.fixture

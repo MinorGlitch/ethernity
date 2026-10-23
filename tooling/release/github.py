@@ -43,6 +43,18 @@ class GitHub:
         if result.returncode == 0:
             return json.loads(result.stdout)
         if "(HTTP 404)" in result.stderr:
+            # The tag endpoint returns published releases only. Drafts are visible
+            # through the authenticated list endpoint, including on later pages.
+            pages = json.loads(
+                run(
+                    "gh", "api", f"repos/{self.repo}/releases?per_page=100", "--paginate", "--slurp"
+                )
+            )
+            matches = [release for page in pages for release in page if release["tag_name"] == tag]
+            if len(matches) > 1:
+                raise ValueError(f"multiple releases found for tag {tag}")
+            if matches:
+                return matches[0]
             return None
         raise RuntimeError(result.stderr)
 
