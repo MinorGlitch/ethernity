@@ -129,7 +129,11 @@ if "$verify_signature"; then
     command -v cosign >/dev/null || fail 'Install cosign to use --verify-signature'
     download "$repo/releases/download/$tag/$name.sigstore.json" "$stage/bundle.json"
     escaped_version=$(printf '%s' "$version" | sed 's/\./\\./g')
-    identity="^$repo/\\.github/workflows/pyinstaller\\.yml@refs/(tags/v$escaped_version|heads/master)$"
+    branch_identity=master
+    if printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+(\.dev[0-9]+)?|\.dev[0-9]+)$'; then
+        branch_identity='.+'
+    fi
+    identity="^$repo/\\.github/workflows/pyinstaller\\.yml@refs/(tags/v$escaped_version|heads/$branch_identity)$"
     cosign verify-blob --bundle "$stage/bundle.json" --certificate-identity-regexp "$identity" \
         --certificate-oidc-issuer https://token.actions.githubusercontent.com "$stage/$name"
 fi

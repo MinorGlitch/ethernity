@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import re
+import shutil
 import subprocess
 import zipfile
+from pathlib import Path
 
 import pytest
 from scripts import package_pyinstaller
@@ -123,3 +127,46 @@ def test_pypi_stops_on_bad_signature(tmp_path, monkeypatch, python_release):
     with pytest.raises(subprocess.CalledProcessError):
         python_package.prepare("MinorGlitch/ethernity", "v1.2.0", tmp_path)
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    "version,branch_allowed",
+    [
+        ("1.2.0", False),
+        ("1.2.0.post1", False),
+        ("1.2.0a1", True),
+        ("1.2.0b1", True),
+        ("1.2.0rc1", True),
+        ("1.2.0.dev1", True),
+    ],
+)
+def test_installer_signature_identity_limits(version, branch_allowed):
+    if os.name == "nt":
+        source = Path("install.ps1").read_text()
+        start = source.index("            $branchIdentity =")
+        end = source.index("            & $cosign.Source", start)
+        code = (
+            "$Version = $env:TEST_VERSION; $tag = 'v' + $Version;\n"
+            + source[start:end]
+            + "\nWrite-Output $identity"
+        )
+        command = ["powershell", "-NoProfile", "-Command", code]
+    else:
+        source = Path("install.sh").read_text()
+        start = source.index("    escaped_version=")
+        end = source.index("    cosign verify-blob", start)
+        code = (
+            'version="$TEST_VERSION"; repo=https://github.com/MinorGlitch/ethernity\n'
+            + source[start:end]
+            + '\nprintf "%s" "$identity"'
+        )
+        command = [shutil.which("sh"), "-c", code]
+    pattern = subprocess.check_output(
+        command, text=True, env={**os.environ, "TEST_VERSION": version}
+    ).strip()
+    prefix = "https://github.com/MinorGlitch/ethernity/.github/workflows/pyinstaller.yml@refs/"
+    assert re.fullmatch(pattern, prefix + f"tags/v{version}")
+    assert re.fullmatch(pattern, prefix + "heads/master")
+    assert bool(re.fullmatch(pattern, prefix + "heads/dev/preview")) is branch_allowed
+    assert not re.fullmatch(pattern, prefix + "tags/v9.9.9")
+    assert not re.fullmatch(pattern, prefix.replace("MinorGlitch", "attacker") + "heads/preview")

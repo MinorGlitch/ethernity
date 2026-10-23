@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class FakeGitHub(github.GitHub):
         self.sha = SHA
         self.commands = []
         self.omit_upload = False
+        self.body = ""
 
     def tag_sha(self, tag):
         return self.sha
@@ -35,6 +37,7 @@ class FakeGitHub(github.GitHub):
             "draft": self.draft,
             "prerelease": self.prerelease,
             "assets": [{"name": name} for name in self.assets],
+            "body": self.body,
         }
 
     def download(self, tag, name, directory):
@@ -51,8 +54,11 @@ class FakeGitHub(github.GitHub):
                 path = Path(value)
                 self.assets[path.name] = path.read_bytes()
         if args[0] == "edit":
-            self.draft = "--draft=true" in args
-            self.prerelease = "--prerelease=true" in args
+            if "--notes-file" in args:
+                self.body = Path(args[args.index("--notes-file") + 1]).read_text()
+            else:
+                self.draft = "--draft=true" in args
+                self.prerelease = "--prerelease=true" in args
         return ""
 
 
@@ -137,6 +143,7 @@ def test_tag_moving_during_upload_never_publishes(files):
     "version,prerelease",
     [
         ("1.2.0", False),
+        ("1.2.0a1", True),
         ("1.2.0rc1", True),
         ("1.3.0b1", True),
         ("1.3.0.dev1", True),
@@ -151,6 +158,11 @@ def test_python_version_classification(version, prerelease):
 def test_release_tag_must_match_project_version(tag):
     with pytest.raises(ValueError):
         inventory.validate_tag(tag, "1.2.0")
+
+
+def test_release_version_must_match_the_normalized_wheel_name():
+    with pytest.raises(ValueError, match="canonical Python version"):
+        inventory.validate_tag("v1.2.0-beta.1", "1.2.0-beta.1")
 
 
 def test_inventory_rejects_extra_missing_and_empty_files(tmp_path):
@@ -387,7 +399,7 @@ def test_existing_release_retry_verifies_all_signatures_before_success(monkeypat
     monkeypatch.setenv("RELEASE_COMMIT_SHA", SHA)
     monkeypatch.setattr(cli, "GitHub", lambda repo: remote)
     checked = []
-    monkeypatch.setattr(cli, "check_master", lambda tag, sha: checked.append((tag, sha)))
+    monkeypatch.setattr(cli, "check_release_commit", lambda tag, sha: checked.append((tag, sha)))
     commands = []
     monkeypatch.setattr(cli, "run", lambda *args: commands.append(args))
     cli.verify_published(TAG)
@@ -406,7 +418,7 @@ def test_existing_release_signature_failure_aborts_retry(monkeypatch):
     monkeypatch.setenv("GITHUB_REPOSITORY", remote.repo)
     monkeypatch.setenv("RELEASE_COMMIT_SHA", SHA)
     monkeypatch.setattr(cli, "GitHub", lambda repo: remote)
-    monkeypatch.setattr(cli, "check_master", lambda *args: None)
+    monkeypatch.setattr(cli, "check_release_commit", lambda *args: None)
 
     def invalid_signature(*args):
         raise subprocess.CalledProcessError(1, args)
@@ -414,3 +426,184 @@ def test_existing_release_signature_failure_aborts_retry(monkeypatch):
     monkeypatch.setattr(cli, "run", invalid_signature)
     with pytest.raises(subprocess.CalledProcessError):
         cli.verify_published(TAG)
+
+
+@pytest.mark.parametrize("tag", ["v1.2.0a1", "v1.2.0b1", "v1.2.0rc1", "v1.2.0.dev1"])
+def test_branch_prerelease_rechecks_tag_without_master_ancestry(monkeypatch, tag):
+    commands = []
+
+    def run(*args):
+        commands.append(args)
+        return SHA
+
+    monkeypatch.setattr(precheck, "run", run)
+    precheck.check_release_commit(tag, SHA)
+    assert ("git", "rev-parse", "FETCH_HEAD^{commit}") in commands
+    assert not any("merge-base" in args for args in commands)
+    commands.clear()
+    precheck.check_release_commit(TAG, SHA)
+    assert ("git", "merge-base", "--is-ancestor", SHA, "refs/remotes/origin/master") in commands
+
+
+def test_prerelease_rejects_changed_tag(monkeypatch):
+    monkeypatch.setattr(precheck, "run", lambda *args: "different")
+    with pytest.raises(ValueError, match="tag changed"):
+        precheck.check_release_commit("v1.2.0b1", SHA)
+
+
+@pytest.mark.parametrize("event", ["push", "pull_request", "workflow_dispatch"])
+def test_prerelease_requires_latest_ci_for_exact_commit(event):
+    good = {
+        "event": event,
+        "head_branch": "dev/test",
+        "head_sha": SHA,
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 1,
+    }
+    assert precheck.ci_success([good], SHA, prerelease=True)
+    assert not precheck.ci_success([{**good, "head_sha": "other"}], SHA, prerelease=True)
+    assert not precheck.ci_success([{**good, "status": "in_progress"}], SHA, prerelease=True)
+    with pytest.raises(ValueError, match="latest commit CI failed"):
+        precheck.ci_success(
+            [good, {**good, "run_attempt": 2, "conclusion": "failure"}], SHA, prerelease=True
+        )
+
+
+@pytest.fixture
+def prerelease_request(monkeypatch):
+    remote = FakeGitHub(exists=False)
+    for name, value in {
+        "GITHUB_REPOSITORY": remote.repo,
+        "GITHUB_EVENT_NAME": "workflow_dispatch",
+        "GITHUB_REF": "refs/heads/dev/preview",
+        "GITHUB_REF_NAME": "dev/preview",
+        "REQUESTED_TAG": "v1.2.0b1",
+        "REQUESTED_CI_EXCEPTION": "",
+        "REQUESTED_PRERELEASE": "false",
+        "REQUESTED_DRAFT": "false",
+    }.items():
+        monkeypatch.setenv(name, value)
+    state = {"version": "1.2.0b1", "head": SHA, "waited": [], "checked": []}
+
+    def run(*args):
+        if args[:2] == ("git", "show"):
+            return f'[project]\nversion = "{state["version"]}"'
+        return state["head"]
+
+    monkeypatch.setattr(precheck, "GitHub", lambda repo: remote)
+    monkeypatch.setattr(precheck, "run", run)
+    monkeypatch.setattr(
+        precheck, "check_release_commit", lambda *args: state["checked"].append(args)
+    )
+    monkeypatch.setattr(
+        precheck, "wait_for_ci", lambda *args, **kwargs: state["waited"].append(kwargs)
+    )
+    monkeypatch.setattr(precheck, "output", lambda **values: state.update(values))
+    return state
+
+
+def test_manual_branch_prerelease_requires_ci_by_default(prerelease_request):
+    precheck.main()
+    assert prerelease_request["prerelease"] == "true"
+    assert prerelease_request["channels"] == "false"
+    assert prerelease_request["environment"] == "prerelease"
+    assert prerelease_request["waited"] == [{"prerelease": True}]
+
+
+def test_manual_prerelease_exception_is_explicit(prerelease_request, monkeypatch):
+    monkeypatch.setenv("REQUESTED_CI_EXCEPTION", "Known navigation failures; testing build.")
+    precheck.main()
+    assert prerelease_request["ci_exception"] == "Known navigation failures; testing build."
+    assert prerelease_request["waited"] == []
+    assert prerelease_request["checked"] == [("v1.2.0b1", SHA)]
+    assert prerelease_request["channels"] == "false"
+
+
+def test_stable_flag_cannot_authorize_branch_release(prerelease_request, monkeypatch):
+    prerelease_request["version"] = "1.2.0"
+    monkeypatch.setenv("REQUESTED_TAG", TAG)
+    monkeypatch.setenv("REQUESTED_PRERELEASE", "true")
+    with pytest.raises(ValueError, match="stable releases must dispatch from master"):
+        precheck.main()
+
+
+@pytest.mark.parametrize(
+    "version,ref,event,exception,error",
+    [
+        ("1.2.0", "refs/heads/master", "workflow_dispatch", "skip", "CI exceptions require"),
+        ("1.2.0b1", "refs/tags/v1.2.0b1", "push", "skip", "CI exceptions require"),
+        ("1.2.0b1", "refs/heads/dev/preview", "workflow_dispatch", "one\ntwo", "one line"),
+    ],
+)
+def test_invalid_ci_exception_fails_closed(
+    prerelease_request, monkeypatch, version, ref, event, exception, error
+):
+    prerelease_request["version"] = version
+    for name, value in {
+        "GITHUB_REF": ref,
+        "GITHUB_REF_NAME": f"v{version}",
+        "GITHUB_EVENT_NAME": event,
+        "REQUESTED_TAG": f"v{version}",
+        "REQUESTED_CI_EXCEPTION": exception,
+    }.items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(ValueError, match=error):
+        precheck.main()
+
+
+def test_branch_dispatch_must_match_tag_commit(prerelease_request):
+    prerelease_request["head"] = "different"
+    with pytest.raises(ValueError, match="tag must match the dispatched commit"):
+        precheck.main()
+
+
+def test_ci_exception_is_disclosed_before_publication_and_on_retry(files):
+    remote = FakeGitHub(exists=False)
+    publish(
+        remote,
+        "v1.2.0b1",
+        files,
+        sha=SHA,
+        prerelease=True,
+        draft=True,
+        ci_exception="Known UI failure.",
+    )
+    assert "Known UI failure." in remote.body
+    assert remote.commands[-2][2] == "--notes-file"
+    assert "--latest=false" in remote.commands[-1]
+    publish(remote, "v1.2.0b1", files, sha=SHA, prerelease=True, ci_exception="Known UI failure.")
+    assert remote.body.count("## Testing status") == 1
+    assert not remote.draft
+
+
+def test_stable_publication_rejects_ci_exception(files):
+    remote = FakeGitHub()
+    with pytest.raises(ValueError, match="stable releases cannot"):
+        publish(remote, TAG, files, sha=SHA, ci_exception="skip")
+    assert remote.commands == []
+
+
+@pytest.mark.parametrize("tag,branch_allowed", [(TAG, False), ("v1.2.0b1", True)])
+def test_retry_signature_policy_keeps_stable_restricted(monkeypatch, tag, branch_allowed):
+    remote = FakeGitHub(
+        draft=False,
+        prerelease=branch_allowed,
+        assets={name: b"content" for name in inventory.release_files(tag)},
+    )
+    monkeypatch.setenv("GITHUB_REPOSITORY", remote.repo)
+    monkeypatch.setenv("RELEASE_COMMIT_SHA", SHA)
+    monkeypatch.setattr(cli, "GitHub", lambda repo: remote)
+    monkeypatch.setattr(cli, "check_release_commit", lambda *args: None)
+    commands = []
+    monkeypatch.setattr(cli, "run", lambda *args: commands.append(args))
+    cli.verify_published(tag)
+    pattern = commands[0][commands[0].index("--certificate-identity-regexp") + 1]
+    prefix = "https://github.com/example/repo/.github/workflows/pyinstaller.yml@refs/"
+    assert re.fullmatch(pattern, prefix + "heads/master")
+    assert re.fullmatch(pattern, prefix + f"tags/{tag}")
+    assert bool(re.fullmatch(pattern, prefix + "heads/dev/preview")) is branch_allowed
+    assert not re.fullmatch(pattern, prefix + "tags/v0.0.0")
+    assert not re.fullmatch(
+        pattern, prefix.replace("example/repo", "attacker/repo") + "heads/dev/preview"
+    )

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Tag name for release (required, e.g. v1.2.3)"
+        description: "Existing tag matching project version (e.g. v1.2.0 or v1.2.0b1)"
         required: true
         type: string
       prerelease:
@@ -20,6 +20,10 @@ on:
         required: false
         type: boolean
         default: false
+      ci_exception:
+        description: "Prereleases only: reason to publish without green CI (shown in release notes)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -45,6 +49,8 @@ jobs:
       draft: ${{ steps.meta.outputs.draft }}
       published: ${{ steps.meta.outputs.published }}
       channels: ${{ steps.meta.outputs.channels }}
+      environment: ${{ steps.meta.outputs.environment }}
+      ci_exception: ${{ steps.meta.outputs.ci_exception }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,13 +60,14 @@ jobs:
       - name: Setup Python
         uses: ./.github/actions/setup-python
 
-      - name: Resolve release and verify master CI
+      - name: Resolve release and verify CI policy
         id: meta
         env:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_TAG: ${{ inputs.release_tag }}
           REQUESTED_PRERELEASE: ${{ inputs.prerelease }}
           REQUESTED_DRAFT: ${{ inputs.draft }}
+          REQUESTED_CI_EXCEPTION: ${{ inputs.ci_exception }}
         run: uv run python -m tooling.release.precheck
 
   existing-release:
@@ -129,7 +136,7 @@ jobs:
     needs: [precheck, packages]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: release
+    environment: ${{ needs.precheck.outputs.environment }}
     permissions:
       contents: read
       id-token: write
@@ -192,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: always() && needs.precheck.result == 'success' && needs.signatures.result == 'success'
-    environment: release
+    environment: ${{ needs.precheck.outputs.environment }}
     permissions:
       contents: write
     steps:
@@ -235,6 +242,7 @@ jobs:
           RELEASE_COMMIT_SHA: ${{ needs.precheck.outputs.commit_sha }}
           RELEASE_PRERELEASE: ${{ needs.precheck.outputs.prerelease }}
           RELEASE_DRAFT: ${{ needs.precheck.outputs.draft }}
+          RELEASE_CI_EXCEPTION: ${{ needs.precheck.outputs.ci_exception }}
         run: uv run python -m tooling.release.cli publish
 
   homebrew:

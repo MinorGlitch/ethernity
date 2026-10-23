@@ -1,4 +1,4 @@
-"""Resolve a release and require successful master push CI for its exact commit."""
+"""Resolve immutable releases and enforce stable or prerelease CI policy."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from tooling.release.inventory import release_files, validate_tag
 from tooling.release.publish import asset_names
 
 
-def check_master(tag: str, sha: str) -> None:
+def check_release_commit(tag: str, sha: str) -> None:
     run(
         "git",
         "fetch",
@@ -25,16 +25,20 @@ def check_master(tag: str, sha: str) -> None:
     )
     if run("git", "rev-parse", "FETCH_HEAD^{commit}") != sha:
         raise ValueError("release tag changed during build")
-    run("git", "merge-base", "--is-ancestor", sha, "refs/remotes/origin/master")
+    if not validate_tag(tag, tag.removeprefix("v")).is_prerelease:
+        run("git", "merge-base", "--is-ancestor", sha, "refs/remotes/origin/master")
 
 
-def ci_success(runs: list[dict[str, Any]], sha: str) -> bool:
+def ci_success(runs: list[dict[str, Any]], sha: str, *, prerelease: bool = False) -> bool:
     matching = [
         run
         for run in runs
-        if run.get("event") == "push"
-        and run.get("head_branch") == "master"
-        and run.get("head_sha") == sha
+        if run.get("head_sha") == sha
+        and (
+            run.get("event") in {"push", "pull_request", "workflow_dispatch"}
+            if prerelease
+            else run.get("event") == "push" and run.get("head_branch") == "master"
+        )
     ]
     if not matching:
         return False
@@ -42,22 +46,24 @@ def ci_success(runs: list[dict[str, Any]], sha: str) -> bool:
     if latest["status"] != "completed":
         return False
     if latest["conclusion"] != "success":
-        raise ValueError(f"latest master CI failed: {latest.get('html_url')}")
+        label = "commit" if prerelease else "master"
+        raise ValueError(f"latest {label} CI failed: {latest.get('html_url')}")
     return True
 
 
-def wait_for_ci(github: GitHub, sha: str) -> None:
-    query = urllib.parse.urlencode(
-        {"branch": "master", "event": "push", "head_sha": sha, "per_page": 100}
-    )
+def wait_for_ci(github: GitHub, sha: str, *, prerelease: bool = False) -> None:
+    filters = {"head_sha": sha, "per_page": "100"}
+    if not prerelease:
+        filters.update(branch="master", event="push")
+    query = urllib.parse.urlencode(filters)
     deadline = time.monotonic() + 40 * 60
     while True:
         runs = github.api(f"actions/workflows/ci.yml/runs?{query}")["workflow_runs"]
-        if ci_success(runs, sha):
+        if ci_success(runs, sha, prerelease=prerelease):
             return
         if time.monotonic() >= deadline:
-            raise TimeoutError("no successful master push CI for release commit")
-        print(f"Waiting for master CI on {sha}", flush=True)
+            raise TimeoutError("no successful CI for release commit")
+        print(f"Waiting for CI on {sha}", flush=True)
         time.sleep(20)
 
 
@@ -74,18 +80,27 @@ def published_release(github: GitHub, tag: str, *, draft: bool, prerelease: bool
 
 def main() -> None:
     manual = os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch"
-    if manual and os.environ["GITHUB_REF"] != "refs/heads/master":
-        raise ValueError("manual releases must dispatch from master")
     tag = os.environ["REQUESTED_TAG"] if manual else os.environ["GITHUB_REF_NAME"]
     github = GitHub(os.environ["GITHUB_REPOSITORY"])
     sha = github.tag_sha(tag)
     if sha is None:
         raise ValueError("release tag is missing")
-    check_master(tag, sha)
     project = tomllib.loads(run("git", "show", f"{sha}:pyproject.toml"))["project"]
     version = validate_tag(tag, project["version"])
+    if manual and os.environ["GITHUB_REF"] != "refs/heads/master":
+        if not version.is_prerelease:
+            raise ValueError("manual stable releases must dispatch from master")
+        if run("git", "rev-parse", "HEAD") != sha:
+            raise ValueError("prerelease tag must match the dispatched commit")
+    exception = os.environ.get("REQUESTED_CI_EXCEPTION", "").strip()
+    if exception and (not manual or not version.is_prerelease):
+        raise ValueError("CI exceptions require a manual alpha, beta, rc, or dev release")
+    if "\n" in exception or "\r" in exception:
+        raise ValueError("CI exception must be one line")
+    check_release_commit(tag, sha)
     prerelease = version.is_prerelease or os.environ.get("REQUESTED_PRERELEASE") == "true"
-    wait_for_ci(github, sha)
+    if not exception:
+        wait_for_ci(github, sha, prerelease=version.is_prerelease)
     draft = os.environ.get("REQUESTED_DRAFT") == "true"
     published = published_release(github, tag, draft=draft, prerelease=prerelease)
     channels = (
@@ -98,6 +113,8 @@ def main() -> None:
         draft=json.dumps(draft),
         published=json.dumps(published),
         channels=json.dumps(channels),
+        environment="prerelease" if version.is_prerelease else "release",
+        ci_exception=exception,
     )
 
 

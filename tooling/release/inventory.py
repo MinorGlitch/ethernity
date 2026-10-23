@@ -36,7 +36,10 @@ def matrix() -> dict[str, list[dict[str, str]]]:
 def validate_tag(tag: str, version: str) -> Version:
     if not re.fullmatch(r"v[0-9][0-9A-Za-z._-]*", tag) or tag != f"v{version}":
         raise ValueError(f"release tag {tag!r} does not match project version {version!r}")
-    return Version(version)
+    parsed = Version(version)
+    if str(parsed) != version:
+        raise ValueError(f"use canonical Python version {str(parsed)!r} in the project and tag")
+    return parsed
 
 
 def release_files(tag: str, *, signed: bool = True) -> tuple[str, ...]:

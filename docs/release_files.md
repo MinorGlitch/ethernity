@@ -45,10 +45,38 @@ the SBOM for multiple release files.
 
 ## Release authorization
 
-A release tag must resolve to a commit on `origin/master`, and that exact commit must have a
+A stable release tag must resolve to a commit on `origin/master`, and that exact commit must have a
 successful `push` run of `ci.yml` on `master`. Pull-request and manually dispatched CI runs do not
 qualify a commit for release. A manually initiated release must dispatch the release job from
 `master`. The job resolves the tag again immediately before publication and stops if it moved.
+
+Alpha, beta, release-candidate, and development versions can be released from branches. Use a
+canonical Python version such as `1.2.0a1`, `1.2.0b1`, `1.2.0rc1`, or `1.2.0.dev1` in
+`pyproject.toml`, update `uv.lock`, and commit both before creating the matching `v` tag.
+The tag must point to the commit selected for a manual branch dispatch. These releases use the
+`prerelease` environment and are always marked as GitHub prereleases, never as Latest.
+They do not publish to PyPI or Homebrew, or include a WinGet manifest.
+
+Prereleases normally require successful CI for the exact tagged commit. A push, pull-request,
+or manually dispatched run of `ci.yml` qualifies. The latest matching run must pass; an older
+successful attempt cannot hide a newer failure. Run CI manually on a branch without a pull request.
+
+For a testing build with known failures, manually run **Build & Release** on the branch or tag
+and fill in `ci_exception` with a one-line explanation. The release notes disclose that exception.
+This bypasses only the full CI requirement; the existing build, package verification, and direct
+installer checks still have to pass. Stable versions cannot use this exception, even when the
+`prerelease` checkbox is selected. Leave the field empty for normal releases.
+
+For example, after the tag exists:
+
+```bash
+gh workflow run pyinstaller.yml --ref dev/my-feature \
+  -f release_tag=v1.2.0b1
+```
+
+Pushing a `v*` tag also starts a release with the normal CI requirement. Avoid starting a second
+run for the same tag while the first is active. To use an exception instead, cancel the automatic
+run before manually dispatching it. Retrying never moves a tag or replaces published assets.
 
 Required repository settings:
 
@@ -56,6 +84,7 @@ Required repository settings:
 - enable immutable GitHub Releases
 - configure the `release` environment without required reviewers or self-approval restrictions
 - restrict deployment branches/tags for that environment to the release policy
+- keep the separate `prerelease` environment free of stable publishing credentials
 
 Each platform job builds, smoke-tests, and packages its binaries without release credentials.
 The release does not apply Developer ID signing, macOS notarization, or Windows Authenticode
@@ -257,6 +286,9 @@ cosign verify-blob \
 Use the archive and bundle from the same tag and variant. For a release created by manually
 dispatching the workflow from master, use this exact certificate identity instead:
 `https://github.com/MinorGlitch/ethernity/.github/workflows/pyinstaller.yml@refs/heads/master`.
+For a prerelease dispatched from another branch, replace `master` with that branch's exact name.
+The direct installers accept branch signatures only for alpha, beta, release-candidate, and
+development versions, and still require this repository, workflow, and issuer.
 Keep the issuer check in both cases. Apply the same command to the SBOM and its bundle.
 The signing job verifies each new signature against its own workflow identity before upload.
 

@@ -10,8 +10,8 @@ import tempfile
 from pathlib import Path
 
 from tooling.release.github import GitHub, run
-from tooling.release.inventory import matrix, release_files, validate_files
-from tooling.release.precheck import check_master
+from tooling.release.inventory import matrix, release_files, validate_files, validate_tag
+from tooling.release.precheck import check_release_commit
 from tooling.release.publish import publish
 
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
@@ -39,13 +39,14 @@ def sign(directory: Path, tag: str) -> None:
 def verify_published(tag: str) -> None:
     github = GitHub(os.environ["GITHUB_REPOSITORY"])
     sha = os.environ["RELEASE_COMMIT_SHA"]
-    check_master(tag, sha)
+    check_release_commit(tag, sha)
+    branch = ".+" if validate_tag(tag, tag.removeprefix("v")).is_prerelease else "master"
     identity = (
         "^https://github.com/"
         + re.escape(github.repo)
         + r"/\.github/workflows/pyinstaller\.yml@refs/(tags/"
         + re.escape(tag)
-        + "|heads/master)$"
+        + f"|heads/{branch})$"
     )
     with tempfile.TemporaryDirectory() as temp:
         directory = Path(temp)
@@ -65,7 +66,7 @@ def verify_published(tag: str) -> None:
                 OIDC_ISSUER,
                 str(path),
             )
-    check_master(tag, sha)
+    check_release_commit(tag, sha)
 
 
 def publish_release(directory: Path, tag: str) -> None:
@@ -78,7 +79,8 @@ def publish_release(directory: Path, tag: str) -> None:
         sha=sha,
         prerelease=os.environ["RELEASE_PRERELEASE"] == "true",
         draft=os.environ["RELEASE_DRAFT"] == "true",
-        recheck=lambda: check_master(tag, sha),
+        recheck=lambda: check_release_commit(tag, sha),
+        ci_exception=os.environ.get("RELEASE_CI_EXCEPTION", ""),
     )
 
 

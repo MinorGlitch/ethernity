@@ -137,7 +137,11 @@ try {
             $cosign = Get-Command cosign -ErrorAction Stop
             $bundle = Join-Path $stage 'bundle.json'
             Download-File "$Repo/releases/download/$tag/$name.sigstore.json" $bundle
-            $identity = '^https://github\.com/MinorGlitch/ethernity/\.github/workflows/pyinstaller\.yml@refs/(tags/' + [regex]::Escape($tag) + '|heads/master)$'
+            $branchIdentity = 'master'
+            if ($Version -cmatch '^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+(\.dev[0-9]+)?|\.dev[0-9]+)$') {
+                $branchIdentity = '.+'
+            }
+            $identity = '^https://github\.com/MinorGlitch/ethernity/\.github/workflows/pyinstaller\.yml@refs/(tags/' + [regex]::Escape($tag) + '|heads/' + $branchIdentity + ')$'
             & $cosign.Source verify-blob --bundle $bundle --certificate-identity-regexp $identity --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' $zipPath
             if ($LASTEXITCODE -ne 0) { throw 'Sigstore verification failed.' }
         }
