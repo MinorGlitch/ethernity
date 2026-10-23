@@ -337,7 +337,7 @@ def test_review_details_describe_each_task() -> None:
             ),
             TaskExecutionPlan(summary="Kit", output_paths=(Path("kit.pdf"),)),
             {
-                "Kit type": "Scanner kit",
+                "Kit type": "Paste text + scan QR codes",
                 "Layout": "Letter, Forge",
                 "QR sizing": "384-byte chunks",
             },

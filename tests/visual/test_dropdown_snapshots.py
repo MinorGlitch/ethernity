@@ -10,7 +10,12 @@ from textual.widgets import Button, ListItem, ListView, OptionList, Select
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.widgets.form import FormSelect
-from tests.visual.production_states import ProductionVisualApp, SettingsVisualApp, production_case
+from tests.visual.production_states import (
+    VISUAL_KIT_OUTPUT,
+    ProductionVisualApp,
+    SettingsVisualApp,
+    production_case,
+)
 from tests.visual.snapshot_support import assert_svg_snapshot, capture_svg
 
 SNAPSHOT_DIR = Path(__file__).with_name("snapshots")
@@ -127,6 +132,7 @@ def test_direct_navigation_snapshot(
 ) -> None:
     def make_app() -> EthernityApp:
         app = ProductionVisualApp(production_case("backup-empty"))
+        app.kit_state.output_path = VISUAL_KIT_OUTPUT
         app.theme = theme
         return app
 

@@ -241,8 +241,8 @@ HELP_MODES: tuple[HelpMode, ...] = (
             _section(
                 "Choose the PDF",
                 (
-                    "Choose a file path, paper size, and print design. Lean uses fewer pages and "
-                    "manual QR entry; Scanner includes camera scanning."
+                    'Choose a file path, paper size, and print design. "Paste text" uses fewer '
+                    'pages. "Paste text + scan QR codes" adds camera scanning.'
                 ),
             ),
             _section(
