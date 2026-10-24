@@ -216,6 +216,34 @@ def test_button_feedback_waits_without_continuously_draining_widgets(
     asyncio.run(run())
 
 
+def test_pause_waits_for_nested_button_subclasses_but_ignores_hidden_feedback() -> None:
+    class NestedButton(Button):
+        pass
+
+    class ButtonApp(App[None]):
+        def compose(self) -> ComposeResult:
+            with VerticalGroup():
+                yield NestedButton("Press", id="visible")
+                yield NestedButton("Hidden", id="hidden")
+
+    async def run() -> None:
+        app = ButtonApp()
+        async with run_app_test(app) as pilot:
+            hidden = app.query_one("#hidden", NestedButton)
+            hidden.display = False
+            # A hidden button can retain this class indefinitely. It must not
+            # keep the visible screen waiting, or hide a visible button's timer.
+            hidden.add_class("-active")
+            visible = app.query_one("#visible", NestedButton)
+            visible.press()
+            assert visible.has_class("-active")
+            await pilot.pause()
+            assert not visible.has_class("-active")
+            assert hidden.has_class("-active")
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("handler_delay", [0, 0.01, 0.05])
 def test_resize_finishes_child_handlers_rendering_and_deferred_focus(handler_delay: float) -> None:
     class ResizingEditor(DeferredEditor):

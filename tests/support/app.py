@@ -17,6 +17,7 @@ from textual.message import Message
 from textual.message_pump import MessagePump
 from textual.pilot import Pilot
 from textual.screen import Screen
+from textual.widgets import Button
 
 Result = TypeVar("Result")
 
@@ -176,9 +177,11 @@ class AppPilot(Pilot[Result]):
         resized = self._requested_size is None or (
             self._activity.resized_screens.get(self.app.screen) == self._requested_size
         )
+        # This runs after every interaction. Avoid CSS matching across all widgets
+        # when only button class membership and visibility matter.
         active_buttons = any(
-            button.is_on_screen and button.visible
-            for button in self.app.screen.query("Button.-active")
+            button.has_class("-active") and button.is_on_screen and button.visible
+            for button in self.app.screen.walk_children(Button)
         )
         return resized and not active_buttons
 
