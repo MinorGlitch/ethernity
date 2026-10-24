@@ -144,9 +144,9 @@ finish a failed formula push, but cannot downgrade a newer formula or overwrite 
 
 ## CI and packaging rehearsal
 
-Linux, macOS, and Windows each run the full Python test suite in two concurrent jobs: UI tests,
-and unit, rendering, and integration tests. The groups do not overlap. Linux collects branch
-coverage in both jobs; a separate job combines the results and enforces the application (85%)
+Linux, macOS, and Windows each run the full Python test suite in three concurrent jobs: UI tests,
+PDF rendering tests, and unit/integration tests. The groups do not overlap. Linux collects branch
+coverage in all three jobs; a separate job combines the results and enforces the application (85%)
 and document inspector (45%) gates without rerunning tests. Browser, visual, portability,
 compatibility, and audit gates remain separate.
 
