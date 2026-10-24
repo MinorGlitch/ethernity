@@ -125,6 +125,25 @@ produces, since the requested size changes before layout catches up. Timer-drive
 waits resume on UI activity and recheck timer state without repeatedly draining every widget.
 Do not replace these guarantees with fixed sleeps.
 
+CI divides the UI suite into two jobs on each platform using `pytest-split`. Every test runs
+once per platform; both Linux jobs contribute to the same coverage gates. The timings in
+`tests/ui/durations.json` balance the jobs, not decide which tests run. New tests receive an
+average duration until the timings are refreshed.
+
+To reproduce one group locally, use `--group 1` or `--group 2`:
+
+```sh
+uv run pytest tests/ui -n 4 --dist loadfile --splits 2 --group 1 \
+  --splitting-algorithm least_duration --durations-path tests/ui/durations.json
+```
+
+Refresh the scheduling weights with a successful full UI run:
+
+```sh
+uv run pytest tests/ui --store-durations --clean-durations \
+  --durations-path tests/ui/durations.json
+```
+
 For background workers and future timers, use the bounded waits in `tests/support/pilot.py`.
 Wait for the state change the test needs, such as a completed worker. Use the `set_home` fixture
 for home-directory overrides; unittest-based tests use `tests.support.environment.home_environment`.

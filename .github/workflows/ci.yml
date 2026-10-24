@@ -149,8 +149,12 @@ jobs:
             paths: tests/unit tests/integration
           - name: rendering
             paths: tests/rendering
-          - name: ui
+          - name: ui-1
             paths: tests/ui
+            args: --splits 2 --group 1 --splitting-algorithm least_duration --durations-path tests/ui/durations.json
+          - name: ui-2
+            paths: tests/ui
+            args: --splits 2 --group 2 --splitting-algorithm least_duration --durations-path tests/ui/durations.json
         include:
           - os: macos-latest
             python-version: "3.11"
@@ -185,14 +189,14 @@ jobs:
 
       - name: Run Python tests
         if: matrix.os != 'ubuntu-latest'
-        run: uv run pytest ${{ matrix.suite.paths }} -n logical --maxprocesses=4 --dist loadfile -v --durations=30 --junitxml=test-results/python.xml
+        run: uv run pytest ${{ matrix.suite.paths }} ${{ matrix.suite.args }} -n logical --maxprocesses=4 --dist loadfile -v --durations=30 --junitxml=test-results/python.xml
       - name: Run Python tests with coverage
         id: coverage-tests
         if: matrix.os == 'ubuntu-latest'
         env:
           COVERAGE_FILE: .coverage.${{ matrix.suite.name }}
         run: |
-          uv run pytest ${{ matrix.suite.paths }} -n logical --maxprocesses=4 --dist loadfile \
+          uv run pytest ${{ matrix.suite.paths }} ${{ matrix.suite.args }} -n logical --maxprocesses=4 --dist loadfile \
             --cov=ethernity \
             --cov=tooling.document_inspector_app \
             --cov-report= --durations=30 --junitxml=test-results/python.xml
@@ -234,10 +238,15 @@ jobs:
         with:
           name: python-coverage-core
           path: coverage-data
-      - name: Download UI coverage
+      - name: Download first UI group coverage
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: python-coverage-ui
+          name: python-coverage-ui-1
+          path: coverage-data
+      - name: Download second UI group coverage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-coverage-ui-2
           path: coverage-data
       - name: Download rendering coverage
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
