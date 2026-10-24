@@ -342,7 +342,9 @@ jobs:
 
   native-packages:
     if: needs.kit-bundles.outputs.native == 'true'
-    needs: kit-bundles
+    # Let Homebrew request its runners after source staging, before native builds
+    # compete with the test matrix for the total and macOS runner limits.
+    needs: [kit-bundles, package]
     uses: ./.github/workflows/native-packages.yml
     with:
       commit_sha: ${{ github.sha }}
