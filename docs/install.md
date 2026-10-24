@@ -22,14 +22,15 @@ process and can be kept with a backup.
 
 ## Choose a release
 
-This checkout describes Ethernity 1.2, including the new installers. Until 1.2 is published,
-use the archives on [GitHub Releases](https://github.com/MinorGlitch/ethernity/releases/latest).
-The Homebrew and PyPI channels still contain earlier releases. Follow the README at your
-release tag when its commands differ from this guide.
+These instructions describe Ethernity 1.2. See the [release notes](releases/1.2.0.md) for changes
+and publication status. Check the version offered by
+[GitHub Releases](https://github.com/MinorGlitch/ethernity/releases), Homebrew, or PyPI before
+installing; the channels publish separately. Follow the README at your release tag when its
+commands differ from this guide.
 
 The installer commands below require a release containing `install.sh`, `install.ps1`, and
-`SHA256SUMS`. They will be available with 1.2. A script downloaded from a release installs that
-release by default. Download a fresh script when upgrading; do not fetch installers from `master`.
+`SHA256SUMS`, introduced in 1.2. A script downloaded from a release installs that release by
+default. Download a fresh script when upgrading; do not fetch installers from `master`.
 
 ## macOS
 
@@ -85,7 +86,7 @@ Removal also removes its PATH entry. Your settings and backups stay where they a
 If you used `-InstallRoot` when installing, pass the same path when updating or removing it.
 The installer can upgrade installations made by the earlier Ethernity PowerShell script.
 
-WinGet support is being prepared. The release will include a manifest for the same Windows ZIP,
+Stable 1.2 releases include a WinGet manifest for the same Windows ZIP,
 but `winget install` will not work until the package is accepted into the WinGet community
 repository. Keep using the installer or ZIP until then. After acceptance, install, upgrade,
 and remove it through WinGet rather than mixing installation methods.

@@ -60,10 +60,9 @@ for compression examples, other paper sizes, and how to check your own files.
 Ethernity opens in your terminal by default. Run `ethernity --web` to use the same app in your
 browser. The packaged downloads include Python and everything needed to create and restore backups.
 
-**Release note:** this checkout describes the forthcoming 1.2 app. The current GitHub release
-and the Homebrew/PyPI packages are older. For a published version, download it from
-[GitHub Releases](https://github.com/MinorGlitch/ethernity/releases/latest) and follow the README
-at that release tag. The new direct installers below will ship with 1.2.
+This guide describes Ethernity 1.2. See the [release notes](docs/releases/1.2.0.md) for changes
+and publication status, and [GitHub Releases](https://github.com/MinorGlitch/ethernity/releases)
+for available downloads. For an older version, follow the README at its release tag.
 
 | Platform | Installation | Start |
 | --- | --- | --- |
@@ -93,12 +92,12 @@ For the same interface in a browser, run `ethernity --web`. It runs on your comp
 offline, using your usual settings and local files. Keep the launching terminal open; press
 Ctrl+C there to stop it. This is separate from the standalone HTML recovery kit.
 
-1. Choose **Create backup** and add a test file.
+1. Choose **Backup** and add a test file.
 2. Keep the default recovery setting: three sheets, any two needed.
 3. Choose a paper size and destination, review the backup, and create it. Ethernity saves the PDFs
    in a new `backup-<id>` folder inside that destination.
 4. Print the PDFs at actual size.
-5. Choose **Restore files**. Load scans of the backup pages and any two recovery sheets.
+5. Choose **Restore**. Load scans of the backup pages and any two recovery sheets.
 6. Restore to a new destination and compare the result with your test file.
 
 While a task runs, the app shows its current stage, elapsed time, and file or PDF page counts.
