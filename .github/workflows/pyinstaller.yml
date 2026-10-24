@@ -125,8 +125,16 @@ jobs:
       tag: ${{ needs.precheck.outputs.tag }}
       kit_artifact: release-kit-bundles
 
+  python-packages:
+    needs: [precheck, kit-bundles]
+    uses: ./.github/workflows/python-packages.yml
+    with:
+      commit_sha: ${{ needs.precheck.outputs.commit_sha }}
+      tag: ${{ needs.precheck.outputs.tag }}
+      kit_artifact: release-kit-bundles
+
   signatures:
-    needs: [precheck, packages]
+    needs: [precheck, packages, python-packages]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: release

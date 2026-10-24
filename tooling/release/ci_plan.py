@@ -22,12 +22,15 @@ def packaging_changes(paths: list[str]) -> tuple[bool, bool]:
 
 
 def failures(needs: dict[str, Any]) -> list[str]:
-    brew_required = needs["kit-bundles"].get("outputs", {}).get("homebrew", "true") == "true"
+    selection = needs["kit-bundles"].get("outputs", {})
+    optional_jobs = {"native-packages": "native", "homebrew-rehearsal": "homebrew"}
+    allowed_skips = {
+        job for job, flag in optional_jobs.items() if selection.get(flag, "true") == "false"
+    }
     return [
         name
         for name, job in needs.items()
-        if job["result"] != "success"
-        and not (name == "homebrew-rehearsal" and not brew_required and job["result"] == "skipped")
+        if job["result"] != "success" and not (name in allowed_skips and job["result"] == "skipped")
     ]
 
 

@@ -149,6 +149,9 @@ PDF rendering tests, and unit/integration tests. The groups do not overlap. Linu
 coverage in all three jobs; a separate job combines the results and enforces the application (85%)
 and document inspector (45%) gates without rerunning tests. Browser, visual, portability,
 compatibility, and audit gates remain separate.
+The responsive PDF matrix and terminal snapshot suite run concurrently. Only rendering jobs
+install Poppler, and only core jobs install Node dependencies and download printed-kit references.
+The minimum-Python Linux portability check keeps its full selection and uses two pytest workers.
 
 The kit verification job uses the official Playwright container, pinned by version and digest,
 with its browsers and system libraries already installed. Keep that image aligned with the
@@ -162,9 +165,12 @@ source install, test, and bottle build on both Homebrew platforms. Pull requests
 packaging, dependency, workflow, script, or packaged-resource files change. Master push, scheduled,
 and manual CI runs perform the full packaging rehearsal. None of these CI builds publish files.
 
-The shared native packaging workflow also builds and installs a wheel from the actual release source archive. The Homebrew rehearsal
-uses that archive from the workflow artifact cache, with the formula's normal URL and checksum.
-This checks installation before the public release exists.
+`python-packages.yml` builds the source archive and builds, checks, and installs a wheel from it
+for both CI and releases. CI stages the Homebrew formula in that same job, so bottle checks can
+start when the source is ready without waiting for native archives or WinGet. The rehearsal uses
+that exact source artifact with the formula's normal URL and checksum. Release signing waits for
+both Python and native package verification. This checks installation before the public release
+exists.
 
 Python commands use `UV_LOCKED=true`; setup rejects an outdated `uv.lock`. Source and wheel builds
 use the locked build dependencies without a second, unpinned build environment. Kit and packaging

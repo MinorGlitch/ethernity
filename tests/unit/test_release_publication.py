@@ -349,6 +349,35 @@ def test_packaging_plan_keeps_all_test_gates():
     assert "homebrew-rehearsal" in ci_plan.failures(needs)
 
 
+@pytest.mark.parametrize(
+    ("job", "flag"),
+    (("native-packages", "native"), ("homebrew-rehearsal", "homebrew")),
+)
+def test_ci_gate_only_allows_explicitly_unselected_packaging_to_be_skipped(job, flag):
+    outputs = {flag: "false"}
+    needs = {
+        "kit-bundles": {"result": "success", "outputs": outputs},
+        job: {"result": "skipped"},
+        "package": {"result": "success"},
+        "test": {"result": "success"},
+        "coverage": {"result": "success"},
+    }
+    assert ci_plan.failures(needs) == []
+    for result in ("failure", "cancelled"):
+        needs[job]["result"] = result
+        assert ci_plan.failures(needs) == [job]
+    needs[job]["result"] = "skipped"
+    outputs.clear()
+    assert ci_plan.failures(needs) == [job]
+    outputs[flag] = "true"
+    assert ci_plan.failures(needs) == [job]
+    outputs[flag] = "false"
+    for required in ("package", "test", "coverage"):
+        needs[required]["result"] = "skipped"
+        assert ci_plan.failures(needs) == [required]
+        needs[required]["result"] = "success"
+
+
 def test_published_precheck_requires_complete_inventory():
     remote = FakeGitHub(
         draft=False, assets={name: b"data" for name in inventory.release_files(TAG)}

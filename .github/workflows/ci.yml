@@ -80,28 +80,36 @@ jobs:
           npm run check
 
   render-visual:
+    name: render-visual (${{ matrix.suite }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [pdf, terminal]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Install Poppler
+        if: matrix.suite == 'pdf'
         run: sudo apt-get update && sudo apt-get install --yes poppler-utils
       - name: Verify responsive PDF matrix
+        if: matrix.suite == 'pdf'
         run: |
           uv run python scripts/render_visual_baselines.py \
             --output-dir "${RUNNER_TEMP}/render-visual-baselines" \
             --rasterize never
       - name: Verify terminal snapshots
+        if: matrix.suite == 'terminal'
         run: uv run pytest tests/visual -n 2 -v --durations=30 --junitxml=test-results/visual.xml
       - name: Summarize test timings
-        if: always()
+        if: always() && matrix.suite == 'terminal'
         shell: bash
         run: uv run python scripts/summarize_test_timings.py test-results >> "$GITHUB_STEP_SUMMARY"
       - name: Upload snapshot results
-        if: always()
+        if: always() && matrix.suite == 'terminal'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: terminal-snapshot-results
@@ -121,7 +129,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check Linux portability on minimum Python
-        run: uv run pytest tests/unit tests/ui tests/rendering tests/integration -m portability -q --junitxml=test-results/portability.xml
+        run: uv run pytest tests/unit tests/ui tests/rendering tests/integration -m portability -n 2 --dist loadfile -q --junitxml=test-results/portability.xml
       - name: Summarize test timings
         if: always()
         shell: bash
@@ -159,6 +167,7 @@ jobs:
           name: recovery-kit-bundles
           path: src/ethernity/resources/kit
       - name: Download kit loader roundtrip references
+        if: matrix.suite.name == 'core'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: recovery-kit-packed
@@ -168,10 +177,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install Poppler for composited QR tests
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.suite.name == 'rendering'
         run: sudo apt-get update && sudo apt-get install --yes poppler-utils
       - name: Setup kit dependencies
-        if: matrix.suite.name != 'rendering'
+        if: matrix.suite.name == 'core'
         uses: ./.github/actions/setup-kit
 
       - name: Run Python tests
@@ -323,49 +332,22 @@ jobs:
           retention-days: 30
 
   native-packages:
+    if: needs.kit-bundles.outputs.native == 'true'
     needs: kit-bundles
     uses: ./.github/workflows/native-packages.yml
     with:
       commit_sha: ${{ github.sha }}
       tag: ${{ needs.kit-bundles.outputs.tag }}
       kit_artifact: recovery-kit-bundles
-      build_binaries: ${{ needs.kit-bundles.outputs.native == 'true' }}
 
   package:
-    needs: [kit-bundles, native-packages]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/setup-python
-        with:
-          extras: build
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: release-source
-          path: source-dist
-      - name: Download the wheel verified by the native packaging workflow
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: release-python
-          path: dist
-      - name: Verify wheel and source contents
-        run: python3 -m tooling.release_resources dist/*.whl source-dist/*.tar.gz
-      - name: Stage Homebrew formula for native rehearsal
-        env:
-          RELEASE_TAG: ${{ needs.kit-bundles.outputs.tag }}
-        run: |
-          python3 scripts/generate_homebrew_source_formula.py \
-            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
-            --source-archive "source-dist/ethernity-source-${RELEASE_TAG}.tar.gz" \
-            --template scripts/homebrew_ethernity_tap.rb --lock uv.lock \
-            --output homebrew-stage/Formula/ethernity.rb
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: homebrew-rehearsal-formula
-          path: homebrew-stage
-          if-no-files-found: error
-          retention-days: 30
+    needs: kit-bundles
+    uses: ./.github/workflows/python-packages.yml
+    with:
+      commit_sha: ${{ github.sha }}
+      tag: ${{ needs.kit-bundles.outputs.tag }}
+      kit_artifact: recovery-kit-bundles
+      stage_homebrew: ${{ needs.kit-bundles.outputs.homebrew == 'true' }}
 
   homebrew-rehearsal:
     if: needs.kit-bundles.outputs.homebrew == 'true'
