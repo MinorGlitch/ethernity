@@ -45,7 +45,7 @@ dependencies = [
 ethernity = "ethernity.main:main"
 
 [project.optional-dependencies]
-build = ["pyinstaller>=6.19.0", "setuptools>=83.0.0", "wheel", "packaging>=25"]
+build = ["pyinstaller>=6.19.0", "setuptools>=84.1.0", "wheel", "packaging>=25"]
 dev = [
     "coverage>=7.13.4",
     "hypothesis>=6.151.9",
@@ -62,7 +62,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=83.0.0", "wheel"]
+requires = ["setuptools>=84.1.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
