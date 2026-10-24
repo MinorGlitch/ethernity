@@ -12,6 +12,7 @@ from textual.widget import Widget
 from textual.widgets import Button, Input, RadioButton, RadioSet, Static
 
 from ethernity.app.widgets.actions import ResponsiveActions
+from ethernity.app.widgets.static_text import update_static_text
 from ethernity.tasks.presentation.models import (
     ChoicePresentation,
     InlineNoticePresentation,
@@ -82,21 +83,20 @@ class InlineNotice(Static):
         self.sync_presentation(notice)
 
     def sync_presentation(self, notice: InlineNoticePresentation | None) -> None:
-        for tone in self._TONES:
-            self.remove_class(f"notice-{tone}")
+        active_tone = notice.tone if notice is not None and notice.message else None
+        self.update_classes({f"notice-{tone}": tone == active_tone for tone in self._TONES})
         if notice is None or not notice.message:
             self.display = False
-            self.update("")
+            update_static_text(self, "")
             return
         self.display = True
-        self.add_class(f"notice-{notice.tone}")
         label = {
             "info": "Note",
             "warning": "Warning",
             "error": "Error",
             "success": "Success",
         }[notice.tone]
-        self.update(f"{label}: {notice.message}")
+        update_static_text(self, f"{label}: {notice.message}")
 
 
 class WorkflowIntegerInput(Input):

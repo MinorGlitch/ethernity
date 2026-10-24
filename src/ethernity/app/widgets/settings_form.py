@@ -297,14 +297,11 @@ class SettingsForm(Widget):
         save_status = "Locked while task runs" if write_locked else settings.save_status
         status = self.query_one("#settings-save-status", Static)
         update_static_text(status, save_status)
-        status.set_class(settings.save_pending or write_locked, "settings-status-pending")
-        status.set_class(
-            save_status
-            in {
-                "Not saved",
-                "Save failed",
-            },
-            "settings-status-error",
+        status.update_classes(
+            {
+                "settings-status-pending": settings.save_pending or write_locked,
+                "settings-status-error": save_status in {"Not saved", "Save failed"},
+            }
         )
         retry = self.query_one("#settings-retry-save", Button)
         retry.display = settings.save_pending and not write_locked

@@ -172,10 +172,6 @@ WorkbenchSteps Button:focus {
     align-horizontal: left;
 }
 
-#task-canvas-shell.settings-mode #workbench-editor {
-    padding: 0;
-}
-
 #canvas-hero,
 #canvas-task-workspaces {
     width: 1fr;
@@ -304,8 +300,8 @@ WorkbenchSteps Button.step-warning {
 .workspace-choice-empty,
 .guided-choice-empty,
 WorkbenchSummary.empty-summary,
-#task-canvas-shell.settings-mode #workbench-steps,
-#task-canvas-shell.settings-mode #workbench-summary {
+#workbench-steps.settings-mode,
+#workbench-summary.settings-mode {
     display: none;
 }
 

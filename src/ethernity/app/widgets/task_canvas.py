@@ -131,7 +131,10 @@ class TaskCanvas(Widget):
         )
         is_settings = task_key == "settings"
         locked = running or preparing
-        self.query_one("#task-canvas-shell", Vertical).set_class(is_settings, "settings-mode")
+        # Padding affects only the editor, so avoid restyling every descendant form.
+        self.query_one("#workbench-editor").styles.padding = 0 if is_settings else None
+        self.query_one("#workbench-steps").set_class(is_settings, "settings-mode")
+        self.query_one("#workbench-summary").set_class(is_settings, "settings-mode")
         self.query_one("#canvas-hero").display = not is_settings
         action_bar = self.query_one(TaskActionBar)
         action_bar.display = not is_settings or running
