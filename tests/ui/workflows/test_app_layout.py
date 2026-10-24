@@ -139,34 +139,133 @@ def test_textual_app_workspace_shows_real_flow_controls() -> None:
     asyncio.run(run())
 
 
-def test_textual_app_workspace_buttons_keep_gaps_and_clear_primary_action() -> None:
+def _assert_workspace_button_layout(app: EthernityApp) -> None:
+    action_bar = app.query_one("#task-action-bar").region
+    active_workspace = app.screen.query_one(f"#{app.active_task}-workspace")
+    for row in active_workspace.query(".workspace-button-row"):
+        buttons = [
+            button for button in row.query(Button) if button.display and button.region.width > 0
+        ]
+        for previous, current in zip(buttons, buttons[1:], strict=False):
+            assert current.region.y == previous.region.y
+            assert current.region.x >= previous.region.right + 1
+    visible_workspace = active_workspace.query_one(".task-workspace").region
+    for button in app.screen.query(Button):
+        if button.id is None or not button.id.startswith("workspace-"):
+            continue
+        if not button.display:
+            continue
+        if not button.region.overlaps(visible_workspace):
+            continue
+        assert not button.region.overlaps(action_bar)
+        assert button.region.width < visible_workspace.width - 4
+
+
+def _assert_workspace_sections(app: EthernityApp) -> None:
+    expected_steps = {
+        "restore": 4,
+        "add_files": 4,
+        "rebuild": 3,
+        "replace_recovery_docs": 4,
+    }
+    workspace = app.screen.query_one(f"#{app.active_task}-workspace")
+    scroll = workspace.query_one(".task-workspace")
+    sections = list(scroll.query(FormSection))
+    if app.active_task in expected_steps:
+        stack = scroll.query_one(WorkflowStepStack)
+        steps = list(stack.query(WorkflowStep))
+        assert len(steps) == expected_steps[app.active_task]
+        assert sum(step.display for step in steps) == 1
+        assert not stack.query(".workflow-step-heading")
+        assert sum(body.display for body in stack.query(".guided-step-body")) >= 1
+    else:
+        assert sections
+        visible_sections = [section for section in sections if section.region.height]
+        assert visible_sections
+        expected_labels = (
+            {"Paper size", "Save to"}
+            if app.active_task == "backup"
+            else {"Save as", "Kit type", "Paper size", "Print design"}
+        )
+        labels = {str(label.content) for label in scroll.query(Label).results(Label)}
+        assert expected_labels <= labels
+
+
+def _assert_workspace_actions(app: EthernityApp) -> None:
+    state = app._current_state()
+    validation = state.validate_task()
+    presentation = build_task_presentation(
+        task_key=app.active_task,
+        title=TASK_TITLES[app.active_task],
+        state=state,
+        validation=validation,
+        preview=state.preview(),
+        primary_label=review_label(app.active_task),
+        diagnostics_available=False,
+    )
+    active_workspace = app.screen.query_one(f"#{app.active_task}-workspace")
+    rendered_button_ids = {
+        button.id
+        for button in active_workspace.query(Button)
+        if button.id is not None and button.id.startswith("workspace-")
+    }
+    presented_action_ids = {
+        action.key for group in presentation.workspace_groups for action in group.actions
+    }
+    if app.active_task not in app.workflow_ui_states:
+        assert rendered_button_ids == presented_action_ids
+
+
+def _assert_workspace_control_routes(app: EthernityApp) -> None:
+    handled_select_ids = {
+        "workspace-kit-variant-select",
+        "workspace-backup-passphrase-words",
+        "workspace-backup-signing-key-mode",
+        "workspace-backup-paper-size",
+        "workspace-restore-auth-policy",
+        "workspace-restore-signature-source",
+        "workspace-add-files-signature-source",
+        "workspace-add-files-update-mode",
+        "workspace-rebuild-signature-source",
+        "workspace-replace-passphrase-select",
+        "workspace-replace-signing-key-select",
+    }
+    handled_radio_ids = {"workspace-backup-recovery-method"}
+    active_workspace = app.screen.query_one(f"#{app.active_task}-workspace")
+    rendered_select_ids = {
+        select.id
+        for select in active_workspace.query(Select)
+        if select.id is not None and select.id.startswith("workspace-")
+    }
+    rendered_radio_ids = {
+        radio.id
+        for radio in active_workspace.query(KeyedRadioSet)
+        if radio.id is not None and radio.id.startswith("workspace-")
+    }
+    unhandled_selects = {
+        select_id
+        for select_id in rendered_select_ids
+        if select_id not in handled_select_ids and not select_id.endswith(("-paper", "-design"))
+    }
+    assert unhandled_selects == set()
+    assert rendered_radio_ids <= handled_radio_ids
+
+
+def test_textual_app_workspace_layout_and_controls(subtests: pytest.Subtests) -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(120, 48)) as pilot:
+            # These checks only read the same settled layout. Interactive tests use fresh apps.
             for task_key in ("1", "2", "3", "4", "5", "6"):
                 await pilot.press(task_key)
-
-                action_bar = app.query_one("#task-action-bar").region
-                active_workspace = app.screen.query_one(f"#{app.active_task}-workspace")
-                for row in active_workspace.query(".workspace-button-row"):
-                    buttons = [
-                        button
-                        for button in row.query(Button)
-                        if button.display and button.region.width > 0
-                    ]
-                    for previous, current in zip(buttons, buttons[1:], strict=False):
-                        assert current.region.y == previous.region.y
-                        assert current.region.x >= previous.region.right + 1
-                visible_workspace = active_workspace.query_one(".task-workspace").region
-                for button in app.screen.query(Button):
-                    if button.id is None or not button.id.startswith("workspace-"):
-                        continue
-                    if not button.display:
-                        continue
-                    if not button.region.overlaps(visible_workspace):
-                        continue
-                    assert not button.region.overlaps(action_bar)
-                    assert button.region.width < visible_workspace.width - 4
+                with subtests.test(task=app.active_task, check="button spacing and primary action"):
+                    _assert_workspace_button_layout(app)
+                with subtests.test(task=app.active_task, check="sections and labels"):
+                    _assert_workspace_sections(app)
+                with subtests.test(task=app.active_task, check="presentation actions"):
+                    _assert_workspace_actions(app)
+                with subtests.test(task=app.active_task, check="control event paths"):
+                    _assert_workspace_control_routes(app)
 
     asyncio.run(run())
 
@@ -257,126 +356,6 @@ def test_textual_app_top_navigation_keeps_workspace_geometry() -> None:
             assert app.active_task == "rebuild"
             assert not app._nav_menu_open
             assert app.query_one("#canvas-task-workspaces").has_focus_within
-
-    asyncio.run(run())
-
-
-def test_textual_app_workspaces_are_grouped_into_sections() -> None:
-    async def run() -> None:
-        app = EthernityApp()
-        async with run_app_test(app, size=(120, 48)) as pilot:
-            expected_steps = {
-                "restore": 4,
-                "add_files": 4,
-                "rebuild": 3,
-                "replace_recovery_docs": 4,
-            }
-            for task_key in ("1", "2", "3", "4", "5", "6"):
-                await pilot.press(task_key)
-
-                workspace = app.screen.query_one(f"#{app.active_task}-workspace")
-                scroll = workspace.query_one(".task-workspace")
-                sections = list(scroll.query(FormSection))
-                if app.active_task in expected_steps:
-                    stack = scroll.query_one(WorkflowStepStack)
-                    steps = list(stack.query(WorkflowStep))
-                    assert len(steps) == expected_steps[app.active_task]
-                    assert sum(step.display for step in steps) == 1
-                    assert not stack.query(".workflow-step-heading")
-                    assert sum(body.display for body in stack.query(".guided-step-body")) >= 1
-                else:
-                    assert sections
-                    visible_sections = [section for section in sections if section.region.height]
-                    assert visible_sections
-                    expected_labels = (
-                        {"Paper size", "Save to"}
-                        if app.active_task == "backup"
-                        else {"Save as", "Kit type", "Paper size", "Print design"}
-                    )
-                    labels = {str(label.content) for label in scroll.query(Label).results(Label)}
-                    assert expected_labels <= labels
-
-    asyncio.run(run())
-
-
-def test_textual_app_workspace_buttons_match_presentation_actions() -> None:
-    async def run() -> None:
-        app = EthernityApp()
-        async with run_app_test(app, size=(120, 48)) as pilot:
-            for task_key in ("1", "2", "3", "4", "5", "6"):
-                await pilot.press(task_key)
-
-                state = app._current_state()
-                validation = state.validate_task()
-                presentation = build_task_presentation(
-                    task_key=app.active_task,
-                    title=TASK_TITLES[app.active_task],
-                    state=state,
-                    validation=validation,
-                    preview=state.preview(),
-                    primary_label=review_label(app.active_task),
-                    diagnostics_available=False,
-                )
-                active_workspace = app.screen.query_one(f"#{app.active_task}-workspace")
-                rendered_button_ids = {
-                    button.id
-                    for button in active_workspace.query(Button)
-                    if button.id is not None and button.id.startswith("workspace-")
-                }
-                presented_action_ids = {
-                    action.key
-                    for group in presentation.workspace_groups
-                    for action in group.actions
-                }
-
-                if app.active_task not in app.workflow_ui_states:
-                    assert rendered_button_ids == presented_action_ids
-
-    asyncio.run(run())
-
-
-def test_textual_app_workspace_controls_have_event_paths() -> None:
-    handled_select_ids = {
-        "workspace-kit-variant-select",
-        "workspace-backup-passphrase-words",
-        "workspace-backup-signing-key-mode",
-        "workspace-backup-paper-size",
-        "workspace-restore-auth-policy",
-        "workspace-restore-signature-source",
-        "workspace-add-files-signature-source",
-        "workspace-add-files-update-mode",
-        "workspace-rebuild-signature-source",
-        "workspace-replace-passphrase-select",
-        "workspace-replace-signing-key-select",
-    }
-    handled_radio_ids = {"workspace-backup-recovery-method"}
-
-    async def run() -> None:
-        app = EthernityApp()
-        async with run_app_test(app, size=(120, 48)) as pilot:
-            for task_key in ("1", "2", "3", "4", "5", "6"):
-                await pilot.press(task_key)
-
-                active_workspace = app.screen.query_one(f"#{app.active_task}-workspace")
-                rendered_select_ids = {
-                    select.id
-                    for select in active_workspace.query(Select)
-                    if select.id is not None and select.id.startswith("workspace-")
-                }
-                rendered_radio_ids = {
-                    radio.id
-                    for radio in active_workspace.query(KeyedRadioSet)
-                    if radio.id is not None and radio.id.startswith("workspace-")
-                }
-
-                unhandled_selects = {
-                    select_id
-                    for select_id in rendered_select_ids
-                    if select_id not in handled_select_ids
-                    and not select_id.endswith(("-paper", "-design"))
-                }
-                assert unhandled_selects == set()
-                assert rendered_radio_ids <= handled_radio_ids
 
     asyncio.run(run())
 
