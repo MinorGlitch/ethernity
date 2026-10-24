@@ -144,11 +144,11 @@ finish a failed formula push, but cannot downgrade a newer formula or overwrite 
 
 ## CI and packaging rehearsal
 
-Linux, macOS, and Windows each run the full Python test suite in three concurrent jobs: UI tests,
-PDF rendering tests, and unit/integration tests. The groups do not overlap. Linux collects branch
-coverage in all three jobs; a separate job combines the results and enforces the application (85%)
-and document inspector (45%) gates without rerunning tests. Browser, visual, portability,
-compatibility, and audit gates remain separate.
+Linux, macOS, and Windows each run the unit, integration, rendering, and UI suites in four
+concurrent jobs: two balanced UI groups, PDF rendering tests, and unit/integration tests. The
+groups do not overlap. Linux collects branch coverage in all four jobs; a separate job combines
+the results and enforces the application (85%) and document inspector (45%) gates without
+rerunning tests. Browser, visual, portability, compatibility, and audit gates remain separate.
 The responsive PDF matrix and terminal snapshot suite run concurrently. Only rendering jobs
 install Poppler, and only core jobs install Node dependencies and download printed-kit references.
 The minimum-Python Linux portability check keeps its full selection and uses two pytest workers.
