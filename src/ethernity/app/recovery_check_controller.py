@@ -160,10 +160,7 @@ def _success_message(result: recovery_check.GeneratedRecoveryCheckResult) -> str
         if result.recovery_sheet_count
         else " using the supplied phrase"
     )
-    return (
-        f"Generated PDF recovery passed: {files} recovered{sheets} into temporary storage. "
-        "Printed pages are untested."
-    )
+    return f"PDF check passed\n{files} recovered{sheets}."
 
 
 __all__ = ["RecoveryCheckController"]

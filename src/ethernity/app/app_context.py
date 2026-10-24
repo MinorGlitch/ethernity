@@ -12,7 +12,6 @@ from ethernity.app.backup_context import LoadedBackupContext
 from ethernity.app.backup_estimate_controller import BackupEstimateController
 from ethernity.app.execution import ReviewedTask
 from ethernity.app.execution_controller import ExecutionController
-from ethernity.app.navigation import NavMenu
 from ethernity.app.recovery_check_controller import RecoveryCheckController
 from ethernity.app.settings_controller import SettingsController
 from ethernity.app.source_assessment_controller import SourceAssessmentController
@@ -52,7 +51,6 @@ class EthernityAppContext(StyledApp):
     _review_edit_task: TaskKey | None
     _preparing_review_task: TaskKey | None
     _nav_menu_open: bool
-    _nav_menu: NavMenu
     _loaded_backup_context: LoadedBackupContext | None
 
     @property
@@ -60,6 +58,8 @@ class EthernityAppContext(StyledApp):
         raise NotImplementedError
 
     def refresh_task_view(self) -> None: ...
+
+    def action_clear_task(self) -> None: ...
 
     def _commit_form_inputs(self) -> None: ...
 
@@ -111,7 +111,7 @@ class EthernityAppContext(StyledApp):
 
     async def _show_task(self, task: TaskKey) -> None: ...
 
-    def _open_nav_menu(self, menu: NavMenu) -> None: ...
+    def _open_nav_menu(self) -> None: ...
 
     def _close_nav_menu(
         self,

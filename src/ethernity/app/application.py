@@ -21,7 +21,6 @@ from ethernity.app.events import AppEventHandlers
 from ethernity.app.execution import ReviewedTask
 from ethernity.app.execution_controller import ExecutionController
 from ethernity.app.mutations.actions import TaskMutationActions
-from ethernity.app.navigation import NavMenu
 from ethernity.app.output_paths import open_folder, single_output_folder
 from ethernity.app.recovery_check_controller import RecoveryCheckController
 from ethernity.app.settings_controller import SettingsController
@@ -76,13 +75,10 @@ ETHERNITY_DARK_THEME = Theme(
         "button-foreground": "#EAE6DA",
         "block-cursor-foreground": "#1C211A",
         "block-cursor-text-style": "none",
-        "footer-description-foreground": "#A7AA99",
         "border": "#777B69",
         "border-blurred": "#3B3E34",
         "button-color-foreground": "#1C211A",
         "button-focus-text-style": "bold",
-        "footer-background": "#20231F",
-        "footer-key-foreground": "#E0B56D",
         "input-selection-background": "#E0B56D 35%",
     },
 )
@@ -111,13 +107,10 @@ ETHERNITY_LIGHT_THEME = Theme(
         "button-foreground": "#2C3028",
         "block-cursor-foreground": "#FFFAF0",
         "block-cursor-text-style": "none",
-        "footer-description-foreground": "#656959",
         "border": "#797A69",
         "border-blurred": "#CDC6B6",
         "button-color-foreground": "#FFFAF0",
         "button-focus-text-style": "bold",
-        "footer-background": "#EAE5D9",
-        "footer-key-foreground": "#805818",
         "input-selection-background": "#805818 25%",
     },
 )
@@ -189,7 +182,6 @@ class EthernityApp(
         self.recovery_check_controller = RecoveryCheckController(self)
         self._nav_menu_open = False
         self._loaded_backup_context: LoadedBackupContext | None = None
-        self._nav_menu: NavMenu = "manage"
 
     def _task_payloads(self) -> dict[TaskKey, str]:
         return {

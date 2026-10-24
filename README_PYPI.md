@@ -8,24 +8,37 @@ conventional backup system for large archives, continuous sync, or unattended jo
 A standalone backup is limited to **1 MiB of ciphertext** and **2,048 recovered files**.
 Updated backups also have chain-wide limits.
 
+## How much fits on paper?
+
+A recovery phrase or short note usually fits on one QR page. With the default Sentinel design
+on A4, a 10 KB file that does not compress takes 3 QR pages, or 19 pages if you print the text
+fallback, recovery sheets, and inventory too. Text often compresses well; photos and ZIP files
+usually shrink little. The 1 MiB limit is a ceiling, not a recommended amount to print.
+
+See [capacity and page counts](https://github.com/MinorGlitch/ethernity/wiki/Capacity-and-page-counts)
+for more examples and how to check your files before printing.
+
 ## Installation
 
-Ethernity requires Python 3.11 or newer. Install it in an isolated environment with `pipx`:
+Install Ethernity in an isolated environment. With [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```sh
-pipx install ethernity-paper
-ethernity --help
+uv tool install --python 3.13 ethernity-paper
+ethernity --version
+ethernity
 ```
 
-The package name is `ethernity-paper`; the installed command is `ethernity`. A standard Python
-environment also works:
+uv can install Python for you. If `ethernity` is not found, run `uv tool update-shell` and open
+a new terminal. Update with `uv tool upgrade ethernity-paper` and remove it with
+`uv tool uninstall ethernity-paper`.
 
-```sh
-python -m pip install ethernity-paper
-```
+With Python 3.11 or newer and [pipx](https://pipx.pypa.io/stable/installation/), use
+`pipx install ethernity-paper`. Update with `pipx upgrade ethernity-paper` and remove it with
+`pipx uninstall ethernity-paper`. The package name is `ethernity-paper`; the command is `ethernity`.
 
-The [full installation guide](https://github.com/MinorGlitch/ethernity#installation) covers Homebrew,
-Windows, and release archives.
+The [installation guide](https://github.com/MinorGlitch/ethernity/blob/master/docs/install.md)
+covers Homebrew and standalone downloads, which include Python. This README describes version
+1.2. If you installed an earlier release, use the README at that release's Git tag.
 
 ## Create and restore a test backup
 
@@ -34,6 +47,10 @@ Open the guided terminal app:
 ```sh
 ethernity
 ```
+
+Use `ethernity --web` to open the same app in a browser. It runs locally, works offline, and uses
+the same settings and files as the terminal app. Keep the terminal open and press Ctrl+C there
+when finished. Use `ethernity --web --no-open` to print the link without opening a browser.
 
 1. Choose **Create backup** and select a disposable test file or folder.
 2. Keep the recommended recovery method: three recovery sheets, any two can restore.
@@ -57,10 +74,10 @@ ethernity run backup \
 ethernity run restore \
   --scan ./backup-demo \
   --passphrase "ethernity test passphrase" \
-  --output ./restored.txt \
+  --output ./restored \
   --yes
 
-cmp ./test-file.txt ./restored.txt
+cmp ./test-file.txt ./restored/test-file.txt
 ```
 
 `cmp` produces no output when both files match.

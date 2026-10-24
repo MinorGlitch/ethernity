@@ -108,7 +108,11 @@ def _create_zip(output: Path, archive_root: str) -> None:
             archive_name = (Path(archive_root) / path.relative_to(PYINSTALLER_DIR)).as_posix()
             info = zipfile.ZipInfo(filename=archive_name, date_time=(1980, 1, 1, 0, 0, 0))
             info.external_attr = 0o644 << 16
-            zip_handle.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
+            data = path.read_bytes()
+            # Deflate expands one- and two-byte metadata to at least twice its size,
+            # which WinGet's archive validator rejects. Store tiny entries verbatim.
+            method = zipfile.ZIP_STORED if len(data) < 3 else zipfile.ZIP_DEFLATED
+            zip_handle.writestr(info, data, compress_type=method)
 
 
 def _tar_filter(info: tarfile.TarInfo) -> tarfile.TarInfo:

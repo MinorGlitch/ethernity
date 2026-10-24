@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from textual.widgets import Button, Collapsible, Input, ListItem, ListView, Static
+from textual.widgets import Button, Collapsible, Input, ListItem, Static
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens.review_task import ReviewTaskScreen
@@ -201,7 +201,7 @@ def test_step_navigation_commits_destination_draft_before_hiding_editor() -> Non
     asyncio.run(run())
 
 
-def test_manage_and_tools_menus_expose_their_tasks_without_loaded_backup() -> None:
+def test_management_and_settings_are_available_without_loaded_backup() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(80, 24)) as pilot:
@@ -217,17 +217,13 @@ def test_manage_and_tools_menus_expose_their_tasks_without_loaded_backup() -> No
             )
             assert app.active_task == "add_files"
             assert not app._nav_menu_open
-            await pilot.click("#nav-tools")
-            assert app.query_one("#settings", ListItem).display
-            assert not app.query_one("#add_files", ListItem).display
-            await pilot.press("down")
+            await pilot.click("#nav-settings")
+            assert app.active_task == "settings"
+            assert not app._nav_menu_open
             app.refresh_task_view()
             await pilot.pause()
-            assert app.query_one("#nav-list", ListView).highlighted_child is app.query_one(
-                "#settings", ListItem
-            )
-            await pilot.press("escape")
-            assert not app._nav_menu_open
-            assert app.screen.focused is app.query_one("#nav-tools", Button)
+            assert app.query_one("#nav-settings", Button).has_class("active-task")
+            await pilot.press("ctrl+b")
+            assert app.screen.focused is app.query_one("#nav-settings", Button)
 
     asyncio.run(run())

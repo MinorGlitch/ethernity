@@ -8,20 +8,16 @@ from ethernity.tasks.backup import BackupTaskState
 from tests.support.app import run_app_test
 
 
-def test_footer_advertises_global_navigation_and_help_commands() -> None:
-    visible_bindings = {
-        (binding.key, binding.description)
-        for binding in APP_BINDINGS
-        if getattr(binding, "show", False)
-    }
+def test_global_navigation_and_help_shortcuts_remain_available() -> None:
+    bindings = {(binding.key, binding.action) for binding in APP_BINDINGS}
 
-    assert visible_bindings == {
-        ("q", "Quit"),
-        ("?", "Help"),
-        ("escape", "Close menu"),
-        ("ctrl+b", "Navigation"),
-        ("ctrl+p", "Actions"),
-    }
+    assert {
+        ("q", "quit"),
+        ("?", "help"),
+        ("escape", "close_navigation"),
+        ("ctrl+b", "open_navigation"),
+        ("ctrl+p", "command_palette"),
+    } <= bindings
 
 
 def test_backup_review_opens_recovery_for_invalid_signing_mode(tmp_path) -> None:

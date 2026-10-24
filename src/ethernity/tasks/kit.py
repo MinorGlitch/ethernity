@@ -52,6 +52,10 @@ from ethernity.workflows.kit.service import (
 )
 
 KitVariant = Literal["lean", "scanner"]
+KIT_VARIANT_LABELS: dict[KitVariant, str] = {
+    "lean": "Paste text",
+    "scanner": "Paste text + scan QR codes",
+}
 
 
 class PrintKitTaskState(BaseModel):
@@ -97,9 +101,7 @@ class PrintKitTaskState(BaseModel):
                 key="variant",
                 title="Kit type",
                 status="ready",
-                summary="Camera scanning included"
-                if self.variant == "scanner"
-                else "Smaller offline kit",
+                summary=KIT_VARIANT_LABELS[self.variant],
                 action_label="Change variant",
             ),
             TaskSection(
@@ -121,7 +123,7 @@ class PrintKitTaskState(BaseModel):
     def preview(self) -> TaskPreview:
         items = [
             PreviewItem(label="PDF file", detail=self._output_summary()),
-            PreviewItem(label="Kit type", detail=self._variant_summary()),
+            PreviewItem(label="Kit type", detail=KIT_VARIANT_LABELS[self.variant]),
             PreviewItem(label="QR sizing", detail=self._qr_sizing_summary()),
         ]
         warnings = (
@@ -171,15 +173,15 @@ class PrintKitTaskState(BaseModel):
                 f"from {format_count(result.bytes_total, 'byte')}."
             ),
             output_paths=(result.output_path,),
+            next_steps=(
+                "Print the PDF at 100% (actual size).",
+                "The kit restores the documents you supply. Keep a separate record of the "
+                "latest backup fingerprint to check you have the newest version.",
+            ),
         )
 
     def recoverable_errors(self) -> tuple[TaskIssue, ...]:
         return self.validate_task().issues
-
-    def _variant_summary(self) -> str:
-        if self.variant == "scanner":
-            return "Camera scanning included"
-        return "Smaller kit for manual scanning"
 
     def _output_summary(self) -> str:
         issue = self._output_issue()

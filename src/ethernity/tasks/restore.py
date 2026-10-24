@@ -217,6 +217,11 @@ class RestoreTaskState(ContentRecoveryTaskState):
             status="succeeded",
             message="Recovered files written.",
             output_paths=result.written_paths,
+            next_steps=(
+                "Open the restored files and check their contents before deleting any scans "
+                "or backup media.",
+                "Compare files with the same name against your originals.",
+            ),
             details=(
                 TaskResultDetail(
                     key="trust_basis",

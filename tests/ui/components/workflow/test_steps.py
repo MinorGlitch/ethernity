@@ -32,7 +32,10 @@ from tests.support.workflow_widgets import (
 )
 
 
-def test_step_stack_shows_active_editor_and_focuses_its_first_control() -> None:
+@pytest.mark.parametrize("focus_before_layout", [False, True])
+def test_step_stack_shows_active_editor_and_focuses_its_first_control(
+    focus_before_layout: bool,
+) -> None:
     async def run() -> None:
         workflow = sample_restore_workflow(
             active_step="source",
@@ -97,7 +100,10 @@ def test_step_stack_shows_active_editor_and_focuses_its_first_control() -> None:
                 ),
             )
             stack.sync_presentation(updated)
-            await pilot.pause()
+            if focus_before_layout:
+                assert stack.query_one("#workflow-restore-unlock-body RadioSet").region.area == 0
+            else:
+                await pilot.pause()
             stack.focus_active()
             await pilot.pause()
 

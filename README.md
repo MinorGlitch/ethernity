@@ -10,10 +10,14 @@ No account or online service is required.
 Use it for seed phrases, private keys, certificates, and configuration files.
 
 <p align="center">
-  <a href="images/readme/terminal_app_preview.svg">
-    <img src="images/readme/terminal_app_preview.svg" alt="Creating a backup in Ethernity" width="900">
+  <a href="images/readme/backup_flow.gif">
+    <img src="images/readme/backup_flow.gif" alt="Selecting files, creating paper backup PDFs, and checking recovery with two recovery sheets" width="900">
   </a>
 </p>
+
+A guided backup walkthrough with demonstration files and settings. Recovery is checked from the
+generated PDFs; processing waits are shortened. Test your printed copies before storing them.
+[View a static preview](images/readme/terminal_app_preview.png).
 
 ## What you keep
 
@@ -26,38 +30,56 @@ Ethernity creates two kinds of pages:
 To restore, you need the backup pages and enough recovery sheets, or the passphrase itself.
 Keep the recovery sheets in separate places, apart from the backup pages.
 
-A standalone backup supports up to 2,048 files and 1 MiB of encrypted data. The size limit applies
-after compression and encryption.
+## How much fits on paper?
+
+A recovery phrase or short note is usually well under 1 KB. A collection of keys, certificates,
+or configuration files can take several pages. Photos and large archives quickly become
+impractical to print and scan.
+
+For a single file that does not shrink with compression, the default Sentinel design on A4 gives
+these examples:
+
+| File size | QR backup pages | Pages if you print the complete set |
+| --- | --- | --- |
+| 1 KB | 1 | 8 |
+| 10 KB | 3 | 19 |
+| 100 KB | 23 | 121 |
+
+The complete set includes the text fallback, three recovery sheets, and an inventory. A printed
+browser recovery kit is extra. Text often compresses well, so your files may need fewer pages;
+the paper size and design also affect the count. The app estimates QR pages before you create
+the backup and reports the total page count afterwards.
+
+A standalone backup supports up to 2,048 files and 1 MiB of encrypted data, roughly 1 MB after
+compression and encryption. That is a size ceiling, not a recommended amount to print.
+See [capacity and page counts](https://github.com/MinorGlitch/ethernity/wiki/Capacity-and-page-counts)
+for compression examples, other paper sizes, and how to check your own files.
 
 ## Install
 
-### macOS and Linux
+Ethernity opens in your terminal by default. Run `ethernity --web` to use the same app in your
+browser. The packaged downloads include Python and everything needed to create and restore backups.
 
-```sh
-brew install minorglitch/tap/ethernity
-```
+**Release note:** this checkout describes the forthcoming 1.2 app. The current GitHub release
+and the Homebrew/PyPI packages are older. For a published version, download it from
+[GitHub Releases](https://github.com/MinorGlitch/ethernity/releases/latest) and follow the README
+at that release tag. The new direct installers below will ship with 1.2.
 
-### Windows
+| Platform | Installation | Start |
+| --- | --- | --- |
+| macOS, Apple silicon | `brew install minorglitch/tap/ethernity` with [Homebrew](https://brew.sh/) | `ethernity` |
+| Windows x64 | Download the release's `install.ps1`, then run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1` | Open a new terminal, run `ethernity` |
+| Linux x64 / ARM64 | Download the release's `install.sh`, then run `sh install.sh` | `ethernity` |
 
-Run in PowerShell, then open a new terminal:
+Run `ethernity --version` to check the installed version. Linux native builds require glibc 2.35
+or newer; Ubuntu 22.04 is the tested minimum. WinGet support is being prepared and is not yet
+available in the community repository.
 
-```powershell
-Invoke-WebRequest "https://raw.githubusercontent.com/MinorGlitch/ethernity/master/install.ps1" -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
+Intel Mac users can use the [Python installation route](docs/install.md#python-users).
+Starting with 1.2, we no longer build native Intel Mac archives or Homebrew bottles.
 
-### With Python
-
-If you use pipx, install with Python 3.11 or newer:
-
-```sh
-pipx install ethernity-paper
-```
-
-The package name is `ethernity-paper`; the command is `ethernity`.
-
-You can also download an archive from [GitHub Releases](https://github.com/MinorGlitch/ethernity/releases).
-See [release verification](docs/release_files.md#verification-example) for signature checks.
+See the [installation guide](docs/install.md) for prerequisites, updates, uninstall, portable
+downloads, verification, and Python installation with uv or pipx.
 
 ## Make a backup and try restoring it
 
@@ -66,6 +88,10 @@ Start the terminal app:
 ```sh
 ethernity
 ```
+
+For the same interface in a browser, run `ethernity --web`. It runs on your computer and works
+offline, using your usual settings and local files. Keep the launching terminal open; press
+Ctrl+C there to stop it. This is separate from the standalone HTML recovery kit.
 
 1. Choose **Create backup** and add a test file.
 2. Keep the default recovery setting: three sheets, any two needed.

@@ -1,5 +1,12 @@
 /* Copyright (C) 2026 Alex Stoyanov. SPDX-License-Identifier: GPL-3.0-or-later */
+import { tidyRecoveryText } from "../../lib/encoding.js";
 export function connectCollector(input, hint, addButton, { change, add, scanned, addLabel }) {
+  const tidyButton = input.closest(".field").querySelector("button");
+  let beforeTidy = null;
+  function clearTidy() {
+    beforeTidy = null;
+    tidyButton.textContent = "Tidy";
+  }
   function showHint(text) {
     hint.textContent = text;
     hint.hidden = !text;
@@ -10,16 +17,41 @@ export function connectCollector(input, hint, addButton, { change, add, scanned,
     }
   };
   input.oninput = () => {
+    clearTidy();
     showHint("");
     change(input.value);
   };
   addButton.onclick = () => {
+    clearTidy();
     showHint("");
     add();
   };
+  tidyButton.onclick = () => {
+    if (beforeTidy && input.value === beforeTidy.cleaned) {
+      change(beforeTidy.text);
+      input.setSelectionRange(beforeTidy.start, beforeTidy.end);
+      clearTidy();
+    } else {
+      const cleaned = tidyRecoveryText(input.value);
+      if (cleaned === input.value) return;
+      beforeTidy = {
+        text: input.value,
+        cleaned,
+        start: input.selectionStart,
+        end: input.selectionEnd,
+      };
+      change(cleaned);
+      tidyButton.textContent = "Undo tidy";
+    }
+    input.focus();
+  };
   return {
-    clearHint: () => showHint(""),
+    clearHint() {
+      showHint("");
+      clearTidy();
+    },
     scan(payload) {
+      clearTidy();
       if (payload?.bytes instanceof Uint8Array && payload.bytes.length) {
         scanned(payload);
         showHint("");

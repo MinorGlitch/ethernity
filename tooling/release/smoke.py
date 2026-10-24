@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from tooling.release.browser_smoke import smoke_browser
+
 FIXTURE = Path("tests/fixtures/v1_2/extension_golden/base64/gzip_replacement_chain")
 
 
@@ -32,6 +34,7 @@ def check_glibc(directory: Path) -> None:
 def smoke(binary: str) -> None:
     subprocess.run([binary, "--help"], check=True)
     subprocess.run([binary, "--version"], check=True)
+    smoke_browser(binary)
     scans = [
         FIXTURE / "chain/qr_document.pdf",
         *sorted((FIXTURE / "chain/extensions/01").glob("qr_document-01-*.pdf")),

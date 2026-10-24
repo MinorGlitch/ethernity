@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ethernity.tasks.file_summary import display_path
-from ethernity.tasks.kit import PrintKitTaskState
+from ethernity.tasks.kit import KIT_VARIANT_LABELS, PrintKitTaskState
 from ethernity.tasks.models import TaskExecutionPlan, TaskSection
 from ethernity.tasks.presentation.models import (
     ReviewDetail,
@@ -30,7 +30,14 @@ def kit_groups(
             key="variant",
             title="Kit type",
             kind="layout",
-            values=(WorkspaceValue("variant", "Kit type", state.variant),),
+            values=(
+                WorkspaceValue(
+                    "variant",
+                    "Kit type",
+                    KIT_VARIANT_LABELS[state.variant],
+                    control_value=state.variant,
+                ),
+            ),
             status=sections["variant"].status,
             status_summary=sections["variant"].summary,
         ),
@@ -90,10 +97,9 @@ def review_details(
     state: PrintKitTaskState,
     plan: TaskExecutionPlan,
 ) -> tuple[ReviewDetail, ...]:
-    kit_type = "Scanner kit" if state.variant == "scanner" else "Lean offline kit"
     qr_sizing = "Automatic" if state.chunk_size is None else f"{state.chunk_size}-byte chunks"
     return (
-        ReviewDetail("Kit type", kit_type, "variant"),
+        ReviewDetail("Kit type", KIT_VARIANT_LABELS[state.variant], "variant"),
         ReviewDetail("Layout", layout_summary(state.paper_size, state.design), "layout"),
         ReviewDetail("QR sizing", qr_sizing, "qr"),
         ReviewDetail("Documents", "1 rescue kit PDF", group="output"),

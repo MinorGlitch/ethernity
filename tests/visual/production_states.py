@@ -345,6 +345,11 @@ RESULT_SNAPSHOT_CASES: tuple[ResultSnapshotCase, ...] = (
             message="Backup and recovery documents were created.",
             output_paths=VISUAL_BACKUP_DOCUMENTS,
             recovery_check_paths=VISUAL_BACKUP_DOCUMENTS,
+            next_steps=(
+                "Print every PDF at 100% (actual size).",
+                "Scan the printed pages, then use Restore files to test recovery.",
+                "Store recovery sheets separately from the encrypted backup documents.",
+            ),
             details=(
                 TaskResultDetail(
                     key="doc_hash",

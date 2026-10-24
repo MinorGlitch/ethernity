@@ -274,7 +274,11 @@ class BackupTaskState(BaseModel):
             output_paths=output_paths,
             recovery_check_paths=generated_recovery_check_paths(result),
             details=_created_document_details(output_paths, result.qr_path, result.doc_hash),
-            next_steps=("Verify recovery before relying on the printed documents.",),
+            next_steps=(
+                "Print every PDF at 100% (actual size).",
+                "Scan the printed pages, then use Restore files to test recovery.",
+                "Store recovery sheets separately from the encrypted backup documents.",
+            ),
         )
 
     def estimate_request(self) -> BackupRequest | None:

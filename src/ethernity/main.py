@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+import argparse
 import multiprocessing
 import sys
 from collections.abc import Sequence
 
 from ethernity.app.bootstrap import run_app
+from ethernity.app.browser import run_browser
 from ethernity.run.cli import cli as run_cli
 from ethernity.version import get_ethernity_version
 
@@ -28,11 +30,18 @@ ROOT_HELP = """Usage: ethernity [run] [OPTIONS] COMMAND [ARGS]...
 
 Launch the Ethernity terminal app when run without arguments.
 
+Options:
+  --web             Open the same app in your browser, on this computer only.
+  --web --no-open   Print the browser link without opening it automatically.
+  --version         Show the installed version.
+  --help            Show this help.
+
 Commands:
   run      Run scriptable Ethernity tasks.
 
 Examples:
   ethernity
+  ethernity --web
   ethernity run backup --input secrets.txt --output-dir backup-out --preview
   ethernity run restore --scan scans --output recovered --preview
   ethernity run add-files --scan backup-out --input new-file.txt \\
@@ -60,6 +69,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command == "--version":
         version = get_ethernity_version() or "unknown"
         print(f"ethernity {version}")
+        return 0
+
+    if command == "--web":
+        parser = argparse.ArgumentParser(prog="ethernity --web", allow_abbrev=False)
+        parser.add_argument(
+            "--no-open", action="store_true", help="Print the link without opening it"
+        )
+        options = parser.parse_args(args[1:])
+        try:
+            run_browser(open_browser=not options.no_open)
+        except OSError as error:
+            print(f"Could not start browser mode: {error}", file=sys.stderr)
+            return 1
         return 0
 
     if command == "run":

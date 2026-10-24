@@ -134,7 +134,9 @@ def _assert_file_picker_geometry(
         assert not list(screen.query("#file-picker-clear"))
         assert not remove.display
         assert choose.disabled
-        assert str(feedback.content) == "Select at least one file or folder."
+        assert str(feedback.content) == (
+            "Click a file to add it. For a folder, highlight it and choose Add folder."
+        )
 
 
 def _inside(outer: Region, inner: Region) -> bool:

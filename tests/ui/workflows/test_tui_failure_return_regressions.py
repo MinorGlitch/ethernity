@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import cast
 
+import pytest
 from textual.widgets import Button, Static
 
 from ethernity.app.application import EthernityApp
@@ -13,13 +14,91 @@ from ethernity.app.execution import (
     ReviewedTask,
 )
 from ethernity.app.screens.task_result import TaskResultScreen
+from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.core.failures import FailureInfo, FailureStage
+from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.models import TaskExecutionResult
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.restore import RestoreTaskState
+from ethernity.tasks.settings import SettingsTaskState
 from ethernity.tasks.task_types import TaskKey, TaskState
 from tests.support.app import run_app_test
 from tests.support.pilot import click_when_ready, wait_for_focus, wait_for_widget
+
+
+@pytest.mark.parametrize("close_method", ["button", "escape"])
+def test_closing_successful_backup_resets_flow(close_method: str, tmp_path: Path) -> None:
+    async def run() -> None:
+        app = EthernityApp(
+            backup_state=BackupTaskState(
+                input_paths=[tmp_path / "secret.txt"],
+                output_dir=tmp_path / "backup-out",
+                passphrase="saved recovery phrase",
+                design="archive",
+                paper_size="A4",
+            ),
+            settings_state=SettingsTaskState(
+                config_path=tmp_path / "settings.toml",
+                values={"render": {"style": "forge"}, "page": {"size": "LETTER"}},
+            ),
+        )
+        async with run_app_test(app, size=(120, 32)) as pilot:
+            restore_before = app.restore_state.model_dump()
+            await app._select_workbench_step("print")
+            reviewed = _reviewed_task("backup", app.backup_state, tmp_path)
+            result = TaskExecutionResult(status="succeeded", message="Backup created.")
+            app._present_execution_outcome(reviewed, ExecutionOutcome(result=result))
+            await wait_for_widget(pilot, "#result-close")
+            assert app.backup_state.input_paths == [tmp_path / "secret.txt"]
+            assert app._last_reviewed_task is reviewed
+
+            if close_method == "button":
+                await click_when_ready(pilot, "#result-close")
+            else:
+                await pilot.press("escape")
+            await wait_for_focus(pilot, app.query_one("#workspace-backup-files", Button))
+
+            assert app.active_task == "backup"
+            assert not app.backup_state.input_paths
+            assert app.backup_state.passphrase is None
+            assert app.backup_state.output_dir == app.settings_state.path_value("backup_output_dir")
+            assert app.backup_state.design == "forge"
+            assert app.backup_state.paper_size == "LETTER"
+            assert app._last_execution_result is None
+            assert app._last_reviewed_task is None
+            assert app.query_one(TaskCanvas).active_step == "files"
+            assert app._navigation_task_states()["backup"] == ""
+            assert app.restore_state.model_dump() == restore_before
+            assert not app.backup_state.validate_task().ready
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled", "partially_succeeded"])
+def test_closing_incomplete_backup_keeps_inputs_and_step(status: str, tmp_path: Path) -> None:
+    async def run() -> None:
+        app = EthernityApp(
+            backup_state=BackupTaskState(
+                input_paths=[tmp_path / "secret.txt"],
+                output_dir=tmp_path / "backup-out",
+                passphrase="saved recovery phrase",
+            )
+        )
+        async with run_app_test(app, size=(120, 32)) as pilot:
+            await app._select_workbench_step("print")
+            before = app.backup_state.model_dump()
+            reviewed = _reviewed_task("backup", app.backup_state, tmp_path)
+            result = TaskExecutionResult.model_validate({"status": status, "message": "Stopped."})
+            app._present_execution_outcome(reviewed, ExecutionOutcome(result=result))
+            await wait_for_widget(pilot, "#result-close")
+            await pilot.press("escape")
+
+            assert app.backup_state.model_dump() == before
+            assert app._last_execution_result is result
+            assert app._last_reviewed_task is reviewed
+            assert app.query_one(TaskCanvas).active_step == "print"
+
+    asyncio.run(run())
 
 
 def _reviewed_task(

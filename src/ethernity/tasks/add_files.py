@@ -504,6 +504,8 @@ class AddFilesTaskState(ContentRecoveryTaskState):
             self._chain_recovery_guidance(result.index),
             "Use Rebuild when you want a new standalone backup instead of the full update chain.",
             "Save the new fingerprint as the expected latest version before the next update.",
+            "Print every new PDF at 100% (actual size).",
+            "Test recovery from scans of the new pages with the reusable recovery kit.",
         )
         recovery_sheets = execution.recovery_sheets
         if recovery_sheets.status == "failed":

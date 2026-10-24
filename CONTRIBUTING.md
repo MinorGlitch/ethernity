@@ -112,8 +112,10 @@ is fast enough for this check.
 
 UI tests use `run_app_test` from `tests/support/app.py`. It drains event chains, waits for layout
 and animations, and finishes each key before sending the next. This avoids relying on CPU-idle
-timing, which differs between platforms. Tests for rapid input should send actions without an
-intervening pause, as the navigation regression does.
+timing, which differs between platforms. Ordinary keys use Textual's public `simulate_key()` API;
+keys that need character normalization and explicit `wait:` commands use the native Pilot.
+Both paths finish through the same message and render checks. Tests for rapid input should send
+actions without an intervening pause, as the navigation regression does.
 `press()` already settles each key, so an immediate extra `pause()` is unnecessary. The helper
 waits for in-flight handlers and deferred layout callbacks, and interrupts its wait when the app
 fails. It tracks handler dispatch and completion through Textual's test hook and message signals.
@@ -122,6 +124,25 @@ work still participate. Resizing waits for the screen's resize handler and the c
 produces, since the requested size changes before layout catches up. Timer-driven resize and button feedback
 waits resume on UI activity and recheck timer state without repeatedly draining every widget.
 Do not replace these guarantees with fixed sleeps.
+
+CI divides the UI suite into two jobs on each platform using `pytest-split`. Every test runs
+once per platform; both Linux jobs contribute to the same coverage gates. The timings in
+`tests/ui/durations.json` balance the jobs, not decide which tests run. New tests receive an
+average duration until the timings are refreshed.
+
+To reproduce one group locally, use `--group 1` or `--group 2`:
+
+```sh
+uv run pytest tests/ui -n 4 --dist loadfile --splits 2 --group 1 \
+  --splitting-algorithm least_duration --durations-path tests/ui/durations.json
+```
+
+Refresh the scheduling weights with a successful full UI run:
+
+```sh
+uv run pytest tests/ui --store-durations --clean-durations \
+  --durations-path tests/ui/durations.json
+```
 
 For background workers and future timers, use the bounded waits in `tests/support/pilot.py`.
 Wait for the state change the test needs, such as a completed worker. Use the `set_home` fixture

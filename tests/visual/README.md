@@ -35,10 +35,12 @@ and results fill the workspace, with their actions kept at the bottom.
 
 Additional snapshots cover themes, reviews, and results:
 
-- Open dropdowns are captured in every workflow, Settings and the Manage/Tools menus. They check
+- Open dropdowns are captured in every workflow, Settings and the Manage menu. They check
   padded choices, alignment with the selected value, bounded width and popup placement in dark
   and light themes, including short terminals. Unit tests check that padding is highlighted and
   clickable, as well as wrapped labels, scrolling, keyboard navigation and option-list updates.
+- Direct navigation to Recovery Kit and Settings is captured in dark and light themes at
+  `120x32` and `80x24`, including the active button and keyboard focus.
 - Restore and Settings are captured in the light theme at `120x32`, plus Backup and Restore at
   `80x24`. The full workflow matrix uses the default dark theme.
 - Final review is captured at `120x32` and `80x24` for Backup, Restore, Add Files, Rebuild,

@@ -268,6 +268,33 @@ class TestGenerateHomebrewSourceFormula(unittest.TestCase):
 
         self.assertEqual(required, {"cryptography", "cffi"})
 
+    def test_wheel_only_targets_do_not_install_source_build_tools(self) -> None:
+        packages = {"example": {"wheels": [_wheel("py3-none-any")]}}
+        self.assertEqual(_MODULE._render_build_dependencies(packages, {"example"}), "")
+
+    def test_source_fallback_retains_build_tools_on_the_affected_target(self) -> None:
+        packages = {
+            "example": {
+                "wheels": [
+                    _wheel("cp313-cp313-macosx_10_13_universal2"),
+                    _wheel("cp313-cp313-manylinux_2_28_x86_64"),
+                ],
+                "sdist": {"url": "https://example.com/source.tar.gz", "hash": "sha256:" + "a" * 64},
+            }
+        }
+        rendered = _MODULE._render_build_dependencies(packages, {"example"})
+        self.assertIn("on_linux do\n    on_arm do", rendered)
+        self.assertNotIn("on_macos", rendered)
+        self.assertNotIn("on_intel", rendered)
+        self.assertIn('depends_on "rust" => :build', rendered)
+        self.assertIn('depends_on "pkgconf" => :build', rendered)
+
+    def test_source_only_resources_retain_tools_on_all_targets(self) -> None:
+        packages = {"example": {"sdist": {"url": "https://example.com/source.tar.gz"}}}
+        rendered = _MODULE._render_build_dependencies(packages, {"example"})
+        self.assertNotIn(" do", rendered)
+        self.assertIn('depends_on "rust" => :build', rendered)
+
     def test_real_formula_matches_real_lockfile(self) -> None:
         root = Path(__file__).resolve().parents[2]
         formula = (root / "scripts" / "homebrew_ethernity_tap.rb").read_text(encoding="utf-8")
@@ -281,6 +308,14 @@ class TestGenerateHomebrewSourceFormula(unittest.TestCase):
         self.assertNotIn("-cp313t-", rendered)
         self.assertNotIn("-cp314-", rendered)
         self.assertNotIn('resource "colorama"', rendered)
+        build_dependencies = _MODULE._render_build_dependencies(
+            lock_packages, _MODULE._required_runtime_resource_names(lock_packages)
+        )
+        self.assertIn("on_macos do", build_dependencies)
+        self.assertNotIn("on_linux", build_dependencies)
+        self.assertNotIn("on_arm", build_dependencies)
+        self.assertNotIn("on_intel", build_dependencies)
+        self.assertIn('depends_on "rust" => :build', build_dependencies)
 
         for target in _MODULE._HOMEBREW_TARGETS:
             for name in ("pydantic-core", "psutil", "pycryptodome", "pyrage", "cbor2"):

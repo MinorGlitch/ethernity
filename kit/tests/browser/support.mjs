@@ -4,14 +4,6 @@ import { setTimeout as delay } from "node:timers/promises";
 
 export const kitDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-export function requireSuccessfulCommand(result, label) {
-  if (result.status !== 0) {
-    throw new Error(
-      `${label} failed: ${[result.stdout, result.stderr].filter(Boolean).join("\n").trim()}`,
-    );
-  }
-}
-
 export async function waitForPageState(
   browser,
   pageUrl,

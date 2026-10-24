@@ -5,8 +5,14 @@ from typing import cast
 
 from ethernity.app.bindings import APP_BINDINGS
 from ethernity.app.help_content import HELP_MODES
-from ethernity.app.navigation import issue_focus_selector
-from ethernity.app.task_catalog import NAV_OPTION_INDEX, TASK_ORDER, TASK_TITLES
+from ethernity.app.navigation import (
+    DIRECT_NAV_TASKS,
+    MANAGE_TASKS,
+    NAV_LABELS,
+    NAV_NUMBERS,
+    issue_focus_selector,
+)
+from ethernity.app.task_catalog import TASK_ORDER, TASK_TITLES
 from ethernity.app.workflow_registry import WORKFLOWS
 from ethernity.app.workspaces.workspace_controls import control_value
 from ethernity.tasks.add_files import AddFilesTaskState
@@ -176,7 +182,10 @@ def test_workflow_registry_is_the_single_metadata_source() -> None:
     assert keys == TASK_ORDER
     assert len(keys) == len(set(keys))
     assert TASK_TITLES == {workflow.key: workflow.title for workflow in WORKFLOWS}
-    assert set(NAV_OPTION_INDEX) == set(keys)
+    assert set(DIRECT_NAV_TASKS.values()).isdisjoint(MANAGE_TASKS)
+    assert set(DIRECT_NAV_TASKS.values()) | set(MANAGE_TASKS) == set(keys)
+    assert set(NAV_LABELS) == set(keys)
+    assert NAV_NUMBERS == {workflow.key: workflow.shortcut for workflow in WORKFLOWS}
     workflow_bindings = {
         binding.key: binding.action
         for binding in APP_BINDINGS
@@ -187,12 +196,6 @@ def test_workflow_registry_is_the_single_metadata_source() -> None:
     }
     selectors = (selector for workflow in WORKFLOWS for _, selector in workflow.section_focus)
     assert all("workspace-rebuild-paper" not in selector for selector in selectors)
-
-
-def test_footer_does_not_advertise_contextual_review_on_settings() -> None:
-    review = next(binding for binding in APP_BINDINGS if binding.key == "ctrl+r")
-
-    assert not review.show
 
 
 def test_blocking_issue_focus_targets_the_actual_advanced_control() -> None:
@@ -334,7 +337,7 @@ def test_review_details_describe_each_task() -> None:
             ),
             TaskExecutionPlan(summary="Kit", output_paths=(Path("kit.pdf"),)),
             {
-                "Kit type": "Scanner kit",
+                "Kit type": "Paste text + scan QR codes",
                 "Layout": "Letter, Forge",
                 "QR sizing": "384-byte chunks",
             },

@@ -12,12 +12,17 @@ from weakref import WeakKeyDictionary, WeakSet, ref
 
 from textual import events, messages
 from textual.app import App
+from textual.keys import Keys, key_to_character
 from textual.message import Message
 from textual.message_pump import MessagePump
 from textual.pilot import Pilot
 from textual.screen import Screen
+from textual.widgets import Button
 
 Result = TypeVar("Result")
+
+# simulate_key accepts key identifiers but does not normalize printable names.
+_DIRECT_KEYS = frozenset(key.value for key in Keys if key_to_character(key.value) is None)
 
 
 @dataclass
@@ -123,9 +128,7 @@ class AppPilot(Pilot[Result]):
         while True:
             generation = self._activity.generation
             await self._drain_messages()
-            rendered = _Barrier()
-            self.app.call_after_refresh(rendered)
-            await rendered.done.wait()
+            await self._wait_for_refresh()
             await self.app.animator.wait_until_complete()
             await self._drain_messages()
             if generation != self._activity.generation:
@@ -137,6 +140,28 @@ class AppPilot(Pilot[Result]):
             # every widget. Each wake must pass through the same drain/render
             # cycle, including the child work produced by a screen resize.
             await self._wait_for_timer_activity()
+
+    async def _wait_for_refresh(self) -> None:
+        screen = self.app.screen
+        rendered = _Barrier()
+        self.app.call_after_refresh(rendered)
+        refreshed = asyncio.create_task(rendered.done.wait())
+        try:
+            while not rendered.done.is_set():
+                self._activity.changed.clear()
+                # A suspended screen may retain its refresh callback until it
+                # resumes. Settle the new screen instead of waiting on that one.
+                if self.app.screen is not screen:
+                    return
+                changed = asyncio.create_task(self._activity.changed.wait())
+                try:
+                    await asyncio.wait((refreshed, changed), return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    changed.cancel()
+                    await asyncio.gather(changed, return_exceptions=True)
+        finally:
+            refreshed.cancel()
+            await asyncio.gather(refreshed, return_exceptions=True)
 
     async def _wait_for_timer_activity(self) -> None:
         self._activity.changed.clear()
@@ -152,9 +177,11 @@ class AppPilot(Pilot[Result]):
         resized = self._requested_size is None or (
             self._activity.resized_screens.get(self.app.screen) == self._requested_size
         )
+        # This runs after every interaction. Avoid CSS matching across all widgets
+        # when only button class membership and visibility matter.
         active_buttons = any(
-            button.is_on_screen and button.visible
-            for button in self.app.screen.query("Button.-active")
+            button.has_class("-active") and button.is_on_screen and button.visible
+            for button in self.app.screen.walk_children(Button)
         )
         return resized and not active_buttons
 
@@ -196,7 +223,13 @@ class AppPilot(Pilot[Result]):
     async def press(self, *keys: str) -> None:
         await self.pause()
         for key in keys:
-            await super().press(key)
+            if (len(key) == 1 and key.isalnum()) or key in _DIRECT_KEYS:
+                # Use Textual's public key injection without its CPU-idle polling.
+                # Our message/render barrier below still completes every key.
+                self.app.simulate_key(key)
+            else:
+                # Preserve Pilot's character normalization and wait: commands.
+                await super().press(key)
             await self.pause()
 
     async def resize_terminal(self, width: int, height: int) -> None:

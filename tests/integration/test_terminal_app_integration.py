@@ -77,8 +77,18 @@ def test_textual_app_backup_and_restore_round_trip(tmp_path: Path) -> None:
                     "generated document recovery to finish",
                     timeout=60,
                 )
-                assert "Generated PDF recovery passed: 1 file recovered" in str(checks.content)
+                assert "PDF check passed\n1 file recovered" in str(checks.content)
                 assert "using 2 recovery sheets" in str(checks.content)
+                result = backup_app._last_execution_result
+                assert result is not None
+                assert len(result.next_steps) == 3
+                assert "100%" in result.next_steps[0]
+                assert "Scan the printed pages" in result.next_steps[1]
+                assert "Store recovery sheets separately" in result.next_steps[2]
+                assert [
+                    str(step.content)
+                    for step in backup_app.screen.query(".result-step-text").results(Static)
+                ] == list(result.next_steps)
 
             [backup_dir] = backup_dir.glob("backup-*")
             restore_app = EthernityApp(

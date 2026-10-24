@@ -70,30 +70,46 @@ jobs:
       - name: Biome format check
         working-directory: kit
         run: npm run format:check
+      - name: Verify local browser client
+        working-directory: browser
+        run: |
+          npm ci
+          npm run lint
+          npm run format:check
+          npm test
+          npm run check
 
   render-visual:
+    name: render-visual (${{ matrix.suite }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [pdf, terminal]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Install Poppler
+        if: matrix.suite == 'pdf'
         run: sudo apt-get update && sudo apt-get install --yes poppler-utils
       - name: Verify responsive PDF matrix
+        if: matrix.suite == 'pdf'
         run: |
           uv run python scripts/render_visual_baselines.py \
             --output-dir "${RUNNER_TEMP}/render-visual-baselines" \
             --rasterize never
       - name: Verify terminal snapshots
+        if: matrix.suite == 'terminal'
         run: uv run pytest tests/visual -n 2 -v --durations=30 --junitxml=test-results/visual.xml
       - name: Summarize test timings
-        if: always()
+        if: always() && matrix.suite == 'terminal'
         shell: bash
         run: uv run python scripts/summarize_test_timings.py test-results >> "$GITHUB_STEP_SUMMARY"
       - name: Upload snapshot results
-        if: always()
+        if: always() && matrix.suite == 'terminal'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: terminal-snapshot-results
@@ -113,19 +129,32 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check Linux portability on minimum Python
-        run: uv run pytest tests/unit tests/ui tests/rendering tests/integration -m portability -q --junitxml=test-results/portability.xml
+        run: uv run pytest tests/unit tests/ui tests/rendering tests/integration -m portability -n 2 --dist loadfile -q --junitxml=test-results/portability.xml
       - name: Summarize test timings
         if: always()
         shell: bash
         run: uv run python scripts/summarize_test_timings.py test-results >> "$GITHUB_STEP_SUMMARY"
 
   test:
+    name: test (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.suite.name }})
     needs: kit-bundles
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+        suite:
+          - name: core
+            paths: tests/unit tests/integration
+          - name: rendering
+            paths: tests/rendering
+          - name: ui-1
+            paths: tests/ui
+            args: --splits 2 --group 1 --splitting-algorithm least_duration --durations-path tests/ui/durations.json
+          - name: ui-2
+            paths: tests/ui
+            args: --splits 2 --group 2 --splitting-algorithm least_duration --durations-path tests/ui/durations.json
         include:
           - os: macos-latest
             python-version: "3.11"
@@ -142,6 +171,7 @@ jobs:
           name: recovery-kit-bundles
           path: src/ethernity/resources/kit
       - name: Download kit loader roundtrip references
+        if: matrix.suite.name == 'core'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: recovery-kit-packed
@@ -151,28 +181,34 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install Poppler for composited QR tests
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.suite.name == 'rendering'
         run: sudo apt-get update && sudo apt-get install --yes poppler-utils
       - name: Setup kit dependencies
+        if: matrix.suite.name == 'core'
         uses: ./.github/actions/setup-kit
 
       - name: Run Python tests
         if: matrix.os != 'ubuntu-latest'
-        run: uv run pytest tests/unit tests/ui tests/rendering tests/integration -n 2 --dist loadfile -v --durations=30 --junitxml=test-results/python.xml
+        run: uv run pytest ${{ matrix.suite.paths }} ${{ matrix.suite.args }} -n logical --maxprocesses=4 --dist loadfile -v --durations=30 --junitxml=test-results/python.xml
       - name: Run Python tests with coverage
         id: coverage-tests
         if: matrix.os == 'ubuntu-latest'
+        env:
+          COVERAGE_FILE: .coverage.${{ matrix.suite.name }}
         run: |
-          uv run pytest tests/unit tests/ui tests/rendering tests/integration -n 2 --dist loadfile \
+          uv run pytest ${{ matrix.suite.paths }} ${{ matrix.suite.args }} -n logical --maxprocesses=4 --dist loadfile \
             --cov=ethernity \
             --cov=tooling.document_inspector_app \
             --cov-report= --durations=30 --junitxml=test-results/python.xml
-      - name: Check application coverage
+      - name: Upload coverage data
         if: ${{ !cancelled() && steps.coverage-tests.outcome == 'success' }}
-        run: uv run coverage report --include='src/ethernity/*' --fail-under=85
-      - name: Check document inspector coverage
-        if: ${{ !cancelled() && steps.coverage-tests.outcome == 'success' }}
-        run: uv run coverage report --include='tooling/document_inspector_app/*' --fail-under=45
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: python-coverage-${{ matrix.suite.name }}
+          path: .coverage.${{ matrix.suite.name }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Summarize test timings
         if: always()
@@ -182,9 +218,47 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: python-tests-${{ matrix.os }}-${{ matrix.python-version }}
+          name: python-tests-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.suite.name }}
           path: test-results/python.xml
           retention-days: 7
+
+  coverage:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+        with:
+          python-version: "3.14"
+      - name: Download core coverage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-coverage-core
+          path: coverage-data
+      - name: Download first UI group coverage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-coverage-ui-1
+          path: coverage-data
+      - name: Download second UI group coverage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-coverage-ui-2
+          path: coverage-data
+      - name: Download rendering coverage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-coverage-rendering
+          path: coverage-data
+      - name: Combine coverage without rerunning tests
+        run: uv run coverage combine coverage-data
+      - name: Check application coverage
+        run: uv run coverage report --include='src/ethernity/*' --fail-under=85
+      - name: Check document inspector coverage
+        run: uv run coverage report --include='tooling/document_inspector_app/*' --fail-under=45
 
   e2e:
     needs: kit-bundles
@@ -267,54 +341,24 @@ jobs:
           retention-days: 30
 
   native-packages:
-    needs: kit-bundles
+    if: needs.kit-bundles.outputs.native == 'true'
+    # Let Homebrew request its runners after source staging, before native builds
+    # compete with the test matrix for the total and macOS runner limits.
+    needs: [kit-bundles, package]
     uses: ./.github/workflows/native-packages.yml
     with:
       commit_sha: ${{ github.sha }}
       tag: ${{ needs.kit-bundles.outputs.tag }}
       kit_artifact: recovery-kit-bundles
-      build_binaries: ${{ needs.kit-bundles.outputs.native == 'true' }}
 
   package:
-    needs: [kit-bundles, native-packages]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/setup-python
-        with:
-          extras: build
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: release-source
-          path: source-dist
-      - name: Build wheel from the verified release source archive
-        run: |
-          mkdir source-tree
-          tar -xzf source-dist/*.tar.gz -C source-tree
-          uv build --no-build-isolation --wheel source-tree/* --out-dir dist
-      - name: Verify wheel and source contents
-        run: python3 -m tooling.release_resources dist/*.whl source-dist/*.tar.gz
-      - name: Install built wheel with locked dependencies
-        run: uv pip install --no-deps --reinstall dist/*.whl
-      - name: Smoke test installed wheel
-        # Direct interpreter invocation must not reinstall the editable project.
-        run: .venv/bin/python -m tooling.release.smoke "$PWD/.venv/bin/ethernity"
-      - name: Stage Homebrew formula for native rehearsal
-        env:
-          RELEASE_TAG: ${{ needs.kit-bundles.outputs.tag }}
-        run: |
-          python3 scripts/generate_homebrew_source_formula.py \
-            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
-            --source-archive "source-dist/ethernity-source-${RELEASE_TAG}.tar.gz" \
-            --template scripts/homebrew_ethernity_tap.rb --lock uv.lock \
-            --output homebrew-stage/Formula/ethernity.rb
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: homebrew-rehearsal-formula
-          path: homebrew-stage
-          if-no-files-found: error
-          retention-days: 30
+    needs: kit-bundles
+    uses: ./.github/workflows/python-packages.yml
+    with:
+      commit_sha: ${{ github.sha }}
+      tag: ${{ needs.kit-bundles.outputs.tag }}
+      kit_artifact: recovery-kit-bundles
+      stage_homebrew: ${{ needs.kit-bundles.outputs.homebrew == 'true' }}
 
   homebrew-rehearsal:
     if: needs.kit-bundles.outputs.homebrew == 'true'
@@ -327,14 +371,27 @@ jobs:
 
   kit-verify:
     needs: kit-bundles
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
+    container:
+      # Match the Playwright version in kit/package-lock.json. The image includes
+      # its browser binaries and system libraries, so CI needs no apt downloads.
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup kit dependencies
         uses: ./.github/actions/setup-kit
+
+      - name: Setup Python for bundle verification
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
 
       - name: Download generated kit bundles
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -349,13 +406,14 @@ jobs:
         working-directory: kit
         run: npm test
 
-      - name: Install browser test engines
-        working-directory: kit
-        run: npx playwright install --with-deps chromium webkit
-
       - name: Smoke generated recovery kits in Chromium and WebKit
         working-directory: kit
         run: npm run test:browser
+      - name: Verify local browser input and rendering
+        working-directory: browser
+        run: |
+          npm ci
+          npm run test:browser
 
   python-audit:
     runs-on: ubuntu-latest
@@ -396,6 +454,9 @@ jobs:
       - name: Audit npm dependencies
         working-directory: kit
         run: npm audit --audit-level=low
+      - name: Audit local browser dependencies
+        working-directory: browser
+        run: npm audit --audit-level=low
 
   ci-gate:
     if: ${{ always() }}
@@ -405,6 +466,7 @@ jobs:
       - render-visual
       - portability
       - test
+      - coverage
       - e2e
       - kit-bundles
       - package

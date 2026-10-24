@@ -67,6 +67,7 @@ function checkView(root) {
       view.get("files-table").hidden,
     "Extraction failure was hidden or duplicated",
   );
+  view.dispose();
 }
 
 async function checkApp(root) {
@@ -95,6 +96,41 @@ async function checkApp(root) {
   check(
     root.querySelectorAll(".status.error").length === 1,
     "Collector did not report exactly one error",
+  );
+  const draft = "01. ybnr\t fghj  1934\n02. kmnp @";
+  input.value = draft;
+  input.dispatchEvent(new Event("input"));
+  check(input.value === draft, "Highlighting rewrote the draft");
+  const editor = input.parentElement;
+  check(editor.querySelectorAll(".recovery-line-number").length === 2, "Missing line gutter");
+  check(editor.querySelector(".recovery-label").textContent === "01. ", "Label was not marked");
+  check(editor.querySelectorAll(".recovery-group").length > 1, "Missing group highlights");
+  check(
+    editor.querySelector(".recovery-invalid").textContent === "@",
+    "Invalid character was hidden",
+  );
+  root.querySelector("#payload-text-tidy").click();
+  check(input.value === "ybnr fghj 1934\nkmnp @", "Tidy altered payload digits or retained labels");
+  root.querySelector("#payload-text-tidy").click();
+  check(input.value === draft, "Undo tidy lost the original draft");
+  input.value = "<img src=x onerror=alert(1)>";
+  input.dispatchEvent(new Event("input"));
+  check(!editor.querySelector("img"), "Highlighting interpreted input as HTML");
+  input.value = "ybnr ".repeat(12000);
+  input.dispatchEvent(new Event("input"));
+  check(
+    editor.classList.contains("recovery-plain") && !editor.querySelector(".recovery-line"),
+    "Large input created unbounded highlights",
+  );
+  check(input.value.length === 60000, "Large input was truncated");
+  root.querySelector("#reset").click();
+  check(
+    input.value === "" && !editor.classList.contains("recovery-plain"),
+    "Reset retained editor state",
+  );
+  check(
+    root.querySelector("#payload-text-tidy").textContent === "Tidy",
+    "Reset retained undo state",
   );
   dispose();
   window.dispatchEvent(new Event("online"));

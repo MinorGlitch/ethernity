@@ -21,10 +21,10 @@ from dataclasses import dataclass
 
 from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalGroup, VerticalScroll
+from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Label, Static
 
-from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 from ethernity.app.widgets.collapsible import collapsible_panel
 from ethernity.app.widgets.form import FormRow, FormSection
@@ -45,7 +45,7 @@ class ReviewEditRequest:
     section: str
 
 
-class ReviewTaskScreen(EthernityModalScreen[bool | ReviewEditRequest]):
+class ReviewTaskScreen(ModalScreen[bool | ReviewEditRequest]):
     """Focused final decision before a task writes files."""
 
     BINDINGS = [("escape", "cancel", "Cancel")]
