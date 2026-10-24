@@ -44,3 +44,6 @@ lifecycle checks use browser DOM elements; there is no simulated DOM renderer.
 `scripts/smoke_generated_bundles.mjs` selects browsers and variants. The scenarios
 and shared fixtures live in `tests/browser/`, grouped by recovery, scanning,
 metadata, network transitions, UI lifecycle, and worker behavior.
+The runner builds the shared test pages once and checks up to two browser engines
+at a time. Each engine has its own browser and runs the complete scenario set.
+Failures still allow the other engines to finish before shared files are removed.

@@ -420,7 +420,42 @@ def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str,
         lock_packages, formula_dependency_names=_formula_dependency_names(formula)
     )
     resources = "\n".join(_render_resource(name, lock_packages[name]) for name in sorted(required))
-    return formula.replace(_RESOURCE_PLACEHOLDER + "\n", resources)
+    build_dependencies = _render_build_dependencies(lock_packages, required)
+    return formula.replace(_RESOURCE_PLACEHOLDER + "\n", build_dependencies + resources)
+
+
+def _render_build_dependencies(
+    lock_packages: dict[str, dict[str, object]], required: set[str]
+) -> str:
+    # Keep the existing source-build toolchain for every target that needs it,
+    # including future wheel-to-source fallbacks. Wheel-only targets need neither.
+    source_targets = [
+        target
+        for target in _HOMEBREW_TARGETS
+        if any(_choose_wheel(lock_packages[name], target) is None for name in required)
+    ]
+    if not source_targets:
+        return ""
+    dependencies = ['depends_on "pkgconf" => :build', 'depends_on "rust" => :build']
+    if len(source_targets) == len(_HOMEBREW_TARGETS):
+        return "".join(f"  {line}\n" for line in dependencies) + "\n"
+    blocks = []
+    for system, block in (("darwin", "on_macos"), ("linux", "on_linux")):
+        targets = [target for target in source_targets if target.system == system]
+        if not targets:
+            continue
+        lines = [f"  {block} do"]
+        indent = "    "
+        if len(targets) == 1:
+            arch = "intel" if targets[0].architecture == "x86_64" else "arm"
+            lines.append(f"    on_{arch} do")
+            indent += "  "
+        lines.extend(f"{indent}{line}" for line in dependencies)
+        if len(targets) == 1:
+            lines.append("    end")
+        lines.append("  end\n\n")
+        blocks.append("\n".join(lines))
+    return "".join(blocks)
 
 
 def _parse_args() -> argparse.Namespace:

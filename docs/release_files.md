@@ -19,10 +19,25 @@ That tagged source archive is built after injecting the generated recovery-kit b
 the frozen extension test PDFs used by the Homebrew formula. Homebrew must use this
 release archive rather than GitHub's automatically generated tag archive.
 
+Starting with 1.2, native archives cover Apple silicon macOS, Linux x64 and ARM64, and Windows
+x64. Native Intel Mac archives and Homebrew bottles are no longer built. Intel Mac users can
+use the [Python installation route](install.md#python-users), which is not tested on Intel macOS
+in CI. Previously published release assets remain unchanged.
+
+Releases also include the verified Python wheel, version-bound `install.sh` and `install.ps1`,
+and `SHA256SUMS`. Stable three-part versions include `MinorGlitch.Ethernity.yaml` for WinGet.
+Each of these files has a Sigstore bundle. SHA256SUMS covers every unsigned payload except
+itself. Direct installers always check the archive checksum and can additionally require
+Sigstore verification. See [installation](install.md).
+
 Verify each Sigstore bundle before using its archive.
 
 Packages include the template fonts and their license notices. PDFs embed subsets of those fonts;
 users do not need to install matching system fonts to view or print them.
+
+Packages also include the local assets for `ethernity --web`. Browser mode uses the same app as
+the terminal launcher and needs no extra downloads. Native package smoke checks open a real
+browser session over its WebSocket and verify that disconnecting stops its app process.
 
 SBOMs are platform-specific. The release workflow scans each final archive with the
 repository-pinned Anchore SBOM action and Syft version. It does not reuse a dependency manifest as
@@ -61,11 +76,43 @@ of rebuilding the release. Missing, unexpected, or mismatched files stop publica
 Sigstore-bundle set is present. A partial published release is treated as an integrity failure, not
 repaired in place.
 
+## Python and Windows package channels
+
+The source job builds one wheel from the same source archive used by Homebrew, verifies its
+contents, installs it with the locked dependencies, and runs the packaged recovery smoke test.
+CI and release publication reuse that wheel. After a stable, non-draft GitHub release is
+published, the PyPI job downloads and verifies the source archive and wheel from that release.
+It restores the source archive's standard Python filename and publishes the same bytes with
+`uv publish --trusted-publishing always`. It does not rebuild them. Upload retries use uv's
+existing-file checks rather than overwriting distributions.
+
+Before the first publication, configure a PyPI trusted publisher on `ethernity-paper`:
+
+- GitHub owner: `MinorGlitch`
+- Repository: `ethernity`
+- Workflow: `pyinstaller.yml`
+- Environment: `release`
+
+No PyPI API token is used. Missing publisher configuration fails the publication job; it must
+not be treated as a successful release to all channels. Homebrew dispatch and PyPI publication
+are independent, visible downstream jobs and can be retried after GitHub publication.
+
+The WinGet manifest refers to the existing Windows x64 ZIP and its SHA-256 checksum. CI tests
+installation, upgrade, command resolution, and removal on Windows using that same ZIP. It
+also checks upgrades from a small previous-version fixture so stale files cannot hide a bad
+replacement. Submit the manifest to `microsoft/winget-pkgs` after the corresponding stable
+archive is public. Community acceptance is a separate step; do not advertise the WinGet command
+before acceptance. No additional Windows executable build or signing certificate is required.
+
+Before announcing a stable release, check that GitHub, PyPI, and Homebrew all offer that version,
+then update installation notes in the README and wiki. Remove the 1.2 pre-release installation
+notice when publishing 1.2. WinGet may lag while its submission is reviewed; document that state.
+
 ## Homebrew release requirements
 
 Homebrew publication consumes only an already-published stable `vX.Y.Z` source release. It stages
-one formula, validates that exact formula on Intel macOS, Apple silicon, and Linux, and assembles
-the three bottles before updating the tap. Builders receive no tap credential. The
+one formula, validates that exact formula on Apple silicon macOS and Linux x64, and assembles
+the two bottles before updating the tap. Builders receive no tap credential. The
 `homebrew-production` environment is restricted to `master` and `v*` and is the only job allowed
 to read `HOMEBREW_TAP_TOKEN`. It has no required reviewers or self-approval restrictions.
 
@@ -76,7 +123,7 @@ On macOS, `cbor2` is built from source because its wheels lack space for Homebre
 the library path. Other compatible wheels remain in use. Selection checks the CPython version and ABI,
 architecture, and minimum platform version: macOS 13 or glibc 2.35. These wheel limits do not
 extend the operating systems covered by the bottle tests. Shared and universal wheels are reused
-where applicable; Intel macOS, Apple silicon, and Linux still have separate bottles and tests.
+where applicable; Apple silicon macOS and Linux x64 have separate bottles and tests.
 
 `HOMEBREW_TAP_REPO` is the configured GitHub repository name, for example
 `MinorGlitch/homebrew-tap`. The workflow derives the Homebrew tap name, `MinorGlitch/tap`, from
@@ -97,18 +144,46 @@ finish a failed formula push, but cannot downgrade a newer formula or overwrite 
 
 ## CI and packaging rehearsal
 
-Linux, macOS, and Windows still run the full Python test suite. Linux collects branch coverage in
-that same run. Browser, visual, portability, compatibility, and audit gates remain separate.
+Linux, macOS, and Windows each run the full Python test suite in three concurrent jobs: UI tests,
+PDF rendering tests, and unit/integration tests. The groups do not overlap. Linux collects branch
+coverage in all three jobs; a separate job combines the results and enforces the application (85%)
+and document inspector (45%) gates without rerunning tests. Browser, visual, portability,
+compatibility, and audit gates remain separate.
+The responsive PDF matrix and terminal snapshot suite run concurrently. Only rendering jobs
+install Poppler, and only core jobs install Node dependencies and download printed-kit references.
+The minimum-Python Linux portability check keeps its full selection and uses two pytest workers.
 
-`native-packages.yml` builds the same five native archives for CI and releases. On pull requests,
+The kit verification job uses the official Playwright container, pinned by version and digest,
+with its browsers and system libraries already installed. Keep that image aligned with the
+Playwright version in `kit/package-lock.json`. The job still verifies the generated bundle files,
+runs the Node tests, and checks both kit variants in Chromium and WebKit. It does not download
+browser dependencies through apt or raise the job's 20-minute limit.
+
+`native-packages.yml` builds the same four native archives for CI and releases. On pull requests,
 documentation-only changes skip native builds. `homebrew-build.yml` runs the same formula audit,
-source install, test, and bottle build on all three Homebrew platforms. Pull requests run it when
+source install, test, and bottle build on both Homebrew platforms. Pull requests run it when
 packaging, dependency, workflow, script, or packaged-resource files change. Master push, scheduled,
 and manual CI runs perform the full packaging rehearsal. None of these CI builds publish files.
 
-CI also builds and installs a wheel from the actual release source archive. The Homebrew rehearsal
-uses that archive from the workflow artifact cache, with the formula's normal URL and checksum.
-This checks installation before the public release exists.
+Homebrew installs locked wheels together and keeps the source-build toolchain only on targets
+that need source resources. macOS still builds `cbor2` from source for bottle relocation. Each
+platform checks source recovery, bottle installation and recovery, reinstall, and uninstall.
+An additional upgrade check installs a minimal version `0.0.1` fixture through Homebrew, upgrades
+it to the actual release bottle, verifies the active version and removal of its obsolete command,
+runs the release formula's recovery test, and uninstalls it. This exercises Homebrew's upgrade
+mechanism; it does not run a previous Ethernity release or replace format-compatibility tests.
+
+Only downloaded archives and Homebrew's Ruby tooling are cached. Ethernity's installed files and
+bottles are rebuilt on every run. Ruby cache keys include the platform, architecture, Homebrew
+revision, Ruby version and gem lockfile; download keys also track the locked resources. Cached
+archives still undergo Homebrew's checksum validation.
+
+`python-packages.yml` builds the source archive and builds, checks, and installs a wheel from it
+for both CI and releases. CI stages the Homebrew formula in that same job, so bottle checks can
+start when the source is ready without waiting for native archives or WinGet. The rehearsal uses
+that exact source artifact with the formula's normal URL and checksum. Release signing waits for
+both Python and native package verification. This checks installation before the public release
+exists.
 
 Python commands use `UV_LOCKED=true`; setup rejects an outdated `uv.lock`. Source and wheel builds
 use the locked build dependencies without a second, unpinned build environment. Kit and packaging
@@ -125,6 +200,15 @@ Both Linux architectures build and smoke-test on Ubuntu 22.04. The package job c
 ELF file and rejects requirements newer than glibc 2.35. Ubuntu 22.04 is the tested minimum; this is
 not a promise that every distribution with the same glibc version has all required system libraries.
 The native smoke test restores a frozen root and update using the packaged executable.
+Linux x64, Linux ARM64, and Windows x64 also run installer lifecycle checks using the real
+built archive: install, rejection of damaged and invalid replacements, upgrade, reinstall, and
+uninstall. Windows additionally checks migration from the old installer layout. The Windows
+installer retries atomic directory renames for up to ten seconds when Windows reports access
+or sharing conflicts. A failed replacement restores the previous installation and PATH. If
+rollback itself fails, the previous files are kept in the reported staging directory. Integration
+tests exercise both temporary and persistent directory locks with real Windows file handles.
+Homebrew's separate Apple silicon macOS and Linux x64 jobs install, reinstall, test, and remove their
+bottles after the existing source build and recovery test.
 
 ## Extension compatibility checks
 

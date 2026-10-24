@@ -88,7 +88,7 @@ def main() -> None:
     wait_for_ci(github, sha)
     draft = os.environ.get("REQUESTED_DRAFT") == "true"
     published = published_release(github, tag, draft=draft, prerelease=prerelease)
-    homebrew = (
+    channels = (
         not prerelease and not draft and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) is not None
     )
     output(
@@ -97,7 +97,7 @@ def main() -> None:
         prerelease=json.dumps(prerelease),
         draft=json.dumps(draft),
         published=json.dumps(published),
-        homebrew=json.dumps(homebrew),
+        channels=json.dumps(channels),
     )
 
 

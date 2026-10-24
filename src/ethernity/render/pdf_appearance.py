@@ -199,9 +199,16 @@ def _set_active(obj: pdfium.PdfObject, active: bool) -> None:
 
 def _render_page(page: pdfium.PdfPage, *, transparent: bool = False) -> Image.Image:
     with closing(
-        page.render(scale=_SCALE, fill_color=(0, 0, 0, 0) if transparent else (255, 255, 255, 255))
+        page.render(
+            scale=_SCALE,
+            fill_color=(0, 0, 0, 0) if transparent else (255, 255, 255, 255),
+            rev_byteorder=True,
+        )
     ) as bitmap:
-        return bitmap.to_pil().convert("RGBA" if transparent else "RGB")
+        image = bitmap.to_pil()
+        # PIL copies RGB buffers, but shares RGBA buffers with PDFium. Detach the
+        # transparent image before closing its bitmap; the RGB image already owns its pixels.
+        return image.copy() if transparent else image
 
 
 def _object_pixel_box(obj: pdfium.PdfObject, page: pdfium.PdfPage) -> tuple[int, int, int, int]:

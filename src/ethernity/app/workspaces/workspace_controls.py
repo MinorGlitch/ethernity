@@ -44,7 +44,6 @@ QR_DENSITY_HELP = (
 
 DESIGN_OPTIONS = ("archive", "forge", "ledger", "maritime", "sentinel")
 PAPER_OPTIONS = paper_size_names()
-KIT_VARIANTS = ("lean", "scanner")
 BACKUP_PASSPHRASE_WORD_OPTIONS = (
     ("From settings", "default"),
     *((f"{count} words", str(count)) for count in MNEMONIC_WORD_COUNTS),
@@ -70,8 +69,8 @@ RESTORE_AUTH_OPTIONS = (
 )
 SIGNATURE_SOURCE_OPTIONS = (
     ("Loaded backup", "auto"),
-    ("Signature text file", "text"),
-    ("Signature payload file", "payloads"),
+    ("Text file", "text"),
+    ("Payload file", "payloads"),
 )
 
 

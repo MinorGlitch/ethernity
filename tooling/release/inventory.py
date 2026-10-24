@@ -24,7 +24,6 @@ class Target:
 TARGETS = (
     Target("ubuntu-22.04", "linux", "x64"),
     Target("ubuntu-22.04-arm", "linux", "arm64"),
-    Target("macos-15-intel", "macos", "x64"),
     Target("macos-14", "macos", "arm64"),
     Target("windows-2022", "windows", "x64", "zip"),
 )
@@ -46,6 +45,14 @@ def release_files(tag: str, *, signed: bool = True) -> tuple[str, ...]:
     files = tuple(
         name for stem, ext in archives for name in (f"{stem}.{ext}", f"{stem}.sbom.cdx.json")
     )
+    files += (
+        f"ethernity_paper-{tag.removeprefix('v')}-py3-none-any.whl",
+        "install.sh",
+        "install.ps1",
+        "SHA256SUMS",
+    )
+    if re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+        files += ("MinorGlitch.Ethernity.yaml",)
     return files + tuple(f"{name}.sigstore.json" for name in files) if signed else files
 
 

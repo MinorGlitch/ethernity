@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ethernity.app.app_context import EthernityAppContext
 from ethernity.app.app_state import fresh_task_state
+from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.app.workflow_registry import workflow_definition
 
 
@@ -22,4 +23,8 @@ class TaskStateMutationActions(EthernityAppContext):
         if self.active_task != "settings":
             self._rehydrate_workflow_defaults()
         self._last_execution_result = None
+        self._last_reviewed_task = None
+        if self.active_task == "backup":
+            self.query_one(TaskCanvas).select_step("files")
+            self._initial_task_payloads["backup"] = self.backup_state.model_dump_json()
         self.refresh_task_view()

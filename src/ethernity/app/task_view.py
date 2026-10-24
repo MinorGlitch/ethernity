@@ -25,7 +25,8 @@ from ethernity.app.execution import (
     execution_failure_section,
 )
 from ethernity.app.navigation import (
-    NavMenu,
+    DIRECT_NAV_TASKS,
+    MANAGE_TASKS,
     NavTaskState,
     app_version_label,
     blocker_focus_selector,
@@ -47,6 +48,7 @@ from ethernity.app.task_catalog import (
 )
 from ethernity.app.widgets.form import FormScroll
 from ethernity.app.widgets.settings_form import SettingsForm
+from ethernity.app.widgets.static_text import update_static_text
 from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.workflow_presenter import (
@@ -328,9 +330,7 @@ class TaskViewActions(EthernityAppContext):
         focused = self.screen.focused
         if focused not in buttons and not self._nav_menu_open:
             return False
-        current = (
-            self.query_one(f"#nav-{self._nav_menu}", Button) if self._nav_menu_open else focused
-        )
+        current = self.query_one("#nav-manage", Button) if self._nav_menu_open else focused
         self._close_nav_menu(restore_focus=False)
         assert current is not None
         self.screen.set_focus(buttons[(buttons.index(current) + direction) % len(buttons)])
@@ -377,8 +377,8 @@ class TaskViewActions(EthernityAppContext):
             and focused is not None
             and focused.parent == self.query_one("#workbench-navigation")
         ):
-            if focused.id in {"nav-manage", "nav-tools"}:
-                self._open_nav_menu("manage" if focused.id == "nav-manage" else "tools")
+            if focused.id == "nav-manage":
+                self._open_nav_menu()
             else:
                 self._focus_active_task(self.active_task)
             return
@@ -485,7 +485,7 @@ class TaskViewActions(EthernityAppContext):
 
     def _refresh_execution_status(self) -> None:
         status = self.query_one("#app-header-status", Label)
-        status.update(app_version_label())
+        update_static_text(status, app_version_label())
         status.tooltip = None
 
     def _refresh_navigation(self) -> None:
@@ -505,18 +505,14 @@ class TaskViewActions(EthernityAppContext):
                 nav,
                 self.active_task,
                 self._navigation_task_states(),
-                menu=self._nav_menu,
             )
-        for button_id, tasks in (
-            ("nav-create", {"backup"}),
-            ("nav-restore", {"restore"}),
-            ("nav-manage", {"add_files", "rebuild", "replace_recovery_docs"}),
-            ("nav-tools", {"kit", "settings"}),
-        ):
+        for button_id, task in DIRECT_NAV_TASKS.items():
             self.query_one(f"#{button_id}", Button).set_class(
-                self.active_task in tasks, "active-task"
+                self.active_task == task, "active-task"
             )
-        self.refresh_bindings()
+        self.query_one("#nav-manage", Button).set_class(
+            self.active_task in MANAGE_TASKS, "active-task"
+        )
 
     def _navigation_task_states(self) -> dict[TaskKey, NavTaskState]:
         states: dict[TaskKey, NavTaskState] = {}
@@ -610,10 +606,9 @@ class TaskViewActions(EthernityAppContext):
         current = TASK_ORDER.index(self.active_task)
         await self._show_task(TASK_ORDER[(current + offset) % len(TASK_ORDER)])
 
-    def _open_nav_menu(self, menu: NavMenu) -> None:
+    def _open_nav_menu(self) -> None:
         if self.screen is not self.screen_stack[0]:
             return
-        self._nav_menu = menu
         self._nav_menu_open = True
         self._refresh_navigation()
         self._sync_nav_layout()
@@ -635,18 +630,19 @@ class TaskViewActions(EthernityAppContext):
             self._sync_nav_layout()
         if was_open and restore_focus:
             screen = self.screen_stack[0]
-            screen.set_focus(screen.query_one(f"#nav-{self._nav_menu}", Button))
+            screen.set_focus(screen.query_one("#nav-manage", Button))
 
     def _sync_nav_layout(self) -> None:
         menu = self.query_one("#nav-menu")
         menu.display = self._nav_menu_open
         if self._nav_menu_open:
-            owner = self.query_one(f"#nav-{self._nav_menu}")
+            owner = self.query_one("#nav-manage")
             anchor = self.query_one("#nav-menu-anchor")
             assert menu.styles.width is not None
             menu_width = int(menu.styles.width.resolve(self.size, self.size))
             x = max(0, min(owner.region.x, self.size.width - menu_width))
-            menu.styles.offset = (x - anchor.region.x, owner.region.bottom - anchor.region.y)
+            y = self.query_one("#workbench-navigation").content_region.bottom
+            menu.styles.offset = (x - anchor.region.x, y - anchor.region.y)
         self.refresh_bindings()
 
     def _current_state(self) -> TaskState:

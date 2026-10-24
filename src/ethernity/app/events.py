@@ -11,6 +11,7 @@ from ethernity.app.app_context import EthernityAppContext
 from ethernity.app.app_types import UnlockTaskState
 from ethernity.app.editing.definitions import OutputEditorDefinition
 from ethernity.app.help_content import build_help_content
+from ethernity.app.navigation import DIRECT_NAV_TASKS
 from ethernity.app.recovery_check_requests import generated_recovery_request
 from ethernity.app.screens.help import HelpScreen
 from ethernity.app.screens.task_result import TaskResultScreen
@@ -34,6 +35,9 @@ class AppEventHandlers(EthernityAppContext):
     """Textual lifecycle and event routing for the app shell."""
 
     def on_mount(self) -> None:
+        if self.is_web:
+            # The browser converts physical wheel distance to terminal cells.
+            self.scroll_sensitivity_x = self.scroll_sensitivity_y = 1
         self.refresh_task_view()
         self.call_after_refresh(self._focus_active_task, self.active_task)
 
@@ -53,11 +57,22 @@ class AppEventHandlers(EthernityAppContext):
         self._close_nav_menu(restore_focus=False)
 
     async def action_help(self) -> None:
+        self._close_nav_menu(restore_focus=False)
         await self.push_screen(HelpScreen(build_help_content(task=self.active_task)))
 
     def on_task_result_screen_closed(self, event: TaskResultScreen.Closed) -> None:
         event.stop()
         self.recovery_check_controller.cancel(event.screen)
+        if (
+            event.task == "backup"
+            and event.result is not None
+            and event.result.status == "succeeded"
+            and event.result is self._last_execution_result
+            and self.active_task == "backup"
+            and self.screen is self.screen_stack[0]
+        ):
+            self.action_clear_task()
+            self.call_after_refresh(self._focus_active_task, "backup")
 
     async def on_task_result_screen_context_action_requested(
         self, event: TaskResultScreen.ContextActionRequested
@@ -81,15 +96,15 @@ class AppEventHandlers(EthernityAppContext):
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if self._nav_menu_open and button_id not in {"nav-manage", "nav-tools"}:
+        if self._nav_menu_open and button_id != "nav-manage":
             self._close_nav_menu(restore_focus=False)
-        if button_id in {"nav-create", "nav-restore"}:
+        if button_id in DIRECT_NAV_TASKS:
             event.stop()
-            await self._show_task("backup" if button_id == "nav-create" else "restore")
+            await self._show_task(DIRECT_NAV_TASKS[button_id])
             self.call_after_refresh(self._focus_active_task, self.active_task)
-        elif button_id in {"nav-manage", "nav-tools"}:
+        elif button_id == "nav-manage":
             event.stop()
-            self._toggle_navigation_menu(button_id)
+            self._toggle_navigation_menu()
         elif button_id == "canvas-back":
             event.stop()
             key = self.query_one(TaskCanvas).adjacent_step(-1)
@@ -108,12 +123,11 @@ class AppEventHandlers(EthernityAppContext):
             event.stop()
             await self._handle_workspace_button(button_id)
 
-    def _toggle_navigation_menu(self, button_id: str) -> None:
-        menu = "manage" if button_id == "nav-manage" else "tools"
-        if self._nav_menu_open and self._nav_menu == menu:
+    def _toggle_navigation_menu(self) -> None:
+        if self._nav_menu_open:
             self._close_nav_menu()
         else:
-            self._open_nav_menu(menu)
+            self._open_nav_menu()
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.item.id is None:

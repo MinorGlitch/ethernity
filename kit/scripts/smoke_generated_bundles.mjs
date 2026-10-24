@@ -1,11 +1,14 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import test from "node:test";
 import { chromium, firefox, webkit } from "playwright";
 import { kitDir } from "../tests/browser/support.mjs";
 import { smokeBackup, frozenBackups } from "../tests/browser/fixtures.mjs";
 import { smokeBundle } from "../tests/browser/bundle.mjs";
 import { checkPrintedMetadata } from "../tests/browser/metadata.mjs";
-import { smokeUiLifecycle } from "../tests/browser/lifecycle.mjs";
-import { smokeRecoveryWorker } from "../tests/browser/worker.mjs";
+import { prepareUiLifecycle, smokeUiLifecycle } from "../tests/browser/lifecycle.mjs";
+import { prepareRecoveryWorker, smokeRecoveryWorker } from "../tests/browser/worker.mjs";
 
 const printedKitDirectory = process.env.ETHERNITY_KIT_PRINTED_SMOKE_DIR;
 const bundleDirectory =
@@ -27,25 +30,42 @@ const backups = [
 ];
 const bundleSmokeCount =
   process.env.ETHERNITY_KIT_BROWSER_SMOKE_WORKER_ONLY === "1" ? 0 : bundlePaths.length;
-for (const name of browserNames) {
-  const browser = await engines[name].launch({ headless: true });
+// Bound simultaneous browser and key-derivation memory use.
+await test("generated recovery kits", { concurrency: 2 }, async (suite) => {
+  const workDir = await mkdtemp(resolve(tmpdir(), "ethernity-browser-smoke-"));
   try {
-    if (bundleSmokeCount) {
-      for (const bundlePath of bundlePaths) {
-        process.stdout.write(`Booting ${bundlePath} in ${name}...\n`);
-        await smokeBundle(browser, bundlePath, backups, Boolean(printedKitDirectory));
-        await checkPrintedMetadata(browser, bundlePath);
-      }
-    }
-    await smokeUiLifecycle(browser);
-    process.stdout.write(
-      `${name}: DOM identity, UI disposal, and camera lifecycle checks passed.\n`,
-    );
-    await smokeRecoveryWorker(browser, backups);
-    process.stdout.write(
-      `${name}: ${printedKitDirectory ? "reconstructed printed" : "generated gzip"} kits passed: ${bundleSmokeCount}; recovery worker passed\n`,
+    // Build identical test pages once. Each engine still runs every scenario in
+    // its own browser, including both packed kit variants and real legacy KDFs.
+    const lifecyclePage = await prepareUiLifecycle(workDir);
+    const workerPage = await prepareRecoveryWorker(workDir, backups);
+    await Promise.all(
+      browserNames.map((name) =>
+        suite.test(name, async () => {
+          const browser = await engines[name].launch({ headless: true });
+          try {
+            if (bundleSmokeCount) {
+              for (const bundlePath of bundlePaths) {
+                process.stdout.write(`Booting ${bundlePath} in ${name}...\n`);
+                await smokeBundle(browser, bundlePath, backups, Boolean(printedKitDirectory));
+                await checkPrintedMetadata(browser, bundlePath);
+              }
+            }
+            await smokeUiLifecycle(browser, lifecyclePage);
+            process.stdout.write(
+              `${name}: DOM identity, UI disposal, and camera lifecycle checks passed.\n`,
+            );
+            await smokeRecoveryWorker(browser, workerPage);
+            process.stdout.write(
+              `${name}: ${printedKitDirectory ? "reconstructed printed" : "generated gzip"} kits passed: ${bundleSmokeCount}; recovery worker passed\n`,
+            );
+          } finally {
+            await browser.close();
+          }
+        }),
+      ),
     );
   } finally {
-    await browser.close();
+    // Subtests finish even when a sibling fails, before shared fixtures go away.
+    await rm(workDir, { recursive: true, force: true, maxRetries: 3 });
   }
-}
+});

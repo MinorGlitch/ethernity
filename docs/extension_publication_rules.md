@@ -151,6 +151,10 @@ Validation MUST reject missing, malformed, extra, reordered, or mismatched secti
 text proves agreement with the payload bytes; it does not prove that the print is legible or
 provide a signed inventory of published sheets.
 
+Manual entry may remove printed line labels and normalize whitespace as specified in
+[Fallback text encoding](format.md#11-fallback-text-encoding). Editor highlights are transcription
+aids, not evidence that a frame or document is valid. All frame and authentication checks still apply.
+
 ## Restore and version checks
 
 The app's Restore task and `ethernity run restore` MUST write recovered files into a new or empty

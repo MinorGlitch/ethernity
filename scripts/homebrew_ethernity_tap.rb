@@ -7,8 +7,6 @@ class Ethernity < Formula
   sha256 "9efc1b94b7c8736505359143dee5ffa0e4b641fadcbdc2d8f5a96c13d97457c5"
   license "GPL-3.0-or-later"
 
-  depends_on "pkgconf" => :build
-  depends_on "rust" => :build
   depends_on "python@3.13"
 
   # @locked-python-resources@
@@ -16,17 +14,18 @@ class Ethernity < Formula
   def install
     venv = virtualenv_create(libexec, "python3.13")
 
-    resources.each do |resource|
-      if resource.url&.end_with?(".whl")
-        resource.fetch
-        wheel_name = File.basename(resource.url)
-        wheel_path = buildpath/wheel_name
-        cp resource.cached_download, wheel_path
-        venv.pip_install wheel_path
-      else
-        resource.stage do
-          venv.pip_install Pathname.pwd
-        end
+    wheels, sources = resources.partition { |resource| resource.url&.end_with?(".whl") }
+    wheel_paths = wheels.map do |resource|
+      resource.fetch
+      wheel_path = buildpath/File.basename(resource.url)
+      cp resource.cached_download, wheel_path
+      wheel_path.to_s
+    end
+    # A multiline requirements string installs all local wheels in one pip process.
+    venv.pip_install wheel_paths.join("\n") unless wheel_paths.empty?
+    sources.each do |resource|
+      resource.stage do
+        venv.pip_install Pathname.pwd
       end
     end
 

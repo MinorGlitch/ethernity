@@ -1,0 +1,10 @@
+[
+  {"input": "  01. YBNR\t fghj\u00a0\u2009kmnp  \r\n 02.qrst  \r\n", "expected": "YBNR fghj kmnp\nqrst\n"},
+  {"input": "1934 99 ybnr\n01 ybnr\n", "expected": "1934 99 ybnr\n01 ybnr\n"},
+  {"input": "01. 02. ybnr\n1.2.ybnr", "expected": "01. 02. ybnr\n1.2.ybnr"},
+  {"input": "50000. ybnr\n100000. fghj", "expected": "ybnr\n100000. fghj"},
+  {"input": "AUTH FRAME\r01. ybnr-fghj\r\rMAIN FRAME\r01. kmnp\r", "expected": "AUTH FRAME\nybnr-fghj\n\nMAIN FRAME\nkmnp\n"},
+  {"input": "  QVkBAA+/  dGVzdA\t\n", "expected": "QVkBAA+/ dGVzdA\n"},
+  {"input": "\u0661. ybnr\n01. \u212A  @  0", "expected": "\u0661. ybnr\n\u212A @ 0"},
+  {"input": "\n  \t\n01. \n", "expected": "\n\n\n"}
+]

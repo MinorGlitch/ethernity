@@ -21,6 +21,7 @@ import json
 from rich.syntax import Syntax
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     Label,
@@ -31,12 +32,11 @@ from textual.widgets import (
     TabPane,
 )
 
-from ethernity.app.screens.modal import EthernityModalScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
 from ethernity.tasks.models import TaskDiagnostics
 
 
-class DiagnosticsScreen(EthernityModalScreen[None]):
+class DiagnosticsScreen(ModalScreen[None]):
     """On-demand advanced diagnostics for the current task."""
 
     BINDINGS = [("escape", "close", "Close")]

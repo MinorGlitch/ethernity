@@ -239,7 +239,10 @@ class RebuildTaskState(RecoveryTaskState):
                 else ()
             ),
             next_steps=(
-                "Verify the rebuilt backup and new recovery sheets before retiring old documents.",
+                "Print every new PDF at 100% (actual size).",
+                "Test recovery from scans of the new backup and recovery sheets before "
+                "retiring the old documents.",
+                "Keep the sheets with the matching backup version.",
                 f"The rebuilt backup uses the same passphrase. {signing_note}",
                 "Use Create backup when you need a new passphrase or signing key.",
             ),

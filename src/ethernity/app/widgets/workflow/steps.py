@@ -161,7 +161,9 @@ class WorkflowStepStack(VerticalGroup):
             (
                 widget
                 for widget in step.body.query("*")
-                if widget.can_focus and not widget.disabled and widget.region.area > 0
+                # A newly shown editor may still have its hidden layout's empty
+                # region. Choose from current control state, not the last paint.
+                if widget.focusable and all(node.display for node in widget.ancestors_with_self)
             ),
             None,
         )

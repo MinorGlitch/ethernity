@@ -4,8 +4,7 @@ import asyncio
 import threading
 from pathlib import Path
 
-from textual.app import ComposeResult
-from textual.widgets import Button, Footer, Input, Static
+from textual.widgets import Button, Input, Static
 
 from ethernity.app.recovery_check_controller import RecoveryCheckController
 from ethernity.app.screens.edit_field import EditFieldScreen
@@ -23,9 +22,6 @@ class RecoveryCheckApp(StyledApp):
 
     def on_task_result_screen_closed(self, event: TaskResultScreen.Closed) -> None:
         self.controller.cancel(event.screen)
-
-    def compose(self) -> ComposeResult:
-        yield Footer()
 
 
 def _result_screen(path: Path) -> TaskResultScreen:
@@ -197,8 +193,8 @@ def test_required_phrase_is_masked_and_explicit_input_retries(monkeypatch, tmp_p
             )
             assert not controller.running
             message = str(screen.query_one("#result-document-checks", Static).content)
-            assert "Generated PDF recovery passed" in message
-            assert "Printed pages are untested" in message
+            assert "PDF check passed" in message
+            assert "using the supplied phrase" in message
             assert not screen.query_one("#result-test-recovery", Button).disabled
 
     asyncio.run(run())

@@ -8,13 +8,13 @@ from ethernity.app.widgets.static_text import PathLabel, update_static_text
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.app.workspaces.workspace_controls import (
     DESIGN_OPTIONS,
-    KIT_VARIANTS,
     PAPER_OPTIONS,
     BaseWorkspace,
     control_value,
     field_row,
     first_value,
     group,
+    labeled_select_row,
     select_row,
     set_select,
     value,
@@ -24,6 +24,7 @@ from ethernity.render.designs import (
     load_design_definition_by_name,
     supported_paper_size_names,
 )
+from ethernity.tasks.kit import KIT_VARIANT_LABELS
 from ethernity.tasks.page_layout import KIT_RENDER_DOC_TYPES
 from ethernity.tasks.presentation.models import (
     InlineNoticePresentation,
@@ -45,7 +46,11 @@ class KitWorkspace(BaseWorkspace):
                 )
                 yield InlineNotice(id="kit-output-notice")
             with FormSection("Print setup"):
-                yield select_row("Kit type", "workspace-kit-variant-select", KIT_VARIANTS)
+                yield labeled_select_row(
+                    "Kit type",
+                    "workspace-kit-variant-select",
+                    [(label, key) for key, label in KIT_VARIANT_LABELS.items()],
+                )
                 yield select_row("Paper size", "workspace-kit-paper", PAPER_OPTIONS)
                 yield select_row("Print design", "workspace-kit-design", DESIGN_OPTIONS)
             with FormSection("QR codes"):
@@ -61,7 +66,7 @@ class KitWorkspace(BaseWorkspace):
         variant = group(presentation, "variant")
         set_select(
             self.query_one("#workspace-kit-variant-select", Select),
-            value(variant, "variant"),
+            control_value(variant, "variant"),
         )
         layout = group(presentation, "layout")
         paper_select = self.query_one("#workspace-kit-paper", FormSelect)

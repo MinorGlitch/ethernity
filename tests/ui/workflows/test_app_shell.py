@@ -647,12 +647,14 @@ def test_textual_app_supports_hjkl_and_arrow_navigation() -> None:
             assert app.screen.focused is app.query_one("#nav-restore", Button)
             await pilot.press("enter")
             assert app.active_task == "restore"
+            assert app.screen.focused is app.query_one("#workflow-restore-source-body-load", Button)
             await pilot.press("h", "right", "down")
             assert app._nav_menu_open
             await pilot.press("j", "k", "enter")
             assert app.active_task == "add_files"
             await pilot.press("h", "left", "enter")
             assert app.active_task == "restore"
+            assert app.screen.focused is app.query_one("#workflow-restore-source-body-load", Button)
             await pilot.press("h", "left", "enter")
             assert app.active_task == "backup"
             assert app.screen.focused is app.query_one("#workspace-backup-files", Button)

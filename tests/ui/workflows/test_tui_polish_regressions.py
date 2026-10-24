@@ -224,8 +224,8 @@ def test_simple_enum_selects_render_human_labels_without_changing_values(
             paper = app.query_one("#workspace-kit-paper", Select)
             design = app.query_one("#workspace-kit-design", Select)
             assert tuple((str(label), value) for label, value in variant._options) == (
-                ("Lean", "lean"),
-                ("Scanner", "scanner"),
+                ("Paste text", "lean"),
+                ("Paste text + scan QR codes", "scanner"),
             )
             expected_paper_labels = tuple(
                 paper_size_display_name(paper_size) for paper_size in paper_size_names()

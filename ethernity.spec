@@ -7,11 +7,12 @@ from PyInstaller.utils.hooks import (
 )
 
 hiddenimports = (
-    ["textual.widgets._markdown_viewer", "textual.widgets._tab_pane"]
+    ["textual.widgets._markdown_viewer", "textual.widgets._tab_pane", "textual.drivers.web_driver"]
     + collect_submodules("rich._unicode_data")
     + collect_submodules("zxingcpp")
 )
 datas = collect_data_files("ethernity") + copy_metadata("ethernity-paper")
+datas += copy_metadata("textual-serve")
 datas += collect_data_files("pypdfium2", includes=["version.json"])
 datas += collect_data_files("pypdfium2_raw", includes=["version.json"])
 binaries = collect_dynamic_libs("pypdfium2_raw")

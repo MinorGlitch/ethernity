@@ -100,9 +100,13 @@ class WorkbenchSteps(Widget):
                 button.refresh(layout=True)
             button.tooltip = step.summary or step.label
             became_active = step.key == active and not button.has_class("active-step")
-            button.set_class(step.key == active, "active-step")
-            button.set_class(step.severity == "error", "step-error")
-            button.set_class(step.severity == "warning", "step-warning")
+            button.update_classes(
+                {
+                    "active-step": step.key == active,
+                    "step-error": step.severity == "error",
+                    "step-warning": step.severity == "warning",
+                }
+            )
             button.disabled = locked
             if became_active:
                 self.call_after_refresh(button.scroll_visible, animate=False)

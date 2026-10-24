@@ -127,7 +127,7 @@ export function filterZBase32Lines(text) {
   const lines = text.split(/\r\n|\r|\n/);
   const filtered = [];
   for (const raw of lines) {
-    const line = raw.trim().replace(/^\d{1,5}\.\s*/, "");
+    const [, line] = splitFallbackLineLabel(raw.trim());
     if (!line) continue;
     for (const ch of line) {
       if (ch === "-" || /\s/.test(ch)) continue;
@@ -145,6 +145,23 @@ export function filterZBase32Lines(text) {
     filtered.push(line);
   }
   return filtered;
+}
+
+export function splitFallbackLineLabel(line) {
+  const label = line.match(/^\s*[0-9]{1,5}\.\s*/)?.[0] ?? "";
+  return [label, line.slice(label.length)];
+}
+
+export function tidyRecoveryText(text) {
+  return text
+    .split(/\r\n|\r|\n/)
+    .map((line) => {
+      const [label, body] = splitFallbackLineLabel(line);
+      // Leave repeated labels invalid, including after another tidy or decode pass.
+      if (label && !splitFallbackLineLabel(body)[0]) line = body;
+      return line.trim().replace(/\s+/g, " ");
+    })
+    .join("\n");
 }
 
 export function readUvarint(bytes, offset) {

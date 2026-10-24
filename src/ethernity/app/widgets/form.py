@@ -52,8 +52,10 @@ class FormRow(HorizontalGroup):
         label_widget = Label(label) if isinstance(label, str) else label
         label_widget.add_class("field-text", "form-label")
         self._controls = _FormControls(*controls, classes="form-controls")
-        body = VerticalGroup(
-            self._controls, *([notice] if notice is not None else []), classes="form-field"
+        body = (
+            self._controls
+            if notice is None
+            else VerticalGroup(self._controls, notice, classes="form-field")
         )
         super().__init__(label_widget, body, id=id)
 

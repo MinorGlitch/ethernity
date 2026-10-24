@@ -22,6 +22,8 @@ from textual.widgets import Button, Label, Static, TextArea
 
 from ethernity.app.screens.text_entry import TextEntryScreen
 from ethernity.app.widgets.actions import ActionButton, modal_action_row
+from ethernity.app.widgets.recovery_text import RecoveryTextArea
+from ethernity.encoding.fallback_text import tidy_recovery_text
 
 
 class PasteTextScreen(TextEntryScreen):
@@ -31,16 +33,17 @@ class PasteTextScreen(TextEntryScreen):
         with Vertical(id="paste-text-modal", classes="dialog"):
             yield Static(self._field_title, id="paste-text-title", classes="screen-title")
             yield Label(self._prompt, id="paste-text-prompt", classes="dialog-prompt")
-            yield TextArea(
+            yield RecoveryTextArea(
                 self._value,
                 placeholder=self._placeholder,
                 soft_wrap=True,
-                show_line_numbers=False,
+                show_line_numbers=True,
                 id="paste-text-input",
             )
             yield modal_action_row(
                 "paste-text-actions",
-                ActionButton("Use text", "paste-text-save", variant="primary"),
+                ActionButton("Use", "paste-text-save", variant="primary"),
+                ActionButton("Tidy", "paste-text-tidy"),
                 ActionButton("Clear", "paste-text-clear"),
                 ActionButton("Cancel", "paste-text-cancel"),
             )
@@ -52,7 +55,13 @@ class PasteTextScreen(TextEntryScreen):
         button_id = event.button.id
         event.stop()
         if button_id == "paste-text-save":
-            self.dismiss(self.query_one("#paste-text-input", TextArea).text)
+            self.dismiss(tidy_recovery_text(self.query_one("#paste-text-input", TextArea).text))
+        elif button_id == "paste-text-tidy":
+            field = self.query_one("#paste-text-input", TextArea)
+            cleaned = tidy_recovery_text(field.text)
+            if cleaned != field.text:
+                field.replace(cleaned, (0, 0), field.document.end)
+            field.focus()
         elif button_id == "paste-text-clear":
             self.dismiss("")
         elif button_id == "paste-text-cancel":

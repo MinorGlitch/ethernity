@@ -218,11 +218,11 @@ def test_result_actions_send_typed_requests_and_report_generated_checks(tmp_path
             assert not list(screen.query("#result-test-printed-pages"))
             screen.show_context_action_result(
                 "test_recovery",
-                "Generated PDF recovery passed. Printed pages are untested.",
+                "PDF check passed\n2 files recovered using 2 recovery sheets.",
                 success=True,
             )
             assert not screen.query_one("#result-test-recovery", Button).disabled
-            assert "Printed pages are untested" in str(
+            assert "2 files recovered using 2 recovery sheets" in str(
                 screen.query_one("#result-document-checks", Static).content
             )
             values = [
@@ -231,7 +231,7 @@ def test_result_actions_send_typed_requests_and_report_generated_checks(tmp_path
             ]
             assert "2 PDFs, 1 other file" in values
             assert "7" in values
-            assert "this backup's generated PDFs" in str(
+            assert "Restored files are deleted" in str(
                 screen.query_one("#result-test-guidance", Static).content
             )
 

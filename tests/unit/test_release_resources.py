@@ -33,11 +33,18 @@ class TestReleaseResources(unittest.TestCase):
                 "resources/kit/recovery_kit.assembler.html",
             },
         )
+
+    def test_source_manifest_includes_build_sources_and_release_fixture(self) -> None:
         self.assertEqual(
             (_PROJECT_ROOT / "MANIFEST.in").read_text(encoding="utf-8").splitlines(),
             [
                 "include tooling/__init__.py",
                 "include tooling/release_resources.py",
+                (
+                    "include browser/package.json browser/package-lock.json "
+                    "browser/build.mjs browser/README.md"
+                ),
+                "recursive-include browser/src *.js",
                 (
                     "recursive-include tests/fixtures/v1_2/extension_golden/base64/"
                     "gzip_replacement_chain/chain *.pdf"

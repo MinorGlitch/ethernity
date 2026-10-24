@@ -283,7 +283,7 @@ async def exercise_add_files_review() -> None:
         assert "Destination\nupdate-out" in result_text
         assert "Files\n2 PDFs" in result_text
         assert "\nupdate.pdf\nupdate-recovery.pdf" in result_text
-        assert "Print every new PDF at actual size." in result_text
+        assert "Print every new PDF at 100% (actual size)." in result_text
 
 
 async def exercise_rebuild_review() -> None:
@@ -318,7 +318,7 @@ async def exercise_rebuild_review() -> None:
         assert "Destination\nrebuilt" in result_text
         assert "Files\n2 PDFs" in result_text
         assert "\nmain.pdf" in result_text
-        assert "Store the sheets with the matching backup version." in result_text
+        assert "Keep the sheets with the matching backup version." in result_text
 
 
 async def exercise_replacement_review() -> None:
@@ -367,7 +367,7 @@ async def exercise_replacement_review() -> None:
         assert_success_result_modal_layout(replace_app)
         assert "Destination\nreplacement-docs" in result_text
         assert "Files\n2 PDFs" in result_text
-        assert "Print every replacement sheet at actual size." in result_text
+        assert "Print every replacement sheet at 100% (actual size)." in result_text
         assert "Store the new sheets before retiring the old set." in result_text
 
 

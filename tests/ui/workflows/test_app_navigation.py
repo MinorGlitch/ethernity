@@ -82,14 +82,26 @@ def test_primary_navigation_keeps_expert_tasks_in_the_palette() -> None:
         async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.pause()
             assert not app.query_one("#nav-menu").display
-            assert len(app.query("#workbench-navigation Button")) == 4
+            assert [str(button.label) for button in app.query("#workbench-navigation Button")] == [
+                "1 Backup",
+                "2 Restore",
+                "Manage",
+                "Recovery Kit",
+                "Settings",
+                "Help",
+            ]
             command_titles = {command.title for command in app.get_system_commands(app.screen)}
             assert {workflow.title for workflow in WORKFLOWS} <= command_titles
             assert app.query_one("#app-header").region.height == 1
 
-            await pilot.click("#nav-tools")
-            await pilot.pause()
-            assert _visible_nav_tasks(app) == ["kit", "settings"]
+            for task in ("kit", "settings"):
+                await pilot.click("#nav-manage")
+                assert app._nav_menu_open
+                await pilot.click(f"#nav-{task}")
+                await pilot.pause()
+                assert app.active_task == task
+                assert app.query_one(f"#nav-{task}", Button).has_class("active-task")
+                assert not app._nav_menu_open
 
     asyncio.run(run())
 
@@ -154,20 +166,23 @@ def test_unassessed_selection_does_not_create_loaded_backup_identity() -> None:
     asyncio.run(run())
 
 
-def test_tools_menu_can_be_opened_and_selected_with_the_keyboard() -> None:
+def test_kit_and_settings_open_directly_with_the_keyboard() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(80, 24)) as pilot:
             await pilot.press("ctrl+b")
             assert app.screen.focused is app.query_one("#nav-create", Button)
             assert not app._nav_menu_open
-            await pilot.press("left", "enter")
-            nav = app.query_one("#nav-list", ListView)
-            assert app.screen.focused is nav
-            assert nav.highlighted_child is app.query_one("#kit", ListItem)
-            await pilot.press("j", "k", "enter")
+            await pilot.press("left", "left", "left", "enter")
             assert app.active_task == "kit"
             assert not app._nav_menu_open
+            await pilot.press("ctrl+b")
+            assert app.screen.focused is app.query_one("#nav-kit", Button)
+            await pilot.press("right", "enter")
+            assert app.active_task == "settings"
+            assert not app._nav_menu_open
+            await pilot.press("ctrl+b")
+            assert app.screen.focused is app.query_one("#nav-settings", Button)
 
     asyncio.run(run())
 
@@ -195,7 +210,10 @@ def test_top_navigation_actions_do_not_need_a_render_between_keys() -> None:
             await app.action_move_left()
             await app.action_move_left()
             await pilot.pause()
-            assert app.screen.focused is app.query_one("#nav-tools", Button)
+            assert app.screen.focused is app.query_one("#nav-help", Button)
+            await app.action_move_left()
+            await pilot.pause()
+            assert app.screen.focused is app.query_one("#nav-settings", Button)
 
     asyncio.run(run())
 
