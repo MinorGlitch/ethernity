@@ -29,9 +29,9 @@ Non-goals:
 - Extension output packages and product operations (see the
   [v1.2 extension publication rules](extension_publication_rules.md))
 
-## Released versions
+## Format versions
 
-| Component | Serialized version | Release status |
+| Component | Serialized version | Support |
 | --- | --- | --- |
 | Released standalone backup | document 1, manifest 1 | Read support retained |
 | Current standalone backup | document 2, kind 1, no inner version | Written by Ethernity v1.2.0 |

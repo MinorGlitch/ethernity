@@ -4,6 +4,7 @@ This page gives repository-local release verification instructions. The complete
 lives in the wiki:
 
 - [Wiki: Release files](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts)
+- [1.2 release notes and publication status](releases/1.2.0.md)
 
 ## Files in each release
 
@@ -105,8 +106,10 @@ archive is public. Community acceptance is a separate step; do not advertise the
 before acceptance. No additional Windows executable build or signing certificate is required.
 
 Before announcing a stable release, check that GitHub, PyPI, and Homebrew all offer that version,
-then update installation notes in the README and wiki. Remove the 1.2 pre-release installation
-notice when publishing 1.2. WinGet may lag while its submission is reviewed; document that state.
+then update its publication status in the release notes. Keep installation guidance in the README
+and wiki consistent with the available channels. WinGet may lag while its submission is reviewed;
+document that state. The 1.2 PyPI trusted-publisher setup remains pending; preparing these docs
+does not complete it.
 
 ## Homebrew release requirements
 

@@ -52,10 +52,10 @@ Use `ethernity --web` to open the same app in a browser. It runs locally, works 
 the same settings and files as the terminal app. Keep the terminal open and press Ctrl+C there
 when finished. Use `ethernity --web --no-open` to print the link without opening a browser.
 
-1. Choose **Create backup** and select a disposable test file or folder.
+1. Choose **Backup** and select a disposable test file or folder.
 2. Keep the recommended recovery method: three recovery sheets, any two can restore.
 3. Review the destination and create the backup.
-4. Choose **Restore files**, load the backup folder or scanned pages, and unlock them.
+4. Choose **Restore**, load the backup folder or scanned pages, and unlock them.
 5. Restore into an empty destination and compare the result with the original test data.
 
 ### Scriptable test
@@ -103,6 +103,7 @@ Run `ethernity run --help` to see the scriptable commands.
 ### Using Ethernity
 
 - [Project README](https://github.com/MinorGlitch/ethernity)
+- [1.2 release notes](https://github.com/MinorGlitch/ethernity/blob/master/docs/releases/1.2.0.md)
 - [Advanced operations](https://github.com/MinorGlitch/ethernity/blob/master/docs/advanced_operations.md)
 
 ### Safety and trust

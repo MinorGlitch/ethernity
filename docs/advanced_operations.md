@@ -105,7 +105,7 @@ recoverable version based on it. If sheet creation fails, the update is already 
 
 ## Restore a version
 
-In **Restore files**, load the required documents and choose the version. To restore cumulative
+In **Restore**, load the required documents and choose the version. To restore cumulative
 update 2 from the command line:
 
 ```sh
@@ -143,7 +143,7 @@ ethernity run rebuild \
 ```
 
 Rebuild creates `./backup-rebuilt/backup-<id>/` with a separate backup and fresh recovery sheets.
-As with Create backup, the selected destination is always a parent folder, whether it already
+As with Backup, the selected destination is always a parent folder, whether it already
 exists or needs to be created. Each backup gets its own folder. It keeps the passphrase and sealed
 state. Unsealed backups keep their signing key; sealed sources receive a new key because they
 have no stored signing seed.
@@ -156,7 +156,7 @@ while still being recoverable. Restore its files into separate new backups, or r
 with smaller ones before rebuilding.
 
 To change credentials, remove or rename files, or recover from compromise, restore the files you
-want and use **Create backup**. Choose new credentials if the old ones were compromised. Verify
+want and use **Backup**. Choose new credentials if the old ones were compromised. Verify
 recovery before retiring the superseded pages and digital copies. Rebuild does not revoke old
 credentials.
 
@@ -202,9 +202,9 @@ backup pages and the passphrase or recovery sheets.
 ethernity run print-kit --output ./recovery-kit.pdf --preview
 ```
 
-The default kit is smaller and accepts manually entered QR data. Add `--variant scanner` for camera
-input, or choose the scanner variant in the app. Follow the generated PDF's instructions to recover
-the HTML file and open it in a browser offline.
+The default kit is smaller and accepts pasted or typed recovery text. Add `--variant scanner` for
+camera input. In the app, open **Recovery Kit** and choose the kit type. Follow the generated PDF's
+instructions to recover the HTML file and open it in a browser offline.
 
 The first two codes, marked START 01 and START 02, create the assembly page. Copy their complete
 text into a plain-text file in that order. Line breaks between them are allowed. Save as `start.html`

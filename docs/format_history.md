@@ -1,8 +1,8 @@
 # Format compatibility
 
 New Ethernity versions must continue to recover backups produced by released versions. Older
-readers and recovery kits may reject newer formats. The released v1.0 and v1.1 golden fixtures
-remain unchanged and must continue to recover.
+readers and recovery kits may reject newer formats. The backup bytes in the released v1.0 and
+v1.1 golden fixtures remain unchanged and must continue to recover.
 
 Product versions and document versions are separate. Ethernity v1.2 writes document v2 for both
 standalone backups and updates, distinguished by an explicit document kind. This table describes
@@ -12,7 +12,7 @@ format support; resource limits and validation still apply to every input.
 | --- | --- | --- | --- | --- |
 | v1.0.0 and v1.0.1 | Document v1 | Document v1 | Shard v1 | No |
 | v1.1.0 | Document v1 | Document v1 | Shard v1 and v2 | No |
-| v1.2.0, unreleased | Document v2, backup kind | Document v1 and v2 | Shard v1 and v2 | Document v2, update kind |
+| v1.2.0 | Document v2, backup kind | Document v1 and v2 | Shard v1 and v2 | Document v2, update kind |
 
 Use a v1.2 reader or recovery kit for document v2 backups and updates. A v1.0 reader cannot use the
 v2 recovery sheets introduced in v1.1, even though the standalone backup format stayed at v1.
@@ -21,24 +21,34 @@ The [format specification](format.md) defines encoded data and decoder requireme
 [update and recovery rules](extension_publication_rules.md) define required operations and output.
 [Contributing](../CONTRIBUTING.md#update-the-documentation) explains how to maintain this history.
 
-## v1.2.0, unreleased
+## v1.2.0
+
+See the [1.2 release notes](releases/1.2.0.md) for user-facing changes and publication status.
 
 ### Document v2
 
 Document v2 adds a kind field immediately after the version: `1` for standalone backups and `2`
 for updates. Released document v1 has no kind field and always identifies a standalone backup.
 
-New backups and Rebuild output use document v2. It removes the manifest's inner `version`, derives
-sealed state from `seed`, and derives decompressed size from file sizes. The encryption,
-authentication, payload codecs, and recovery model remain shared with document v1.
+New backups and Rebuild output use document v2. Its manifest omits three redundant fields:
+
+| Field in document v1 | Document v2 representation |
+| --- | --- |
+| `version: 1` inside the manifest | The outer document version selects the manifest schema. |
+| `sealed` | `seed: null` means sealed; a 32-byte seed means unsealed. |
+| `payload_raw_len` for gzip data | The sum of the declared file sizes gives the required decompressed size. |
+
+Readers reject those removed fields in a v2 manifest. The age encryption format, frame v1,
+AUTH v1 and shard v1/v2 payload formats, and raw/gzip payload codecs remain unchanged.
 
 Readers still accept released document v1 with its original required-field checks. v1.0 and v1.1
 readers and kits reject document v2. Browser recovery of new backups requires a v1.2 kit.
 
 ### Updates
 
-This release introduces update document v2. An update can extend an original standalone document
-v1 or v2. Earlier readers cannot recover updates.
+This release introduces updates as document v2, kind 2. An update can extend an unsealed original
+standalone document v1 or v2. The original is not rewritten or converted; the new update uses v2.
+Sealed originals cannot be extended. Earlier readers cannot recover updates.
 
 Updates add or replace files using authenticated hashes, signatures, and content-defined chunks.
 The header records cumulative or incremental mode. Cumulative is the default and needs the original
@@ -62,16 +72,15 @@ sealed sources receive a new key because their manifests contain no signing seed
 
 ### Reader checks
 
-These changes clarify or tighten validation without changing the released v1 grammar:
+The v1.2 readers also clarify or tighten validation:
 
-- Shamir shares keep their existing GF(2^128) big-endian representation and direct index mapping.
 - Fallback decoding removes one dotted rendered line label deterministically.
 - Identical AUTH copies are accepted; conflicting AUTH payloads are rejected.
 - Raw payload lengths must match exactly, and the existing POSIX path restrictions apply.
 - A file set containing both `a` and `a/b`, or another file/ancestor conflict, is rejected before
   export. Older readers could accept such a set and fail while writing it. Encoders do not emit it.
 - Original AUTH, embedded or recovered signing seeds, recovery sheets, and update AUTH must identify
-  the same public key. This documents the check already enforced by authenticated recovery.
+  the same public key during authenticated recovery.
 
 Readers reject signing-key substitution, conflicting authentication records, extra payload bytes,
 and incompatible paths. Recovery reports separately whether supplied documents are internally
