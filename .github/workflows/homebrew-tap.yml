@@ -171,6 +171,7 @@ jobs:
             --lock "release-source/uv.lock" \
             --output "${STAGE_DIR}/Formula/ethernity.rb"
           cp workflow-tools/scripts/update_homebrew_bottle_block.py "${STAGE_DIR}/tooling/"
+          cp workflow-tools/scripts/check_homebrew_upgrade.py "${STAGE_DIR}/tooling/"
 
       - name: Upload staged formula
         if: steps.tap-base.outputs.reuse != 'true'

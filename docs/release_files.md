@@ -165,6 +165,19 @@ source install, test, and bottle build on both Homebrew platforms. Pull requests
 packaging, dependency, workflow, script, or packaged-resource files change. Master push, scheduled,
 and manual CI runs perform the full packaging rehearsal. None of these CI builds publish files.
 
+Homebrew installs locked wheels together and keeps the source-build toolchain only on targets
+that need source resources. macOS still builds `cbor2` from source for bottle relocation. Each
+platform checks source recovery, bottle installation and recovery, reinstall, and uninstall.
+An additional upgrade check installs a minimal version `0.0.1` fixture through Homebrew, upgrades
+it to the actual release bottle, verifies the active version and removal of its obsolete command,
+runs the release formula's recovery test, and uninstalls it. This exercises Homebrew's upgrade
+mechanism; it does not run a previous Ethernity release or replace format-compatibility tests.
+
+Only downloaded archives and Homebrew's Ruby tooling are cached. Ethernity's installed files and
+bottles are rebuilt on every run. Ruby cache keys include the platform, architecture, Homebrew
+revision, Ruby version and gem lockfile; download keys also track the locked resources. Cached
+archives still undergo Homebrew's checksum validation.
+
 `python-packages.yml` builds the source archive and builds, checks, and installs a wheel from it
 for both CI and releases. CI stages the Homebrew formula in that same job, so bottle checks can
 start when the source is ready without waiting for native archives or WinGet. The rehearsal uses

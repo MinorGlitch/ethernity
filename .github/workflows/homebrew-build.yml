@@ -20,6 +20,9 @@ jobs:
   bottles:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +55,54 @@ jobs:
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew --version
 
+      - name: Identify Homebrew caches
+        id: cache
+        shell: bash
+        env:
+          STAGE_DIR: ${{ runner.temp }}/homebrew-stage
+        run: |
+          set -euo pipefail
+          brew_repo="$(brew --repository)"
+          {
+            echo "downloads=$(brew --cache)/downloads"
+            echo "gems=${brew_repo}/Library/Homebrew/vendor/bundle"
+            echo "brew_sha=$(git -C "$brew_repo" rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+          python3 - "$brew_repo" <<'PY'
+          import hashlib
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          library = Path(sys.argv[1]) / "Library/Homebrew"
+          files = (library / "Gemfile.lock", library / "vendor/portable-ruby-version")
+          gems_hash = hashlib.sha256(b"".join(path.read_bytes() for path in files)).hexdigest()
+          formula = Path(os.environ["STAGE_DIR"]) / "Formula/ethernity.rb"
+          # Exclude the top-level source URL/hash so code-only changes reuse downloads.
+          resources = re.findall(
+              r'^ {4,}(?:url|sha256) .+$', formula.read_text(encoding="utf-8"), re.MULTILINE
+          )
+          resources_hash = hashlib.sha256("\n".join(resources).encode()).hexdigest()
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"gems_hash={gems_hash}\n")
+              output.write(f"resources_hash={resources_hash}\n")
+          PY
+
+      - name: Cache Homebrew Ruby tooling
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ steps.cache.outputs.gems }}
+          key: brew-gems-${{ matrix.id }}-${{ runner.arch }}-${{ steps.cache.outputs.brew_sha }}-${{ steps.cache.outputs.gems_hash }}
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ steps.cache.outputs.downloads }}
+          key: brew-downloads-${{ matrix.id }}-${{ runner.arch }}-${{ steps.cache.outputs.brew_sha }}-${{ steps.cache.outputs.resources_hash }}
+          restore-keys: |
+            brew-downloads-${{ matrix.id }}-${{ runner.arch }}-
+
       - name: Create local read-only tap
         shell: bash
         env:
@@ -73,12 +124,11 @@ jobs:
       - name: Install, test, and build bottle from staged formula
         shell: bash
         env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
           HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
           TAP_NAME: ${{ inputs.tap_name }}
           BOTTLE_DIR: ${{ runner.temp }}/bottles
           REHEARSAL_SOURCE: ${{ inputs.source_artifact }}
+          STAGE_DIR: ${{ runner.temp }}/homebrew-stage
         run: |
           set -euo pipefail
           formula_ref="${TAP_NAME}/ethernity"
@@ -125,6 +175,9 @@ jobs:
           brew uninstall "${formula_ref}"
           command_path="$(brew --prefix)/bin/ethernity"
           [[ ! -e "$command_path" && ! -L "$command_path" ]]
+          HOMEBREW_DEVELOPER=1 python3 "${STAGE_DIR}/tooling/check_homebrew_upgrade.py" \
+            --formula "$formula_ref" --bottle "${bottle_files[0]}" \
+            --expected-version "$expected_version"
 
       - name: Upload validated bottle files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
