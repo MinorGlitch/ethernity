@@ -144,8 +144,11 @@ finish a failed formula push, but cannot downgrade a newer formula or overwrite 
 
 ## CI and packaging rehearsal
 
-Linux, macOS, and Windows still run the full Python test suite. Linux collects branch coverage in
-that same run. Browser, visual, portability, compatibility, and audit gates remain separate.
+Linux, macOS, and Windows each run the full Python test suite in two concurrent jobs: UI tests,
+and unit, rendering, and integration tests. The groups do not overlap. Linux collects branch
+coverage in both jobs; a separate job combines the results and enforces the application (85%)
+and document inspector (45%) gates without rerunning tests. Browser, visual, portability,
+compatibility, and audit gates remain separate.
 
 The kit verification job uses the official Playwright container, pinned by version and digest,
 with its browsers and system libraries already installed. Keep that image aligned with the
