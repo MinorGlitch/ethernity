@@ -17,6 +17,12 @@ from tooling.release.publish import digest
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows installer and file locks")
 
+_GENERIC_READ = 0x80000000
+_FILE_SHARE_READ = 0x00000001
+_FILE_SHARE_WRITE = 0x00000002
+_OPEN_EXISTING = 3
+_FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+
 
 def _wait_for(predicate, process: subprocess.Popen, description: str) -> None:
     deadline = time.monotonic() + 30
@@ -60,7 +66,8 @@ class Program {
 
 @contextmanager
 def _directory_lock(directory: Path):
-    # A handle without FILE_SHARE_DELETE blocks an atomic directory rename.
+    # Metadata-only access (zero) does not participate in Windows sharing checks.
+    # Request read access and omit FILE_SHARE_DELETE to prevent a directory rename.
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.CreateFileW.argtypes = (
         ctypes.c_wchar_p,
@@ -74,9 +81,24 @@ def _directory_lock(directory: Path):
     kernel.CreateFileW.restype = ctypes.c_void_p
     kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
     kernel.CloseHandle.restype = ctypes.c_int
-    handle = kernel.CreateFileW(str(directory), 0, 3, None, 3, 0x02000000, None)
+    handle = kernel.CreateFileW(
+        str(directory),
+        _GENERIC_READ,
+        _FILE_SHARE_READ | _FILE_SHARE_WRITE,
+        None,
+        _OPEN_EXISTING,
+        _FILE_FLAG_BACKUP_SEMANTICS,
+        None,
+    )
     assert handle != ctypes.c_void_p(-1).value, ctypes.get_last_error()
     try:
+        # Prove the lock is effective before asking the installer to encounter it.
+        destination = directory.with_name("rename-check")
+        with pytest.raises(OSError) as blocked:
+            directory.rename(destination)
+        assert blocked.value.winerror in {5, 32}, blocked.value
+        assert directory.is_dir()
+        assert not destination.exists()
         yield
     finally:
         assert kernel.CloseHandle(handle)
