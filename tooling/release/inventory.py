@@ -46,6 +46,8 @@ def release_files(tag: str, *, signed: bool = True) -> tuple[str, ...]:
         name for stem, ext in archives for name in (f"{stem}.{ext}", f"{stem}.sbom.cdx.json")
     )
     files += (
+        f"ethernity-{tag}-windows-x64-setup.exe",
+        f"ethernity-{tag}-macos-arm64.dmg",
         f"ethernity_paper-{tag.removeprefix('v')}-py3-none-any.whl",
         "install.sh",
         "install.ps1",

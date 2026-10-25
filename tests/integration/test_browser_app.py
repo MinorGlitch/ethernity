@@ -10,6 +10,7 @@ import psutil
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from tooling.release.browser_smoke import check_browser, expect_screen
+from tooling.release.desktop_smoke import check_desktop
 
 from ethernity.app import browser
 
@@ -32,6 +33,56 @@ def browser_command(tmp_path, request) -> list[str]:
 
 def test_browser_launches_app_and_cleans_up_disconnected_tabs(browser_command) -> None:
     asyncio.run(check_browser(browser_command))
+
+
+def test_desktop_launch_opens_browser_and_exits_with_its_tabs() -> None:
+    asyncio.run(check_desktop([sys.executable, "-m", "ethernity.desktop"]))
+
+
+def test_desktop_waits_for_first_connection_but_not_forever() -> None:
+    async def check() -> None:
+        server = browser.LocalServer(0)
+        with pytest.raises(TimeoutError):
+            await server.wait_for_desktop_close(startup_timeout=0.01)
+        assert not server.connected.is_set()
+
+    asyncio.run(check())
+
+
+def test_desktop_stays_open_for_other_tabs_and_refreshes(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    async def check() -> None:
+        server = browser.LocalServer(0)
+        async with TestClient(
+            TestServer(await server._make_app()), cookie_jar=aiohttp.CookieJar(unsafe=True)
+        ) as client:
+            server.port = client.server.port
+            server.public_url = str(client.make_url("/")).rstrip("/")
+            await client.get(f"/?token={server.token}")
+            lifetime = asyncio.create_task(
+                server.wait_for_desktop_close(startup_timeout=10, reconnect_timeout=0.2)
+            )
+            try:
+                first = await client.ws_connect("/ws", origin=server.public_url)
+                second = await client.ws_connect("/ws", origin=server.public_url)
+                await expect_screen(first, "Choose files")
+                await expect_screen(second, "Choose files")
+                await first.close()
+                # More than the reconnect interval: another tab must keep the server alive.
+                with pytest.raises(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(lifetime), timeout=0.3)
+                await second.close()
+                async with client.ws_connect("/ws", origin=server.public_url) as refreshed:
+                    await expect_screen(refreshed, "Choose files")
+                    assert not lifetime.done()
+                await asyncio.wait_for(lifetime, timeout=10)
+                assert not server.websockets
+            finally:
+                lifetime.cancel()
+                await asyncio.gather(lifetime, return_exceptions=True)
+
+    asyncio.run(check())
 
 
 def test_browser_scroll_reports_move_one_cell_each(monkeypatch, tmp_path) -> None:
@@ -236,3 +287,10 @@ def test_browser_relaunches_current_installation(monkeypatch, frozen) -> None:
     monkeypatch.setattr(sys, "executable", executable)
     monkeypatch.setattr(sys, "frozen", frozen, raising=False)
     assert browser.app_command() == [executable, *([] if frozen else ["-m", "ethernity"])]
+
+
+@pytest.mark.parametrize("suffix", ["", ".exe"])
+def test_desktop_relaunches_sibling_console_executable(monkeypatch, tmp_path, suffix) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / f"ethernity-desktop{suffix}"))
+    assert browser.app_command() == [str(tmp_path / f"ethernity{suffix}")]

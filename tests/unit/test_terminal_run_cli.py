@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import sys
+import webbrowser
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
 import ethernity.main as root_entrypoint
+from ethernity import desktop
 from ethernity.main import main
 from ethernity.run.cli import cli
 from ethernity.run.command_registry import RUN_COMMANDS
@@ -27,6 +30,37 @@ def test_root_defaults_to_terminal_app(monkeypatch) -> None:
     monkeypatch.setattr(root_entrypoint, "run_app", lambda: calls.append("terminal"))
     assert main([]) == 0
     assert calls == ["terminal"]
+
+
+@pytest.mark.parametrize(
+    "name, expected", [("ethernity", "terminal"), ("ethernity-desktop", "desktop")]
+)
+def test_windows_packaged_entrypoints_use_windowless_workers(monkeypatch, tmp_path, name, expected):
+    executable = tmp_path / f"{name}.exe"
+    calls = []
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "executable", str(executable))
+    monkeypatch.setattr(root_entrypoint.multiprocessing, "set_executable", calls.append)
+    monkeypatch.setattr(root_entrypoint, "run_app", lambda: calls.append("terminal"))
+    monkeypatch.setattr(desktop, "main", lambda: calls.append("desktop") or 0)
+    assert main([]) == 0
+    assert calls == [tmp_path / "ethernity-desktop.exe", expected]
+
+
+@pytest.mark.parametrize("error", [OSError("cannot bind socket"), webbrowser.Error("no browser")])
+def test_desktop_reports_startup_failure_without_a_terminal(monkeypatch, tmp_path, error):
+    messages = []
+    monkeypatch.chdir(tmp_path)
+
+    def fail(**options):
+        assert options == {"desktop": True}
+        raise error
+
+    monkeypatch.setattr(desktop, "run_browser", fail)
+    monkeypatch.setattr(desktop, "show_error", messages.append)
+    assert desktop.main() == 1
+    assert messages == [str(error)]
 
 
 @pytest.mark.parametrize("args, open_browser", [(["--web"], True), (["--web", "--no-open"], False)])

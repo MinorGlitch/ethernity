@@ -97,6 +97,41 @@ jobs:
           TARGET_ARCH: ${{ matrix.target_arch }}
         run: uv run --no-default-groups --extra build python -m tooling.release.install_smoke
 
+      - name: Install pinned Inno Setup compiler
+        if: matrix.target_os == 'windows'
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $download = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $download
+          if ((Get-FileHash $download -Algorithm SHA256).Hash -ne '9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732') {
+            throw 'Inno Setup compiler checksum mismatch'
+          }
+          $directory = Join-Path $env:RUNNER_TEMP 'inno-setup'
+          $install = Start-Process -FilePath $download -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$directory`"") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Inno Setup installation failed: $($install.ExitCode)" }
+          "INNO_COMPILER=$directory/ISCC.exe" >> $env:GITHUB_ENV
+
+      - name: Build desktop installer from the same PyInstaller output
+        if: matrix.target_os == 'windows' || matrix.target_os == 'macos'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          args=(--tag "$RELEASE_TAG")
+          if [[ -n "${INNO_COMPILER:-}" ]]; then args+=(--compiler "$INNO_COMPILER"); fi
+          uv run --no-default-groups --extra build python -m tooling.release.desktop_packages "${args[@]}"
+
+      - name: Verify desktop install, upgrade, uninstall and browser lifecycle
+        if: matrix.target_os == 'windows' || matrix.target_os == 'macos'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          args=(--tag "$RELEASE_TAG")
+          if [[ -n "${INNO_COMPILER:-}" ]]; then args+=(--compiler "$INNO_COMPILER"); fi
+          uv run --no-default-groups --extra build python -m tooling.release.desktop_install_smoke "${args[@]}"
+
       - name: Generate archive SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
@@ -117,6 +152,8 @@ jobs:
           path: |
             ethernity-${{ inputs.tag }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.${{ matrix.archive_ext }}
             ethernity-${{ inputs.tag }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.sbom.cdx.json
+            ethernity-${{ inputs.tag }}-${{ matrix.target_os }}-${{ matrix.target_arch }}-setup.exe
+            ethernity-${{ inputs.tag }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.dmg
 
   winget:
     needs: build

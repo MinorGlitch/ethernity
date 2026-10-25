@@ -16,6 +16,11 @@ from aiohttp import web
 from textual_serve.app_service import AppService
 from textual_serve.server import Server
 
+if sys.platform == "win32":
+    from subprocess import CREATE_NO_WINDOW
+else:
+    CREATE_NO_WINDOW = 0
+
 HOST = "127.0.0.1"
 TEMPLATES = Path(__file__).with_suffix("")
 STOP_TIMEOUT = 3
@@ -24,6 +29,9 @@ STOP_TIMEOUT = 3
 def app_command() -> list[str]:
     """Relaunch this installation, including standalone PyInstaller builds."""
     if getattr(sys, "frozen", False):
+        executable = Path(sys.executable)
+        if executable.stem == "ethernity-desktop":
+            return [str(executable.with_name("ethernity" + executable.suffix))]
         return [sys.executable]
     return [sys.executable, "-m", "ethernity"]
 
@@ -40,6 +48,7 @@ class LocalAppService(AppService):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=self._build_environment(width, height),
+            creationflags=CREATE_NO_WINDOW,
         )
         self._process = process
         assert process.stdin is not None
@@ -102,6 +111,23 @@ class LocalServer(Server):
         self.token = secrets.token_urlsafe(32)
         self.cookie_name = f"ethernity-{port}"
         self.websockets: set[web.WebSocketResponse] = set()
+        self.connected = asyncio.Event()
+        self.sessions_changed = asyncio.Event()
+
+    async def wait_for_desktop_close(
+        self, *, startup_timeout: float = 120, reconnect_timeout: float = 3
+    ) -> None:
+        """Keep the desktop server alive through refreshes, then exit with its last tab."""
+        await asyncio.wait_for(self.connected.wait(), timeout=startup_timeout)
+        while True:
+            self.sessions_changed.clear()
+            if self.websockets:
+                await self.sessions_changed.wait()
+            else:
+                try:
+                    await asyncio.wait_for(self.sessions_changed.wait(), timeout=reconnect_timeout)
+                except TimeoutError:
+                    return
 
     @property
     def browser_url(self) -> str:
@@ -181,20 +207,42 @@ class LocalServer(Server):
         )
         await websocket.prepare(request)
         self.websockets.add(websocket)
+        self.connected.set()
+        self.sessions_changed.set()
         try:
             await service.start(width, height)
             await self._process_messages(websocket, service)
         finally:
-            await service.stop()
-            self.websockets.discard(websocket)
+            try:
+                await service.stop()
+            finally:
+                self.websockets.discard(websocket)
+                self.sessions_changed.set()
         return websocket
 
 
-def run_browser(*, open_browser: bool = True) -> None:
+async def _run_desktop(server: LocalServer, listener: socket.socket) -> None:
+    runner = web.AppRunner(await server._make_app(), access_log=None, shutdown_timeout=10)
+    try:
+        await runner.setup()
+        await web.SockSite(runner, listener).start()
+        if not await asyncio.to_thread(webbrowser.open, server.browser_url):
+            raise RuntimeError(
+                "Could not open your browser. Set a default browser and open Ethernity again."
+            )
+        await server.wait_for_desktop_close()
+    finally:
+        await runner.cleanup()
+
+
+def run_browser(*, open_browser: bool = True, desktop: bool = False) -> None:
     # Reserve an available port instead of racing another local server for a fixed one.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind((HOST, 0))
         server = LocalServer(listener.getsockname()[1])
+        if desktop:
+            asyncio.run(_run_desktop(server, listener))
+            return
 
         def ready(_message: str) -> None:
             print(f"Ethernity is running locally at {server.browser_url}", flush=True)

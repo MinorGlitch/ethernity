@@ -31,6 +31,12 @@ Each of these files has a Sigstore bundle. SHA256SUMS covers every unsigned payl
 itself. Direct installers always check the archive checksum and can additionally require
 Sigstore verification. See [installation](install.md).
 
+Desktop downloads are `ethernity-vX.Y.Z-windows-x64-setup.exe` and
+`ethernity-vX.Y.Z-macos-arm64.dmg`, each with a Sigstore bundle and checksum. They reuse the
+platform's PyInstaller analysis and runtime; a windowless launcher opens the local browser app.
+The corresponding archive SBOM describes their shared runtime dependencies. It does not inventory
+the Inno Setup installer engine. Its compiler is pinned and checksum-verified in the native build job.
+
 Verify each Sigstore bundle before using its archive.
 
 Packages include the template fonts and their license notices. PDFs embed subsets of those fonts;
@@ -39,6 +45,9 @@ users do not need to install matching system fonts to view or print them.
 Packages also include the local assets for `ethernity --web`. Browser mode uses the same app as
 the terminal launcher and needs no extra downloads. Native package smoke checks open a real
 browser session over its WebSocket and verify that disconnecting stops its app process.
+Desktop checks also launch through macOS Launch Services or the Windows windowless executable and
+verify that the server exits after its last tab closes. The terminal browser command stays running
+until stopped explicitly.
 
 SBOMs are platform-specific. The release workflow scans each final archive with the
 repository-pinned Anchore SBOM action and Syft version. It does not reuse a dependency manifest as
@@ -170,6 +179,15 @@ documentation-only changes skip native builds. `homebrew-build.yml` runs the sam
 source install, test, and bottle build on both Homebrew platforms. Pull requests run it when
 packaging, dependency, workflow, script, or packaged-resource files change. Master push, scheduled,
 and manual CI runs perform the full packaging rehearsal. None of these CI builds publish files.
+
+The Windows and macOS native jobs also create desktop installers from their existing build.
+Lifecycle checks install a `0.0.1` fixture with the current runtime and an obsolete file, upgrade
+to the actual installer, reinstall, and uninstall. This tests installer replacement rather than
+an older Ethernity release; the format-compatibility suite still tests old backups. Checks launch
+the installed browser app and restore the frozen root/update fixture with its bundled CLI.
+Windows also checks shortcuts, uninstall registration, unchanged PATH, preserved unrelated files,
+and rejection of install/uninstall while the app is running. macOS mounts both DMGs, copies and
+replaces the complete app, verifies its ad-hoc signature, and launches through Launch Services.
 
 Homebrew installs locked wheels together and keeps the source-build toolchain only on targets
 that need source resources. macOS still builds `cbor2` from source for bottle relocation. Each
