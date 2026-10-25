@@ -103,7 +103,7 @@ jobs:
             --rasterize never
       - name: Verify terminal snapshots
         if: matrix.suite == 'terminal'
-        run: uv run pytest tests/visual -n 2 -v --durations=30 --junitxml=test-results/visual.xml
+        run: uv run python -m tooling.check_tests visual
       - name: Summarize test timings
         if: always() && matrix.suite == 'terminal'
         shell: bash
@@ -129,14 +129,14 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check Linux portability on minimum Python
-        run: uv run pytest tests/unit tests/ui tests/rendering tests/integration -m portability -n 2 --dist loadfile -q --junitxml=test-results/portability.xml
+        run: uv run python -m tooling.check_tests portability
       - name: Summarize test timings
         if: always()
         shell: bash
         run: uv run python scripts/summarize_test_timings.py test-results >> "$GITHUB_STEP_SUMMARY"
 
   test:
-    name: test (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.suite.name }})
+    name: test (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: kit-bundles
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -144,17 +144,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
-        suite:
-          - name: core
-            paths: tests/unit tests/integration
-          - name: rendering
-            paths: tests/rendering
-          - name: ui-1
-            paths: tests/ui
-            args: --splits 2 --group 1 --splitting-algorithm least_duration --durations-path tests/ui/durations.json
-          - name: ui-2
-            paths: tests/ui
-            args: --splits 2 --group 2 --splitting-algorithm least_duration --durations-path tests/ui/durations.json
+        suite: [core, rendering, ui-1, ui-2]
         include:
           - os: macos-latest
             python-version: "3.11"
@@ -171,7 +161,7 @@ jobs:
           name: recovery-kit-bundles
           path: src/ethernity/resources/kit
       - name: Download kit loader roundtrip references
-        if: matrix.suite.name == 'core'
+        if: matrix.suite == 'core'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: recovery-kit-packed
@@ -181,31 +171,25 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install Poppler for composited QR tests
-        if: matrix.os == 'ubuntu-latest' && matrix.suite.name == 'rendering'
+        if: matrix.os == 'ubuntu-latest' && matrix.suite == 'rendering'
         run: sudo apt-get update && sudo apt-get install --yes poppler-utils
       - name: Setup kit dependencies
-        if: matrix.suite.name == 'core'
+        if: matrix.suite == 'core'
         uses: ./.github/actions/setup-kit
 
       - name: Run Python tests
         if: matrix.os != 'ubuntu-latest'
-        run: uv run pytest ${{ matrix.suite.paths }} ${{ matrix.suite.args }} -n logical --maxprocesses=4 --dist loadfile -v --durations=30 --junitxml=test-results/python.xml
+        run: uv run python -m tooling.check_tests ${{ matrix.suite }}
       - name: Run Python tests with coverage
         id: coverage-tests
         if: matrix.os == 'ubuntu-latest'
-        env:
-          COVERAGE_FILE: .coverage.${{ matrix.suite.name }}
-        run: |
-          uv run pytest ${{ matrix.suite.paths }} ${{ matrix.suite.args }} -n logical --maxprocesses=4 --dist loadfile \
-            --cov=ethernity \
-            --cov=tooling.document_inspector_app \
-            --cov-report= --durations=30 --junitxml=test-results/python.xml
+        run: uv run python -m tooling.check_tests ${{ matrix.suite }} --coverage
       - name: Upload coverage data
         if: ${{ !cancelled() && steps.coverage-tests.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: python-coverage-${{ matrix.suite.name }}
-          path: .coverage.${{ matrix.suite.name }}
+          name: python-coverage-${{ matrix.suite }}
+          path: test-results/.coverage.${{ matrix.suite }}
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
@@ -218,8 +202,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: python-tests-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.suite.name }}
-          path: test-results/python.xml
+          name: python-tests-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.suite }}
+          path: test-results/${{ matrix.suite }}.xml
           retention-days: 7
 
   coverage:
@@ -253,12 +237,8 @@ jobs:
         with:
           name: python-coverage-rendering
           path: coverage-data
-      - name: Combine coverage without rerunning tests
-        run: uv run coverage combine coverage-data
-      - name: Check application coverage
-        run: uv run coverage report --include='src/ethernity/*' --fail-under=85
-      - name: Check document inspector coverage
-        run: uv run coverage report --include='tooling/document_inspector_app/*' --fail-under=45
+      - name: Combine coverage and enforce both gates without rerunning tests
+        run: uv run python -m tooling.check_tests coverage --results-dir coverage-data
 
   e2e:
     needs: kit-bundles
@@ -275,9 +255,7 @@ jobs:
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Run e2e tests
-        env:
-          ETHERNITY_TEST_CLI_TIMEOUT_SECONDS: "300"
-        run: uv run pytest tests/e2e -n 2 --dist loadfile -v --durations=30 --junitxml=test-results/e2e.xml
+        run: uv run python -m tooling.check_tests e2e
       - name: Summarize test timings
         if: always()
         shell: bash

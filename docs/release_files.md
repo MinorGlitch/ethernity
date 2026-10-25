@@ -152,6 +152,9 @@ concurrent jobs: two balanced UI groups, PDF rendering tests, and unit/integrati
 groups do not overlap. Linux collects branch coverage in all four jobs; a separate job combines
 the results and enforces the application (85%) and document inspector (45%) gates without
 rerunning tests. Browser, visual, portability, compatibility, and audit gates remain separate.
+Local runs and CI use `tooling/check_tests.py` for Python test selections and coverage thresholds.
+Run `uv run --locked --extra dev python -m tooling.check_tests` before pushing Python changes;
+the default includes integration, E2E and terminal visuals as well as both coverage gates.
 The responsive PDF matrix and terminal snapshot suite run concurrently. Only rendering jobs
 install Poppler, and only core jobs install Node dependencies and download printed-kit references.
 The minimum-Python Linux portability check keeps its full selection and uses two pytest workers.

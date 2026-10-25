@@ -17,6 +17,7 @@ ENV/
 # Testing
 .hypothesis/
 .pytest_cache/
+/test-results/
 .playwright-mcp/
 .coverage
 .coverage.*

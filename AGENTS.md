@@ -26,6 +26,7 @@ format compatibility, recovery behavior, rendering output, and packaging as high
   `src/ethernity/run/cli.py`.
 - CI gates and release checks: `.github/workflows/ci.yml`,
   `.github/workflows/pyinstaller.yml`, and `.github/workflows/homebrew-tap.yml`.
+- Shared local/CI Python test selections and coverage gates: `tooling/check_tests.py`.
 - Normative format specification: `docs/format.md`.
 - Normative v1.2 extension publication rules: `docs/extension_publication_rules.md`.
 - Format rationale and recovery guidance: `docs/format_rationale.md`.
@@ -157,7 +158,9 @@ reuse an existing service. Do not reach across layers with string parsing, dupli
 ## Verification matrix
 
 Choose the smallest verification set that proves the change. Prefer targeted tests during
-iteration, then broader gates before handoff when risk is high.
+iteration. Before pushing Python changes, run the full local Python check below. A targeted
+selection or passing commit hook is not evidence that the full suite passed. Report the suites
+actually run, including any omissions. UI text changes can affect task and integration tests.
 
 - Python lint: `uv run ruff check src tests tooling`
 - Python format check: `uv run ruff format --check src tests tooling`
@@ -169,8 +172,10 @@ iteration, then broader gates before handoff when risk is high.
 - PDF rendering tests: `uv run pytest tests/rendering -v`
 - Integration tests: `uv run pytest tests/integration -v`
 - E2E tests: `uv run pytest tests/e2e -v`
-- Coverage gate:
-  `uv run pytest tests/unit tests/ui tests/rendering tests/integration --cov=ethernity --cov-report=term-missing`
+- Full local Python check, including integration, E2E, terminal visuals and both coverage gates:
+  `uv run --locked --extra dev python -m tooling.check_tests`
+- Individual CI group: `uv run --locked --extra dev python -m tooling.check_tests core`
+  (also `rendering`, `ui-1`, `ui-2`, `e2e`, `visual`, `portability`).
 - CLI help: `uv run ethernity --help` and `uv run ethernity run --help`
 - Kit lint: run `npm run lint` from `kit/`
 - Kit format check: run `npm run format:check` from `kit/`
