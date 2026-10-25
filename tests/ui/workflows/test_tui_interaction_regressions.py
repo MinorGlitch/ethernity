@@ -906,7 +906,7 @@ def test_result_presents_partial_success_as_a_completed_write(tmp_path: Path) ->
 
             assert screen.query_one("#result-modal").has_class("partial")
             assert str(screen.query_one("#result-status", Static).content) == (
-                "The main write completed, but a follow-up step failed."
+                "Files saved, but a follow-up step failed."
             )
             assert str(screen.query_one("#result-output-title", Static).content) == "Files created"
             assert not list(screen.query("#result-return"))

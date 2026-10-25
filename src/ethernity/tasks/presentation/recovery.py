@@ -26,7 +26,7 @@ def unlock_input_summary(inputs: UnlockInputs) -> str:
     if inputs.recovery_documents:
         return format_count(len(inputs.recovery_documents), "recovery sheet")
     if inputs.recovery_payload_files:
-        return format_count(len(inputs.recovery_payload_files), "recovery payload file")
+        return format_count(len(inputs.recovery_payload_files), "recovery data file")
     if (detected := detected_unlock_summary(inputs)) is not None:
         return detected
     return "Choose an unlock method"
@@ -58,7 +58,7 @@ def non_empty_line_count(value: str | None) -> int:
 def pasted_text_summary(value: str | None) -> str:
     line_count = non_empty_line_count(value)
     noun = "line" if line_count == 1 else "lines"
-    return f"Pasted text, {line_count} non-empty {noun}"
+    return f"Pasted text: {line_count} {noun}"
 
 
 def recovery_text_summary(value: str | None) -> str:
@@ -79,4 +79,4 @@ def recovery_source_summary(state: ContentRecoveryTaskState) -> str:
         return "Pasted recovery text"
     if state.recovery_text_file is not None:
         return "Recovery text file"
-    return "Backup payload file"
+    return "Exported backup data"

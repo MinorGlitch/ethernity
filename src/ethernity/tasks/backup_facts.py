@@ -19,7 +19,7 @@ class SheetQuorum:
 
     @property
     def summary(self) -> str:
-        return f"{self.total} recovery sheets; any {self.required} required"
+        return f"{self.total} sheets; any {self.required} can restore"
 
 
 RECOMMENDED_RECOVERY = SheetQuorum(required=2, total=3)
@@ -45,7 +45,6 @@ class BackupDocument:
 class BackupFacts:
     recovery_method: RecoveryMethod
     recovery: SheetQuorum | None
-    custom_recovery: SheetQuorum
     signing_key_mode: SigningKeyMode | None
     signing_quorum: SheetQuorum
     include_inventory: bool
@@ -80,11 +79,7 @@ class BackupFacts:
                 f"{recommended.total} sheets, any {recommended.required} unlock (recommended)",
             ),
             ("single_phrase", "Single recovery phrase"),
-            (
-                "custom_shards",
-                f"Custom: {self.custom_recovery.total} sheets; "
-                f"any {self.custom_recovery.required} required",
-            ),
+            ("custom_shards", "Custom sheet counts"),
         )
         return tuple(
             RecoveryOption(key, label, self.recovery_method == key) for key, label in labels
@@ -144,7 +139,7 @@ class BackupFacts:
                 BackupDocument(
                     "signing",
                     label,
-                    f"any {quorum.required} can restore",
+                    f"Any {quorum.required} can recover the signing key",
                     label,
                     format_count(quorum.total, "key sheet"),
                 )

@@ -170,7 +170,6 @@ class BackupTaskState(BaseModel):
         return BackupFacts(
             recovery_method=self.recovery_method,
             recovery=recovery,
-            custom_recovery=SheetQuorum(self.shard_threshold, self.shard_count),
             signing_key_mode=self.signing_key_mode,
             signing_quorum=signing_quorum,
             include_inventory=supports_recovery_kit_index_style(self.design),
@@ -393,10 +392,7 @@ class BackupTaskState(BaseModel):
             return (
                 TaskIssue(
                     code="BACKUP_SINGLE_RECOVERY_PHRASE",
-                    message=(
-                        "One recovery phrase is a single secret; store it carefully because "
-                        "there are no spare recovery sheets."
-                    ),
+                    message=("Keep this phrase safe. There are no recovery sheets if you lose it."),
                     severity="warning",
                     section="recovery",
                 ),
@@ -405,7 +401,8 @@ class BackupTaskState(BaseModel):
             return (
                 TaskIssue(
                     code="BACKUP_CUSTOM_RECOVERY_QUORUM",
-                    message="A custom quorum changes how many sheets you need to restore.",
+                    message=f"Keep at least {self.shard_threshold} of the {self.shard_count} "
+                    "recovery sheets.",
                     severity="warning",
                     section="recovery",
                 ),

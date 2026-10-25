@@ -46,7 +46,7 @@ def test_unlock_input_summary_preserves_precedence_and_counts() -> None:
     assert unlock_input_summary(inputs) == "2 recovery sheets"
 
     inputs.recovery_documents.clear()
-    assert unlock_input_summary(inputs) == "1 recovery payload file"
+    assert unlock_input_summary(inputs) == "1 recovery data file"
 
     inputs.recovery_payload_files.clear()
     assert not has_unlock_inputs(inputs)
@@ -69,7 +69,7 @@ def test_recovery_presentation_preserves_user_facing_text() -> None:
     assert signature_source_control_value(None, None) == "auto"
     assert signature_source_control_value(object(), None) == "text"
     assert signature_source_control_value(None, object()) == "payloads"
-    assert pasted_text_summary("one\n\n two\n") == "Pasted text, 2 non-empty lines"
+    assert pasted_text_summary("one\n\n two\n") == "Pasted text: 2 lines"
     assert recovery_text_summary(None) == "Pasted recovery text"
     assert recovery_text_summary("one") == "Pasted recovery text: 1 line"
     assert recovery_text_summary("one\n\ntwo") == "Pasted recovery text: 2 lines"

@@ -369,7 +369,7 @@ def test_textual_app_replace_recovery_signing_key_payloads_are_real_picker(
             ]
             args = app.replace_recovery_docs_state.to_replacement_recovery_request()
             assert args.signing_key_shard_payload_files == (Path("signing-payloads.txt"),)
-            assert "1 key payload file" in workflow_support.checklist_text(app)
+            assert "1 key data file" in workflow_support.checklist_text(app)
 
             assert app.replace_recovery_docs_state.signing_key_replacement_count == 1
             args = app.replace_recovery_docs_state.to_replacement_recovery_request()

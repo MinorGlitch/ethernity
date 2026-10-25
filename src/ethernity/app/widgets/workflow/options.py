@@ -164,7 +164,7 @@ class QuorumEditor(VerticalGroup):
         elif error is None:
             self._summary.update(self._presentation.copy.describe(threshold, count))
         else:
-            self._summary.update("Choose a valid quorum")
+            self._summary.update("Check sheet counts")
         self._notice.sync_presentation(error or self._presentation.notice)
         return error
 

@@ -163,7 +163,7 @@ def test_recovery_copy_does_not_conflate_key_sheets_with_document_signing() -> N
 
     assert "Off - not signed" not in option_labels
     assert summary == "No separate key sheets"
-    assert "Replacement documents remain signed" in help_text
+    assert "Replacement documents are signed even without separate key sheets" in help_text
 
 
 def test_help_explains_consequences_without_narrating_controls() -> None:
@@ -191,8 +191,8 @@ def test_help_explains_consequences_without_narrating_controls() -> None:
     assert "h l Switch pane" in help_text
     assert "Ctrl+R Review" in help_text
     assert "Ctrl+P Actions" in help_text
-    assert "acknowledge that newer documents may be missing" in help_text
-    assert "separately saved full fingerprint" in help_text
+    assert "accept that newer updates may be missing" in help_text
+    assert "full fingerprint you saved separately" in help_text
     assert "Use supplied latest version" not in help_text
     assert "Enter expected fingerprint..." not in help_text
     assert "Use this backup" not in help_text

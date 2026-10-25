@@ -124,23 +124,21 @@ def test_help_states_the_settled_extension_requirements() -> None:
         for line in (section.body, *section.notes)
     )
 
-    assert "selected path replaces the current content" in add_files_text
-    assert "cannot delete or rename paths" in add_files_text
-    assert "PDFs, scans, images, recovery text, or exported payloads" in add_files_text
+    assert "Files with matching backup paths are replaced" in add_files_text
+    assert "To delete or rename files, restore them and create a new backup" in add_files_text
+    assert "backup PDFs, scans, printed text, or exported data" in help_by_key["restore"].summary
     assert "Rebuild scanned or printed documents" not in add_files_text
-    assert "created by Replace Recovery Docs" in add_files_text
-    assert "original backup documents plus a passphrase or enough recovery sheets" in add_files_text
-    assert "not another approval" in add_files_text
-    assert "same version create conflicting histories" in add_files_text
-    assert "cannot merge" in add_files_text
-    assert "keeps the passphrase and any embedded signing key" in rebuild_text
-    assert "Sealed backups receive a new signing key" in rebuild_text
+    assert "Optional new recovery sheets are saved separately" in add_files_text
+    assert "original backup and its passphrase or enough recovery sheets" in add_files_text
+    assert "Signing-key sheets do not add another approval step" in add_files_text
+    assert "Separate updates from the same version conflict" in add_files_text
+    assert "cannot be merged" in add_files_text
+    assert "The passphrase and any embedded signing key stay the same" in rebuild_text
+    assert "Backups without an embedded signing key get a new one" in rebuild_text
     assert "new recovery sheets" in rebuild_text
-    assert "Verify the rebuilt backup and sheets before retiring the original documents" in (
-        rebuild_text
-    )
+    assert "Test recovery from the new printed pages before retiring the old ones" in (rebuild_text)
     assert "Create a new backup" in rebuild_text
-    assert "newest valid update in the documents you loaded" in restore_text
+    assert "latest valid update you supplied" in restore_text
 
 
 def test_workspace_copy_can_change_without_changing_control_behavior() -> None:
@@ -272,7 +270,7 @@ def test_review_details_describe_each_task() -> None:
             ),
             TaskExecutionPlan(summary="Restore", output_paths=(Path("restored"),)),
             {
-                "Source": "Backup payload file",
+                "Source": "Exported backup data",
                 "Unlock": "Passphrase",
                 "Version": "Initial backup only",
                 "Signature": "Unsigned legacy backups allowed",
@@ -322,7 +320,7 @@ def test_review_details_describe_each_task() -> None:
             ),
             TaskExecutionPlan(summary="Replace", output_paths=(Path("replacement"),)),
             {
-                "Recovery sheets": "5 new sheets (3 needed to restore), with passphrase sheets",
+                "Recovery sheets": "5 sheets; any 3 can restore",
                 "Signing-key sheets": "4 new sheets (2 required)",
             },
         ),

@@ -54,8 +54,8 @@ BACKUP_SIGNING_KEY_OPTIONS = (
 )
 SIGNING_KEY_RECOVERY_OPTIONS = (
     ("No separate key sheets", "off"),
-    ("Match recovery-sheet quorum", "same"),
-    ("Custom quorum", "custom"),
+    ("Same counts as recovery sheets", "same"),
+    ("Custom sheet counts", "custom"),
     ("Replace existing key sheets", "replace"),
 )
 PASSPHRASE_RECOVERY_OPTIONS = (

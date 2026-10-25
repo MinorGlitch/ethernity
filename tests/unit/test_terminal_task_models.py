@@ -674,7 +674,7 @@ def test_add_files_review_states_update_rules_and_freshness_scope() -> None:
     recovery_sheet_note = next(
         note for note in plan.recovery_notes if "passphrase and signing key" in note
     )
-    assert "inherits the backup's passphrase and signing key" in recovery_sheet_note
+    assert "uses the same passphrase and signing key" in recovery_sheet_note
     assert "No new recovery sheets" in recovery_sheet_note
 
 

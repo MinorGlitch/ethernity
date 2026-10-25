@@ -481,7 +481,7 @@ def _unlock_body(
         ),
         "recovery_payloads": WorkspaceAction(
             action_key,
-            "Change recovery payloads...",
+            "Change exported data...",
         ),
     }
     return UnlockBodyPresentation(
@@ -494,7 +494,7 @@ def _unlock_body(
             ),
             ChoicePresentation(
                 "recovery_payloads",
-                "Recovery payload files",
+                "Exported recovery data",
                 selected=selected == "recovery_payloads",
             ),
         ),
@@ -534,7 +534,7 @@ def _unlock_input_summary(state: UnlockTaskState) -> str:
         return (
             first_path
             if count == 1
-            else f"{format_count(count, 'recovery payload file')}; first: {first_path}"
+            else f"{format_count(count, 'recovery data file')}; first: {first_path}"
         )
     return detected_unlock_summary(state) or ""
 
@@ -867,7 +867,7 @@ def _replace_source_body(
                     actions=(
                         WorkspaceAction(
                             "workspace-replace-freshness",
-                            "Treat scans as latest",
+                            "Use newest loaded version",
                             visible=scanned,
                         ),
                         WorkspaceAction(
@@ -922,7 +922,7 @@ def _replacement_recovery_body(
                         ),
                         ChoicePresentation(
                             "custom",
-                            "Custom quorum",
+                            "Custom sheet counts",
                             selected=custom,
                         ),
                     ),
@@ -936,7 +936,7 @@ def _replacement_recovery_body(
                     count=state.recovery_document_count,
                     visible=custom,
                 ),
-                title="Custom quorum",
+                title="Sheet counts",
             ),
             CompositeBodyPartPresentation(
                 "passphrase",

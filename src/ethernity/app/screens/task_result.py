@@ -125,7 +125,7 @@ class TaskResultScreen(ModalScreen[str | None]):
                 )
                 if self._result is not None and self._result.status == "partially_succeeded":
                     yield Static(
-                        "The main write completed, but a follow-up step failed.",
+                        "Files saved, but a follow-up step failed.",
                         id="result-status",
                         classes="warning",
                         markup=False,
@@ -201,8 +201,7 @@ class TaskResultScreen(ModalScreen[str | None]):
                 scheduled = self.app.call_later(self._return_callback)
                 if not scheduled:
                     self.app.notify(
-                        "Ethernity could not open the workflow step. Choose the task from the "
-                        "sidebar.",
+                        "Could not return to the form. Choose the task from the navigation menu.",
                         severity="error",
                     )
                 return
@@ -262,7 +261,7 @@ class TaskResultScreen(ModalScreen[str | None]):
 
         if next_steps:
             title = (
-                "Before storing the paper copies"
+                "Before storing"
                 if self._task_key != "restore" and self._document_paths()
                 else "Next steps"
             )
@@ -276,7 +275,7 @@ class TaskResultScreen(ModalScreen[str | None]):
         result = self._result
 
         if result is not None and result.status == "cancelled":
-            yield Static("Your choices are unchanged. Return to the form when ready.", markup=False)
+            yield Static("Your choices are saved in the form.", markup=False)
             return
 
         with VerticalGroup(id="result-remediation", classes="failure"):
@@ -415,21 +414,21 @@ class TaskResultScreen(ModalScreen[str | None]):
 
     def _return_action_label(self) -> str:
         step = self._return_step_label()
-        return "Back to workflow" if step == "workflow" else f"Edit {step}"
+        return "Back to form" if step == "workflow" else f"Edit {step}"
 
     def _remediation_title(self) -> str:
         if self._recoverable_errors:
             return "Fix before retrying"
         if self._allow_return and self._return_step_label() != "workflow":
             return f"Check {self._return_step_label()}"
-        return "Before another write"
+        return "Before retrying"
 
     def _fallback_remediation(self) -> str:
         if self._return_section == "output":
             return "Make sure the destination is writable and has enough free space."
         if self._allow_return:
             return "Check the inputs, then run the task again."
-        return "Inspect the destination before starting another write."
+        return "Check the destination for partial files before retrying."
 
     def _context_actions(self) -> tuple[ActionButton, ...]:
         actions: list[ActionButton] = []
@@ -671,7 +670,7 @@ def _section_label(section: str) -> str:
         "authentication": "signature check",
         "backup": "backup source",
         "files": "files",
-        "freshness": "source freshness",
+        "freshness": "backup version",
         "output": "destination",
         "qr": "QR setup",
         "recovery": "recovery setup",

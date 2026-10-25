@@ -228,7 +228,7 @@ def test_textual_app_backup_review_shows_risky_recovery_warning() -> None:
 
             review_text = workflow_support.read_review_text(app)
             assert "Warning" in review_text
-            assert "One recovery phrase is a single secret" in review_text
+            assert "There are no recovery sheets if you lose it" in review_text
             assert "One recovery phrase" in review_text
             assert not app.screen.query_one("#review-execute", Button).disabled
 
@@ -287,11 +287,13 @@ def test_textual_app_review_can_execute_print_kit(monkeypatch) -> None:
             assert workflow_support.button_label(app, "#review-execute") == "Create PDF"
             assert f"Destination\n{Path('kit.pdf').absolute()}" in review_text
             assert "No user files are read before this action runs." not in review_text
+            assert "The PDF's parent folder must be writable." in review_text
+            assert "You still need your backup documents and passphrase or recovery sheets" in (
+                review_text
+            )
             assert (
-                "Ethernity will create the PDF at the selected path. Its parent folder must be "
-                "writable."
-            ) in review_text
-            assert "This offline recovery kit cannot authenticate" in review_text
+                "Keep the latest fingerprint separately to check for missing updates" in review_text
+            )
 
             await click_when_ready(pilot, "#review-execute")
             await _wait_for_condition(pilot, lambda: bool(calls), "execution to start")

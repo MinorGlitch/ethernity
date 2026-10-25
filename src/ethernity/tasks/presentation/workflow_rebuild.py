@@ -63,7 +63,7 @@ def review_details(
         source_version = "Latest loaded version accepted"
     return (
         ReviewDetail("Source", source, "source"),
-        ReviewDetail("Recovery sheets", "Follow the loaded backup's sheet policy"),
+        ReviewDetail("Recovery sheets", "Matches supplied recovery sheets"),
         ReviewDetail("Unlock", unlock_input_summary(state), "unlock"),
         ReviewDetail("Source version", source_version, "freshness"),
         ReviewDetail("Documents", "Backup PDF\nRecovery guide", group="output"),

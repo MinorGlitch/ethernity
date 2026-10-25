@@ -142,13 +142,12 @@ class PrintKitTaskState(BaseModel):
             output_paths=(self.output_path,),
             writes_files=True,
             safety_notes=(
-                "Ethernity will create the PDF at the selected path. Its parent folder must be "
-                "writable.",
+                "The PDF's parent folder must be writable.",
                 *(issue.message for issue in self._output_warnings()),
             ),
             recovery_notes=(
-                "This offline recovery kit cannot authenticate the latest backup state and does "
-                "not replace backup documents or recovery sheets.",
+                "You still need your backup documents and passphrase or recovery sheets.",
+                "Keep the latest fingerprint separately to check for missing updates.",
             ),
         )
 
@@ -175,8 +174,7 @@ class PrintKitTaskState(BaseModel):
             output_paths=(result.output_path,),
             next_steps=(
                 "Print the PDF at 100% (actual size).",
-                "The kit restores the documents you supply. Keep a separate record of the "
-                "latest backup fingerprint to check you have the newest version.",
+                "Keep the latest backup fingerprint separately to check for missing updates.",
             ),
         )
 

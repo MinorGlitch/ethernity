@@ -53,10 +53,7 @@ def test_textual_app_custom_quorum_updates_do_not_trip_assignment_validation() -
             assert str(quorum.query_one(".guided-summary", Static).content) == (
                 "Create 5 sheets; any 4 can restore"
             )
-            assert (
-                "A custom quorum changes how many sheets you need to restore"
-                in workflow_support.preview_text(app)
-            )
+            assert "Keep at least 4 of the 5 recovery sheets." in workflow_support.preview_text(app)
 
     asyncio.run(run())
 

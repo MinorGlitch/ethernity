@@ -43,9 +43,9 @@ class ReplaceRecoveryWorkspace(BaseWorkspace):
                     SIGNING_KEY_RECOVERY_OPTIONS,
                 )
                 yield field_row(
-                    "Quorum",
+                    "Sheets",
                     "replace-signing-key-quorum-value",
-                    WorkspaceAction("workspace-replace-signing-key-quorum", "Set quorum..."),
+                    WorkspaceAction("workspace-replace-signing-key-quorum", "Change..."),
                     row_id="replace-signing-key-quorum-row",
                 )
                 yield field_row(
@@ -55,9 +55,9 @@ class ReplaceRecoveryWorkspace(BaseWorkspace):
                     row_id="replace-signing-key-count-row",
                 )
                 yield field_row(
-                    "Key payloads",
+                    "Exported key data",
                     "replace-signing-key-payloads-value",
-                    WorkspaceAction("workspace-replace-signing-key-payloads", "Key payloads..."),
+                    WorkspaceAction("workspace-replace-signing-key-payloads", "Choose files..."),
                     row_id="replace-signing-key-payloads-row",
                 )
                 yield InlineNotice(id="replace-signing-notice")

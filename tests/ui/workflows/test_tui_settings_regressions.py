@@ -92,7 +92,7 @@ def test_saved_settings_hydrate_all_workflow_effective_defaults(tmp_path: Path) 
     assert (backup.shard_threshold, backup.shard_count) == (3, 5)
     assert (backup_args.shard_threshold, backup_args.shard_count) == (3, 5)
     assert backup.recovery_method == "custom_shards"
-    assert "5 recovery sheets; any 3 required" in backup.sections()[1].summary
+    assert "5 sheets; any 3 can restore" in backup.sections()[1].summary
     assert any(item.label == "5 recovery sheets" for item in backup.preview().items)
     assert backup.signing_key_mode == backup_args.signing_key_mode == "sharded"
     assert backup.qr_chunk_size is backup_args.qr_chunk_size is None

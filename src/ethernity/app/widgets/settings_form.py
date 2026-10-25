@@ -41,6 +41,7 @@ from ethernity.app.widgets.workbench import WorkbenchStep, WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.page_sizes import paper_size_display_name
 from ethernity.render.designs import supported_paper_size_names
+from ethernity.tasks.backup_facts import SheetQuorum
 from ethernity.tasks.models import TaskIssue, TaskValidation
 from ethernity.tasks.presentation.models import InlineNoticePresentation
 from ethernity.tasks.presentation.presentation_values import middle_truncate_path
@@ -515,7 +516,7 @@ def _recovery_summary(settings: SettingsTaskState) -> str:
         settings.setting_value("backup_shard_count"),
         DEFAULT_RECOVERY_COUNT,
     )
-    return f"{count} recovery sheets; any {threshold} required"
+    return SheetQuorum(threshold, count).summary
 
 
 def _positive_int_or_default(value: object, default: int) -> int:

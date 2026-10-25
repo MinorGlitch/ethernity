@@ -85,7 +85,7 @@ def test_custom_backup_quorum_changes_from_the_visible_button() -> None:
             assert not list(app.screen.query("#edit-field-modal"))
             assert app.backup_state.recovery_method == "custom_shards"
             assert (app.backup_state.shard_threshold, app.backup_state.shard_count) == (2, 3)
-            assert "2 required" in str(app.query_one("#backup-quorum-value", Static).content)
+            assert "any 2 can restore" in str(app.query_one("#backup-quorum-value", Static).content)
 
     asyncio.run(run())
 

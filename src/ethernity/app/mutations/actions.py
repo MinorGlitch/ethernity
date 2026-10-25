@@ -366,7 +366,7 @@ class TaskMutationActions(TaskPathMutationActions):
             self.refresh_task_view()
             self.notify("Existing backup accepted for replacement recovery sheets.")
         else:
-            self.notify("Choose scanned pages before confirming freshness.", severity="warning")
+            self.notify("Load backup documents before choosing a version.", severity="warning")
 
     def _toggle_kit_variant(self) -> None:
         if self.active_task != "kit":

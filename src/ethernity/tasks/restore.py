@@ -121,7 +121,7 @@ class RestoreTaskState(ContentRecoveryTaskState):
             issues.append(
                 TaskIssue(
                     code="RESTORE_UNLOCK_REQUIRED",
-                    message="Choose a passphrase, recovery sheets, or recovery payload files.",
+                    message="Enter a passphrase or load recovery sheets or exported recovery data.",
                     section="unlock",
                 )
             )
@@ -170,7 +170,7 @@ class RestoreTaskState(ContentRecoveryTaskState):
             warnings.append(
                 TaskIssue(
                     code="RESTORE_UNSIGNED_ALLOWED",
-                    message="Unsigned legacy recovery is allowed; signatures will not be required.",
+                    message="Unsigned backups are allowed. Their authenticity cannot be checked.",
                     severity="warning",
                     section="authentication",
                 )
@@ -215,12 +215,11 @@ class RestoreTaskState(ContentRecoveryTaskState):
         result = execute_recovery(self.to_recovery_request(), session=self.recovery_session)
         return TaskExecutionResult(
             status="succeeded",
-            message="Recovered files written.",
+            message="Files restored.",
             output_paths=result.written_paths,
             next_steps=(
-                "Open the restored files and check their contents before deleting any scans "
-                "or backup media.",
-                "Compare files with the same name against your originals.",
+                "Check the restored files before deleting any scans or backups. "
+                "Compare with your originals if available.",
             ),
             details=(
                 TaskResultDetail(
@@ -228,8 +227,8 @@ class RestoreTaskState(ContentRecoveryTaskState):
                     label="Verification",
                     value={
                         "matched_expected_head": "Matched the trusted full fingerprint",
-                        "internally_consistent": "Internally consistent; freshness unknown",
-                        "unauthenticated": "Unauthenticated recovery",
+                        "internally_consistent": "Signatures valid; newer updates may be missing",
+                        "unauthenticated": "Restored without verifying authenticity",
                     }[result.trust_basis],
                 ),
                 *(

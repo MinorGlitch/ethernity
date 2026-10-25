@@ -235,7 +235,7 @@ def test_cancelled_phrase_restores_actions_and_reports_no_completed_check(
                 pilot, lambda: not controller.running, "recovery check to finish"
             )
             assert not controller.running
-            assert "No recovery check completed" in str(
+            assert "PDF check cancelled" in str(
                 screen.query_one("#result-document-checks", Static).content
             )
             assert not screen.query_one("#result-test-recovery", Button).disabled

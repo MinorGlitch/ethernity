@@ -179,7 +179,8 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
                 TaskIssue(
                     code="REPLACE_RECOVERY_UNLOCK_REQUIRED",
                     message=(
-                        "Choose the passphrase, current recovery sheets, or recovery payload files."
+                        "Enter a passphrase or load current recovery sheets "
+                        "or exported recovery data."
                     ),
                     section="unlock",
                 )
@@ -189,8 +190,8 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
                 TaskIssue(
                     code="REPLACE_RECOVERY_HEAD_TRUST_REQUIRED",
                     message=(
-                        "Enter the expected latest fingerprint, or accept that the scans may "
-                        "be stale."
+                        "Enter a separately saved fingerprint, or accept that "
+                        "newer updates may be missing."
                     ),
                     section="freshness",
                 )
@@ -281,7 +282,7 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
             issues.append(
                 TaskIssue(
                     code="REPLACE_RECOVERY_SIGNING_KEY_REPLACEMENT_INPUT_REQUIRED",
-                    message="Load existing signing-key payloads before replacing key sheets.",
+                    message="Load exported signing-key data before replacing key sheets.",
                     section="signature",
                 )
             )
@@ -354,8 +355,7 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
             output_paths=outputs,
             writes_files=True,
             safety_notes=(
-                "Ethernity will create a new folder and write the replacement PDFs inside it. "
-                "The selected output path must not already exist.",
+                "Creates a new folder for the PDFs. The destination must not already exist.",
                 "Existing backup files stay unchanged.",
             ),
             trust_notes=(f"Scan version: {self._freshness_summary()}",),
@@ -479,7 +479,8 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
         return (
             TaskIssue(
                 code="REPLACE_RECOVERY_CUSTOM_QUORUM",
-                message="A custom quorum changes how many sheets you need to restore.",
+                message=f"Keep at least {self.recovery_threshold} of the "
+                f"{self.recovery_document_count} recovery sheets.",
                 severity="warning",
                 section="recovery",
             ),
@@ -487,8 +488,8 @@ class ReplaceRecoveryDocsTaskState(ContentRecoveryTaskState):
 
     def signing_key_recovery_payloads_summary(self) -> str:
         if not self.signing_key_recovery_payload_files:
-            return "No key payloads loaded"
-        return format_count(len(self.signing_key_recovery_payload_files), "key payload file")
+            return "No exported key data loaded"
+        return format_count(len(self.signing_key_recovery_payload_files), "key data file")
 
     def _source_summary(self) -> str:
         request = self.source_assessment_request()
