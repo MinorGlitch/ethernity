@@ -55,6 +55,22 @@ def check_windows_installation(root: Path, version: str) -> None:
     assert all(Path(target).samefile(executable) for target in state["targets"])
 
 
+def uninstall_windows(root: Path, *, success: bool = True) -> None:
+    # Inno's second phase deletes the original executable after its parent exits.
+    # Start-Process -Wait waits for descendants too; waiting on unins000.exe alone does not.
+    executable = str(root / "unins000.exe").replace("'", "''")
+    run(
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        "$ErrorActionPreference = 'Stop'; "
+        f"$process = Start-Process -FilePath '{executable}' "
+        "-ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru; "
+        "exit $process.ExitCode",
+        success=success,
+    )
+
+
 def windows(source: Path, installer: Path, compiler: Path, version: str, directory: Path) -> None:
     before = windows_state()
     shortcuts = [Path(before[name]) / "Ethernity.lnk" for name in ("programs", "desktop")]
@@ -88,13 +104,7 @@ def windows(source: Path, installer: Path, compiler: Path, version: str, directo
 
         def reject_in_use_upgrade() -> None:
             install(installer, success=False)
-            run(
-                str(root / "unins000.exe"),
-                "/VERYSILENT",
-                "/SUPPRESSMSGBOXES",
-                "/NORESTART",
-                success=False,
-            )
+            uninstall_windows(root, success=False)
             assert windows_state()["version"] == PREVIOUS
             assert (old_runtime / "obsolete.txt").exists()
 
@@ -115,7 +125,7 @@ def windows(source: Path, installer: Path, compiler: Path, version: str, directo
         install(installer)
         check_windows_installation(root, version)
         smoke_desktop(runtime / "ethernity-desktop.exe")
-        run(str(root / "unins000.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
+        uninstall_windows(root)
         assert not runtime.exists()
         assert not (root / "unins000.exe").exists()
         assert not windows_state()["version"]
@@ -129,8 +139,8 @@ def windows(source: Path, installer: Path, compiler: Path, version: str, directo
         assert marker.read_text(encoding="ascii") == "keep"
         assert not windows_state()["version"]
     finally:
-        if (root / "unins000.exe").exists():
-            run(str(root / "unins000.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
+        if windows_state()["version"] and (root / "unins000.exe").exists():
+            uninstall_windows(root)
 
 
 @contextmanager

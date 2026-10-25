@@ -62,7 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         executable = Path(sys.executable)
         if sys.platform == "win32":
             # Use the windowless bootloader so background work does not flash console windows.
-            multiprocessing.set_executable(executable.with_name("ethernity-desktop.exe"))
+            multiprocessing.set_executable(str(executable.with_name("ethernity-desktop.exe")))
         if executable.stem == "ethernity-desktop":
             return desktop.main()
     args = list(sys.argv[1:] if argv is None else argv)

@@ -79,14 +79,14 @@ def main() -> None:
     parser.add_argument("--dist", type=Path, default=Path("dist"))
     parser.add_argument("--compiler", type=Path)
     args = parser.parse_args()
+    if sys.platform not in {"win32", "darwin"}:
+        parser.error("desktop packages are built on Windows and macOS")
     if sys.platform == "win32":
         if args.compiler is None:
             parser.error("--compiler must point to the Inno Setup compiler")
         result = windows_installer(args.dist / "ethernity", args.output, args.tag, args.compiler)
-    elif sys.platform == "darwin":
-        result = macos_dmg(args.dist / "Ethernity.app", args.output, args.tag)
     else:
-        parser.error("desktop packages are built on Windows and macOS")
+        result = macos_dmg(args.dist / "Ethernity.app", args.output, args.tag)
     print(f"Created {result}")
 
 

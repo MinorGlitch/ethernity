@@ -76,12 +76,14 @@ async def check_desktop(
             if while_running is not None:
                 await asyncio.to_thread(while_running)
             await check_session(data["url"], server.pid)
-            _, alive = await asyncio.to_thread(psutil.wait_procs, [server], timeout=15)
-            if alive:
-                raise RuntimeError("Desktop server remained running after its last tab closed")
+            # asyncio owns and reaps this child. psutil.wait() would race its child watcher.
             _, stderr = await asyncio.wait_for(process.communicate(), timeout=15)
             if process.returncode != 0:
                 raise RuntimeError(f"Desktop launcher failed: {stderr.decode(errors='replace')}")
+            if server.pid != process.pid:
+                _, alive = await asyncio.to_thread(psutil.wait_procs, [server], timeout=5)
+                if alive:
+                    raise RuntimeError("Desktop server remained running after its last tab closed")
         finally:
             await stop_owned_processes(process, server)
 
@@ -100,7 +102,8 @@ async def stop_owned_processes(
     for child in set(owned):
         with contextlib.suppress(psutil.NoSuchProcess):
             child.terminate()
-    _, alive = await asyncio.to_thread(psutil.wait_procs, owned, timeout=5)
+    others = [child for child in owned if child.pid != process.pid]
+    _, alive = await asyncio.to_thread(psutil.wait_procs, others, timeout=5)
     for child in alive:
         with contextlib.suppress(psutil.NoSuchProcess):
             child.kill()

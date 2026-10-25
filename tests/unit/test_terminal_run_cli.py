@@ -45,7 +45,7 @@ def test_windows_packaged_entrypoints_use_windowless_workers(monkeypatch, tmp_pa
     monkeypatch.setattr(root_entrypoint, "run_app", lambda: calls.append("terminal"))
     monkeypatch.setattr(desktop, "main", lambda: calls.append("desktop") or 0)
     assert main([]) == 0
-    assert calls == [tmp_path / "ethernity-desktop.exe", expected]
+    assert calls == [str(tmp_path / "ethernity-desktop.exe"), expected]
 
 
 @pytest.mark.parametrize("error", [OSError("cannot bind socket"), webbrowser.Error("no browser")])
