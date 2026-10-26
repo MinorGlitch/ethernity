@@ -1,4 +1,6 @@
-# README backup demo
+# README media
+
+## Backup demo
 
 The demo runs the real terminal app through a [VHS](https://github.com/charmbracelet/vhs)
 tape. It selects two synthetic files, keeps the default two-of-three recovery setup,
@@ -7,7 +9,7 @@ with reading pauses at each step. The terminal is 112 columns by 36 rows so the 
 its desktop layout and full-height controls. The final ten seconds show pages from
 that same backup. The complete walkthrough takes about 80 seconds.
 
-## Record
+### Record
 
 Install VHS 0.12.1 or newer, `ttyd`, and FFmpeg. On macOS, `brew install vhs`
 installs all three. Use the repository's Python environment with its locked dependencies.
@@ -37,7 +39,7 @@ Captions and the final frame use the repository's Public Sans fonts. Processing 
 the animation is an overview, not a timing benchmark. It checks generated PDFs, not
 physical prints or camera scans.
 
-## Update the README assets
+### Update the README assets
 
 Watch the entire animation and inspect the static preview at the README's display size.
 Check that each step is readable, the recovery check succeeds, and no personal paths
@@ -51,3 +53,27 @@ cp build/readme-demo/terminal_app_preview.png images/readme/terminal_app_preview
 Keep the video and verification intermediates in the ignored build directory.
 Edit `backup.tape` for navigation and pacing; edit `record_backup.py` for sample files,
 captions, and the final PDF preview. No application code or test fixtures are changed by recording.
+
+## Logo
+
+The README opens with `images/ethernity-animated.gif`, a transparent, 640 by 338 pixel loop.
+The paper assembles into the infinity mark, holds, and folds away over ten seconds.
+The first and last frames are blank. Clicking the logo opens the static
+`images/ethernity-logo.svg`.
+
+To rebuild, install the kit's Node dependencies and Playwright Chromium, plus FFmpeg and
+Gifsicle on your PATH. From the repository root:
+
+```sh
+node tooling/demos/render_logo.mjs
+```
+
+Inspect `build/readme-logo/paper-assembly/ribbon.gif` on light and dark backgrounds, then
+copy the reviewed output:
+
+```sh
+cp build/readme-logo/paper-assembly/ribbon.gif images/ethernity-animated.gif
+```
+
+Frames and intermediate files stay in the ignored build directory. The desktop icons
+and tray animation are exported separately by `scripts/build_icons.py`.

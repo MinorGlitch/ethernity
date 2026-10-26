@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="images/ethernity-logo.svg">
+    <img src="images/ethernity-animated.gif" alt="Paper unfolding into Ethernity's infinity logo" width="320" height="169">
+  </a>
+</p>
+
 # Ethernity
 
 [![CI status](https://github.com/MinorGlitch/ethernity/actions/workflows/ci.yml/badge.svg)](https://github.com/MinorGlitch/ethernity/actions/workflows/ci.yml)
@@ -8,20 +14,6 @@ from QR codes or printed text, using the terminal app, command line, or browser 
 No account or online service is required.
 
 Use it for seed phrases, private keys, certificates, and configuration files.
-
-<p align="center">
-  <img src="images/ethernity-animated.gif" alt="Ethernity folded-paper infinity logo" width="400">
-</p>
-
-<p align="center">
-  <a href="images/readme/backup_flow.gif">
-    <img src="images/readme/backup_flow.gif" alt="Selecting files, creating paper backup PDFs, and checking recovery with two recovery sheets" width="900">
-  </a>
-</p>
-
-A guided backup walkthrough with demonstration files and settings. Recovery is checked from the
-generated PDFs; processing waits are shortened. Test your printed copies before storing them.
-[View a static preview](images/readme/terminal_app_preview.png).
 
 ## What you keep
 
@@ -89,6 +81,16 @@ See the [installation guide](docs/install.md) for prerequisites, updates, uninst
 downloads, verification, and Python installation with uv or pipx.
 
 ## Make a backup and try restoring it
+
+<p align="center">
+  <a href="images/readme/backup_flow.gif">
+    <img src="images/readme/backup_flow.gif" alt="Selecting files, creating paper backup PDFs, and checking recovery with two recovery sheets" width="900">
+  </a>
+</p>
+
+A guided backup walkthrough with demonstration files and settings. Recovery is checked from the
+generated PDFs; processing waits are shortened. Test your printed copies before storing them.
+[View a static preview](images/readme/terminal_app_preview.png).
 
 Open the desktop app, or start it from a terminal:
 
