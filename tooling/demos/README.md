@@ -56,7 +56,8 @@ captions, and the final PDF preview. No application code or test fixtures are ch
 
 ## Logo
 
-The README opens with `images/ethernity-animated.gif`, a transparent, 640 by 338 pixel loop.
+The README shows `images/ethernity-animated.gif` below the status badges, followed by the
+introduction and backup walkthrough. The logo is a transparent, 640 by 338 pixel loop.
 The paper assembles into the infinity mark, holds, and folds away over ten seconds.
 The first and last frames are blank. Clicking the logo opens the static
 `images/ethernity-logo.svg`.
