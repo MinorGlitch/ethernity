@@ -25,9 +25,8 @@ Use it for seed phrases, private keys, certificates, and configuration files.
   </a>
 </p>
 
-A guided backup walkthrough with demonstration files and settings. Recovery is checked from the
-generated PDFs; processing waits are shortened. Test your printed copies before storing them.
-[View a static preview](images/readme/terminal_app_preview.png).
+Backup and PDF recovery check with demo files. Processing waits are shortened.
+[Static preview](images/readme/terminal_app_preview.png).
 
 ## What you keep
 

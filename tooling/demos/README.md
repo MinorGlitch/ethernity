@@ -4,10 +4,10 @@
 
 The demo runs the real terminal app through a [VHS](https://github.com/charmbracelet/vhs)
 tape. It selects two synthetic files, keeps the default two-of-three recovery setup,
-creates the PDFs, and runs the app's recovery check. Five short captions guide the viewer,
-with reading pauses at each step. The terminal is 112 columns by 36 rows so the app uses
-its desktop layout and full-height controls. The final ten seconds show pages from
-that same backup. The complete walkthrough takes about 80 seconds.
+creates the PDFs, and runs the app's recovery check. The recording has no caption overlays;
+pauses give viewers time to read each step. The terminal is 112 columns by 36 rows so the app
+uses its desktop layout and full-height controls. The final six seconds show the encrypted
+backup and all three recovery sheets from that run. The walkthrough takes about one minute.
 
 ### Record
 
@@ -32,10 +32,9 @@ Outputs are saved in `build/readme-demo/`:
 - `terminal_app_preview.png`: a static view of the recovery options.
 - `ending.png` and `checked.png`: page previews and the successful recovery check.
 - `terminal.ascii` and `verification.json`: text for review and verification results.
-- `chapters.json`: caption start times, matched to screenshots of the recorded screens.
 
 VHS uses Menlo, with DejaVu Sans Mono and the system monospace font as fallbacks.
-Captions and the final frame use the repository's Public Sans fonts. Processing waits are shortened;
+The final frame uses the repository's Public Sans fonts. Processing waits are shortened;
 the animation is an overview, not a timing benchmark. It checks generated PDFs, not
 physical prints or camera scans.
 
@@ -51,8 +50,8 @@ cp build/readme-demo/terminal_app_preview.png images/readme/terminal_app_preview
 ```
 
 Keep the video and verification intermediates in the ignored build directory.
-Edit `backup.tape` for navigation and pacing; edit `record_backup.py` for sample files,
-captions, and the final PDF preview. No application code or test fixtures are changed by recording.
+Edit `backup.tape` for navigation and pacing; edit `record_backup.py` for sample files
+and the final PDF preview. No application code or test fixtures are changed by recording.
 
 ## Logo
 
