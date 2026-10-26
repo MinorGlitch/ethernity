@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import secrets
 import socket
 import sys
@@ -14,22 +15,96 @@ from pathlib import Path
 import psutil
 from aiohttp import web
 from textual_serve.app_service import AppService
+from textual_serve.download_manager import DownloadManager
 from textual_serve.server import Server
+
+from ethernity.app.desktop_session import DesktopStatus
+
+if sys.platform == "win32":
+    from subprocess import CREATE_NO_WINDOW
+else:
+    CREATE_NO_WINDOW = 0
 
 HOST = "127.0.0.1"
 TEMPLATES = Path(__file__).with_suffix("")
+ICON_PATH = Path(__file__).parents[1] / "resources" / "icons" / "app.png"
 STOP_TIMEOUT = 3
 
 
 def app_command() -> list[str]:
     """Relaunch this installation, including standalone PyInstaller builds."""
     if getattr(sys, "frozen", False):
+        executable = Path(sys.executable)
+        if executable.stem == "ethernity-desktop":
+            return [str(executable.with_name("ethernity" + executable.suffix))]
         return [sys.executable]
     return [sys.executable, "-m", "ethernity"]
 
 
 class LocalAppService(AppService):
     """Use Textual's protocol with an owned child process and no command shell."""
+
+    def __init__(
+        self,
+        command: str,
+        *,
+        write_bytes: Callable[[bytes], Awaitable[None]],
+        write_str: Callable[[str], Awaitable[None]],
+        close: Callable[[], Awaitable[None]],
+        download_manager: DownloadManager,
+        desktop: bool = False,
+        changed: Callable[[], None] = lambda: None,
+        quit_requested: Callable[[], None] = lambda: None,
+    ) -> None:
+        super().__init__(
+            command,
+            write_bytes=write_bytes,
+            write_str=write_str,
+            close=close,
+            download_manager=download_manager,
+        )
+        self.desktop = desktop
+        self.changed = changed
+        self.quit_requested = quit_requested
+        self.status = DesktopStatus()
+        self.closed = asyncio.Event()
+
+    def _build_environment(self, width: int = 80, height: int = 24) -> dict[str, str]:
+        environment = super()._build_environment(width, height)
+        if self.desktop:
+            environment["TEXTUAL_DRIVER"] = "ethernity.app.desktop_session:DesktopDriver"
+        return environment
+
+    async def on_meta(self, data: bytes) -> None:
+        message = json.loads(data)
+        if self.desktop and message.get("type") == "ethernity.status":
+            text, busy = message.get("text"), message.get("busy")
+            if isinstance(text, str) and isinstance(busy, bool):
+                self.status = DesktopStatus(text, busy)
+                self.changed()
+        elif self.desktop and message.get("type") == "ethernity.quit":
+            self.quit_requested()
+        else:
+            if message.get("type") == "exit":
+                # The UI has finished. EOF releases the Windows input thread,
+                # whose blocking pipe read cannot be interrupted by an event.
+                self.stdin.close()
+            await super().on_meta(data)
+
+    async def finish(self) -> None:
+        try:
+            if self.desktop and self._task is not None:
+                await self.send_meta({"type": "ethernity.shutdown"})
+                # The UI exits only after its execution worker finishes. No deadline
+                # here: a timeout must never terminate an in-progress file commit.
+                await self._task
+                if self._process is not None:
+                    await self._process.wait()
+        finally:
+            try:
+                await self.stop()
+            finally:
+                self.closed.set()
 
     async def _open_app_process(
         self, width: int = 80, height: int = 24
@@ -40,6 +115,7 @@ class LocalAppService(AppService):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=self._build_environment(width, height),
+            creationflags=CREATE_NO_WINDOW,
         )
         self._process = process
         assert process.stdin is not None
@@ -90,7 +166,9 @@ async def _stop_children(children: list[psutil.Process]) -> None:
 class LocalServer(Server):
     """Keep the app on loopback and accept only the browser opened by this launch."""
 
-    def __init__(self, port: int) -> None:
+    def __init__(
+        self, port: int, *, on_status: Callable[[DesktopStatus], None] | None = None
+    ) -> None:
         super().__init__(
             "ethernity",
             host=HOST,
@@ -102,6 +180,35 @@ class LocalServer(Server):
         self.token = secrets.token_urlsafe(32)
         self.cookie_name = f"ethernity-{port}"
         self.websockets: set[web.WebSocketResponse] = set()
+        self.services: set[LocalAppService] = set()
+        self.finishing: set[asyncio.Task[None]] = set()
+        self.on_status = on_status
+        self.quit_requested = asyncio.Event()
+        self.quitting = False
+        self.last_status = DesktopStatus()
+
+    def status_changed(self) -> None:
+        if self.on_status is None:
+            return
+        active = [service.status for service in self.services if service.status.busy]
+        if self.quitting:
+            status = DesktopStatus(
+                "Finishing tasks before quitting" if active else "Quitting", True
+            )
+        elif len(active) > 1:
+            status = DesktopStatus(f"{len(active)} tasks running", True)
+        elif active:
+            status = active[0]
+        else:
+            status = self.last_status
+        self.on_status(status)
+
+    async def shutdown_desktop(self) -> None:
+        self.quitting = True
+        self.status_changed()
+        services = tuple(self.services)
+        await asyncio.gather(*(ws.close(code=1001) for ws in tuple(self.websockets)))
+        await asyncio.gather(*(service.closed.wait() for service in services))
 
     @property
     def browser_url(self) -> str:
@@ -150,9 +257,13 @@ class LocalServer(Server):
 
     async def _make_app(self) -> web.Application:
         app = await super()._make_app()
+        app.router.add_get("/icon.png", self.handle_icon)
         app.middlewares.append(self.authorize)
         app.on_response_prepare.append(self.response_headers)
         return app
+
+    async def handle_icon(self, _request: web.Request) -> web.FileResponse:
+        return web.FileResponse(ICON_PATH)
 
     async def on_startup(self, app: web.Application) -> None:
         # Announce the URL only after the listening socket is ready.
@@ -162,6 +273,8 @@ class LocalServer(Server):
         await asyncio.gather(*(ws.close(code=1001) for ws in tuple(self.websockets)))
 
     async def handle_websocket(self, request: web.Request) -> web.WebSocketResponse:
+        if self.quitting:
+            raise web.HTTPServiceUnavailable(text="Ethernity is quitting.")
         websocket = web.WebSocketResponse(heartbeat=15)
         try:
             width = max(20, min(500, int(request.query.get("width", "80"))))
@@ -172,22 +285,60 @@ class LocalServer(Server):
         async def close() -> None:
             await websocket.close()
 
+        async def write_bytes(data: bytes) -> None:
+            if not websocket.closed:
+                with contextlib.suppress(ConnectionResetError):
+                    await websocket.send_bytes(data)
+
+        async def write_str(data: str) -> None:
+            if not websocket.closed:
+                with contextlib.suppress(ConnectionResetError):
+                    await websocket.send_str(data)
+
+        def changed() -> None:
+            self.last_status = service.status
+            self.status_changed()
+
         service = LocalAppService(
             self.command,
-            write_bytes=websocket.send_bytes,
-            write_str=websocket.send_str,
+            write_bytes=write_bytes,
+            write_str=write_str,
             close=close,
             download_manager=self.download_manager,
+            desktop=self.on_status is not None,
+            changed=changed,
+            quit_requested=self.quit_requested.set,
         )
         await websocket.prepare(request)
+        if self.quitting:
+            await websocket.close(code=1001)
+            return websocket
         self.websockets.add(websocket)
+        self.services.add(service)
+        self.status_changed()
         try:
             await service.start(width, height)
             await self._process_messages(websocket, service)
         finally:
-            await service.stop()
-            self.websockets.discard(websocket)
+            # The server owns cleanup. A disconnected HTTP request may be cancelled,
+            # but it must not cancel the process reader or interrupt an active commit.
+            task = asyncio.create_task(self.finish_session(service, websocket))
+            self.finishing.add(task)
+            task.add_done_callback(self.finishing.discard)
+            await asyncio.shield(task)
         return websocket
+
+    async def finish_session(
+        self, service: LocalAppService, websocket: web.WebSocketResponse
+    ) -> None:
+        try:
+            await service.finish()
+        finally:
+            self.websockets.discard(websocket)
+            self.services.discard(service)
+            if service.status.busy:
+                self.last_status = DesktopStatus("Task stopped unexpectedly")
+            self.status_changed()
 
 
 def run_browser(*, open_browser: bool = True) -> None:

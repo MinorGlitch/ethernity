@@ -1,4 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+import tomllib
+from pathlib import Path
+
 from PyInstaller.utils.hooks import (
     collect_data_files,
     collect_dynamic_libs,
@@ -12,6 +16,9 @@ hiddenimports = (
     + collect_submodules("zxingcpp")
 )
 datas = collect_data_files("ethernity") + copy_metadata("ethernity-paper")
+if sys.platform in {"darwin", "win32"}:
+    hiddenimports += ["pystray._darwin" if sys.platform == "darwin" else "pystray._win32"]
+hiddenimports += ["ethernity.app.desktop_session"]
 datas += copy_metadata("textual-serve")
 datas += collect_data_files("pypdfium2", includes=["version.json"])
 datas += collect_data_files("pypdfium2_raw", includes=["version.json"])
@@ -48,8 +55,26 @@ exe = EXE(
     argv_emulation=False,
 )
 
+desktop_exes = []
+if sys.platform in {"win32", "darwin"}:
+    desktop_exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name="ethernity-desktop",
+        console=False,
+        icon="src/ethernity/resources/icons/app.png",
+        strip=False,
+        upx=True,
+        argv_emulation=False,
+    )
+    if sys.platform == "win32":
+        desktop_exes.append(desktop_exe)
+
 coll = COLLECT(
     exe,
+    *desktop_exes,
     a.binaries,
     a.datas,
     strip=False,
@@ -57,3 +82,19 @@ coll = COLLECT(
     upx_exclude=[],
     name="ethernity",
 )
+
+if sys.platform == "darwin":
+    version = tomllib.loads((Path(SPECPATH) / "pyproject.toml").read_text())["project"]["version"]
+    app = BUNDLE(
+        desktop_exe,
+        [("ethernity", exe.name, "EXECUTABLE"), *a.binaries, *a.datas],
+        name="Ethernity.app",
+        icon="src/ethernity/resources/icons/app.png",
+        bundle_identifier="org.minorglitch.ethernity",
+        version=version,
+        info_plist={
+            "LSUIElement": True,
+            "NSHighResolutionCapable": True,
+            "CFBundleDisplayName": "Ethernity",
+        },
+    )

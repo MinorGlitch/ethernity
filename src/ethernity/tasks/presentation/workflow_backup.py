@@ -74,7 +74,7 @@ def backup_groups(
             actions=(
                 WorkspaceAction(
                     "workspace-backup-recovery-quorum",
-                    "Change quorum...",
+                    "Change sheet counts...",
                     visible=state.recovery_method == "custom_shards",
                 ),
             ),
@@ -132,7 +132,7 @@ def backup_groups(
                 WorkspaceAction("workspace-backup-passphrase", "Set passphrase..."),
                 WorkspaceAction("workspace-backup-base-dir", "Choose base folder..."),
                 WorkspaceAction("workspace-backup-qr-chunk-size", "Set QR density..."),
-                WorkspaceAction("workspace-backup-signing-key-shards", "Set quorum..."),
+                WorkspaceAction("workspace-backup-signing-key-shards", "Change sheet counts..."),
             ),
         ),
     )

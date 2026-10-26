@@ -141,7 +141,7 @@ def test_textual_app_restore_source_modes_are_real_pickers() -> None:
             assert app.restore_state.recovery_text_file is None
             assert not app.restore_state.source_paths
             assert app.restore_state.payloads_file is None
-            assert "Pasted text, 1 non-empty line" in workflow_support.checklist_text(app)
+            assert "Pasted text: 1 line" in workflow_support.checklist_text(app)
 
             await pilot.click("#workflow-restore-source-body-secondary-1")
             await pilot.pause()
@@ -301,7 +301,7 @@ def test_textual_app_restore_auth_policy_control_is_real() -> None:
             assert app.restore_state.to_recovery_request().allow_unsigned
             assert "Unsigned legacy backups allowed" in workflow_support.preview_text(app)
             assert not app.query("#restore-authentication-help, #restore-authentication-status")
-            assert "signatures will not be required" in workflow_support.preview_text(app)
+            assert "Their authenticity cannot be checked" in workflow_support.preview_text(app)
 
             app.query_one("#workspace-restore-auth-policy", Select).value = "require-signed"
             await _wait_for_condition(

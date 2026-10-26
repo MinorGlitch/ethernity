@@ -155,11 +155,13 @@ def test_release_tag_must_match_project_version(tag):
 
 def test_inventory_rejects_extra_missing_and_empty_files(tmp_path):
     names = inventory.release_files(TAG)
-    assert len(names) == 30
+    assert len(names) == 34
+    assert f"ethernity-{TAG}-windows-x64-setup.exe" in names
+    assert f"ethernity-{TAG}-macos-arm64.dmg" in names
     assert not any("macos-x64" in name for name in names)
     for name in names:
         (tmp_path / name).write_bytes(b"contents")
-    assert len(inventory.validate_files(tmp_path, names)) == 30
+    assert len(inventory.validate_files(tmp_path, names)) == 34
     extra = tmp_path / f"ethernity-{TAG}-macos-x64.tar.gz"
     extra.write_bytes(b"contents")
     with pytest.raises(ValueError, match="mismatch"):

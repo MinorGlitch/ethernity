@@ -193,7 +193,7 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
         None,
         "signing_key_modes",
         "embedded",
-        empty_label="Use built-in default (Embedded)",
+        empty_label="Default: embedded in backup",
     ),
     SettingDescriptor(
         "backup_signing_key_shard_threshold",
@@ -224,7 +224,7 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
         "Backup compression",
         "enum",
         "Change",
-        "Automatic selects the smaller safe format.",
+        "Automatic uses compression only when it makes the backup smaller.",
         "auto",
         "payload_codecs",
         "auto",
@@ -334,7 +334,7 @@ RISKY_CUSTOM_SETTING_MESSAGES: dict[str, str] = {
         "A custom QR size changes page count and scan reliability. Test a printed code first."
     ),
     "extension_chunk_target": (
-        "The first update locks its FastCDC profile; existing chains keep their locked values."
+        "Chunk sizes apply to new update series. Existing series keep their original sizes."
     ),
 }
 

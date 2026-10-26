@@ -337,7 +337,9 @@ def test_recovery_sheet_failure_reports_the_published_update_without_inviting_re
         "Not created: printer backend failed"
         == next(detail for detail in result.details if detail.key == "recovery_sheets").value
     )
-    assert "Do not run Add Files again" in result.next_steps[0]
+    assert "The update is saved." in result.next_steps[0]
+    assert "Use Replace sheets with its new fingerprint" in result.next_steps[0]
+    assert "Do not repeat Add files." in result.next_steps[0]
 
 
 def test_existing_recovery_sheet_output_blocks_publication(
@@ -421,8 +423,7 @@ def test_review_assessment_is_shared_and_exact_payload_is_executed(
     preview = state.preview()
     assert any(item.label == "New fingerprint" for item in preview.items)
     assert next(item.detail for item in preview.items if item.label == "Recovery chain") == (
-        "Recovery requires the original backup and updates 01 through 03. "
-        "Rebuild after publication to create a new standalone backup."
+        "Recovery requires the original backup and updates 01 through 03."
     )
     assert "updates 01 through 03" in state.execution_plan().recovery_notes[1]
     result = state.execute()
@@ -432,7 +433,10 @@ def test_review_assessment_is_shared_and_exact_payload_is_executed(
     assert len(result.output_paths) == 2
     assert result.recovery_check_paths == (tmp_path / "published" / "qr.pdf",)
     assert "original backup and updates 01 through 03" in result.next_steps[0]
-    assert "Use Rebuild when you want a new standalone backup" in result.next_steps[1]
+    assert (
+        "Use Rebuild to combine the backup and updates into a new set of documents."
+        in result.next_steps[1]
+    )
     assert (
         next(detail for detail in result.details if detail.key == "doc_hash").value
         == (b"A" * 32).hex()

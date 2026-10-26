@@ -36,7 +36,7 @@ def replace_recovery_auxiliary_groups(
                 ),
                 WorkspaceValue(
                     "signing-key-payloads",
-                    "Existing key payloads",
+                    "Exported key data",
                     state.signing_key_recovery_payloads_summary(),
                 ),
             ),
@@ -48,7 +48,7 @@ def replace_recovery_auxiliary_groups(
                 ),
                 ChoicePresentation(
                     "same",
-                    "Match recovery-sheet quorum",
+                    "Same counts as recovery sheets",
                     state.create_signing_key_recovery
                     and state.signing_key_recovery_threshold is None
                     and state.signing_key_recovery_count is None
@@ -56,7 +56,7 @@ def replace_recovery_auxiliary_groups(
                 ),
                 ChoicePresentation(
                     "custom",
-                    "Custom quorum",
+                    "Custom sheet counts",
                     (
                         state.signing_key_recovery_threshold is not None
                         or state.signing_key_recovery_count is not None
@@ -69,9 +69,9 @@ def replace_recovery_auxiliary_groups(
                 ),
             ),
             actions=(
-                WorkspaceAction("workspace-replace-signing-key-quorum", "Set quorum..."),
+                WorkspaceAction("workspace-replace-signing-key-quorum", "Change sheet counts..."),
                 WorkspaceAction("workspace-replace-signing-key-count", "Set count..."),
-                WorkspaceAction("workspace-replace-signing-key-payloads", "Key payloads..."),
+                WorkspaceAction("workspace-replace-signing-key-payloads", "Choose key data..."),
             ),
             status=signature_section.status,
             status_summary=signature_section.summary,
@@ -94,16 +94,6 @@ def review_details(
 ) -> tuple[ReviewDetail, ...]:
     source = recovery_source_summary(state)
 
-    recovery = (
-        f"{state.recovery_document_count} new sheets ({state.recovery_threshold} needed to restore)"
-    )
-    if not state.create_passphrase_recovery:
-        passphrase = "without passphrase sheets"
-    elif state.passphrase_replacement_count is not None:
-        passphrase = f"replacing {state.passphrase_replacement_count} passphrase sheets"
-    else:
-        passphrase = "with passphrase sheets"
-
     if not state._creates_signing_key_recovery():
         signing = "None"
     elif state.signing_key_replacement_count is not None:
@@ -114,7 +104,7 @@ def review_details(
     return (
         ReviewDetail("Source", source, "source"),
         ReviewDetail("Unlock", unlock_input_summary(state), "unlock"),
-        ReviewDetail("Recovery sheets", f"{recovery}, {passphrase}", "recovery"),
+        ReviewDetail("Recovery sheets", state.passphrase_recovery_summary(), "recovery"),
         ReviewDetail("Signing-key sheets", signing, "signature"),
         ReviewDetail("Layout", layout_summary(state.paper_size, state.design), "layout", "output"),
         ReviewDetail("Destination", destination_summary(plan), "output", "output"),

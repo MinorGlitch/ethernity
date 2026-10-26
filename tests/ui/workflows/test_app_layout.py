@@ -482,13 +482,15 @@ def test_textual_app_canvas_rows_edit_secondary_choices() -> None:
                 app,
                 "#backup-recovery-help",
             )
-            assert "One recovery phrase is a single secret" in workflow_support.preview_text(app)
+            assert "There are no recovery sheets if you lose it" in workflow_support.preview_text(
+                app
+            )
 
             app._apply_backup_recovery("3/5")
             await pilot.pause()
 
             assert app.backup_state.recovery_method == "custom_shards"
-            assert "Warning: 5 recovery sheets; any 3 required" in workflow_support.static_text(
+            assert "Warning: 5 sheets; any 3 can restore" in workflow_support.static_text(
                 app,
                 "#backup-recovery-status",
             )
@@ -496,10 +498,7 @@ def test_textual_app_canvas_rows_edit_secondary_choices() -> None:
                 app,
                 "#backup-recovery-help",
             )
-            assert (
-                "A custom quorum changes how many sheets you need"
-                in workflow_support.preview_text(app)
-            )
+            assert "Keep at least 3 of the 5 recovery sheets." in workflow_support.preview_text(app)
 
             await pilot.press("6")
             app.query_one("#workspace-kit-paper", Select).value = "LETTER"

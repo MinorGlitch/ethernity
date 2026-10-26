@@ -10,6 +10,7 @@ import psutil
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from tooling.release.browser_smoke import check_browser, expect_screen
+from tooling.release.desktop_smoke import check_desktop
 
 from ethernity.app import browser
 
@@ -32,6 +33,58 @@ def browser_command(tmp_path, request) -> list[str]:
 
 def test_browser_launches_app_and_cleans_up_disconnected_tabs(browser_command) -> None:
     asyncio.run(check_browser(browser_command))
+
+
+@pytest.mark.skipif(sys.platform not in {"darwin", "win32"}, reason="Native desktop platforms")
+def test_desktop_launch_opens_browser_and_quits_explicitly() -> None:
+    asyncio.run(check_desktop([sys.executable, "-m", "ethernity.desktop"]))
+
+
+@pytest.mark.parametrize("input_reader", ["native", "windows-pipe"])
+def test_desktop_stays_open_for_other_tabs_and_refreshes(
+    monkeypatch, tmp_path, input_reader
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    if input_reader == "windows-pipe":
+        script = Path(__file__).parents[1] / "support" / "desktop_pipe_app.py"
+        monkeypatch.setattr(browser, "app_command", lambda: [sys.executable, str(script)])
+
+    async def check() -> None:
+        statuses = []
+        server = browser.LocalServer(0, on_status=statuses.append)
+        async with TestClient(
+            TestServer(await server._make_app()), cookie_jar=aiohttp.CookieJar(unsafe=True)
+        ) as client:
+            server.port = client.server.port
+            server.public_url = str(client.make_url("/")).rstrip("/")
+            await client.get(f"/?token={server.token}")
+            first = await client.ws_connect("/ws", origin=server.public_url)
+            second = await client.ws_connect("/ws", origin=server.public_url)
+            await expect_screen(first, "Choose files")
+            await expect_screen(second, "Choose files")
+            services = tuple(server.services)
+            await first.close()
+            assert not second.closed
+            await second.close()
+            try:
+                await asyncio.wait_for(asyncio.gather(*(s.closed.wait() for s in services)), 10)
+            finally:
+                # Reap a broken implementation too, without hiding the failed exit assertion.
+                await asyncio.gather(*(s.stop() for s in services if not s.closed.is_set()))
+            assert not server.quit_requested.is_set()
+            assert not server.services
+            assert not server.websockets
+            async with client.ws_connect("/ws", origin=server.public_url) as refreshed:
+                await expect_screen(refreshed, "Choose files")
+                await refreshed.send_json(["stdin", "q"])
+                await asyncio.wait_for(server.quit_requested.wait(), 10)
+                await asyncio.wait_for(server.shutdown_desktop(), 10)
+            assert server.quitting
+            assert statuses[-1].text == "Quitting"
+            response = await client.get("/ws", headers={"Origin": server.public_url})
+            assert response.status == 503
+
+    asyncio.run(check())
 
 
 def test_browser_scroll_reports_move_one_cell_each(monkeypatch, tmp_path) -> None:
@@ -236,3 +289,87 @@ def test_browser_relaunches_current_installation(monkeypatch, frozen) -> None:
     monkeypatch.setattr(sys, "executable", executable)
     monkeypatch.setattr(sys, "frozen", frozen, raising=False)
     assert browser.app_command() == [executable, *([] if frozen else ["-m", "ethernity"])]
+
+
+@pytest.mark.parametrize("suffix", ["", ".exe"])
+def test_desktop_relaunches_sibling_console_executable(monkeypatch, tmp_path, suffix) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / f"ethernity-desktop{suffix}"))
+    assert browser.app_command() == [str(tmp_path / f"ethernity{suffix}")]
+
+
+@pytest.mark.parametrize("quit_app", [False, True], ids=["close-tab", "quit-app"])
+@pytest.mark.parametrize("input_reader", ["native", "windows-pipe"])
+def test_desktop_shutdown_finishes_file_commit_and_reports_status(
+    monkeypatch, tmp_path, quit_app, input_reader
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    (tmp_path / "input.txt").write_text("test input")
+    script = Path(__file__).parents[1] / "support" / "desktop_write_app.py"
+    monkeypatch.setattr(
+        browser, "app_command", lambda: [sys.executable, str(script), str(tmp_path), input_reader]
+    )
+
+    async def check() -> None:
+        statuses = []
+        server = browser.LocalServer(0, on_status=statuses.append)
+        async with TestClient(
+            TestServer(await server._make_app()), cookie_jar=aiohttp.CookieJar(unsafe=True)
+        ) as client:
+            server.port = client.server.port
+            server.public_url = str(client.make_url("/")).rstrip("/")
+            await client.get(f"/?token={server.token}")
+            ws = await client.ws_connect("/ws", origin=server.public_url)
+            try:
+                async with asyncio.timeout(15):
+                    while not (tmp_path / "started").exists() or not any(s.busy for s in statuses):
+                        await asyncio.sleep(0.02)
+                (service,) = server.services
+                process = service._process
+                assert process is not None
+                if quit_app:
+                    server.quit_requested.set()
+                    shutdown = asyncio.create_task(server.shutdown_desktop())
+                else:
+                    await ws.close()
+                    shutdown = asyncio.create_task(service.closed.wait())
+                # Shutdown must not cross the commit boundary, even after the tab disconnects.
+                with pytest.raises(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(shutdown), 0.2)
+                assert not (tmp_path / "saved.txt").exists()
+                assert not service.closed.is_set()
+                (tmp_path / "release").touch()
+                await asyncio.wait_for(shutdown, 10)
+                assert process.returncode == 0
+                assert (tmp_path / "saved.txt").read_text() == "complete"
+                assert not server.services
+                assert (
+                    any(s.text == "Backup complete" and not s.busy for s in statuses) or quit_app
+                ), statuses
+                assert all(str(tmp_path) not in s.text for s in statuses)
+            finally:
+                (tmp_path / "release").touch()
+                await ws.close()
+
+    asyncio.run(check())
+
+
+@pytest.mark.skipif(sys.platform not in {"darwin", "win32"}, reason="Native desktop platforms")
+def test_native_status_icon_animates_during_work_and_stops_when_idle() -> None:
+    async def check() -> None:
+        script = Path(__file__).parents[1] / "support" / "desktop_animation.py"
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(script),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            output, _ = await asyncio.wait_for(process.communicate(), 15)
+            assert process.returncode == 0, output.decode(errors="replace")
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+
+    asyncio.run(check())

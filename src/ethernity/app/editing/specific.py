@@ -12,7 +12,7 @@ from ethernity.app.workflow_registry import workflow_definition
 from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.tasks.page_layout import BACKUP_RENDER_DOC_TYPES, KIT_RENDER_DOC_TYPES
 
-QUORUM_VALUE = "required/total, for example 2/3"
+QUORUM_VALUE = "required/total, such as 2/3 for any 2 of 3 sheets"
 QUORUM_RANGE = f"Each value must be 1 to {MAX_SHARES}, and required cannot exceed total."
 QUORUM_PROMPT = f"Enter {QUORUM_VALUE}. {QUORUM_RANGE}"
 
@@ -138,8 +138,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_add_files_payloads_source(self) -> None:
         await self._pick_paths(
-            title="Backup payload file",
-            prompt="Use payloads for the original backup and required updates.",
+            title="Exported backup data",
+            prompt="Choose a payload file for the original backup and required updates.",
             selected_paths=(
                 (self.add_files_state.payloads_file,)
                 if self.add_files_state.payloads_file is not None
@@ -182,17 +182,17 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         await self._push_editor(
             PasteTextScreen(
                 title="Recovery text",
-                prompt="Paste the MAIN block from a recovery sheet.",
+                prompt="Paste the MAIN and AUTH blocks from the recovery guide.",
                 value=self.restore_state.recovery_text or "",
-                placeholder="Paste the MAIN block here.",
+                placeholder="MAIN and AUTH text",
             ),
             self._editor_callbacks._apply_restore_recovery_text,
         )
 
     async def _edit_restore_payloads_source(self) -> None:
         await self._pick_paths(
-            title="Backup payload file",
-            prompt="Use a payload exported from backup documents.",
+            title="Exported backup data",
+            prompt="Choose a payload file exported from the backup documents.",
             selected_paths=(
                 (self.restore_state.payloads_file,)
                 if self.restore_state.payloads_file is not None
@@ -206,7 +206,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
     async def _edit_restore_auth_text_source(self) -> None:
         await self._pick_paths(
             title="Signature text file",
-            prompt="Use a text file containing the AUTH block from a recovery sheet.",
+            prompt="Choose a text file containing the AUTH block from the recovery guide.",
             selected_paths=(
                 (self.restore_state.auth_text_file,)
                 if self.restore_state.auth_text_file is not None
@@ -234,7 +234,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
     async def _edit_rebuild_auth_text_source(self) -> None:
         await self._pick_paths(
             title="Signature text file",
-            prompt="Use a text file containing the AUTH block from a recovery sheet.",
+            prompt="Choose a text file containing the AUTH block from the recovery guide.",
             selected_paths=(
                 (self.rebuild_state.auth_text_file,)
                 if self.rebuild_state.auth_text_file is not None
@@ -263,17 +263,17 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         await self._push_editor(
             PasteTextScreen(
                 title="Recovery text",
-                prompt="Paste the MAIN block from an existing recovery sheet.",
+                prompt="Paste the MAIN and AUTH blocks from the recovery guide.",
                 value=self.replace_recovery_docs_state.recovery_text or "",
-                placeholder="Paste the MAIN block here.",
+                placeholder="MAIN and AUTH text",
             ),
             self._editor_callbacks._apply_replace_recovery_text,
         )
 
     async def _edit_replace_payloads_source(self) -> None:
         await self._pick_paths(
-            title="Backup payload file",
-            prompt="Use a payload exported from the existing backup documents.",
+            title="Exported backup data",
+            prompt="Choose a payload file exported from the backup documents.",
             selected_paths=(
                 (self.replace_recovery_docs_state.payloads_file,)
                 if self.replace_recovery_docs_state.payloads_file is not None
@@ -286,8 +286,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_replace_signing_key_payloads(self) -> None:
         await self._pick_paths(
-            title="Signing-key recovery payload files",
-            prompt="Use payloads exported from the signing-key sheets you are replacing.",
+            title="Exported signing-key data",
+            prompt="Choose payload files exported from the signing-key sheets being replaced.",
             selected_paths=self.replace_recovery_docs_state.signing_key_recovery_payload_files,
             callback=self._editor_callbacks._apply_replace_signing_key_payloads_picked,
             mode=FilePickerMode.OPEN_FILES,

@@ -341,10 +341,10 @@ async def exercise_replacement_review() -> None:
         assert "Warnings" in review_text
         assert "scan.pdf" in review_text
         assert "Source\n1 document input" in review_text
-        assert "Ethernity will create a new folder and write the replacement PDFs" in review_text
-        assert "The selected output path must not already exist." in review_text
+        assert "Creates a new folder for the PDFs" in review_text
+        assert "The destination must not already exist." in review_text
         assert "These scans may not contain the latest backup version" in review_text
-        assert "A custom quorum changes how many sheets you need" in review_text
+        assert "Keep at least 4 of the 5 recovery sheets." in review_text
         assert "Passphrase recovery: 5 sheets; any 4 can restore" in review_text
         assert (
             "The new recovery sheets unlock the original backup and any intact version "

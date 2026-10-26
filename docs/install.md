@@ -1,7 +1,7 @@
 # Install Ethernity
 
-Ethernity opens in your terminal by default. Packaged downloads include Python, the PDF fonts,
-browser mode, and the browser recovery kits. You do not need to install Python for those downloads.
+The desktop app opens in your browser. The `ethernity` command opens in your terminal by default.
+Packaged downloads include Python, PDF fonts, browser assets, and the recovery kits.
 
 ## Browser mode
 
@@ -9,13 +9,19 @@ Run `ethernity --web` to open the same app in your default browser. The app runs
 uses your usual settings, and reads and writes your local files. Fonts and scripts are local too;
 an internet connection is not needed. No additional installation is required.
 
-Keep the launching terminal open. Ctrl+C stops the server and its open sessions. Closing or
-refreshing a browser tab ends that tab's app session; reopening starts a new one. Files already
-written remain on disk.
+When launched with `ethernity --web`, keep the terminal open; Ctrl+C stops the server and its
+sessions. Finish or cancel running operations before stopping this terminal command.
 
-The server listens only on `127.0.0.1`, chooses an available port, and prints a private link for
-that launch. Use `ethernity --web --no-open` to open that link yourself. It cannot be used from
-another computer. The file picker and Open folder actions operate on the computer running Ethernity.
+Desktop launches add an Ethernity icon to the macOS menu bar or Windows notification area.
+Its menu shows task progress and the most recent result. Use **Open Ethernity** to reopen the
+browser and **Quit Ethernity** to exit. Quit waits for active operations to finish writing files.
+Closing the last tab leaves the desktop launcher running; an active operation finishes before
+that tab's session closes. Reopening starts a new session. Files already written remain on disk.
+
+The server listens only on `127.0.0.1` and chooses an available port. The terminal command prints
+a private link for that launch. Use `ethernity --web --no-open` to open it yourself. It cannot be
+used from another computer. The file picker and Open folder actions operate on the computer
+running Ethernity.
 
 Browser mode is separate from the standalone HTML recovery kit, which needs no running Ethernity
 process and can be kept with a backup.
@@ -33,6 +39,23 @@ The installer commands below require a release containing `install.sh`, `install
 default. Download a fresh script when upgrading; do not fetch installers from `master`.
 
 ## macOS
+
+### Desktop app
+
+On Apple silicon, download `ethernity-vX.Y.Z-macos-arm64.dmg` from the release, open it, and
+drag Ethernity to Applications. Eject the disk image, then open Ethernity from Applications.
+It opens your default browser and works without an internet connection.
+
+To update, close Ethernity's browser tabs, wait for it to stop, then drag the new app to
+Applications and choose **Replace**. To uninstall, close its tabs and move Ethernity.app to the
+Trash. Your settings and backups remain outside the app. The DMG does not install a shell command;
+use Homebrew or a portable archive if you also want `ethernity` in a terminal.
+
+The app is not notarized or signed with an Apple Developer ID. macOS may block its first launch.
+See [download verification](release_files.md#verification-example) before allowing it in
+**System Settings > Privacy & Security**. Do not disable Gatekeeper globally.
+
+### Terminal app
 
 On Apple silicon, with [Homebrew](https://brew.sh/) installed:
 
@@ -55,7 +78,25 @@ users can use the [Python installation route](#python-users); Intel macOS is not
 
 ## Windows
 
-Use 64-bit Windows. The native archive is x64; there is no native Windows ARM build.
+Use Windows 10 or newer on x64. There is no native Windows ARM build.
+
+### Desktop app
+
+Download and run `ethernity-vX.Y.Z-windows-x64-setup.exe` from the release, then open Ethernity
+from Start. Setup installs for your account without administrator access, under
+`%LOCALAPPDATA%\Programs\Ethernity Desktop`. A desktop shortcut is optional.
+The app opens your default browser. Windows may warn that the installer has no publisher signature;
+[verify the download](release_files.md#verification-example) before running it.
+
+To update, close Ethernity's browser tabs and run the new setup file. Setup keeps the same
+Installed Apps entry and removes the previous runtime. To uninstall, remove **Ethernity** from
+Windows **Installed apps**. Settings and backups are kept.
+
+The desktop installer does not change PATH. The PowerShell and WinGet routes below provide the
+terminal command and can coexist with the desktop app. Update or remove each copy using the
+method that installed it.
+
+### Terminal app
 
 Download `install.ps1` from the release you want, open PowerShell in the download directory,
 and run:
@@ -155,7 +196,7 @@ archive, and checksum file from the same release, and verify signatures before g
 
 ## Download checks
 
-Both direct installers require a matching SHA-256 checksum from the release's `SHA256SUMS`.
+The shell and PowerShell installers require a matching SHA-256 checksum from the release's `SHA256SUMS`.
 A missing or mismatched checksum stops installation. The checksum detects changed or damaged
 downloads; a checksum downloaded alongside an archive is not independent proof of its publisher.
 

@@ -55,14 +55,38 @@ Run the relevant tests while working. Before opening a pull request, run the Pyt
 uv run ruff check src tests tooling
 uv run ruff format --check src tests tooling
 uv run pylint src/ethernity tooling
-uv run pyrefly check
+for platform in linux darwin win32; do
+  uv run pyrefly check --python-platform "$platform" || exit 1
+done
 uv run typos .
-uv run pytest tests/unit tests/ui tests/rendering tests/integration -q
+uv run --locked --extra dev python -m tooling.check_tests
 ```
 
-The full Python suite needs the generated kit bundles and installed npm dependencies from setup.
-The [CI workflow](.github/workflows/ci.yml) defines the platform matrix, coverage thresholds, E2E
-tests, packaging checks, and dependency audits. Local checks do not replace those gates.
+The last command runs every Python test, including integration, E2E and terminal visuals, and
+enforces the application (85%) and document-inspector (45%) branch coverage thresholds. It needs
+the generated kit bundles and npm dependencies from setup, Node.js, and Poppler's `pdftoppm` and
+`pdfinfo` commands. Install Poppler with `brew install poppler` on macOS or your system package
+manager. Missing prerequisites fail the full check instead of silently skipping those tests.
+
+[tooling/check_tests.py](tooling/check_tests.py) owns the test selections, worker limits and
+coverage gates used by both the local command and CI. The default runs all Python suites;
+passing a suite name runs only that group and prints a reminder that the check is partial:
+
+```sh
+uv run --locked --extra dev python -m tooling.check_tests core
+uv run --locked --extra dev python -m tooling.check_tests ui-1
+```
+
+Use targeted `pytest` commands during development, then the full command before pushing. UI
+copy also appears in task results and integration tests, so a passing UI suite alone does not
+verify a wording change. Report which suites ran; do not describe a selection as "all tests".
+Keep exact-copy checks for recovery instructions whose meaning matters. When editing those
+instructions, update the expected text and retain the checks for output, state and error handling.
+Do not import production messages into test expectations, which would make both change together.
+
+The [CI workflow](.github/workflows/ci.yml) retains separate platform runs, the PDF review
+matrix, JavaScript/browser tests, packaging checks and dependency audits. The local Python
+command does not replace those gates or reproduce another operating system.
 Dependency audits cover the locked runtime, development, and build packages and fail on any known
 vulnerability. The Python audit reads a fully resolved, hashed uv export without installing it
 again. Dependabot updates `uv.lock` and groups security fixes separately from routine updates.
@@ -130,11 +154,10 @@ once per platform; both Linux jobs contribute to the same coverage gates. The ti
 `tests/ui/durations.json` balance the jobs, not decide which tests run. New tests receive an
 average duration until the timings are refreshed.
 
-To reproduce one group locally, use `--group 1` or `--group 2`:
+To reproduce one group locally, use `ui-1` or `ui-2`:
 
 ```sh
-uv run pytest tests/ui -n 4 --dist loadfile --splits 2 --group 1 \
-  --splitting-algorithm least_duration --durations-path tests/ui/durations.json
+uv run --locked --extra dev python -m tooling.check_tests ui-1
 ```
 
 Refresh the scheduling weights with a successful full UI run:
@@ -160,16 +183,25 @@ must not load the renderer or configuration editor.
 Golden and visual suites can run in two worker processes:
 
 ```sh
-uv run pytest tests/e2e -n 2 --dist loadfile -q
-uv run pytest tests/visual -n 2 -q
+uv run --locked --extra dev python -m tooling.check_tests e2e
+uv run --locked --extra dev python -m tooling.check_tests visual
 ```
 
 Keep `--dist loadfile` for E2E tests so each frozen-profile class retains its shared setup and
 scan cache. Both commands run every test with the same assertions and baselines as a serial run.
 The worker count is bounded because recovery uses substantial memory. Use `-n 0` for a serial run.
 
-Repository hooks are available with `uv run pre-commit run --all-files`. They include Python and
-kit checks plus a small format test selection.
+Repository hooks are available with `uv run pre-commit run --all-files`. Commit hooks include
+static Python and kit checks plus a small format test selection. They do not run the full suite.
+To run the full Python check automatically before each push, install the optional push hook:
+
+```sh
+uv run pre-commit install --hook-type pre-push
+```
+
+The full check writes separate JUnit reports and coverage data under `test-results/`. A failed
+suite or coverage gate makes the command fail. Other suites still run so one failure does not
+hide the remaining results.
 
 ### Python readability
 

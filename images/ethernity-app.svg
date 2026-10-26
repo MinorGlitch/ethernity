@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Ethernity folded paper infinity</title>
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#efc767" />
+      <stop offset="1" stop-color="#d5a94f" />
+    </linearGradient>
+  </defs>
+  <rect id="tile" x="32" y="32" width="960" height="960" rx="208" fill="#20231f" />
+  <g transform="translate(38 36) scale(.756)">
+    <path id="ribbon" fill="url(#gold)" fill-rule="evenodd" d="M65 533 241 366H471L626 518 784 366H1014L1188 533V733L1010 893H782L626 739 469 893H237L65 736ZM185 630 354 788 519 631 351 479ZM735 629 899 789 1066 630 891 479Z" />
+    <path id="left-fold" fill="#30332e" d="M351 479 471 366V591Z" />
+    <path id="right-fold" fill="#30332e" d="M782 676 899 789 782 893Z" />
+    <path id="front-ribbon" fill="#e4b959" d="M471 366 782 676V893L471 591Z" />
+    <path id="lower-left-facet" fill="#dcaf53" d="M65 736 185 630 354 788 469 893H237Z" />
+    <path id="upper-right-facet" fill="#edc265" d="M891 479 1014 366 1188 533V733L1066 630Z" />
+  </g>
+</svg>

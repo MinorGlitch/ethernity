@@ -20,7 +20,9 @@ import argparse
 import multiprocessing
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
+from ethernity import desktop
 from ethernity.app.bootstrap import run_app
 from ethernity.app.browser import run_browser
 from ethernity.run.cli import cli as run_cli
@@ -56,6 +58,13 @@ Examples:
 
 def main(argv: Sequence[str] | None = None) -> int:
     multiprocessing.freeze_support()
+    if getattr(sys, "frozen", False):
+        executable = Path(sys.executable)
+        if sys.platform == "win32":
+            # Use the windowless bootloader so background work does not flash console windows.
+            multiprocessing.set_executable(str(executable.with_name("ethernity-desktop.exe")))
+        if executable.stem == "ethernity-desktop":
+            return desktop.main()
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
         run_app()

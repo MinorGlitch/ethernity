@@ -114,7 +114,7 @@ class RebuildTaskState(RecoveryTaskState):
             issues.append(
                 TaskIssue(
                     code="REBUILD_UNLOCK_REQUIRED",
-                    message="Choose a passphrase, recovery sheets, or recovery payload files.",
+                    message="Enter a passphrase or load recovery sheets or exported recovery data.",
                     section="unlock",
                 )
             )
@@ -223,10 +223,10 @@ class RebuildTaskState(RecoveryTaskState):
         if result.signing_key_preserved is True:
             signing_note = "The signing key is preserved."
         elif result.signing_key_preserved is False:
-            signing_note = "The sealed backup has a new signing key."
+            signing_note = "A new signing key was created."
         return TaskExecutionResult(
             status="succeeded",
-            message="Rebuilt backup documents created.",
+            message="Backup rebuilt.",
             output_paths=output_paths,
             recovery_check_paths=generated_recovery_check_paths(result),
             details=(

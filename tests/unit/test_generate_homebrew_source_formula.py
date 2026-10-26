@@ -270,7 +270,12 @@ class TestGenerateHomebrewSourceFormula(unittest.TestCase):
 
     def test_wheel_only_targets_do_not_install_source_build_tools(self) -> None:
         packages = {"example": {"wheels": [_wheel("py3-none-any")]}}
-        self.assertEqual(_MODULE._render_build_dependencies(packages, {"example"}), "")
+        self.assertEqual(
+            _MODULE._render_build_dependencies(
+                packages, {target: {"example"} for target in _MODULE._HOMEBREW_TARGETS}
+            ),
+            "",
+        )
 
     def test_source_fallback_retains_build_tools_on_the_affected_target(self) -> None:
         packages = {
@@ -282,7 +287,9 @@ class TestGenerateHomebrewSourceFormula(unittest.TestCase):
                 "sdist": {"url": "https://example.com/source.tar.gz", "hash": "sha256:" + "a" * 64},
             }
         }
-        rendered = _MODULE._render_build_dependencies(packages, {"example"})
+        rendered = _MODULE._render_build_dependencies(
+            packages, {target: {"example"} for target in _MODULE._HOMEBREW_TARGETS}
+        )
         self.assertIn("on_linux do\n    on_arm do", rendered)
         self.assertNotIn("on_macos", rendered)
         self.assertNotIn("on_intel", rendered)
@@ -291,7 +298,9 @@ class TestGenerateHomebrewSourceFormula(unittest.TestCase):
 
     def test_source_only_resources_retain_tools_on_all_targets(self) -> None:
         packages = {"example": {"sdist": {"url": "https://example.com/source.tar.gz"}}}
-        rendered = _MODULE._render_build_dependencies(packages, {"example"})
+        rendered = _MODULE._render_build_dependencies(
+            packages, {target: {"example"} for target in _MODULE._HOMEBREW_TARGETS}
+        )
         self.assertNotIn(" do", rendered)
         self.assertIn('depends_on "rust" => :build', rendered)
 
@@ -309,7 +318,11 @@ class TestGenerateHomebrewSourceFormula(unittest.TestCase):
         self.assertNotIn("-cp314-", rendered)
         self.assertNotIn('resource "colorama"', rendered)
         build_dependencies = _MODULE._render_build_dependencies(
-            lock_packages, _MODULE._required_runtime_resource_names(lock_packages)
+            lock_packages,
+            {
+                target: _MODULE._required_runtime_resource_names(lock_packages, targets=(target,))
+                for target in _MODULE._HOMEBREW_TARGETS
+            },
         )
         self.assertIn("on_macos do", build_dependencies)
         self.assertNotIn("on_linux", build_dependencies)
@@ -318,6 +331,12 @@ class TestGenerateHomebrewSourceFormula(unittest.TestCase):
         self.assertIn('depends_on "rust" => :build', build_dependencies)
 
         for target in _MODULE._HOMEBREW_TARGETS:
+            required = _MODULE._required_runtime_resource_names(lock_packages, targets=(target,))
+            desktop_packages = {"pystray", "pyobjc-core", "pyobjc-framework-cocoa"}
+            if target.system == "darwin":
+                self.assertTrue(desktop_packages <= required)
+            else:
+                self.assertTrue(desktop_packages.isdisjoint(required))
             for name in ("pydantic-core", "psutil", "pycryptodome", "pyrage", "cbor2"):
                 with self.subTest(target=target, package=name):
                     url, sha = _MODULE._choose_package_file_for_resource(

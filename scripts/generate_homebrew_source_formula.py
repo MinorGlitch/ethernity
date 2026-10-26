@@ -324,17 +324,24 @@ def _marker_applies_to_environment(marker: str, environment: dict[str, str]) -> 
     return result
 
 
-def _dependency_applies_to_homebrew(dependency: dict[str, object]) -> bool:
+def _dependency_applies_to_homebrew(
+    dependency: dict[str, object], targets: tuple[HomebrewTarget, ...]
+) -> bool:
     marker = dependency.get("marker")
     if not isinstance(marker, str):
         return True
     return any(
         _marker_applies_to_environment(marker, environment)
-        for environment in _HOMEBREW_MARKER_ENVIRONMENTS
+        for target, environment in zip(
+            _HOMEBREW_TARGETS, _HOMEBREW_MARKER_ENVIRONMENTS, strict=True
+        )
+        if target in targets
     )
 
 
-def _package_dependency_names(package: dict[str, object]) -> list[str]:
+def _package_dependency_names(
+    package: dict[str, object], targets: tuple[HomebrewTarget, ...]
+) -> list[str]:
     dependencies = package.get("dependencies", [])
     if not isinstance(dependencies, list):
         return []
@@ -342,7 +349,7 @@ def _package_dependency_names(package: dict[str, object]) -> list[str]:
     for dependency in dependencies:
         if not isinstance(dependency, dict):
             continue
-        if not _dependency_applies_to_homebrew(dependency):
+        if not _dependency_applies_to_homebrew(dependency, targets):
             continue
         name_value = dependency.get("name")
         if isinstance(name_value, str):
@@ -354,13 +361,14 @@ def _required_runtime_resource_names(
     lock_packages: dict[str, dict[str, object]],
     *,
     formula_dependency_names: set[str] | None = None,
+    targets: tuple[HomebrewTarget, ...] = _HOMEBREW_TARGETS,
 ) -> set[str]:
     root_package = lock_packages.get(_ROOT_LOCK_PACKAGE_NAME)
     if root_package is None:
         raise ValueError(f"uv.lock does not contain root package {_ROOT_LOCK_PACKAGE_NAME!r}")
 
     formula_dependencies = formula_dependency_names or set()
-    pending = list(_package_dependency_names(root_package))
+    pending = list(_package_dependency_names(root_package, targets))
     required: set[str] = set()
     while pending:
         package_name = pending.pop()
@@ -372,7 +380,7 @@ def _required_runtime_resource_names(
         if package is None:
             raise ValueError(f"uv.lock is missing runtime package {package_name!r}")
         required.add(package_name)
-        pending.extend(_package_dependency_names(package))
+        pending.extend(_package_dependency_names(package, targets))
     return required
 
 
@@ -386,9 +394,13 @@ def _resource_block(package_name: str, selected: tuple[str, str], indent: str) -
     )
 
 
-def _render_resource(package_name: str, package: dict[str, object]) -> str:
+def _render_resource(
+    package_name: str,
+    package: dict[str, object],
+    targets: tuple[HomebrewTarget, ...] = _HOMEBREW_TARGETS,
+) -> str:
     choices: dict[tuple[str, str], list[str]] = {}
-    for target in _HOMEBREW_TARGETS:
+    for target in targets:
         selected = _choose_package_file_for_resource(package, target)
         if selected is None:
             raise ValueError(
@@ -396,7 +408,7 @@ def _render_resource(package_name: str, package: dict[str, object]) -> str:
                 f"{target.system}/{target.architecture}"
             )
         choices.setdefault(selected, []).append(target.condition)
-    if len(choices) == 1:
+    if len(choices) == 1 and targets == _HOMEBREW_TARGETS:
         return _resource_block(package_name, next(iter(choices)), "  ")
 
     blocks = []
@@ -416,23 +428,36 @@ def _render_resource(package_name: str, package: dict[str, object]) -> str:
 def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str, object]]) -> str:
     if formula.splitlines().count(_RESOURCE_PLACEHOLDER) != 1:
         raise ValueError("formula template must contain exactly one locked resource placeholder")
-    required = _required_runtime_resource_names(
-        lock_packages, formula_dependency_names=_formula_dependency_names(formula)
+    required = {
+        target: _required_runtime_resource_names(
+            lock_packages,
+            formula_dependency_names=_formula_dependency_names(formula),
+            targets=(target,),
+        )
+        for target in _HOMEBREW_TARGETS
+    }
+    names = set().union(*required.values())
+    resources = "\n".join(
+        _render_resource(
+            name,
+            lock_packages[name],
+            tuple(target for target, packages in required.items() if name in packages),
+        )
+        for name in sorted(names)
     )
-    resources = "\n".join(_render_resource(name, lock_packages[name]) for name in sorted(required))
     build_dependencies = _render_build_dependencies(lock_packages, required)
     return formula.replace(_RESOURCE_PLACEHOLDER + "\n", build_dependencies + resources)
 
 
 def _render_build_dependencies(
-    lock_packages: dict[str, dict[str, object]], required: set[str]
+    lock_packages: dict[str, dict[str, object]], required: dict[HomebrewTarget, set[str]]
 ) -> str:
     # Keep the existing source-build toolchain for every target that needs it,
     # including future wheel-to-source fallbacks. Wheel-only targets need neither.
     source_targets = [
         target
         for target in _HOMEBREW_TARGETS
-        if any(_choose_wheel(lock_packages[name], target) is None for name in required)
+        if any(_choose_wheel(lock_packages[name], target) is None for name in required[target])
     ]
     if not source_targets:
         return ""

@@ -1,3 +1,5 @@
+default_stages: [pre-commit]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -19,6 +21,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: python-tests
+        name: full Python tests and coverage gates
+        entry: uv run --locked --extra dev python -m tooling.check_tests
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true
       - id: pylint
         name: pylint duplication and nesting
         entry: uv run pylint src/ethernity tooling

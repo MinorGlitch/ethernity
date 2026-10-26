@@ -10,6 +10,10 @@ No account or online service is required.
 Use it for seed phrases, private keys, certificates, and configuration files.
 
 <p align="center">
+  <img src="images/ethernity-animated.gif" alt="Ethernity folded-paper infinity logo" width="400">
+</p>
+
+<p align="center">
   <a href="images/readme/backup_flow.gif">
     <img src="images/readme/backup_flow.gif" alt="Selecting files, creating paper backup PDFs, and checking recovery with two recovery sheets" width="900">
   </a>
@@ -57,8 +61,10 @@ for compression examples, other paper sizes, and how to check your own files.
 
 ## Install
 
-Ethernity opens in your terminal by default. Run `ethernity --web` to use the same app in your
-browser. The packaged downloads include Python and everything needed to create and restore backups.
+The desktop app opens in your browser, with a menu-bar or notification-area icon for status and Quit.
+The `ethernity` command opens in your terminal.
+Both use the same interface and work offline. Packaged downloads include Python and everything
+needed to create and restore backups.
 
 This guide describes Ethernity 1.2. See the [release notes](docs/releases/1.2.0.md) for changes
 and publication status, and [GitHub Releases](https://github.com/MinorGlitch/ethernity/releases)
@@ -66,6 +72,8 @@ for available downloads. For an older version, follow the README at its release 
 
 | Platform | Installation | Start |
 | --- | --- | --- |
+| macOS, Apple silicon (desktop) | Open the release's `.dmg` and drag Ethernity to Applications | Open Ethernity |
+| Windows x64 (desktop) | Run the release's `-setup.exe` | Open Ethernity from Start |
 | macOS, Apple silicon | `brew install minorglitch/tap/ethernity` with [Homebrew](https://brew.sh/) | `ethernity` |
 | Windows x64 | Download the release's `install.ps1`, then run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1` | Open a new terminal, run `ethernity` |
 | Linux x64 / ARM64 | Download the release's `install.sh`, then run `sh install.sh` | `ethernity` |
@@ -82,7 +90,7 @@ downloads, verification, and Python installation with uv or pipx.
 
 ## Make a backup and try restoring it
 
-Start the terminal app:
+Open the desktop app, or start it from a terminal:
 
 ```sh
 ethernity

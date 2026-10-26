@@ -175,14 +175,14 @@ def test_textual_app_settings_categories_show_advanced_and_config_actions(tmp_pa
             assert workflow_support.static_text(app, "#settings-save-status") == "Saved"
             assert (
                 workflow_support.static_text(app, "#settings-recovery-summary")
-                == "3 recovery sheets; any 2 required"
+                == "3 sheets; any 2 can restore"
             )
             assert not app.query_one("#setting-help-backup_signing_key_mode").display
             signing_key_options = app.query_one(
                 "#setting-control-backup_signing_key_mode",
                 Select,
             )._options
-            assert ("Use built-in default (Embedded)", "__none__") in signing_key_options
+            assert ("Default: embedded in backup", "__none__") in signing_key_options
             compression_options = app.query_one(
                 "#setting-control-backup_payload_codec",
                 Select,

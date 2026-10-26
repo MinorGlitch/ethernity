@@ -99,8 +99,8 @@ class PrimaryEditingActions(BaseEditingActions):
             )
             return
         await self._pick_paths(
-            title="Recovery payload files",
-            prompt="Use payload files exported from recovery sheets.",
+            title="Exported recovery data",
+            prompt="Choose payload files exported from recovery sheets.",
             selected_paths=state.recovery_payload_files,
             callback=self._editor_callbacks._apply_unlock_payload_files_picked,
             mode=FilePickerMode.OPEN_FILES,

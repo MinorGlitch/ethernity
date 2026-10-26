@@ -92,9 +92,9 @@ class BackupWorkspace(BaseWorkspace):
                     ),
                 )
                 yield field_row(
-                    "Quorum",
+                    "Sheets",
                     "backup-quorum-value",
-                    WorkspaceAction("workspace-backup-recovery-quorum", "Change quorum..."),
+                    WorkspaceAction("workspace-backup-recovery-quorum", "Change..."),
                     row_id="backup-custom-quorum-row",
                 )
                 yield Static(
@@ -121,7 +121,7 @@ class BackupWorkspace(BaseWorkspace):
                 yield field_row(
                     "Quorum",
                     "backup-signing-key-shards-value",
-                    WorkspaceAction("workspace-backup-signing-key-shards", "Set quorum..."),
+                    WorkspaceAction("workspace-backup-signing-key-shards", "Change..."),
                     row_id="backup-key-sheets-row",
                 )
                 yield InlineNotice(id="backup-signing-notice")

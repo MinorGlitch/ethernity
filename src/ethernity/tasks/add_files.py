@@ -223,7 +223,7 @@ class AddFilesTaskState(ContentRecoveryTaskState):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_SOURCE_REQUIRED",
-                    message="Choose backup documents, recovery text, or exported payloads.",
+                    message="Load backup documents, paste printed text, or load exported data.",
                     section="source",
                 )
             )
@@ -231,7 +231,7 @@ class AddFilesTaskState(ContentRecoveryTaskState):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_RECOVERY_TEXT_INVALID",
-                    message="Pasted recovery text is not valid recovery text.",
+                    message="Could not read the pasted text. Copy the full MAIN and AUTH blocks.",
                     section="source",
                 )
             )
@@ -255,7 +255,7 @@ class AddFilesTaskState(ContentRecoveryTaskState):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_UNLOCK_REQUIRED",
-                    message="Choose a passphrase, recovery sheets, or recovery payload files.",
+                    message="Enter a passphrase or load recovery sheets or exported recovery data.",
                     section="unlock",
                 )
             )
@@ -502,7 +502,7 @@ class AddFilesTaskState(ContentRecoveryTaskState):
         )
         next_steps = (
             self._chain_recovery_guidance(result.index),
-            "Use Rebuild when you want a new standalone backup instead of the full update chain.",
+            "Use Rebuild to combine the backup and updates into a new set of documents.",
             "Save the new fingerprint as the expected latest version before the next update.",
             "Print every new PDF at 100% (actual size).",
             "Test recovery from scans of the new pages with the reusable recovery kit.",
@@ -527,8 +527,8 @@ class AddFilesTaskState(ContentRecoveryTaskState):
                 ),
                 next_steps=(
                     (
-                        "The update is already published. Do not run Add Files again; run "
-                        "Replace Recovery Docs for the new fingerprint."
+                        "The update is saved. Use Replace sheets with its new fingerprint "
+                        "to create the missing sheets. Do not repeat Add files."
                     ),
                     *next_steps,
                 ),
@@ -629,7 +629,7 @@ class AddFilesTaskState(ContentRecoveryTaskState):
         request = self.source_assessment_request()
         if request is not None:
             return request.source_summary
-        return "Choose backup documents, recovery text, or exported payloads."
+        return "Choose backup documents, printed text, or exported data."
 
     def _read_paths(self) -> tuple[Path, ...]:
         return self.content_read_paths(
@@ -697,12 +697,12 @@ class AddFilesTaskState(ContentRecoveryTaskState):
         )
 
     def _recovery_plan_note(self) -> str:
-        inherited = "The update inherits the backup's passphrase and signing key."
+        inherited = "The update uses the same passphrase and signing key."
         if not self.create_recovery_sheets:
             return f"{inherited} No new recovery sheets will be created."
         return (
-            f"{inherited} After publication, Replace Recovery Docs will create "
-            f"{self.recovery_sheet_count} passphrase recovery sheets bound to the new head."
+            f"{inherited} After saving the update, create "
+            f"{self.recovery_sheet_count} recovery sheets for it."
         )
 
     def resolved_update_mode(self) -> UpdateMode | None:
@@ -732,14 +732,8 @@ class AddFilesTaskState(ContentRecoveryTaskState):
                 "Earlier updates are only needed to restore earlier versions."
             )
         if next_index is None:
-            return (
-                "Recovery requires the original backup and every update. Rebuild creates a new "
-                "standalone backup when carrying the full chain is inconvenient."
-            )
-        return (
-            f"Recovery requires the original backup and updates 01 through {next_index:02d}. "
-            "Rebuild after publication to create a new standalone backup."
-        )
+            return "Recovery requires the original backup and every update."
+        return f"Recovery requires the original backup and updates 01 through {next_index:02d}."
 
     def _recovery_sheet_output_path(
         self,

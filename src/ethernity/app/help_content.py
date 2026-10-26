@@ -36,73 +36,66 @@ def _section(title: str, body: str, *notes: str) -> HelpSection:
 HELP_MODES: tuple[HelpMode, ...] = (
     HelpMode(
         key="backup",
-        summary="Encrypt files and folders into printable backup documents.",
+        summary="Encrypt files and print them as a paper backup.",
         sections=(
             _section(
                 "Before you start",
                 (
-                    "Choose at least one file or folder and a recovery method. Set an output "
-                    "folder only for a custom location. Leave Base folder automatic unless "
-                    "printed paths need a fixed root."
+                    "Choose files, a recovery method, and a print layout. "
+                    "Folders include all their contents."
                 ),
             ),
             _section(
                 "Result",
                 (
-                    "Ethernity creates a new backup-<id> folder inside the selected destination, "
-                    "or in the current folder if none is selected. Existing backups stay unchanged."
+                    "Each backup gets a new folder inside the destination. "
+                    "If none is selected, it uses the current folder."
                 ),
                 "Recommended recovery creates three sheets; any two can restore.",
             ),
             _section(
-                "Protect the set",
+                "Printing and storage",
                 (
-                    "Store recovery sheets in separate places. Treat a single recovery phrase "
-                    "like a password."
+                    "Keep recovery sheets apart from the backup pages and from each other. "
+                    "Keep a single recovery phrase private, like a password."
                 ),
-                "Scan at least one printed QR code before relying on the set.",
-                (
-                    "Higher QR density may reduce page count, but it can make scanning less "
-                    "reliable."
-                ),
+                "Test recovery from scans of the printed pages before storing them.",
+                ("Higher QR density uses fewer pages but can make codes harder to scan."),
             ),
         ),
         shortcuts=COMMON_SHORTCUTS,
     ),
     HelpMode(
         key="restore",
-        summary=(
-            "Recover files from a backup folder, scanned pages, recovery text, or exported "
-            "backup payloads."
-        ),
+        summary=("Recover files from backup PDFs, scans, printed text, or exported data."),
         sections=(
             _section(
                 "Before you start",
                 (
-                    "Load the backup documents, choose a passphrase, recovery sheets, or recovery "
-                    "payload files to unlock it, then choose a destination."
+                    "Load the backup and unlock it with a passphrase or recovery sheets. "
+                    "Exported recovery data works too."
                 ),
             ),
             _section(
                 "Result",
                 (
-                    "Ethernity writes recovered files to the destination and creates the folder "
-                    "when needed. Use an empty folder to avoid file conflicts."
+                    "Choose a new or empty folder for the restored files. "
+                    "Existing files are never replaced."
                 ),
             ),
             _section(
-                "Trust and version",
+                "Choosing a version",
                 (
-                    "Latest means the newest valid update in the documents you loaded. Ethernity "
-                    "cannot check for newer copies elsewhere."
+                    "Newest loaded version uses the latest valid update you supplied. "
+                    "Newer updates may exist elsewhere."
                 ),
                 (
-                    "Enter a separately saved full fingerprint to check the version you trust "
-                    "as latest. Use Copy fingerprint after creating a backup or update to save it."
+                    "Check against a full fingerprint you saved separately. "
+                    "After a backup or update, use Copy fingerprint and save it somewhere safe."
                 ),
                 (
-                    "Keep signature verification on unless you are restoring legacy unsigned "
-                    "backups. Treat recovery sheets and recovery payload files as secrets."
+                    "Allow unsigned backups only for older backups without signatures. "
+                    "Keep recovery sheets and exported recovery data private."
                 ),
             ),
         ),
@@ -110,48 +103,38 @@ HELP_MODES: tuple[HelpMode, ...] = (
     ),
     HelpMode(
         key="add_files",
-        summary="Add or replace paths in an existing backup by creating an update.",
+        summary="Add or replace files without printing the whole backup again.",
         sections=(
             _section(
                 "Before you start",
+                ("Load and unlock the backup, then choose the files or folders to add."),
                 (
-                    "Load backup documents from PDFs, scans, images, recovery text, or exported "
-                    "payloads. Unlock the backup and choose the files or folders to add."
-                ),
-                (
-                    "Cumulative series need the original backup and selected update. Incremental "
-                    "series also need every earlier update."
+                    "Cumulative updates need the original backup and the selected update. "
+                    "Incremental updates also need every earlier update."
                 ),
             ),
             _section(
                 "Result",
-                ("Ethernity writes two update documents to a separate output folder."),
+                "Creates an update PDF and recovery guide in a new folder.",
+                ("Files with matching backup paths are replaced. Other files stay unchanged."),
                 (
-                    "A selected path replaces the current content at that path. Omitted paths "
-                    "remain unchanged."
-                ),
-                (
-                    "Optional new recovery sheets are created by Replace Recovery Docs after the "
-                    "update is created and saved separately. They unlock the original backup "
-                    "and any available update."
+                    "Optional new recovery sheets are saved separately. "
+                    "They unlock the original backup and any available update."
                 ),
             ),
             _section(
-                "Limits and trust",
+                "Limits",
                 (
-                    "Add Files cannot delete or rename paths. To do either, restore the files you "
-                    "want, create a new backup, and retire the old backup set. An update must "
-                    "leave the complete current contents small enough to Rebuild."
+                    "To delete or rename files, restore them and create a new backup. "
+                    "The total data after an update must still fit in a rebuilt backup."
                 ),
                 (
-                    "Check a trusted latest fingerprint, or explicitly accept the newest loaded "
-                    "version. Updates started separately from the same version create conflicting "
-                    "histories that Ethernity cannot merge."
+                    "Check a separately saved fingerprint, or accept that newer updates may be "
+                    "missing. Separate updates from the same version conflict and cannot be merged."
                 ),
                 (
-                    "The original backup documents plus a passphrase or enough recovery sheets "
-                    "authorizes an update. Signing-key sheets recover the signing key; they are "
-                    "not another approval."
+                    "Anyone with the original backup and its passphrase or enough recovery sheets "
+                    "can create an update. Signing-key sheets do not add another approval step."
                 ),
             ),
         ),
@@ -159,38 +142,31 @@ HELP_MODES: tuple[HelpMode, ...] = (
     ),
     HelpMode(
         key="rebuild",
-        summary="Turn a backup history into a fresh standalone set of printable documents.",
+        summary="Combine a backup and its updates into a new paper backup.",
         sections=(
             _section(
                 "Before you start",
                 (
-                    "Load a backup folder or scanned pages, choose an unlock method, and select an "
-                    "output folder. Enter a separately saved full fingerprint, or acknowledge "
-                    "that newer documents may be missing."
+                    "Load and unlock the backup, then choose a destination. Check a separately "
+                    "saved fingerprint, or accept that newer updates may be missing."
                 ),
             ),
             _section(
                 "Result",
                 (
-                    "Ethernity creates a new backup-<id> folder inside the selected destination "
-                    "and leaves the source untouched. Rebuild does not add or remove "
-                    "backed-up files."
+                    "Creates a new backup folder with the same files and new recovery sheets. "
+                    "The original documents stay unchanged."
                 ),
                 (
-                    "The rebuilt set gets new recovery sheets. It keeps "
-                    "the passphrase and any embedded signing key. Sealed backups receive a new "
-                    "signing key."
+                    "The passphrase and any embedded signing key stay the same. "
+                    "Backups without an embedded signing key get a new one."
                 ),
-                "Verify the rebuilt backup and sheets before retiring the original documents.",
+                "Test recovery from the new printed pages before retiring the old ones.",
             ),
             _section(
-                "Credentials and source",
-                ("Create a new backup when you need a new passphrase or signing key."),
-                "Latest means the newest valid update in the documents you loaded.",
-                (
-                    "Higher QR density may reduce page count, but it can make scanning less "
-                    "reliable."
-                ),
+                "Changing the backup",
+                "Create a new backup to choose a new passphrase or signing key.",
+                ("Higher QR density uses fewer pages but can make codes harder to scan."),
             ),
         ),
         shortcuts=COMMON_SHORTCUTS,
@@ -202,100 +178,81 @@ HELP_MODES: tuple[HelpMode, ...] = (
             _section(
                 "Before you start",
                 (
-                    "Load backup documents, unlock it with a passphrase, current recovery sheets, "
-                    "or recovery payload files, then choose an output folder. Enter a separately "
-                    "saved full fingerprint, or acknowledge that newer documents may be missing."
+                    "Load and unlock the backup, then choose a new folder. "
+                    "For scanned pages, check a separately saved fingerprint or accept "
+                    "that newer updates may be missing."
                 ),
-                (
-                    "Load signing-key payload files only when you are replacing signing-key "
-                    "recovery sheets."
-                ),
+                ("To replace individual signing-key sheets, load their exported data."),
             ),
             _section(
                 "Result",
                 (
-                    "Ethernity writes new recovery-sheet PDFs to the output folder. It leaves the "
-                    "backup documents and backed-up files unchanged. New sheets unlock the "
-                    "original backup and any available update, even if a later update is lost."
+                    "Creates recovery-sheet PDFs without changing the backup. "
+                    "New sheets unlock the original and any available update, "
+                    "even if a later update is lost."
                 ),
             ),
             _section(
-                "Retire old sheets safely",
+                "Old sheets",
                 (
-                    "Print and verify the new sheets before retiring the old set. Old sheets "
-                    "remain sensitive until you destroy or secure them."
+                    "Test the new printed sheets before retiring the old ones. "
+                    "Old sheets still work. Destroy them or keep them secure."
                 ),
-                ("Signing-key sheets recover the signing key; they do not add a second approval."),
-                (
-                    "Replacement documents remain signed even without separate signing-key "
-                    "recovery sheets."
-                ),
+                "Signing-key sheets recover the key; they do not add another approval step.",
+                ("Replacement documents are signed even without separate key sheets."),
             ),
         ),
         shortcuts=COMMON_SHORTCUTS,
     ),
     HelpMode(
         key="kit",
-        summary="Create a printable PDF that carries Ethernity's offline recovery tools.",
+        summary="Print the offline recovery tool so it can be reconstructed later.",
         sections=(
             _section(
-                "Choose the PDF",
+                "Kit type",
                 (
-                    'Choose a file path, paper size, and print design. "Paste text" uses fewer '
+                    '"Paste text" uses fewer '
                     'pages. "Paste text + scan QR codes" adds camera scanning.'
                 ),
             ),
             _section(
                 "Result",
                 (
-                    "Ethernity writes one PDF containing offline restore tools. The PDF is not a "
-                    "backup and does not replace backup documents or recovery sheets."
+                    "Creates one PDF containing the recovery tool. "
+                    "You still need your backup documents and passphrase or recovery sheets."
                 ),
             ),
             _section(
-                "Print and scan",
-                "Print at actual size on the paper size selected in the workflow.",
-                (
-                    "Use automatic QR density unless you have tested a custom value. Custom "
-                    "density changes page count and scanning reliability."
-                ),
+                "Printing",
+                "Print at actual size using the selected paper size.",
+                ("Use automatic QR density unless you have tested another value."),
             ),
         ),
         shortcuts=COMMON_SHORTCUTS,
     ),
     HelpMode(
         key="settings",
-        summary="Set defaults for future workflows. Changes save immediately.",
+        summary="Defaults for new tasks. Changes save immediately.",
         sections=(
             _section(
                 "Saved defaults",
+                ("You can change these choices for an individual task."),
                 (
-                    "Workflows can override a saved default without changing the value in the "
-                    "settings file."
-                ),
-                (
-                    "Reset section restores defaults in the current category. "
-                    "Reset all settings restores every saved default."
+                    "Reset section restores the current category. "
+                    "Reset all settings restores every default."
                 ),
             ),
             _section(
                 "Path defaults",
                 (
-                    "With automatic backup output, Create backup uses a folder named for the "
-                    "backup ID. Leave the input base folder automatic unless printed paths need a "
-                    "fixed root."
+                    "Each backup gets its own folder. Base folder sets the starting point "
+                    "for stored file paths; Automatic uses the files' common parent folder."
                 ),
             ),
             _section(
-                "Risky defaults",
-                (
-                    "Update chunk sizes must match the existing backup chain. A mismatch can "
-                    "prevent Ethernity from applying the update."
-                ),
-                (
-                    "Higher QR density may reduce page count, but it can make scanning less "
-                    "reliable."
-                ),
+                "Advanced settings",
+                ("Chunk sizes apply to the first update. Later updates keep the same sizes."),
+                ("Higher QR density uses fewer pages but can make codes harder to scan."),
                 "Use raw QR encoding unless a scanner requires Base64.",
             ),
         ),
@@ -316,12 +273,11 @@ def build_help_content(*, task: TaskKey) -> HelpContent:
                 _section(
                     "Keyboard navigation",
                     "Tab and Shift+Tab move between controls. Up/Down or j/k move through "
-                    "the form; inside lists and radio groups they move between choices.",
+                    "the form or the choices in a list.",
                     "Enter or Space opens a dropdown. Up/Down highlights an option; Enter "
-                    "applies it. Escape cancels. Tab or Shift+Tab closes it and moves to the "
-                    "next or previous control without changing its value.",
-                    "While typing in a text field or searching an open dropdown, letters "
-                    "stay in that control. Ctrl+B returns to the top navigation.",
+                    "applies it. Escape or Tab closes it without changing the value.",
+                    "Letters type normally in text fields and dropdown search. "
+                    "Ctrl+B opens navigation.",
                 ),
             ),
         ),

@@ -127,7 +127,7 @@ def test_textual_app_blocked_workflows_show_inline_summary_and_fix_action() -> N
             "add_files",
             review_label("add_files"),
             "#workflow-add_files-source-body-load",
-            "Choose backup documents, recovery text, or exported payloads.",
+            "Load backup documents, paste printed text, or load exported data.",
         ),
         "4": (
             "rebuild",
@@ -182,7 +182,7 @@ def test_textual_app_replacement_recovery_choice_uses_inline_quorum() -> None:
             await workflow_support.select_guided_radio(
                 mode,
                 pilot,
-                "Custom quorum",
+                "Custom sheet counts",
             )
 
             quorum = app.query_one(
@@ -380,13 +380,17 @@ def test_textual_app_help_is_contextual_and_concise() -> None:
             assert workflow_support.static_text(app, "#help-title") == "Create backup"
             help_text = workflow_support.help_markdown_text(app)
             assert "## Create backup" not in help_text
-            assert "Encrypt files and folders" in workflow_support.static_text(app, "#help-intro")
+            assert "Encrypt files and print them" in workflow_support.static_text(
+                app, "#help-intro"
+            )
             assert help_text.count("### ") == 4
             assert "Enter or Space opens a dropdown" in help_text
-            assert "new backup-<id> folder inside the selected destination" in help_text
-            assert "Existing backups stay unchanged" in help_text
-            assert "Store recovery sheets in separate places" in help_text
-            assert "Scan at least one printed QR code" in help_text
+            assert "Each backup gets a new folder inside the destination" in help_text
+            assert "If none is selected, it uses the current folder" in help_text
+            assert (
+                "Keep recovery sheets apart from the backup pages and from each other" in help_text
+            )
+            assert "Test recovery from scans of the printed pages" in help_text
             assert "Ctrl+R: Review" in workflow_support.static_text(app, "#help-shortcuts")
             assert not list(app.screen.query("#help-mode-index"))
 
@@ -398,12 +402,14 @@ def test_textual_app_help_is_contextual_and_concise() -> None:
             assert workflow_support.static_text(app, "#help-title") == "Restore files"
             help_text = workflow_support.help_markdown_text(app)
             assert "## Restore files" not in help_text
-            assert "Load the backup documents" in help_text
-            assert "passphrase, recovery sheets, or recovery payload files" in help_text
-            assert "Latest means the newest valid update in the documents you loaded" in help_text
-            assert "cannot check for newer copies elsewhere" in help_text
-            assert "Keep signature verification on" in help_text
-            assert "Use an empty folder" in help_text
+            assert "Load the backup and unlock it" in help_text
+            assert "unlock it with a passphrase or recovery sheets" in help_text
+            assert "Exported recovery data works too" in help_text
+            assert "Newest loaded version uses the latest valid update you supplied" in help_text
+            assert "Newer updates may exist elsewhere" in help_text
+            assert "Allow unsigned backups only for older backups without signatures" in help_text
+            assert "Choose a new or empty folder" in help_text
+            assert "Existing files are never replaced" in help_text
 
             await pilot.press("escape")
             await pilot.press("7")
@@ -413,9 +419,9 @@ def test_textual_app_help_is_contextual_and_concise() -> None:
             assert workflow_support.static_text(app, "#help-title") == "Settings"
             help_text = workflow_support.help_markdown_text(app)
             assert workflow_support.static_text(app, "#help-intro") == (
-                "Set defaults for future workflows. Changes save immediately."
+                "Defaults for new tasks. Changes save immediately."
             )
-            assert "Create backup uses a folder named for the backup ID" in help_text
+            assert "Each backup gets its own folder" in help_text
             assert "Ctrl+R" not in workflow_support.static_text(app, "#help-shortcuts")
 
     asyncio.run(run())

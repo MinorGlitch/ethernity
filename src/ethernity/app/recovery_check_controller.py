@@ -139,9 +139,7 @@ class RecoveryCheckController:
         if not self._is_current(screen, control):
             return None
         if not passphrase:
-            screen.show_context_action_result(
-                action, "Recovery test cancelled. No recovery check completed.", success=False
-            )
+            screen.show_context_action_result(action, "PDF check cancelled.", success=False)
             return None
         return passphrase
 

@@ -39,7 +39,7 @@ def test_quorum_editor_has_live_sentence_and_specific_inline_error() -> None:
             threshold.value = "6"
             await pilot.pause()
 
-            assert str(summary.content) == "Choose a valid quorum"
+            assert str(summary.content) == "Check sheet counts"
             assert "cannot exceed" in str(notice.content)
             assert notice.has_class("notice-error")
 

@@ -147,8 +147,7 @@ class ExecutionController:
                 self._finish_cancelled(event.worker)
             else:
                 self._app.notify(
-                    "Cancellation was requested, but the write thread is still running. "
-                    "Quit and new writes remain locked until it returns.",
+                    "Still stopping. You can quit or start another task once cleanup finishes.",
                     severity="warning",
                 )
                 self._app.refresh_task_view()
