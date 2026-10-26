@@ -1,19 +1,32 @@
+<p align="left">
+  <a href="https://github.com/MinorGlitch/ethernity/actions/workflows/ci.yml">
+    <img src="https://github.com/MinorGlitch/ethernity/actions/workflows/ci.yml/badge.svg" alt="CI status">
+  </a>
+  <a href="https://pypi.org/project/ethernity-paper/">
+    <img src="https://img.shields.io/pypi/v/ethernity-paper" alt="PyPI version">
+  </a>
+</p>
+
 <p align="center">
   <a href="images/ethernity-logo.svg">
     <img src="images/ethernity-animated.gif" alt="Paper unfolding into Ethernity's infinity logo" width="320" height="169">
   </a>
 </p>
 
-# Ethernity
-
-[![CI status](https://github.com/MinorGlitch/ethernity/actions/workflows/ci.yml/badge.svg)](https://github.com/MinorGlitch/ethernity/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/ethernity-paper)](https://pypi.org/project/ethernity-paper/)
-
 Ethernity encrypts small files and turns them into PDFs you can print. Recover your files offline
 from QR codes or printed text, using the terminal app, command line, or browser recovery kit.
 No account or online service is required.
 
 Use it for seed phrases, private keys, certificates, and configuration files.
+
+<p align="center">
+  <a href="images/readme/backup_flow.gif">
+    <img src="images/readme/backup_flow.gif" alt="Selecting files, creating paper backup PDFs, and checking recovery with two recovery sheets" width="900">
+  </a>
+</p>
+
+Backup and PDF recovery check with demo files. Processing waits are shortened.
+[Static preview](images/readme/terminal_app_preview.png).
 
 ## What you keep
 
@@ -81,16 +94,6 @@ See the [installation guide](docs/install.md) for prerequisites, updates, uninst
 downloads, verification, and Python installation with uv or pipx.
 
 ## Make a backup and try restoring it
-
-<p align="center">
-  <a href="images/readme/backup_flow.gif">
-    <img src="images/readme/backup_flow.gif" alt="Selecting files, creating paper backup PDFs, and checking recovery with two recovery sheets" width="900">
-  </a>
-</p>
-
-A guided backup walkthrough with demonstration files and settings. Recovery is checked from the
-generated PDFs; processing waits are shortened. Test your printed copies before storing them.
-[View a static preview](images/readme/terminal_app_preview.png).
 
 Open the desktop app, or start it from a terminal:
 
