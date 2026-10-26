@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
-from textual.widgets import Select
+from textual.widgets import Collapsible, Select
 
 from ethernity.app.application import EthernityApp
-from ethernity.app.widgets.form import FormSection
 from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.tasks.backup import BackupTaskState
 from tests.support.app import run_app_test
@@ -19,10 +18,10 @@ def test_backup_fields_follow_their_steps_and_focus_routes_to_them() -> None:
             before = app.backup_state.model_dump()
             for selector, step, section_id in (
                 ("#workspace-backup-base-dir", "files", "backup-paths-section"),
-                ("#workspace-backup-passphrase", "recovery", "backup-passphrase-section"),
+                ("#backup-passphrase", "recovery", "backup-passphrase-section"),
                 ("#workspace-backup-signing-key-mode", "recovery", "backup-signing-section"),
                 ("#workspace-backup-qr-chunk-size", "print", "backup-qr-section"),
-                ("#workspace-backup-output", "print", "backup-output-section"),
+                ("#backup-destination-value", "print", "backup-output-section"),
             ):
                 app._reveal_focus_target(selector)
                 await pilot.pause()
@@ -31,9 +30,14 @@ def test_backup_fields_follow_their_steps_and_focus_routes_to_them() -> None:
                 control.scroll_visible(animate=False, immediate=True)
                 await pilot.pause()
                 assert app.query_one(TaskCanvas).active_step == step
-                assert app.query_one(f"#{section_id}", FormSection) in control.ancestors
+                assert app.query_one(f"#{section_id}") in control.ancestors
                 assert app.query_one("#canvas-task-workspaces").region.contains_region(
                     control.region
+                )
+                assert all(
+                    not parent.collapsed
+                    for parent in control.ancestors
+                    if isinstance(parent, Collapsible)
                 )
                 assert app.backup_state.model_dump() == before
             assert not app.query(".workspace-advanced-panel")
@@ -50,6 +54,8 @@ def test_backup_only_shows_fields_for_the_selected_recovery_options() -> None:
             assert not app.query_one("#backup-key-sheets-row").display
             assert "never-show-this-secret" not in app.export_screenshot()
 
+            app._reveal_focus_target("#workspace-backup-signing-key-mode")
+            await pilot.pause()
             mode = app.query_one("#workspace-backup-signing-key-mode", Select)
             mode.value = "sharded"
             await wait_for_condition(

@@ -53,13 +53,20 @@ def test_controls_render_text_in_middle_row_and_keep_horizontal_padding(size) ->
                         if any(segment.style.reverse for segment in line)
                     ] == [middle]
                 else:
-                    assert [index for index, line in enumerate(lines) if line.text.strip()] == [
-                        middle
-                    ]
+                    assert [
+                        index
+                        for index, line in enumerate(lines)
+                        if line.crop(1, widget.region.width - 1).text.strip()
+                    ] == [middle]
                 if isinstance(widget, Button):
                     assert str(widget.label) in lines[middle].text
                 if isinstance(widget, Input):
-                    assert lines[middle].text.startswith(" ")
+                    if widget.has_focus:
+                        assert widget.styles.outline_left[0] == "tall"
+                        assert widget.value in lines[middle].crop(1, widget.region.width - 1).text
+                    else:
+                        assert lines[middle].text.startswith(" ")
+                    assert widget.content_region.x == widget.region.x + 1
                     assert widget.content_region.y == widget.region.y + middle
             current = app.query_one("SelectCurrent")
             label = current.query_one("#label")

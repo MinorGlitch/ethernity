@@ -72,7 +72,6 @@ class TaskEditingActions(TaskSpecificEditingActions):
             "workspace-add-files-payloads": self._edit_add_files_payloads_source,
             "workspace-rebuild-backup": self._edit_rebuild_backup_folder,
             "workspace-rebuild-scans": self._edit_rebuild_scans,
-            "workspace-backup-passphrase": self.action_edit_passphrase,
             "workspace-backup-recovery-quorum": self._edit_recovery_section,
             "workspace-backup-base-dir": self._edit_backup_base_dir,
             "workspace-backup-qr-chunk-size": self._edit_qr_chunk_size,
@@ -105,6 +104,9 @@ class TaskEditingActions(TaskSpecificEditingActions):
         handler = handlers.get(button_id)
         if handler is not None:
             await handler()
+            return
+        if button_id == "workspace-backup-generate-passphrase":
+            self._editor_callbacks._apply_backup_passphrase("")
             return
         if button_id == "workspace-backup-clear-files":
             state = self.backup_state

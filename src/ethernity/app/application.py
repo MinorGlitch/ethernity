@@ -30,6 +30,7 @@ from ethernity.app.source_assessment_controller import SourceAssessmentControlle
 from ethernity.app.task_catalog import review_label
 from ethernity.app.task_view import TaskViewActions
 from ethernity.app.widgets.settings_form import SettingsForm
+from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.app.workflow_presenter import initial_workflow_ui_states
 from ethernity.app.workflow_registry import WORKFLOWS
 from ethernity.security import prepare_disposable_worker_runtime
@@ -232,10 +233,15 @@ class EthernityApp(
             "command_palette",
             "help",
             "diagnostics",
+            "open_navigation",
+            "show_task",
+            "review",
         }:
             return False
-        if action == "close_navigation":
-            return self._nav_menu_open
+        if action == "back":
+            return self._nav_menu_open or any(
+                canvas.document is not None for canvas in self.query(TaskCanvas)
+            )
         if action == "open_navigation":
             return True if self.screen is self.screen_stack[0] else None
         return super().check_action(action, parameters)
@@ -299,6 +305,8 @@ class EthernityApp(
                 "View redacted details for the current backup",
                 self.action_diagnostics,
             )
+        if any(canvas.document is not None for canvas in self.query(TaskCanvas)):
+            return
         if self.active_task == "settings":
             yield from self._settings_system_commands()
             return

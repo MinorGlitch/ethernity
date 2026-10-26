@@ -20,9 +20,10 @@ from ethernity.app.bindings import APP_BINDINGS
 from ethernity.app.help_content import build_help_content
 from ethernity.app.screens.file_picker import FilePickerMode, FilePickerScreen
 from ethernity.app.screens.help import HelpScreen, _help_markdown
-from ethernity.app.screens.review_task import ReviewTaskScreen
-from ethernity.app.screens.task_result import TaskResultScreen
+from ethernity.app.widgets.review_task import TaskReview
 from ethernity.app.widgets.settings_form import SettingsForm
+from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_result import TaskResult
 from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import KeyedRadioSet
 from ethernity.app.workspaces.workspace_controls import WorkspacePathList
@@ -39,7 +40,7 @@ from ethernity.tasks.models import (
     TaskValidation,
 )
 from tests.support.app import run_app_test
-from tests.support.pilot import wait_for_condition
+from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_focus
 
 
 def test_save_file_picker_requires_a_file_name_and_rejects_paths(tmp_path: Path) -> None:
@@ -397,7 +398,7 @@ def test_review_renders_every_dynamic_field_as_literal_text() -> None:
         trust_notes=(dangerous("trust-note"),),
         recovery_notes=(dangerous("recovery-note"),),
     )
-    screen = ReviewTaskScreen(
+    screen = TaskReview(
         title=dangerous("screen-title"),
         validation=validation,
         preview=preview,
@@ -421,7 +422,7 @@ def test_review_renders_every_dynamic_field_as_literal_text() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(100, 30)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
             rendered_blocks = "\n".join(str(block.content) for block in screen.query(Static))
@@ -447,7 +448,7 @@ def test_review_renders_every_dynamic_field_as_literal_text() -> None:
 def test_result_renders_messages_and_newline_paths_without_markup() -> None:
     dangerous = "[red]literal[/red] [docs](target.md)"
     output_path = Path(f"{dangerous}\n## injected.pdf")
-    screen = TaskResultScreen(
+    screen = TaskResult(
         task="backup",
         title=dangerous,
         result=TaskExecutionResult(
@@ -461,7 +462,7 @@ def test_result_renders_messages_and_newline_paths_without_markup() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(100, 30)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
             title = screen.query_one("#result-title", Static)
@@ -507,7 +508,7 @@ def test_help_avoids_duplicate_intro_and_focuses_scroll_content() -> None:
 
             viewer = screen.query_one("#help-body", MarkdownViewer)
             shortcuts = screen.query_one("#help-shortcuts", Static)
-            assert screen.focused is viewer.document
+            assert app.screen.focused is viewer.document
             assert "Tab/Shift+Tab: Focus" in str(shortcuts.content)
             assert "h/l: Switch pane" in str(shortcuts.content)
             assert "Ctrl+P: Actions" in str(shortcuts.content)
@@ -537,7 +538,7 @@ def test_review_shows_detail_lines_and_visible_actions_at_80_columns() -> None:
             output_paths=(Path("kit.pdf"),),
             safety_notes=("- Existing output may be replaced.",),
         )
-        screen = ReviewTaskScreen(
+        screen = TaskReview(
             title="Create recovery kit PDF",
             validation=validation,
             preview=preview,
@@ -546,11 +547,11 @@ def test_review_shows_detail_lines_and_visible_actions_at_80_columns() -> None:
         )
         app = EthernityApp()
         async with run_app_test(app, size=(80, 24)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
             assert not list(screen.query(MarkdownViewer))
-            assert screen.focused is screen.query_one("#review-execute", Button)
+            assert app.screen.focused is screen.query_one("#review-execute", Button)
             detail_lines = [
                 str(line.content) for line in screen.query(".detail-line").results(Static)
             ]
@@ -584,7 +585,7 @@ def test_review_readiness_never_contradicts_validation_errors() -> None:
             ),
         ),
     )
-    screen = ReviewTaskScreen(
+    screen = TaskReview(
         title="Review",
         validation=invalid_validation,
         preview=TaskPreview(title="Preview"),
@@ -595,7 +596,7 @@ def test_review_readiness_never_contradicts_validation_errors() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(80, 24)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
             assert not list(screen.query("#review-status"))
@@ -609,7 +610,7 @@ def test_review_readiness_never_contradicts_validation_errors() -> None:
 
 def test_review_header_and_actions_fit_at_60_by_20() -> None:
     async def run() -> None:
-        screen = ReviewTaskScreen(
+        screen = TaskReview(
             title="Create replacement recovery sheets",
             validation=TaskValidation(
                 sections=(
@@ -627,7 +628,7 @@ def test_review_header_and_actions_fit_at_60_by_20() -> None:
         )
         app = EthernityApp()
         async with run_app_test(app, size=(60, 20)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
             title = screen.query_one("#review-title", Static)
@@ -645,13 +646,13 @@ def test_large_result_keeps_actions_visible_at_80_by_24(tmp_path: Path) -> None:
             message="Backup complete.",
             output_paths=tuple(tmp_path / f"backup-{index}.pdf" for index in range(20)),
         )
-        screen = TaskResultScreen(task="backup", title="Create a backup", result=result)
+        screen = TaskResult(task="backup", title="Create a backup", result=result)
         app = EthernityApp()
         async with run_app_test(app, size=(80, 24)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
-            modal = screen.query_one("#result-modal")
+            modal = screen.query_one("#result-document")
             body = screen.query_one("#result-body")
             actions = screen.query_one("#result-actions")
             assert modal.region.height <= 24
@@ -671,7 +672,7 @@ def test_add_files_result_shows_version_history_and_storage_guidance(monkeypatch
 
     async def run() -> None:
         fingerprint = "ab" * 32
-        screen = TaskResultScreen(
+        screen = TaskResult(
             task="add_files",
             title="Add files",
             result=TaskExecutionResult(
@@ -689,7 +690,7 @@ def test_add_files_result_shows_version_history_and_storage_guidance(monkeypatch
         )
         app = EthernityApp()
         async with run_app_test(app, size=(90, 28)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
             metadata = "\n".join(
@@ -706,7 +707,8 @@ def test_add_files_result_shows_version_history_and_storage_guidance(monkeypatch
             copy_button = screen.query_one("#result-copy-fingerprint", Button)
             assert str(copy_button.label) == "Copy fingerprint"
 
-            await pilot.click("#result-copy-fingerprint")
+            await wait_for_focus(pilot, copy_button.focus())
+            await click_when_ready(pilot, "#result-copy-fingerprint")
             await pilot.pause()
 
             assert copied_fingerprints == [fingerprint]
@@ -715,7 +717,7 @@ def test_add_files_result_shows_version_history_and_storage_guidance(monkeypatch
 
 
 def test_result_fingerprint_action_requires_a_full_document_hash() -> None:
-    invalid_hash = TaskResultScreen(
+    invalid_hash = TaskResult(
         task="add_files",
         title="Add files",
         result=TaskExecutionResult(
@@ -724,7 +726,7 @@ def test_result_fingerprint_action_requires_a_full_document_hash() -> None:
             details=(TaskResultDetail(key="doc_hash", label="Fingerprint", value="ab" * 31),),
         ),
     )
-    document_id = TaskResultScreen(
+    document_id = TaskResult(
         task="add_files",
         title="Add files",
         result=TaskExecutionResult(
@@ -733,7 +735,7 @@ def test_result_fingerprint_action_requires_a_full_document_hash() -> None:
             details=(TaskResultDetail(key="doc_id", label="Document ID", value="ab" * 32),),
         ),
     )
-    failed_update = TaskResultScreen(
+    failed_update = TaskResult(
         task="add_files",
         title="Add files",
         result=TaskExecutionResult(
@@ -753,7 +755,7 @@ def test_failure_result_leads_with_actionable_error_and_partial_write_location(
 ) -> None:
     async def run() -> None:
         partial_path = tmp_path / "recovered" / "partial.txt"
-        screen = TaskResultScreen(
+        screen = TaskResult(
             task="restore",
             title="Restore files",
             result=TaskExecutionResult(
@@ -773,7 +775,7 @@ def test_failure_result_leads_with_actionable_error_and_partial_write_location(
         )
         app = EthernityApp()
         async with run_app_test(app, size=(120, 32)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
             assert str(screen.query_one("#result-status", Static).content) == (
@@ -787,7 +789,7 @@ def test_failure_result_leads_with_actionable_error_and_partial_write_location(
             )
             return_action = screen.query_one("#result-return", Button)
             assert str(return_action.label) == "Edit signature check"
-            assert screen.focused is return_action
+            assert app.screen.focused is return_action
 
             details = screen.query_one("#result-details-panel", Collapsible)
             assert details.collapsed
@@ -804,14 +806,14 @@ def test_result_variants_keep_content_and_actions_visible_at_small_sizes(
     tmp_path: Path,
 ) -> None:
     async def check_screen(
-        screen: TaskResultScreen,
+        screen: TaskResult,
         size: tuple[int, int],
         *,
         partial_path: Path | None = None,
     ) -> None:
         app = EthernityApp()
         async with run_app_test(app, size=size) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
             body = screen.query_one("#result-body")
@@ -838,7 +840,7 @@ def test_result_variants_keep_content_and_actions_visible_at_small_sizes(
     for size in ((80, 24), (60, 20)):
         asyncio.run(
             check_screen(
-                TaskResultScreen(
+                TaskResult(
                     task="kit",
                     title="Create recovery kit PDF",
                     result=TaskExecutionResult(
@@ -850,7 +852,7 @@ def test_result_variants_keep_content_and_actions_visible_at_small_sizes(
         )
         asyncio.run(
             check_screen(
-                TaskResultScreen(
+                TaskResult(
                     task="replace_recovery_docs",
                     title="Create replacement recovery sheets after validating loaded backup",
                     error="The replacement write could not be completed safely.",
@@ -867,7 +869,7 @@ def test_result_variants_keep_content_and_actions_visible_at_small_sizes(
         )
 
         partial_path = tmp_path / "partial-sheet.pdf"
-        partial_screen = TaskResultScreen(
+        partial_screen = TaskResult(
             task="replace_recovery_docs",
             title="Create replacement recovery sheets",
             result=TaskExecutionResult(
@@ -887,7 +889,7 @@ def test_result_variants_keep_content_and_actions_visible_at_small_sizes(
 
 def test_result_presents_partial_success_as_a_completed_write(tmp_path: Path) -> None:
     update_path = tmp_path / "extensions" / "01" / "qr_document.pdf"
-    screen = TaskResultScreen(
+    screen = TaskResult(
         task="add_files",
         title="Add files",
         result=TaskExecutionResult(
@@ -901,16 +903,16 @@ def test_result_presents_partial_success_as_a_completed_write(tmp_path: Path) ->
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(100, 30)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
-            assert screen.query_one("#result-modal").has_class("partial")
+            assert screen.query_one("#result-document").has_class("partial")
             assert str(screen.query_one("#result-status", Static).content) == (
                 "Files saved, but a follow-up step failed."
             )
             assert str(screen.query_one("#result-output-title", Static).content) == "Files created"
             assert not list(screen.query("#result-return"))
-            assert screen.focused is screen.query_one("#result-close", Button)
+            assert app.screen.focused is screen.query_one("#result-open-documents", Button)
 
     asyncio.run(run())
 

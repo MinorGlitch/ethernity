@@ -9,7 +9,8 @@ from textual.pilot import Pilot
 from textual.widgets import Button, OptionList, Static
 
 from ethernity.app.application import EthernityApp
-from ethernity.app.screens import task_result
+from ethernity.app.widgets import task_result
+from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.tasks.models import TaskExecutionResult, TaskResultDetail
 from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_visible
@@ -48,16 +49,16 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
         app = EthernityApp()
         app.theme = f"ethernity-{theme}"
         monkeypatch.setattr(app, "copy_to_clipboard", copied.append)
-        screen = task_result.TaskResultScreen(
+        screen = task_result.TaskResult(
             task="backup", title="Create backup", result=result, context_actions_enabled=True
         )
         async with run_app_test(app, size=size) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             body = screen.query_one("#result-body", VerticalScroll)
             footer = screen.query_one("#result-actions")
-            assert screen.query_one("#result-modal").region.width <= 100
-            assert body.region.bottom <= footer.region.y < footer.region.bottom < size[1]
+            assert screen.region == app.query_one("#workbench-document").region
+            assert body.region.bottom <= footer.region.y < footer.region.bottom <= size[1]
             assert body.max_scroll_x == 0
             _assert_next_steps(screen, result)
             for row in screen.query("#result-overview FormRow"):
@@ -98,23 +99,25 @@ def test_completion_layout_keeps_actions_reachable_and_original_paths(
     asyncio.run(run())
 
 
-def _assert_next_steps(screen: task_result.TaskResultScreen, result: TaskExecutionResult) -> None:
+def _assert_next_steps(screen: task_result.TaskResult, result: TaskExecutionResult) -> None:
     assert [
         str(step.content) for step in screen.query(".result-step-text").results(Static)
     ] == list(result.next_steps)
 
 
-async def _assert_reachable_buttons(pilot: Pilot, screen: task_result.TaskResultScreen) -> None:
+async def _assert_reachable_buttons(pilot: Pilot, screen: task_result.TaskResult) -> None:
     buttons = set(screen.query(Button).results(Button))
     visited = set()
-    for _ in range(len(screen.focus_chain) + 1):
+    for _ in range(len(pilot.app.screen.focus_chain) + 1):
         await pilot.press("tab")
-        button = screen.focused
+        button = pilot.app.screen.focused
         if button not in buttons:
             continue
         visited.add(button)
         owner = screen.query_one(
-            "#result-actions" if button.id == "result-close" else "#result-body"
+            "#result-actions"
+            if screen.query_one("#result-actions") in button.ancestors
+            else "#result-body"
         )
         await wait_for_visible(pilot, button, within=owner)
         assert owner.region.x <= button.region.x < button.region.right <= owner.region.right

@@ -16,7 +16,7 @@ arrows stay on one baseline. Compact rules preserve horizontal padding. Centered
 native line padding without an extra CSS inset. Left-aligned step labels have one cell of
 horizontal padding. Labels stay on one line.
 Field text uses `field-text` to align with controls.
-Focus uses background and bold text. Never underline an entire widget: terminal renderers
+Focus uses side outlines, background and bold text. Primary actions retain their filled color. Never underline an entire widget: terminal renderers
 underline its blank padding rows too, producing horizontal rules. Radio focus highlights the
 whole candidate row; the radio mark continues to identify the committed value.
 Form dropdowns use `FormSelect`, including settings, and fill their control column.
@@ -27,14 +27,18 @@ is highlighted and clickable; do not insert dead spacer rows or outer vertical p
 omits vertical option component padding from its measurements. Prompts, values and native
 search/navigation stay unchanged. Long menus scroll without shrinking their choices.
 Keep space between form rows and action rows even in short terminals; scroll long forms.
+Row spacing must not depend on which sibling is currently visible. Focus must not move a control.
 The theme owns scrollbar widths and spacing. Vertical scrollbars reserve three cells: a
 one-cell track and a two-cell inset beside the content. Do not add per-screen scrollbar sizes
-or outer right padding to simulate that gap.
+or outer right padding to simulate that gap. Single-line inputs keep a zero-height horizontal
+scrollbar so long values remain visible while their text scrolls.
 
 Reserve the primary color for interaction. Headings use neutral text; warnings use orange,
 errors rose, and success green, with labeled notices and borders in addition to color.
-The canvas owns the page heading. The summary shows completed earlier steps; an empty summary
-is hidden. The shared shell centers the header, navigation and canvas within 140 columns.
+The canvas owns the page heading. Completed choices appear beneath their steps in the navigation
+rail, using only safe presentation values. Narrow terminals show the step buttons in a horizontal
+strip and keep the full choice summaries in their tooltips and review. There is no separate summary
+column. The shared shell centers the one-line header, navigation and canvas within 140 columns.
 The editor owns its fixed action bar; the heading, scroll viewport and actions fill the editor
 width. The outer shell is the only width cap. Do not add smaller caps to forms or dropdowns.
 Workflow forms use open `FormSection` groups with neutral headings and thin dividers.
@@ -43,22 +47,31 @@ unless their container is too narrow; then actions move below the value.
 `ResponsiveActions` measures button labels and uses equal columns that fit the container.
 Three source choices share a row at wide sizes; at intermediate sizes the primary action spans
 the row above its two alternatives. Hidden actions do not reserve a column.
-Rows stack based on their own width, including when the summary rail is visible.
+Rows stack based on their own width.
 The workspace owns which sections belong to each step; focus routing uses that same map.
 Conditional fields appear only when applicable. Files own base folders; print setup owns QR
 density. Recovery separates its method, passphrase and signing-key recovery.
-Do not reintroduce catch-all Advanced panels or per-workflow field layouts.
+Use named `AppCollapsible` sections for secondary settings. Their closed titles show the selected
+values; actionable warnings stay outside the collapsed contents. Edit and Fix actions expand
+the target section before focusing its field. Do not reintroduce catch-all Advanced panels.
+Simple passphrase and destination edits stay inline. `PassphraseInput` owns the pending edit,
+masks it, clears the displayed value on commit, and lets review consume it exactly once.
+Task reset discards any pending secret. File browsing remains a dialog with explicit selection.
+Backup print setup puts the destination first and opens labelled sample PDFs through the same
+renderer as real backups. Samples contain no selected files and live in the app cache.
 Put background explanations in Help or control tooltips; keep actionable warnings visible.
 Help stays in the top navigation and lists the keyboard shortcuts. Main screens and dialogs
 have no shortcut footer, so opening a dialog does not resize the underlying workspace.
 
-Dialogs use `dialog`; Review and Results use `document`, `document-header`, `document-body`
+Dialogs use `dialog`; review, progress and results use `document`, `document-header`, `document-body`
 and the shared detail text classes. Keep IDs for events and queries; add ID styles only for
 layout differences. Use native content-sized containers instead of repeating sizing resets.
 Review and results use the shared `FormSection` and `FormRow` components inside the same
 readable-width document. Headers and footer actions stay fixed while long content scrolls.
-Review separates choices from output; results group saved files and next steps. Show each
-destination once. Use normal Edit buttons and `action_grid` for groups of completion actions.
+The canvas serializes document mounting and removal while preserving navigation and the step
+rail. Progress locks navigation until cancellation or completion finishes. Review shows output
+before other choices; results put the PDF recovery check before file-management actions.
+Done returns to editing and resets a successful Backup. Show each destination once. Use normal Edit buttons and `action_grid` for groups of completion actions.
 
 Change the owning rule and migrate its consumers together. Do not add embedded CSS, duplicate
 screen skins, compatibility selectors or a second override stylesheet. Verify shared changes

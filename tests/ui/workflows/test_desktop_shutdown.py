@@ -8,6 +8,8 @@ import pytest
 from ethernity.app.application import EthernityApp
 from ethernity.app.desktop_session import DesktopShutdownRequested
 from ethernity.app.execution import ExecutionOutcome, ReviewedTask
+from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_result import TaskResult
 from ethernity.core.execution_control import begin_final_write
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.models import TaskExecutionResult
@@ -20,6 +22,19 @@ class ObservedApp(EthernityApp):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.late_screens = []
+        self.late_documents = []
+
+    async def _present_execution_review(self, reviewed_task):
+        if self._desktop_shutdown_requested:
+            self.late_documents.append("review")
+        await super()._present_execution_review(reviewed_task)
+
+    def _present_execution_outcome(self, reviewed_task, outcome):
+        super()._present_execution_outcome(reviewed_task, outcome)
+        if self._desktop_shutdown_requested and isinstance(
+            self.query_one(TaskCanvas).document, TaskResult
+        ):
+            self.late_documents.append("result")
 
     def push_screen(self, screen, *args, **kwargs):
         if self._desktop_shutdown_requested:
@@ -82,6 +97,7 @@ def test_desktop_quit_drains_work_without_opening_review_or_results(tmp_path, ph
                 release.set()
         assert completed.is_set()
         assert not app.late_screens
+        assert not app.late_documents
         assert app.running_task is None
         assert app._preparing_review_task is None
         if phase == "execution":

@@ -6,13 +6,14 @@ import pytest
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.operation_progress import OperationProgress
-from ethernity.app.screens.task_progress import TaskProgressScreen
+from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_progress import TaskProgress
 from tests.visual.snapshot_support import assert_svg_snapshot, capture_svg
 
 
 @pytest.mark.parametrize("size,theme", [((100, 36), "dark"), ((80, 24), "light")])
 def test_operation_progress_snapshot(size, theme, monkeypatch, update_tui_snapshots) -> None:
-    monkeypatch.setattr("ethernity.app.screens.task_progress.monotonic", lambda: 10.0)
+    monkeypatch.setattr("ethernity.app.widgets.task_progress.monotonic", lambda: 10.0)
 
     def make_app():
         app = EthernityApp()
@@ -20,10 +21,10 @@ def test_operation_progress_snapshot(size, theme, monkeypatch, update_tui_snapsh
         return app
 
     async def show_progress(app, pilot):
-        screen = TaskProgressScreen(
+        screen = TaskProgress(
             title="Backup in progress", destination="~/backup-6f18083cd7220911", cancel=lambda: True
         )
-        app.push_screen(screen)
+        app.query_one(TaskCanvas).present_document(screen)
         await pilot.pause()
         screen.update_progress(
             OperationProgress(

@@ -36,14 +36,14 @@ def test_shell_breakpoints_drive_navigation_and_header_priority() -> None:
                 assert app.screen.has_class(width_class)
                 assert app.screen.has_class(height_class)
                 nav_button = app.query_one("#nav-settings", Button)
-                header_title = app.query_one("#app-header-title", Label)
+                header_brand = app.query_one("#app-header-brand", Label)
                 header_status = app.query_one("#app-header-status", Label)
 
                 assert not list(app.query("#nav-drawer, #nav-strip"))
                 assert nav_button.display
-                assert header_title.display
+                assert header_brand.display
                 assert header_status.display
-                assert app.query_one("#app-header").region.height == (1 if size[1] < 28 else 3)
+                assert app.query_one("#app-header").region.height == 1
                 assert nav_button.region.bottom <= app.query_one("#shell").region.y
 
     asyncio.run(run())

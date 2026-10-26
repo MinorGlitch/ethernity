@@ -10,13 +10,13 @@ from ethernity.app.screens.edit_field import EditFieldScreen
 from ethernity.app.screens.file_picker import FilePickerMode
 from ethernity.app.widgets.workflow.unlock import UnlockEditor
 from ethernity.app.workflow_registry import workflow_definition
-from ethernity.tasks.backup import BackupTaskState
 
 
 class PrimaryEditingActions(BaseEditingActions):
     async def action_edit_primary(self) -> None:
         editor = workflow_definition(self.active_task).primary_editor
         if isinstance(editor, str):
+            self._reveal_focus_target(editor)
             self.query_one(editor).focus()
         elif editor is not None:
             await self._pick_paths(
@@ -57,9 +57,10 @@ class PrimaryEditingActions(BaseEditingActions):
     async def action_edit_passphrase(self) -> None:
         editor = workflow_definition(self.active_task).passphrase_editor
         if isinstance(editor, str):
+            self._reveal_focus_target(editor)
             self.query_one(editor).focus()
         elif isinstance(editor, PassphraseEditorDefinition):
-            state = cast(BackupTaskState | UnlockTaskState, self._current_state())
+            state = cast(UnlockTaskState, self._current_state())
             await self._push_editor(
                 EditFieldScreen(
                     title=editor.title,

@@ -7,6 +7,7 @@ from rich.text import Text
 from textual.pilot import Pilot
 from textual.widgets import (
     Button,
+    Collapsible,
     Input,
     MarkdownViewer,
     MaskedInput,
@@ -22,7 +23,7 @@ from ethernity.app.application import EthernityApp
 from ethernity.app.screens.file_picker import FilePickerScreen
 from ethernity.app.screens.paste_text import PasteTextScreen
 from ethernity.app.widgets.settings_form import SettingsForm
-from ethernity.app.widgets.workbench import WorkbenchSummary
+from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.workspaces.workspace_controls import WorkspacePathList
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.rebuild import RebuildTaskState
@@ -40,6 +41,16 @@ from tests.support.pilot import (
 
 async def type_text(pilot, value: str) -> None:
     await pilot.press(*("space" if character == " " else character for character in value))
+
+
+async def open_options(app: EthernityApp, pilot: Pilot, selector: str) -> None:
+    panel = app.query_one(selector, Collapsible)
+    assert panel.collapsed
+    title = panel.query_one("CollapsibleTitle")
+    title.focus()
+    await wait_for_focus(pilot, title)
+    assert await pilot.click(title)
+    await _wait_for_condition(pilot, lambda: not panel.collapsed, "options to open")
 
 
 async def choose_picker_paths(app: EthernityApp, pilot, *paths: Path) -> None:
@@ -132,11 +143,10 @@ def workspace_text(app: EthernityApp) -> str:
     lines: list[str] = []
     for static in workspace.query(Static):
         lines.append(str(static.content))
-    # The summary rail owns step summaries; editors no longer duplicate them in headers.
+    # Completed choices stay beside their navigation steps.
     if app.active_task != "settings":
-        for row in app.query_one(WorkbenchSummary).query(".workbench-summary-row"):
-            if row.display:
-                lines.extend(str(static.content) for static in row.query(Static))
+        for summary in app.query_one(WorkbenchSteps).query(".workbench-step-summary.completed"):
+            lines.append(str(summary.content))
     for path_list in workspace.query(SelectionList):
         lines.append(selection_list_text(path_list))
     for path_list in workspace.query(WorkspacePathList):
@@ -188,7 +198,7 @@ def read_review_text(app: EthernityApp) -> str:
 
 
 def read_result_text(app: EthernityApp) -> str:
-    modal = app.screen.query_one("#result-modal")
+    modal = app.screen.query_one("#result-document")
     lines = [str(static.content) for static in modal.query(Static)]
     for option_list in modal.query(OptionList):
         lines.extend(str(option.prompt) for option in option_list.options)
@@ -198,7 +208,7 @@ def read_result_text(app: EthernityApp) -> str:
 
 
 def assert_success_result_modal_layout(app: EthernityApp) -> None:
-    modal = app.screen.query_one("#result-modal")
+    modal = app.screen.query_one("#result-document")
     body = modal.query_one("#result-body")
     actions = modal.query_one("#result-actions")
 

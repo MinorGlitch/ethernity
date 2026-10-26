@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from textual.widgets import Button, DirectoryTree
+from textual.widgets import Button, DirectoryTree, Input
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens.file_picker import FilePickerScreen
+from ethernity.app.widgets.passphrase_input import PassphraseInput
 from ethernity.app.widgets.workflow.paths import DestinationEditor
 from ethernity.app.widgets.workflow.unlock import UnlockEditor
 from ethernity.tasks.add_files import AddFilesTaskState
@@ -36,7 +37,9 @@ def test_late_field_commit_keeps_the_task_where_the_field_was_edited() -> None:
             unlock = app.query_one("#workflow-restore-unlock-body", UnlockEditor)
             await app._show_task("add_files")
             destination.post_message(DestinationEditor.ValueChanged(destination, "edited-restore"))
-            unlock.post_message(UnlockEditor.ValueChanged(unlock, "edited restore phrase"))
+            phrase = unlock.query_one(PassphraseInput)
+            phrase.value = "edited restore phrase"
+            phrase.post_message(Input.Submitted(phrase, phrase.value))
             await wait_for_condition(
                 pilot,
                 lambda: (
@@ -78,5 +81,49 @@ def test_task_shortcuts_cannot_change_the_target_of_an_open_picker() -> None:
             await app.action_show_task("add_files")
             await pilot.pause()
             assert app.active_task == "add_files"
+
+    asyncio.run(run())
+
+
+def test_backup_review_drains_latest_phrase_without_replaying_queued_commits() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        app.backup_state.input_paths = [Path("secret.txt")]
+        app.restore_state.passphrase = "unrelated secret"
+        async with run_app_test(app, size=(100, 32)) as pilot:
+            phrase = app.query_one("#backup-passphrase", PassphraseInput)
+            phrase.value = "older secret"
+            phrase.on_input_submitted(Input.Submitted(phrase, phrase.value))
+            phrase.value = "latest secret"
+            await app.action_review()
+            await pilot.pause()
+            assert app.backup_state.passphrase == "latest secret"
+            assert app.restore_state.passphrase == "unrelated secret"
+            assert phrase.value == ""
+            assert "latest secret" not in app.export_screenshot()
+            await pilot.press("escape")
+            await pilot.pause()
+            await app._handle_workspace_button("workspace-backup-generate-passphrase")
+            # Notifications carry no secret. A delayed notification cannot reapply
+            # the phrase after another action has deliberately cleared it.
+            phrase.post_message(PassphraseInput.Committed(phrase))
+            await pilot.pause()
+            assert app.backup_state.passphrase is None
+
+    asyncio.run(run())
+
+
+def test_task_reset_discards_pending_secret_before_queued_commit() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with run_app_test(app) as pilot:
+            phrase = app.query_one("#backup-passphrase", PassphraseInput)
+            phrase.value = "discard this secret"
+            phrase.on_input_submitted(Input.Submitted(phrase, phrase.value))
+            app.action_clear_task()
+            await pilot.pause()
+            assert app.backup_state.passphrase is None
+            assert phrase.value == ""
+            assert phrase.take_pending_value() is None
 
     asyncio.run(run())

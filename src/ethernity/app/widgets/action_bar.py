@@ -32,8 +32,6 @@ class TaskActionBar(Widget):
                 id="canvas-back",
             )
             yield Static("", classes="canvas-action-spacer")
-            yield Static("", id="canvas-progress", classes="field-text", markup=False)
-            yield Static("", classes="canvas-action-spacer")
             yield Button(
                 "Diagnostics",
                 id="canvas-internals",

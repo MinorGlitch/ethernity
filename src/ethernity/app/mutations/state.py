@@ -2,17 +2,23 @@ from __future__ import annotations
 
 from ethernity.app.app_context import EthernityAppContext
 from ethernity.app.app_state import fresh_task_state
+from ethernity.app.widgets.passphrase_input import PassphraseInput
 from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.app.workflow_registry import workflow_definition
 
 
 class TaskStateMutationActions(EthernityAppContext):
-    def action_close_navigation(self) -> None:
+    async def action_back(self) -> None:
         if self._nav_menu_open:
             self._close_nav_menu()
+        else:
+            self.query_one(TaskCanvas).action_back()
 
     def action_clear_task(self) -> None:
         workflow = workflow_definition(self.active_task)
+        if workflow.workspace_id is not None:
+            for field in self.query_one(f"#{workflow.workspace_id}").query(PassphraseInput):
+                field.discard_edit()
         state = fresh_task_state(
             self.active_task,
             settings_config_path=(

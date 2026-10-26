@@ -83,7 +83,7 @@ def test_restore_review_step_opens_review_from_any_editor() -> None:
             await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
             await wait_for_widget(pilot, "#review-close")
 
-            assert app.screen.query_one("#review-modal")
+            assert app.screen.query_one("#review-document")
             assert stack.active_step == "source"
 
     asyncio.run(run())

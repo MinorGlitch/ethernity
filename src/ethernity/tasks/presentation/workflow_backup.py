@@ -129,7 +129,11 @@ def backup_groups(
                 ),
             ),
             actions=(
-                WorkspaceAction("workspace-backup-passphrase", "Set passphrase..."),
+                WorkspaceAction(
+                    "workspace-backup-generate-passphrase",
+                    "Use generated",
+                    visible=state.passphrase is not None,
+                ),
                 WorkspaceAction("workspace-backup-base-dir", "Choose base folder..."),
                 WorkspaceAction("workspace-backup-qr-chunk-size", "Set QR density..."),
                 WorkspaceAction("workspace-backup-signing-key-shards", "Change sheet counts..."),
@@ -208,13 +212,13 @@ def review_details(
         ReviewDetail("Files", selected, "files"),
         ReviewDetail("Recovery", recovery, "recovery"),
         ReviewDetail("Signing key", signing, "signature"),
-        ReviewDetail("Documents", facts.document_summary, group="output"),
-        *print_estimate,
-        ReviewDetail("Layout", layout_summary(state.paper_size, state.design), "layout", "output"),
         ReviewDetail(
             "Destination",
             destination_summary(plan),
             "output",
             "output",
         ),
+        ReviewDetail("Documents", facts.document_summary, group="output"),
+        *print_estimate,
+        ReviewDetail("Layout", layout_summary(state.paper_size, state.design), "layout", "output"),
     )

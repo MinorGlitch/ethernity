@@ -49,7 +49,7 @@ class BaseEditingActions(EthernityAppContext):
         multiple: bool = True,
         save_name: str = "",
         save_placeholder: str = "",
-        choose_label: str = "Select",
+        choose_label: str = "Use selection",
         allow_clear: bool = True,
     ) -> None:
         await self._push_editor(

@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from textual.color import Color
 from textual.geometry import Region
-from textual.widgets import Button, RadioButton
+from textual.widgets import Button, Input, RadioButton
 
 from ethernity.app.screens.confirm_action import ConfirmActionScreen
 from ethernity.app.widgets.workflow.controls import KeyedRadioSet
@@ -82,7 +82,13 @@ def test_radio_focus_highlights_candidate_without_changing_committed_choice(them
             height = 1 if size[1] < 28 else 3
             assert candidate.region.height == height
             lines = candidate.render_lines(Region(0, 0, candidate.region.width, height))
-            assert [i for i, line in enumerate(lines) if line.text.strip()] == [height // 2]
+            assert candidate.styles.outline_left[0] == "tall"
+            assert candidate.styles.outline_right[0] == "tall"
+            assert [
+                i
+                for i, line in enumerate(lines)
+                if line.crop(1, candidate.region.width - 1).text.strip()
+            ] == [height // 2]
             assert all(not segment.style.underline for line in lines for segment in line)
             # The fill covers the whole row, including the space after the label.
             for line in lines:
@@ -109,3 +115,26 @@ def _colors_nearly_equal(left: Color, right: Color) -> bool:
         )
         <= 1
     )
+
+
+@pytest.mark.parametrize("height", [24, 32])
+@pytest.mark.parametrize("theme", ["ethernity-dark", "ethernity-light"])
+def test_long_input_stays_readable_in_the_composed_screen(height: int, theme: str) -> None:
+    async def run() -> None:
+        field = Input(id="path")
+        app = WidgetApp(field, theme=theme)
+        async with run_app_test(app, size=(80, height)) as pilot:
+            field.value = "/long-folder" * 12 + "/visible-tail"
+            field.focus()
+            await pilot.press("home", "end")
+            assert field.scroll_x > 0
+            assert field.scrollbar_size_horizontal == 0
+            # The input itself rendered text even when its scrollbar covered it.
+            # Check the composed screen that terminal and browser users receive.
+            screen_text = "\n".join(line.text for line in app.screen._compositor.render_strips())
+            assert "visible-tail" in screen_text
+            await pilot.press("home")
+            screen_text = "\n".join(line.text for line in app.screen._compositor.render_strips())
+            assert "/long-folder" in screen_text
+
+    asyncio.run(run())

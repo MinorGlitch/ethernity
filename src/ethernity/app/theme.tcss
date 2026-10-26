@@ -95,6 +95,8 @@ Switch:focus,
 Checkbox:focus {
     background: $primary 15%;
     background-tint: transparent;
+    outline-left: tall $text-primary;
+    outline-right: tall $text-primary;
 }
 
 Button:focus {
@@ -112,6 +114,11 @@ Button.-primary {
     color: $button-color-foreground;
 }
 
+Button.-primary:focus {
+    outline-left: tall $background;
+    outline-right: tall $background;
+}
+
 Button.-success {
     background: $success;
     color: $button-color-foreground;
@@ -125,6 +132,11 @@ Button.-warning {
 Button.-error {
     background: $error;
     color: $button-color-foreground;
+}
+
+/* Single-line inputs scroll their text; a scrollbar would cover the input line. */
+Input {
+    scrollbar-size-horizontal: 0;
 }
 
 Input,
@@ -284,6 +296,8 @@ Checkbox > .toggle--label {
 RadioSet:focus > RadioButton.-selected {
     background: $primary 30%;
     text-style: bold;
+    outline-left: tall $text-primary;
+    outline-right: tall $text-primary;
 }
 
 RadioSet:focus > RadioButton.-selected > .toggle--label,

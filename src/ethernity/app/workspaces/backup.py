@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import HorizontalGroup
+from textual.containers import HorizontalGroup, VerticalGroup
 from textual.widgets import Button, Collapsible, Select, Static
 
 from ethernity.app.widgets.collapsible import AppCollapsible, sync_collapsible_panel
-from ethernity.app.widgets.form import FormScroll, FormSection, FormSelect
+from ethernity.app.widgets.design_preview import DesignPreview
+from ethernity.app.widgets.form import FormRow, FormScroll, FormSection, FormSelect
+from ethernity.app.widgets.passphrase_input import PassphraseInput
 from ethernity.app.widgets.static_text import update_static_text
 from ethernity.app.widgets.workflow.controls import InlineNotice, KeyedRadioSet
+from ethernity.app.widgets.workflow.paths import DestinationEditor
 from ethernity.app.workspaces.workspace_controls import (
     BACKUP_PASSPHRASE_WORD_OPTIONS,
     BACKUP_SIGNING_KEY_OPTIONS,
@@ -37,7 +40,11 @@ from ethernity.page_sizes import paper_size_display_name
 from ethernity.render.designs import load_design_definition_by_name, supported_paper_size_names
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.page_layout import BACKUP_RENDER_DOC_TYPES
-from ethernity.tasks.presentation.models import TaskPresentation, WorkspaceAction
+from ethernity.tasks.presentation.models import (
+    DestinationBodyPresentation,
+    TaskPresentation,
+    WorkspaceAction,
+)
 
 
 class BackupWorkspace(BaseWorkspace):
@@ -71,17 +78,19 @@ class BackupWorkspace(BaseWorkspace):
                     id="backup-files-panel",
                     title="Selected files",
                     collapsed=False,
-                    collapsed_symbol="+",
-                    expanded_symbol="-",
                 ):
                     yield path_selection_list("backup-files-list")
                     yield button_row(WorkspaceAction("workspace-backup-clear-files", "Clear files"))
-            with FormSection("File paths", id="backup-paths-section"):
-                yield field_row(
-                    "Base folder",
-                    "backup-base-dir-value",
-                    WorkspaceAction("workspace-backup-base-dir", "Choose base folder..."),
-                )
+            with VerticalGroup(id="backup-paths-section", classes="workspace-options"):
+                with AppCollapsible(
+                    title="File paths",
+                    id="backup-paths-options",
+                ):
+                    yield field_row(
+                        "Base folder",
+                        "backup-base-dir-value",
+                        WorkspaceAction("workspace-backup-base-dir", "Choose base folder..."),
+                    )
             with FormSection("Recovery method", id="backup-recovery-section"):
                 yield status_note("backup-recovery-status")
                 yield choice_group(
@@ -100,59 +109,79 @@ class BackupWorkspace(BaseWorkspace):
                 yield Static(
                     "", id="backup-recovery-help", classes="workspace-field-note", markup=False
                 )
-            with FormSection("Passphrase", id="backup-passphrase-section"):
-                yield field_row(
-                    "Source",
-                    "backup-passphrase-value",
-                    WorkspaceAction("workspace-backup-passphrase", "Set passphrase..."),
-                )
-                yield labeled_select_row(
-                    "Phrase length",
-                    "workspace-backup-passphrase-words",
-                    BACKUP_PASSPHRASE_WORD_OPTIONS,
-                    row_id="backup-words-row",
-                )
-            with FormSection("Signing-key recovery", id="backup-signing-section"):
-                yield labeled_select_row(
-                    "Store key",
-                    "workspace-backup-signing-key-mode",
-                    BACKUP_SIGNING_KEY_OPTIONS,
-                )
-                yield field_row(
-                    "Quorum",
-                    "backup-signing-key-shards-value",
-                    WorkspaceAction("workspace-backup-signing-key-shards", "Change..."),
-                    row_id="backup-key-sheets-row",
-                )
+            with VerticalGroup(id="backup-passphrase-section", classes="workspace-options"):
+                with AppCollapsible(
+                    title="Passphrase options",
+                    id="backup-passphrase-options",
+                ):
+                    yield FormRow(
+                        "Custom phrase",
+                        PassphraseInput(id="backup-passphrase"),
+                        Button("Use generated", id="workspace-backup-generate-passphrase"),
+                    )
+                    yield labeled_select_row(
+                        "Phrase length",
+                        "workspace-backup-passphrase-words",
+                        BACKUP_PASSPHRASE_WORD_OPTIONS,
+                        row_id="backup-words-row",
+                    )
+            with VerticalGroup(id="backup-signing-section", classes="workspace-options"):
+                with AppCollapsible(
+                    title="Signing-key recovery",
+                    id="backup-signing-options",
+                ):
+                    yield labeled_select_row(
+                        "Store key",
+                        "workspace-backup-signing-key-mode",
+                        BACKUP_SIGNING_KEY_OPTIONS,
+                    )
+                    yield field_row(
+                        "Quorum",
+                        "backup-signing-key-shards-value",
+                        WorkspaceAction("workspace-backup-signing-key-shards", "Change..."),
+                        row_id="backup-key-sheets-row",
+                    )
                 yield InlineNotice(id="backup-signing-notice")
-            with FormSection("Page layout", id="backup-print-section"):
-                yield select_row("Paper size", "workspace-backup-paper-size", PAPER_OPTIONS)
-                yield select_row("Print design", "workspace-backup-design", DESIGN_OPTIONS)
-            with FormSection("QR codes", id="backup-qr-section"):
-                yield field_row(
-                    "Density",
-                    "backup-qr-chunk-size-value",
-                    WorkspaceAction("workspace-backup-qr-chunk-size", "Set QR density..."),
-                    tooltip=QR_DENSITY_HELP,
-                )
-                yield InlineNotice(id="backup-qr-notice")
-                yield Static(
-                    "",
-                    id="backup-estimate-error",
-                    classes="workspace-field-note workspace-status-warning",
-                    markup=False,
-                )
             with FormSection("Destination", id="backup-output-section"):
-                yield field_row(
-                    "Save to",
-                    "backup-output-value",
-                    WorkspaceAction("workspace-backup-output", "Choose folder..."),
+                yield DestinationEditor(
+                    DestinationBodyPresentation(
+                        label="Parent folder",
+                        empty_label="Current folder",
+                        action=WorkspaceAction("workspace-backup-output", "Browse..."),
+                    ),
+                    id="backup-destination",
+                )
+                yield FormRow(
+                    "New folder",
+                    Static("", id="backup-output-value", classes="field-text", markup=False),
                 )
                 yield status_note("backup-destination-status")
                 yield Static(
                     "",
                     id="backup-output-summary",
                     classes="backup-output-summary workspace-field-note",
+                    markup=False,
+                )
+            with FormSection("Page layout", id="backup-print-section"):
+                yield select_row("Paper size", "workspace-backup-paper-size", PAPER_OPTIONS)
+                yield select_row("Print design", "workspace-backup-design", DESIGN_OPTIONS)
+                yield FormRow("Sample PDF", DesignPreview(id="backup-design-preview"))
+            with VerticalGroup(id="backup-qr-section", classes="workspace-options"):
+                with AppCollapsible(
+                    title="QR density",
+                    id="backup-qr-options",
+                ):
+                    yield field_row(
+                        "Density",
+                        "backup-qr-chunk-size-value",
+                        WorkspaceAction("workspace-backup-qr-chunk-size", "Set QR density..."),
+                        tooltip=QR_DENSITY_HELP,
+                    )
+                yield InlineNotice(id="backup-qr-notice")
+                yield Static(
+                    "",
+                    id="backup-estimate-error",
+                    classes="workspace-field-note workspace-status-warning",
                     markup=False,
                 )
 
@@ -191,6 +220,7 @@ class BackupWorkspace(BaseWorkspace):
         print_setup = group(presentation, "print")
         paper_select = self.query_one("#workspace-backup-paper-size", FormSelect)
         design = value(print_setup, "design")
+        self.query_one(DesignPreview).set_layout(design, value(print_setup, "paper"))
         definition = load_design_definition_by_name(design)
         names = supported_paper_size_names(
             design, doc_types=definition.documents & BACKUP_RENDER_DOC_TYPES
@@ -201,7 +231,7 @@ class BackupWorkspace(BaseWorkspace):
         documents = group(presentation, "documents")
         update_static_text(
             self.query_one("#backup-output-summary", Static),
-            value(documents, "inventory"),
+            f"Estimated print set: {value(documents, 'inventory')}",
         )
         error = value(documents, "estimate-error")
         estimate_note = self.query_one("#backup-estimate-error", Static)
@@ -213,17 +243,38 @@ class BackupWorkspace(BaseWorkspace):
             "warning",
             "blocked",
         }
-        update_static_text(
-            self.query_one("#backup-output-value", Static),
-            value(destination, "output"),
+        self.query_one("#backup-destination", DestinationEditor).sync_presentation(
+            DestinationBodyPresentation(
+                label="Parent folder",
+                display_path=control_value(destination, "output"),
+                empty_label="Current folder",
+                action=WorkspaceAction("workspace-backup-output", "Browse..."),
+            )
         )
+        update_static_text(
+            self.query_one("#backup-output-value", Static), value(destination, "output")
+        )
+        self._update_options(presentation)
+
+    def _update_options(self, presentation: TaskPresentation) -> None:
         advanced = group(presentation, "advanced")
+        self.query_one("#backup-paths-options", AppCollapsible).set_heading(
+            "File paths", value(advanced, "base-dir")
+        )
+        self.query_one("#backup-passphrase-options", AppCollapsible).set_heading(
+            "Passphrase options", value(advanced, "passphrase")
+        )
+        self.query_one("#backup-signing-options", AppCollapsible).set_heading(
+            "Signing-key recovery", value(advanced, "signing-key")
+        )
+        self.query_one("#backup-qr-options", AppCollapsible).set_heading(
+            "QR density", value(advanced, "qr-chunk-size")
+        )
         update_issue_note(self, "backup-qr-notice", presentation, "BACKUP_CUSTOM_QR_DENSITY")
 
         self.sync_values(
             advanced,
             {
-                "passphrase": "#backup-passphrase-value",
                 "base-dir": "#backup-base-dir-value",
                 "qr-chunk-size": "#backup-qr-chunk-size-value",
                 "signing-key": "#backup-signing-key-shards-value",
@@ -245,6 +296,11 @@ class BackupWorkspace(BaseWorkspace):
             "BACKUP_SIGNING_KEY_QUORUM_MODE_REQUIRED",
         )
         update_buttons(self, advanced.actions)
+        custom_phrase = control_value(advanced, "passphrase") == "custom"
+        self.query_one("#backup-passphrase", PassphraseInput).placeholder = (
+            "Passphrase set; enter to replace" if custom_phrase else "Enter to use your own"
+        )
+        self.query_one("#workspace-backup-generate-passphrase").display = custom_phrase
         self.query_one("#backup-words-row").display = (
             control_value(advanced, "passphrase") == "generated"
         )

@@ -7,9 +7,9 @@ import pytest
 from textual.widgets import Button, Collapsible, Input, ListItem, Static
 
 from ethernity.app.application import EthernityApp
-from ethernity.app.screens.review_task import ReviewTaskScreen
+from ethernity.app.widgets.review_task import TaskReview
 from ethernity.app.widgets.task_canvas import TaskCanvas
-from ethernity.app.widgets.workbench import WorkbenchSteps, WorkbenchSummary
+from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
@@ -29,8 +29,7 @@ def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> N
             canvas = app.query_one(TaskCanvas)
             rail = app.query_one(WorkbenchSteps)
             assert canvas.active_step == "files"
-            summary = app.query_one(WorkbenchSummary)
-            assert not summary.display
+            assert not rail.query(".workbench-step-summary.completed")
             assert app.query_one("#backup-files-section").display
             assert not app.query_one("#backup-recovery-section").display
             await pilot.click("#canvas-primary")
@@ -40,12 +39,11 @@ def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> N
                 "recovery controls to receive focus",
             )
             assert canvas.active_step == "recovery"
-            assert summary.display
-            assert [
-                str(row.query_one(".workbench-summary-label", Static).content)
-                for row in summary.query(".workbench-summary-row")
-                if row.display
-            ] == ["Files"]
+            summaries = list(rail.query(".workbench-step-summary.completed"))
+            assert len(summaries) == 1
+            assert summaries[0].parent is rail.button_for("files").parent
+            assert summaries[0].display
+            assert str(summaries[0].content)
             assert app.screen.focused is app.query_one("#workspace-backup-recovery-method")
             await pilot.click("#canvas-primary")
             await wait_for_condition(pilot, lambda: canvas.active_step == "print", "print step")
@@ -55,10 +53,12 @@ def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> N
             assert canvas.active_step == "files"
             await pilot.click(rail.button_for("review"))
             await wait_for_condition(
-                pilot, lambda: isinstance(app.screen, ReviewTaskScreen), "backup review to open"
+                pilot,
+                lambda: isinstance(app.query_one(TaskCanvas).document, TaskReview),
+                "backup review to open",
             )
-            assert isinstance(app.screen, ReviewTaskScreen)
-            assert app.screen._plan.output_paths == (output / "backup-<id>",)
+            assert isinstance(app.query_one(TaskCanvas).document, TaskReview)
+            assert app.query_one(TaskReview)._plan.output_paths == (output / "backup-<id>",)
             assert not output.exists()
             await pilot.press("escape")
             assert canvas.active_step == "files"
@@ -66,17 +66,18 @@ def test_backup_steps_review_current_values_without_writing(tmp_path: Path) -> N
     asyncio.run(run())
 
 
-def test_restore_has_one_page_heading_and_named_open_sections() -> None:
+def test_restore_has_one_page_heading_and_named_verification_options() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(150, 40)) as pilot:
             await pilot.press("2")
             assert str(app.query_one("#canvas-title", Static).content) == "Restore files"
             assert not app.query(".workflow-step-heading, #canvas-instruction")
-            assert not app.query_one(WorkbenchSummary).display
+            assert not app.query_one(WorkbenchSteps).query(".workbench-step-summary.completed")
             section = app.query_one("#restore-verification-section")
-            assert str(section.query_one(".form-section-title", Static).content) == "Verification"
-            assert not section.query(Collapsible)
+            options = section.query_one(Collapsible)
+            assert options.title == "Verification - Trusted signatures required"
+            assert options.collapsed
             assert not app.query("#restore-authentication-help, #restore-authentication-status")
 
     asyncio.run(run())
@@ -153,22 +154,23 @@ def test_workbench_summary_is_redacted_and_collapses_at_80_columns() -> None:
                 lambda: app.query_one(TaskCanvas).active_step == "unlock",
                 "unlock step to open",
             )
-            summary = app.query_one(WorkbenchSummary)
-            assert summary.display
+            rail = app.query_one(WorkbenchSteps)
+            summaries = list(rail.query(".workbench-step-summary.completed"))
+            assert summaries
+            assert all(summary.display for summary in summaries)
             assert "never-display-this-secret" not in "\n".join(
-                str(item.content) for item in summary.query(Static)
+                str(item.content) for item in rail.query(Static)
             )
             assert app.query_one("#workflow-restore-unlock-body").region.width > 0
             assert not app.query_one("#workflow-restore-source").display
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
-            assert not summary.display
-            rail = app.query_one(WorkbenchSteps)
+            assert all(not summary.display for summary in summaries)
             assert rail.region.height == 2
             assert app.query_one("#canvas-primary").region.bottom <= app.size.height - 1
             await pilot.resize_terminal(160, 48)
             await pilot.pause()
-            assert summary.display
+            assert all(summary.display for summary in summaries)
             assert app.query_one(TaskCanvas).active_step == "unlock"
 
     asyncio.run(run())

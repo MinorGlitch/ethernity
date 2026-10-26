@@ -11,9 +11,10 @@ from ethernity.app import application
 from ethernity.app.application import EthernityApp
 from ethernity.app.execution import ReviewedTask
 from ethernity.app.screens.file_picker import FilePickerScreen
-from ethernity.app.screens.review_task import ReviewEditRequest, ReviewTaskScreen
-from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.widgets.form import FormRow
+from ethernity.app.widgets.review_task import ReviewEditRequest, TaskReview
+from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_result import TaskResult
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.backup_estimate import BackupEstimate
@@ -31,11 +32,21 @@ from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_visible
 
 
+class ReviewObserver(EthernityApp):
+    def __init__(self, decisions):
+        super().__init__()
+        self.decisions = decisions
+
+    async def on_task_review_decided(self, event: TaskReview.Decided) -> None:
+        self.decisions.append(event.decision)
+        await super().on_task_review_decided(event)
+
+
 def test_review_edit_returns_the_decision_and_keeps_write_safety_visible(tmp_path: Path) -> None:
     destination = tmp_path / "family-records" / "backup-documents"
     destination.mkdir(parents=True)
     outcomes: list[bool | ReviewEditRequest | None] = []
-    screen = ReviewTaskScreen(
+    screen = TaskReview(
         title="Review backup",
         validation=TaskValidation(sections=()),
         preview=TaskPreview(title="Documents"),
@@ -49,9 +60,9 @@ def test_review_edit_returns_the_decision_and_keeps_write_safety_visible(tmp_pat
     )
 
     async def run() -> None:
-        app = EthernityApp()
+        app = ReviewObserver(outcomes)
         async with run_app_test(app, size=(80, 24)) as pilot:
-            await app.push_screen(screen, outcomes.append)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
             assert str(screen.query_one(".detail-value", Static).content) == str(destination)
@@ -85,7 +96,7 @@ def test_review_inventory_does_not_guess_page_counts(tmp_path: Path) -> None:
 def test_destination_does_not_invent_overwrite_warnings(tmp_path: Path, exists: bool) -> None:
     if exists:
         (tmp_path / "new").mkdir()
-    screen = ReviewTaskScreen(
+    screen = TaskReview(
         title="Review",
         validation=TaskValidation(sections=()),
         preview=TaskPreview(title="Documents"),
@@ -103,7 +114,7 @@ def test_review_rows_align_and_keyboard_reaches_every_edit(size: tuple[int, int]
         signing_key_mode="sharded",
     )
     plan = state.execution_plan()
-    screen = ReviewTaskScreen(
+    screen = TaskReview(
         title="Review backup",
         validation=TaskValidation(sections=()),
         preview=TaskPreview(title="Documents"),
@@ -114,15 +125,15 @@ def test_review_rows_align_and_keyboard_reaches_every_edit(size: tuple[int, int]
     outcomes: list[bool | ReviewEditRequest | None] = []
 
     async def run() -> None:
-        app = EthernityApp()
+        app = ReviewObserver(outcomes)
         async with run_app_test(app, size=size) as pilot:
-            await app.push_screen(screen, outcomes.append)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             body = screen.query_one("#review-body", VerticalScroll)
             actions = screen.query_one("#review-actions")
-            assert screen.query_one("#review-modal").region.width <= 100
+            assert screen.region == app.query_one("#workbench-document").region
             assert body.region.bottom <= actions.region.y
-            assert actions.region.bottom < size[1]
+            assert actions.region.bottom <= size[1]
             assert body.max_scroll_x == 0
             destination = str(plan.output_paths[0].absolute())
             assert sum(str(node.content) == destination for node in screen.query(Static)) == 1
@@ -137,9 +148,9 @@ def test_review_rows_align_and_keyboard_reaches_every_edit(size: tuple[int, int]
 
             edits = set(screen.query(".review-detail-edit").results(Button))
             visited = set()
-            for _ in range(len(screen.focus_chain) + 1):
+            for _ in range(len(app.screen.focus_chain) + 1):
                 await pilot.press("tab")
-                button = screen.focused
+                button = app.screen.focused
                 if button in edits:
                     visited.add(button)
                     await wait_for_visible(pilot, button, within=body)
@@ -181,10 +192,10 @@ def test_result_actions_send_typed_requests_and_report_generated_checks(tmp_path
 
         def __init__(self) -> None:
             super().__init__()
-            self.requests: list[TaskResultScreen.ContextActionRequested] = []
+            self.requests: list[TaskResult.ContextActionRequested] = []
 
-        async def on_task_result_screen_context_action_requested(
-            self, event: TaskResultScreen.ContextActionRequested
+        async def on_task_result_context_action_requested(
+            self, event: TaskResult.ContextActionRequested
         ) -> None:
             event.stop()
             self.requests.append(event)
@@ -196,7 +207,7 @@ def test_result_actions_send_typed_requests_and_report_generated_checks(tmp_path
         recovery_check_paths=(tmp_path / "backup.pdf",),
         details=(TaskResultDetail(key="page_count", label="Pages", value=7),),
     )
-    screen = TaskResultScreen(
+    screen = TaskResult(
         task="backup",
         title="Create backup",
         result=result,
@@ -206,13 +217,13 @@ def test_result_actions_send_typed_requests_and_report_generated_checks(tmp_path
     async def run() -> None:
         app = ResultApp()
         async with run_app_test(app, size=(120, 32)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             screen.query_one("#result-test-recovery", Button).press()
             await pilot.pause()
             assert app.requests[0].action == "test_recovery"
             assert app.requests[0].result is result
-            assert app.requests[0].screen is screen
+            assert app.requests[0].view is screen
             screen.set_context_action_running("test_recovery")
             assert screen.query_one("#result-test-recovery", Button).disabled
             assert not list(screen.query("#result-test-printed-pages"))
@@ -258,16 +269,16 @@ def test_result_recovery_uses_completed_backup_without_picker(monkeypatch, tmp_p
         app = EthernityApp(backup_state=BackupTaskState(passphrase="changed phrase"))
         app._last_reviewed_task = reviewed
         app._last_execution_result = result
-        screen = TaskResultScreen(
+        screen = TaskResult(
             task="backup", title="Backup created", result=result, context_actions_enabled=True
         )
         monkeypatch.setattr(app.recovery_check_controller, "start", start)
         async with run_app_test(app, size=(120, 32)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             screen.query_one("#result-test-recovery", Button).press()
             await pilot.pause()
-            assert app.screen is screen
+            assert app.query_one(TaskCanvas).document is screen
             assert not any(isinstance(item, FilePickerScreen) for item in app.screen_stack)
             assert not list(screen.query("#result-test-printed-pages"))
 
@@ -281,7 +292,7 @@ def test_result_recovery_uses_completed_backup_without_picker(monkeypatch, tmp_p
 def test_generated_recovery_action_requires_typed_carriers_after_check(
     tmp_path: Path,
 ) -> None:
-    screen = TaskResultScreen(
+    screen = TaskResult(
         task="backup",
         title="Backup created",
         result=TaskExecutionResult(
@@ -295,7 +306,7 @@ def test_generated_recovery_action_requires_typed_carriers_after_check(
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(80, 24)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             assert screen.query_one("#result-test-recovery", Button).disabled
             assert not list(screen.query("#result-test-printed-pages"))

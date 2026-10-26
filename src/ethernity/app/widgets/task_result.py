@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Literal
 
@@ -24,7 +23,7 @@ from textual.app import ComposeResult
 from textual.containers import HorizontalGroup, Vertical, VerticalGroup, VerticalScroll
 from textual.content import Content
 from textual.message import Message
-from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import Button, Label, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
@@ -44,30 +43,39 @@ _DOCUMENT_FINGERPRINT_RE = re.compile(r"[0-9a-fA-F]{64}")
 ResultContextAction = Literal["test_recovery"]
 
 
-class TaskResultScreen(ModalScreen[str | None]):
+class TaskResult(Widget):
     """Post-run success or failure summary."""
 
     BINDINGS = [("escape", "close", "Close")]
 
+    class CloseRequested(Message):
+        def __init__(self, result: TaskResult, *, return_to_form: bool = False) -> None:
+            super().__init__()
+            self.result = result
+            self.return_to_form = return_to_form
+            self.task = result._task_key
+            self.issues = result._recoverable_errors
+            self.section = result._return_section
+
     class ContextActionRequested(Message):
         """Ask the app to test the backup represented by this completed result."""
 
-        def __init__(self, screen: TaskResultScreen, action: ResultContextAction) -> None:
+        def __init__(self, view: TaskResult, action: ResultContextAction) -> None:
             super().__init__()
-            self.screen = screen
+            self.view = view
             self.action = action
-            self.task = screen._task_key
-            assert screen._result is not None
-            self.result = screen._result
+            self.task = view._task_key
+            assert view._result is not None
+            self.result = view._result
 
     class Closed(Message):
         """Notify the app when the user leaves this completed run."""
 
-        def __init__(self, screen: TaskResultScreen) -> None:
+        def __init__(self, view: TaskResult) -> None:
             super().__init__()
-            self.screen = screen
-            self.task = screen._task_key
-            self.result = screen._result
+            self.view = view
+            self.task = view._task_key
+            self.result = view._result
 
     def on_unmount(self) -> None:
         self.app.post_message(self.Closed(self))
@@ -86,7 +94,6 @@ class TaskResultScreen(ModalScreen[str | None]):
         reviewed_plan: TaskExecutionPlan | None = None,
         return_section: str | None = None,
         allow_return: bool = True,
-        return_callback: Callable[[], Awaitable[None]] | None = None,
         context_actions_enabled: bool = False,
     ) -> None:
         super().__init__()
@@ -101,8 +108,15 @@ class TaskResultScreen(ModalScreen[str | None]):
         self._reviewed_plan = reviewed_plan
         self._return_section = return_section
         self._allow_return = allow_return
-        self._return_callback = return_callback
         self._context_actions_enabled = context_actions_enabled
+
+    @property
+    def task_key(self) -> TaskKey:
+        return self._task_key
+
+    @property
+    def result(self) -> TaskExecutionResult | None:
+        return self._result
 
     def compose(self) -> ComposeResult:
         success = self._result is not None and self._result.ok
@@ -115,7 +129,7 @@ class TaskResultScreen(ModalScreen[str | None]):
             if success
             else "failure"
         )
-        with Vertical(id="result-modal", classes=f"document {result_class}"):
+        with Vertical(id="result-document", classes=f"document {result_class}"):
             with Vertical(id="result-header", classes="document-header"):
                 yield Static(
                     self._result_title(success),
@@ -158,23 +172,36 @@ class TaskResultScreen(ModalScreen[str | None]):
                     ):
                         yield from self._compose_technical_details()
 
-            action_buttons: list[ActionButton] = [ActionButton("Close", "result-close")]
-            if not success and self._allow_return:
+            yield self._footer_actions(success)
+
+    def _footer_actions(self, success: bool) -> HorizontalGroup:
+        action_buttons: list[ActionButton] = [ActionButton("Close", "result-close")]
+        if not success and self._allow_return:
+            action_buttons.append(
+                ActionButton(self._return_action_label(), "result-return", variant="primary")
+            )
+        elif success:
+            action_buttons[0] = ActionButton("Done", "result-close")
+            if self._document_paths():
                 action_buttons.append(
-                    ActionButton(self._return_action_label(), "result-return", variant="primary")
+                    ActionButton("Open documents", "result-open-documents", variant="primary")
                 )
-            else:
-                action_buttons[0] = ActionButton("Close", "result-close", variant="primary")
-            yield modal_action_row("result-actions", *action_buttons)
+            elif self._open_folder_path() is not None:
+                action_buttons.append(
+                    ActionButton("Open folder", "result-open-folder", variant="primary")
+                )
+        return modal_action_row("result-actions", *action_buttons, align_end=False)
 
     def on_mount(self) -> None:
         self.call_after_refresh(self._refresh_result_log)
-        selector = (
-            "#result-return" if not self._is_success() and self._allow_return else "#result-close"
-        )
-        self.query_one(selector, Button).focus()
+
+    def focus_default(self) -> None:
+        actions = self.query_one("#result-actions")
+        primary = actions.query("Button.-primary")
+        (primary.first(Button) if primary else actions.query_one("#result-close", Button)).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
         if event.button.id == "result-open-documents":
             self._open_documents()
             return
@@ -195,23 +222,13 @@ class TaskResultScreen(ModalScreen[str | None]):
             self._open_folder()
             return
         if event.button.id == "result-return":
-            if self._return_callback is not None:
-                # Pop first so focus is restored within the live workflow rather than this modal.
-                self.app.pop_screen()
-                scheduled = self.app.call_later(self._return_callback)
-                if not scheduled:
-                    self.app.notify(
-                        "Could not return to the form. Choose the task from the navigation menu.",
-                        severity="error",
-                    )
-                return
-            self.dismiss("return")
+            self.post_message(self.CloseRequested(self, return_to_form=True))
             return
         if event.button.id == "result-close":
-            self.dismiss(None)
+            self.action_close()
 
     def action_close(self) -> None:
-        self.dismiss(None)
+        self.post_message(self.CloseRequested(self))
 
     def _compose_success_body(self) -> ComposeResult:
         result = self._result
@@ -228,13 +245,6 @@ class TaskResultScreen(ModalScreen[str | None]):
                 page_count = self._page_count()
                 if page_count is not None:
                     yield _summary_row("PDF pages", str(page_count))
-
-            yield from self._compose_context_actions()
-            if result.output_paths:
-                with VerticalGroup(id="result-output"):
-                    yield _result_path_list(
-                        result.output_paths, base_dir=single_output_folder(result.output_paths)
-                    )
 
         if self._context_actions_enabled and self._document_paths():
             with FormSection("PDF recovery check", id="result-recovery-check"):
@@ -258,6 +268,15 @@ class TaskResultScreen(ModalScreen[str | None]):
                             id="result-test-guidance",
                             markup=False,
                         )
+
+        if result.output_paths or self._context_actions():
+            title = "Files" if result.output_paths else "Actions"
+            with FormSection(title, id="result-files"):
+                yield from self._compose_context_actions()
+                with VerticalGroup(id="result-output"):
+                    yield _result_path_list(
+                        result.output_paths, base_dir=single_output_folder(result.output_paths)
+                    )
 
         if next_steps:
             title = (
@@ -432,14 +451,14 @@ class TaskResultScreen(ModalScreen[str | None]):
 
     def _context_actions(self) -> tuple[ActionButton, ...]:
         actions: list[ActionButton] = []
-        if self._is_success() and self._document_paths():
-            actions.append(ActionButton("Open documents", "result-open-documents"))
         if self._document_fingerprint() is not None:
             actions.append(ActionButton("Copy fingerprint", "result-copy-fingerprint"))
         if self._copy_paths_text() is not None:
             copy_label = "Copy paths" if self._reported_output_paths() else "Copy destination"
             actions.append(ActionButton(copy_label, "result-copy-paths"))
-        if self._open_folder_path() is not None:
+        if self._open_folder_path() is not None and (
+            not self._is_success() or self._document_paths()
+        ):
             actions.append(ActionButton("Open folder", "result-open-folder"))
         return tuple(actions)
 
@@ -467,6 +486,7 @@ class TaskResultScreen(ModalScreen[str | None]):
         checks.remove_class("success", "failure")
         checks.update("Checking PDFs...")
         checks.display = True
+        checks.call_after_refresh(checks.scroll_visible, animate=False)
 
     def _set_context_actions_disabled(self, disabled: bool) -> None:
         for button in self.query("#result-next-actions Button").results(Button):

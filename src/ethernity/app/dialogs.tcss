@@ -1,15 +1,5 @@
 /* Shared dialog and document frames, followed by screen-specific layout. */
 
-TaskProgressScreen {
-    align: center middle;
-    background: $background;
-}
-
-#progress-modal {
-    width: 78;
-    max-height: 95%;
-}
-
 #operation-bar {
     width: 1fr;
     margin-top: 1;
@@ -56,7 +46,7 @@ Screen.-ethernity-short #progress-steps {
     height: auto;
 }
 
-#result-modal.cancelled #result-status {
+#result-document.cancelled #result-status {
     color: $text-muted;
 }
 
@@ -76,45 +66,6 @@ Screen.-ethernity-short #progress-steps {
 .dialog-prompt {
     margin-top: 1;
     color: $text-muted;
-}
-
-.document {
-    width: 100;
-    height: auto;
-    max-width: 100%;
-    max-height: 100%;
-    padding: 0 2;
-    border: solid $border-blurred;
-    background: $background;
-}
-
-.document-header {
-    dock: top;
-    height: auto;
-    min-height: 3;
-    padding: 1 1;
-    border-bottom: solid $border-blurred;
-    background: $background;
-}
-
-.document-header .screen-title {
-    height: auto;
-}
-
-.document-body {
-    height: auto;
-    max-height: 1fr;
-    padding: 1;
-    overflow-x: hidden;
-    background: $background;
-    color: $text;
-}
-
-.document > .modal-action-row {
-    dock: bottom;
-    padding: 1 1;
-    border-top: solid $border-blurred;
-    background: $background;
 }
 
 .dialog > .modal-action-row,
@@ -332,12 +283,6 @@ ConfirmActionScreen {
     background: $surface;
 }
 
-TaskResultScreen,
-ReviewTaskScreen {
-    align: center middle;
-    background: $background;
-}
-
 .document-body FormSection:first-child {
     border-top: none;
 }
@@ -419,7 +364,7 @@ ReviewTaskScreen {
 }
 
 #result-status.success,
-#result-modal.success #result-title,
+#result-document.success #result-title,
 #result-document-checks.success {
     color: $text-success;
 }
@@ -429,11 +374,11 @@ ReviewTaskScreen {
     padding: 0 1;
 }
 
-#result-modal.failure #result-title {
+#result-document.failure #result-title {
     color: $text-error;
 }
 
-#result-modal.partial #result-title {
+#result-document.partial #result-title {
     color: $text-warning;
 }
 
@@ -546,9 +491,7 @@ Collapsible.result-details-panel {
 }
 
 #file-picker-modal.compact,
-Screen.-ethernity-narrow .document-body,
 Screen.-ethernity-narrow #review-attention,
-Screen.-ethernity-short .document,
 Screen.-ethernity-narrow #result-output,
 Screen.-ethernity-narrow #result-remediation {
     padding: 0 1;
@@ -627,25 +570,6 @@ Screen.-ethernity-narrow #result-remediation {
     padding: 0 1;
 }
 
-Screen.-ethernity-narrow .document-header {
-    min-height: 1;
-    padding: 0 1;
-}
-
-Screen.-ethernity-narrow #review-actions Button {
-    width: 48%;
-    max-width: 48%;
-}
-
-Screen.-ethernity-short .document-header {
-    min-height: 2;
-    padding: 0 1;
-}
-
-Screen.-ethernity-short .document-body {
-    padding-top: 0;
-}
-
 Screen.-ethernity-short #review-attention {
     padding: 0 1;
 }
@@ -657,13 +581,4 @@ Screen.-ethernity-short .document-body .detail-value {
 
 Screen.-ethernity-short .document-body FormSection {
     padding: 0;
-}
-
-Screen.-ethernity-narrow #review-actions > .modal-action-spacer {
-    display: none;
-}
-
-Screen.-ethernity-short .document > .modal-action-row {
-    height: 2;
-    padding: 0 1;
 }

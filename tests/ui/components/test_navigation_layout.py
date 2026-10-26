@@ -28,7 +28,7 @@ def test_navigation_fits_full_labels_and_settles_after_resize(height: int) -> No
                     for button in buttons
                 )
                 assert len({region.y for region in regions}) == (
-                    3 if width == 32 else 2 if width < 61 else 1
+                    3 if width == 32 else 2 if width == 40 else 1
                 )
                 assert app.query_one("#workspace").region.y >= navigation.region.bottom
 

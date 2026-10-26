@@ -99,7 +99,6 @@
     max-width: 100%;
 }
 
-#app-header-title,
 .guided-loading-label {
     width: 1fr;
     height: 1;
@@ -113,12 +112,12 @@
 }
 
 #app-header {
-    height: 3;
-    padding: 1 2;
+    height: 1;
+    padding: 0 2;
 }
 
 #app-header-brand {
-    width: 14;
+    width: 1fr;
     color: $text-primary;
 }
 
@@ -144,8 +143,8 @@
 
 #workbench-navigation Button:focus,
 WorkbenchSteps Button:focus {
-    background: $primary;
-    color: $button-color-foreground;
+    background: $surface-active;
+    color: $text;
     text-style: bold;
 }
 
@@ -160,8 +159,7 @@ WorkbenchSteps Button:focus {
     width: 34;
 }
 
-#workbench-step-title,
-#workbench-summary-title {
+#workbench-step-title {
     height: 1;
     margin-bottom: 1;
     color: $text-muted;
@@ -182,7 +180,6 @@ WorkbenchSteps Button:focus {
     margin-bottom: 1;
 }
 
-.workbench-summary-row,
 #workspace-backup-recovery-method,
 .workspace-field-note,
 .workspace-button-row,
@@ -198,27 +195,12 @@ WorkbenchSteps Button:focus {
     text-style: bold;
 }
 
-.workbench-summary-label {
-    height: 1;
-    color: $text-muted;
-}
-
-.workbench-summary-value {
-    color: $text;
-}
-
 InlineNotice.notice-success {
     color: $text-success;
     border-left: solid $success;
     background: $success 10%;
     padding: 0 1;
     text-style: bold;
-}
-
-#canvas-progress {
-    width: auto;
-    color: $text-muted;
-    content-align: center middle;
 }
 
 #canvas-action-row #canvas-back {
@@ -299,9 +281,7 @@ WorkbenchSteps Button.step-warning {
 
 .workspace-choice-empty,
 .guided-choice-empty,
-WorkbenchSummary.empty-summary,
-#workbench-steps.settings-mode,
-#workbench-summary.settings-mode {
+#workbench-steps.settings-mode {
     display: none;
 }
 
@@ -335,12 +315,22 @@ WorkbenchSteps Button.step-error,
     color: $text-error;
 }
 
-WorkbenchSummary {
-    width: 29;
-    height: 1fr;
-    padding: 1 2;
-    border-left: solid $border-blurred;
-    background: $surface;
+.workbench-step {
+    width: 1fr;
+    height: auto;
+}
+
+.workbench-step-summary {
+    display: none;
+    color: $text-muted;
+    padding: 0 1;
+    max-height: 3;
+    margin-bottom: 1;
+    text-overflow: ellipsis;
+}
+
+.workbench-step-summary.completed {
+    display: block;
 }
 
 /* Open sections and a single field layout for every workflow. */
@@ -365,13 +355,19 @@ FormSection.first-section {
     text-style: bold;
 }
 
-FormRow {
+.workspace-options {
     height: auto;
+    margin-top: 1;
     margin-bottom: 1;
 }
 
-FormRow:last-child {
-    margin-bottom: 0;
+.workspace-options > AppCollapsible > CollapsibleTitle {
+    color: $text;
+}
+
+FormRow {
+    height: auto;
+    margin-bottom: 1;
 }
 
 .form-label {
@@ -570,12 +566,8 @@ Screen.-ethernity-short #settings-focus-help {
     content-align: left top;
 }
 
-Screen.-ethernity-short #canvas-progress {
-    height: 1;
-}
-
 Screen.-ethernity-narrow #workbench-step-title,
-Screen.-ethernity-narrow WorkbenchSummary {
+Screen.-ethernity-narrow .workbench-step-summary {
     display: none;
 }
 
@@ -640,6 +632,10 @@ Screen.-ethernity-narrow #workbench-editor {
     padding: 1;
 }
 
+Screen.-ethernity-narrow .workbench-step {
+    width: auto;
+}
+
 Screen.-ethernity-narrow WorkbenchSteps Button {
     width: auto;
     margin: 0;
@@ -648,4 +644,55 @@ Screen.-ethernity-narrow WorkbenchSteps Button {
 
 Screen.-ethernity-short .form-section-title {
     margin-bottom: 0;
+}
+
+Screen.-ethernity-short WorkbenchSteps Button {
+    padding: 0 1;
+}
+
+/* In-workbench review, progress and results use the editor's full width. */
+#workbench-document,
+TaskReview,
+TaskProgress,
+TaskResult,
+.document {
+    width: 1fr;
+    height: 1fr;
+}
+
+.document {
+    background: $background;
+}
+
+.document-header {
+    height: auto;
+    min-height: 2;
+    padding-bottom: 1;
+}
+
+.document-header .screen-title {
+    height: auto;
+}
+
+.document-body {
+    height: 1fr;
+    overflow-x: hidden;
+    background: $background;
+    color: $text;
+}
+
+.document > .modal-action-row {
+    height: auto;
+    padding: 1 0;
+    border-top: solid $border-blurred;
+    background: $background;
+}
+
+.document > .modal-action-row .action-gap {
+    width: 1fr;
+}
+
+Screen.-ethernity-short .document > .modal-action-row {
+    height: 2;
+    padding: 0;
 }

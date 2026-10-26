@@ -7,7 +7,8 @@ from textual.widgets import Button
 
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens.file_picker import FilePickerScreen
-from ethernity.app.screens.review_task import ReviewTaskScreen
+from ethernity.app.widgets.review_task import TaskReview
+from ethernity.app.widgets.task_canvas import TaskCanvas
 from ethernity.tasks.backup import BackupTaskState
 from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_widget
@@ -24,8 +25,8 @@ def test_review_edit_prepares_a_new_snapshot_before_any_write(tmp_path: Path) ->
         async with run_app_test(app, size=(100, 32)) as pilot:
             await app.action_review()
             await wait_for_widget(pilot, "#review-execute")
-            original_review = app.screen
-            assert isinstance(original_review, ReviewTaskScreen)
+            original_review = app.query_one(TaskReview)
+            assert isinstance(original_review, TaskReview)
             assert original_review._plan.output_paths == (old_output / "backup-<id>",)
             _output_edit_button(original_review).press()
             await wait_for_widget(pilot, "#file-picker-cancel")
@@ -34,9 +35,9 @@ def test_review_edit_prepares_a_new_snapshot_before_any_write(tmp_path: Path) ->
             await wait_for_widget(pilot, "#review-execute")
             assert app.running_task is None
             assert app.backup_state.output_dir == new_output
-            assert isinstance(app.screen, ReviewTaskScreen)
-            assert app.screen is not original_review
-            assert app.screen._plan.output_paths == (new_output / "backup-<id>",)
+            assert isinstance(app.query_one(TaskCanvas).document, TaskReview)
+            assert app.query_one(TaskReview) is not original_review
+            assert app.query_one(TaskReview)._plan.output_paths == (new_output / "backup-<id>",)
             assert not new_output.exists()
 
     asyncio.run(run())
@@ -54,20 +55,20 @@ def test_cancelled_review_edit_returns_to_review_without_mutation(tmp_path: Path
             initial = app.backup_state.model_dump_json()
             await app.action_review()
             await wait_for_widget(pilot, "#review-execute")
-            assert isinstance(app.screen, ReviewTaskScreen)
-            _output_edit_button(app.screen).press()
+            assert isinstance(app.query_one(TaskCanvas).document, TaskReview)
+            _output_edit_button(app.query_one(TaskReview)).press()
             await wait_for_widget(pilot, "#file-picker-cancel")
             assert isinstance(app.screen, FilePickerScreen)
             await pilot.press("escape")
             await wait_for_widget(pilot, "#review-execute")
-            assert isinstance(app.screen, ReviewTaskScreen)
+            assert isinstance(app.query_one(TaskCanvas).document, TaskReview)
             assert app.backup_state.model_dump_json() == initial
             assert app.running_task is None
 
     asyncio.run(run())
 
 
-def _output_edit_button(screen: ReviewTaskScreen) -> Button:
+def _output_edit_button(screen: TaskReview) -> Button:
     return next(
         button
         for button in screen.query(Button).results(Button)

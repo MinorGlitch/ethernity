@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from textual.containers import VerticalGroup
 from textual.message import Message
-from textual.widgets import Button, Input, RadioSet, Static
+from textual.widgets import Button, RadioSet, Static
 
+from ethernity.app.widgets.passphrase_input import PassphraseInput
 from ethernity.app.widgets.workflow.controls import (
-    EditorValueChanged,
     InlineNotice,
     KeyedRadioSet,
     WorkspaceActionRequested,
@@ -35,9 +35,6 @@ class UnlockEditor(VerticalGroup):
         def control(self) -> UnlockEditor:
             return self.editor
 
-    class ValueChanged(EditorValueChanged["UnlockEditor"]):
-        pass
-
     def __init__(
         self,
         presentation: UnlockBodyPresentation,
@@ -46,18 +43,14 @@ class UnlockEditor(VerticalGroup):
         classes: str | None = None,
     ) -> None:
         self._presentation = presentation
-        self._passphrase_dirty = False
-        self._pending_value: str | None = None
         self._methods = KeyedRadioSet(
             presentation.methods,
             id=child_id(id, "methods"),
         )
         self._input_summary = Static("", classes="guided-detail", markup=False)
-        self._passphrase = Input(
-            password=True,
+        self._passphrase = PassphraseInput(
             placeholder="Enter backup passphrase",
             id=child_id(id, "passphrase"),
-            classes="workspace-control",
         )
         self._action = workspace_action_button(id)
         self._notice = InlineNotice(presentation.notice)
@@ -101,47 +94,6 @@ class UnlockEditor(VerticalGroup):
     def focus_passphrase(self) -> None:
         if self._passphrase.display:
             self._passphrase.focus(scroll_visible=True)
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input is self._passphrase:
-            event.stop()
-            self._passphrase_dirty = True
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        self._commit_passphrase(event)
-
-    def on_input_blurred(self, event: Input.Blurred) -> None:
-        self._commit_passphrase(event)
-
-    def _commit_passphrase(self, event: Input.Submitted | Input.Blurred) -> None:
-        if event.input is not self._passphrase:
-            return
-        event.stop()
-        if not self._passphrase_dirty:
-            return
-        self._passphrase_dirty = False
-        self._pending_value = event.value
-        self.post_message(self.ValueChanged(self, event.value))
-        with self._passphrase.prevent(Input.Changed):
-            self._passphrase.value = ""
-
-    def take_pending_change(self) -> ValueChanged | None:
-        """Return an uncommitted phrase without exposing it in presentation text."""
-        if self._pending_value is not None:
-            value = self._pending_value
-            self._pending_value = None
-            return self.ValueChanged(self, value)
-        if not self._passphrase_dirty and not self._passphrase.value:
-            return None
-        self._passphrase_dirty = False
-        value = self._passphrase.value
-        with self._passphrase.prevent(Input.Changed):
-            self._passphrase.value = ""
-        return self.ValueChanged(self, value)
-
-    def accept_value(self, value: str) -> None:
-        if self._pending_value == value:
-            self._pending_value = None
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button is not self._action or self._presentation.method_action is None:

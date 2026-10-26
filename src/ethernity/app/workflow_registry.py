@@ -113,19 +113,15 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
             lambda host: host._editor_callbacks._apply_backup_output_picked,
             "parent-folder",
         ),
-        passphrase_editor=editors.PassphraseEditorDefinition(
-            "Backup passphrase",
-            "Leave blank to generate a strong passphrase.",
-            lambda host: host._editor_callbacks._apply_backup_passphrase,
-        ),
+        passphrase_editor="#backup-passphrase",
         workspace_prefix="workspace-backup-",
         section_focus=(
             ("files", "#workspace-backup-files"),
-            ("output", "#workspace-backup-output"),
+            ("output", "#backup-destination-value"),
             ("recovery", "#workspace-backup-recovery-method"),
             ("signature", "#workspace-backup-signing-key-mode"),
             ("layout", "#workspace-backup-paper-size"),
-            ("advanced", "#workspace-backup-passphrase"),
+            ("advanced", "#backup-passphrase"),
         ),
         issue_focus=(
             ("BACKUP_CUSTOM_QR_DENSITY", "#workspace-backup-qr-chunk-size"),

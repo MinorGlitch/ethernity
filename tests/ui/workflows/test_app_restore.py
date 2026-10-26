@@ -16,7 +16,6 @@ from textual.widgets import (
 from ethernity.app.application import EthernityApp
 from ethernity.app.screens.file_picker import FilePickerScreen
 from ethernity.app.screens.paste_text import PasteTextScreen
-from ethernity.app.widgets.form import FormSection
 from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.source import SourceChooser
 from ethernity.app.widgets.workflow.unlock import UnlockEditor
@@ -161,7 +160,8 @@ def test_textual_app_restore_expected_head_fingerprint_is_real_control() -> None
         app = EthernityApp()
         async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("2")
-            assert app.query_one("#restore-verification-section", FormSection).display
+            assert app.query_one("#restore-verification-section").display
+            await workflow_support.open_options(app, pilot, "#restore-verification-options")
             app.query_one("#workspace-restore-expected-head", Button).focus()
             await pilot.pause()
             await pilot.press("enter")

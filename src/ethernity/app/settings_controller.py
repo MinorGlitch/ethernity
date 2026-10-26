@@ -86,7 +86,7 @@ class SettingsControllerApp(Protocol):
         multiple: bool = True,
         save_name: str = "",
         save_placeholder: str = "",
-        choose_label: str = "Select",
+        choose_label: str = "Use selection",
     ) -> Awaitable[None]: ...
 
 

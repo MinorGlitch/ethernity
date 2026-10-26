@@ -68,10 +68,13 @@ def test_focused_buttons_do_not_underline_labels_or_blank_padding(theme, size) -
         assert button.has_focus
         assert button.region.height == height
         lines = button.render_lines(Region(0, 0, button.region.width, height))
-        assert [i for i, line in enumerate(lines) if line.text.strip()] == [height // 2]
+        assert button.styles.outline_left[0] == "tall"
+        assert button.styles.outline_right[0] == "tall"
+        contents = [line.crop(1, button.region.width - 1) for line in lines]
+        assert [i for i, line in enumerate(contents) if line.text.strip()] == [height // 2]
         assert str(button.label) in lines[height // 2].text
         assert all(not segment.style.underline for line in lines for segment in line)
-        assert all(segment.style.bold for segment in lines[height // 2] if segment.text.strip())
+        assert all(segment.style.bold for segment in contents[height // 2] if segment.text.strip())
 
     asyncio.run(run())
 
