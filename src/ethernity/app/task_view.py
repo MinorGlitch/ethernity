@@ -10,10 +10,9 @@ from __future__ import annotations
 import asyncio
 from contextlib import ExitStack
 from dataclasses import replace
-from functools import partial
 from typing import cast
 
-from textual.widgets import Button, Label, ListView
+from textual.widgets import Button, Collapsible, Label, ListView
 from textual.worker import Worker
 
 from ethernity.app.app_context import EthernityAppContext
@@ -38,9 +37,6 @@ from ethernity.app.navigation import (
 )
 from ethernity.app.operation_progress import OperationProgress
 from ethernity.app.screens.diagnostics import DiagnosticsScreen
-from ethernity.app.screens.review_task import ReviewEditRequest, ReviewTaskScreen
-from ethernity.app.screens.task_progress import TaskProgressScreen
-from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.task_catalog import (
     TASK_ORDER,
     TASK_TITLES,
@@ -48,9 +44,12 @@ from ethernity.app.task_catalog import (
     review_label,
 )
 from ethernity.app.widgets.form import FormScroll
+from ethernity.app.widgets.review_task import ReviewEditRequest, TaskReview
 from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.app.widgets.static_text import update_static_text
 from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_progress import TaskProgress
+from ethernity.app.widgets.task_result import TaskResult
 from ethernity.app.widgets.workflow.steps import WorkflowStepStack
 from ethernity.app.workflow_presenter import (
     is_guided_task,
@@ -142,6 +141,7 @@ class TaskViewActions(EthernityAppContext):
         if key == "review":
             await self.action_review()
             return
+        await self._close_task_document()
         ui_state = self.workflow_ui_states.get(self.active_task)
         if ui_state is not None:
             if key not in ui_state.step_keys:
@@ -162,6 +162,7 @@ class TaskViewActions(EthernityAppContext):
         self._commit_form_inputs()
         if self._review_busy():
             return
+        await self._close_task_document()
         if self.active_task == "settings":
             self.notify("Settings save automatically.")
             return
@@ -183,7 +184,7 @@ class TaskViewActions(EthernityAppContext):
             self._focus_review_problems(task, validation)
             return
         assert reviewed_task is not None
-        await self._push_execution_review(reviewed_task)
+        await self._present_execution_review(reviewed_task)
 
     async def _prepare_review_capture(
         self, task: TaskKey, state: TaskState, ui_state: WorkflowUiState | None
@@ -260,18 +261,55 @@ class TaskViewActions(EthernityAppContext):
             self.notify(first_issue.message, severity="warning")
         return
 
-    async def _push_execution_review(self, reviewed_task: ReviewedTask) -> None:
-        await self.push_screen(
-            ReviewTaskScreen(
+    async def _present_execution_review(self, reviewed_task: ReviewedTask) -> None:
+        self._close_nav_menu(restore_focus=False)
+        self._last_reviewed_task = reviewed_task
+        self.query_one(TaskCanvas).present_document(
+            TaskReview(
                 title=_REVIEW_TITLES[reviewed_task.task],
                 validation=reviewed_task.validation,
                 preview=reviewed_task.preview,
                 plan=reviewed_task.plan,
                 execute_label=execute_label(reviewed_task.task),
                 review_details=reviewed_task.review_details,
-            ),
-            partial(self._execute_after_review, reviewed_task),
+            )
         )
+
+    async def on_task_review_decided(self, event: TaskReview.Decided) -> None:
+        event.stop()
+        canvas = self.query_one(TaskCanvas)
+        if event.review is not canvas.document or self._desktop_shutdown_requested:
+            return
+        reviewed = self._last_reviewed_task
+        await self._close_task_document()
+        if reviewed is not None:
+            self._execute_after_review(reviewed, event.decision)
+
+    async def on_task_result_close_requested(self, event: TaskResult.CloseRequested) -> None:
+        event.stop()
+        if event.result is not self.query_one(TaskCanvas).document:
+            return
+        await self._close_task_document()
+        if event.return_to_form:
+            await self._return_to_workflow(event.task, event.issues, event.section)
+
+    async def _close_task_document(self) -> None:
+        canvas = self.query_one(TaskCanvas)
+        document = canvas.document
+        if document is None or isinstance(document, TaskProgress):
+            return
+        await canvas.close_document()
+        if (
+            isinstance(document, TaskResult)
+            and document.task_key == "backup"
+            and self.active_task == "backup"
+            and document.result is self._last_execution_result
+            and self._last_execution_result is not None
+            and self._last_execution_result.status == "succeeded"
+        ):
+            self.action_clear_task()
+        self.refresh_task_view()
+        self.call_after_refresh(self._focus_active_task, self.active_task)
 
     async def action_execute_current(self) -> None:
         await self.action_review()
@@ -379,7 +417,11 @@ class TaskViewActions(EthernityAppContext):
             else:
                 self.query_one(TaskCanvas).select_step(step)
             self.refresh_task_view()
-        self.call_after_refresh(workspace.query_one(selector).scroll_visible, animate=False)
+        target = workspace.query_one(selector)
+        for parent in target.ancestors:
+            if isinstance(parent, Collapsible):
+                parent.collapsed = False
+        self.call_after_refresh(target.scroll_visible, animate=False)
 
     def _move_focused_selection(self, direction: int) -> None:
         focused = self.screen.focused
@@ -472,6 +514,7 @@ class TaskViewActions(EthernityAppContext):
         locked = preparing_task is not None or self.running_task is not None
         self.query_one("#task-workspaces").disabled = locked
         self.query_one("#workbench-steps").disabled = locked
+        self.query_one("#workbench-navigation").disabled = locked
         ui_state = self.workflow_ui_states.get(self.active_task)
         self.query_one("#canvas-primary", Button).disabled = locked or (
             ui_state is not None and ui_state.has_invalid_draft(ui_state.active_step)
@@ -557,11 +600,14 @@ class TaskViewActions(EthernityAppContext):
             return
         if self.screen is not self.screen_stack[0]:
             return
+        if self.running_task is not None:
+            return
         preparing_task = self._preparing_review_task
         if preparing_task is not None and task != self.active_task:
             task_label = _TASK_ACTIVITY_LABELS[preparing_task]
             self.notify(f"Ethernity is preparing the {task_label} review.")
             return
+        await self._close_task_document()
         if task == self.active_task:
             self._close_nav_menu()
             self._refresh_navigation()
@@ -592,6 +638,11 @@ class TaskViewActions(EthernityAppContext):
     def _focus_active_task(self, task: TaskKey) -> None:
         if not self.is_running or self._nav_menu_open or self.screen is not self.screen_stack[0]:
             return
+        document = self.query_one(TaskCanvas).document
+        if document is not None:
+            if document.is_mounted:
+                document.focus_default()
+            return
         if task == self.active_task:
             if is_guided_task(task):
                 self._focus_guided_active_step()
@@ -602,7 +653,7 @@ class TaskViewActions(EthernityAppContext):
                 selector = {
                     "files": "#workspace-backup-files",
                     "recovery": "#workspace-backup-recovery-method",
-                    "print": "#workspace-backup-paper-size",
+                    "print": "#backup-destination-value",
                 }[step]
                 control = self.query_one(selector)
                 self.query_one("#backup-workspace", BaseWorkspace).query_one(
@@ -715,11 +766,12 @@ class TaskViewActions(EthernityAppContext):
         self._review_edit_task = None
 
     def _present_execution_start(self, reviewed_task: ReviewedTask) -> None:
+        self._close_nav_menu(restore_focus=False)
         self._publish_desktop_status(_RUNNING_LABELS[reviewed_task.task], busy=True)
         self._last_execution_result = None
         self.refresh_task_view()
-        self.push_screen(
-            TaskProgressScreen(
+        self.query_one(TaskCanvas).present_document(
+            TaskProgress(
                 title=_RUNNING_LABELS[reviewed_task.task],
                 task=reviewed_task.task,
                 destination="\n".join(str(path) for path in reviewed_task.plan.output_paths),
@@ -730,8 +782,9 @@ class TaskViewActions(EthernityAppContext):
     def _present_execution_progress(self, progress: OperationProgress) -> None:
         text = " - ".join(part for part in (progress.stage, progress.count_text) if part)
         self._publish_desktop_status(text, busy=True)
-        if isinstance(self.screen, TaskProgressScreen):
-            self.screen.update_progress(progress)
+        document = self.query_one(TaskCanvas).document
+        if isinstance(document, TaskProgress):
+            document.update_progress(progress)
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         self.execution_controller.handle_worker_state_changed(event)
@@ -757,7 +810,7 @@ class TaskViewActions(EthernityAppContext):
         return_section = (
             None if result.ok else execution_failure_section(reviewed_task.task, outcome)
         )
-        screen = TaskResultScreen(
+        screen = TaskResult(
             task=reviewed_task.task,
             title=TASK_TITLES[reviewed_task.task],
             result=result,
@@ -772,21 +825,8 @@ class TaskViewActions(EthernityAppContext):
             context_actions_enabled=(
                 result.ok and reviewed_task.task in {"backup", "add_files", "rebuild"}
             ),
-            return_callback=(
-                partial(
-                    self._return_to_workflow,
-                    reviewed_task.task,
-                    recoverable_errors,
-                    return_section,
-                )
-                if not result.ok and outcome.allow_retry
-                else None
-            ),
         )
-        if isinstance(self.screen, TaskProgressScreen):
-            self.switch_screen(screen)
-        else:
-            self.push_screen(screen)
+        self.query_one(TaskCanvas).present_document(screen)
 
     async def _return_to_workflow(
         self,

@@ -69,7 +69,7 @@ def test_registered_destination_opens_the_correct_picker(
     assert options["allow_clear"] == (task != "kit")
 
 
-@pytest.mark.parametrize("task", PATH_TASKS[:-1])
+@pytest.mark.parametrize("task", [task for task in PATH_TASKS if task not in {"backup", "kit"}])
 def test_registered_passphrase_editor_changes_only_its_task(
     monkeypatch: pytest.MonkeyPatch,
     task: TaskKey,
@@ -77,8 +77,7 @@ def test_registered_passphrase_editor_changes_only_its_task(
     app = EthernityApp()
     app.active_task = task
     app._current_state().passphrase = "old phrase"
-    if task != "backup":
-        app._current_state().recovery_documents = [Path("sheet.pdf")]
+    app._current_state().recovery_documents = [Path("sheet.pdf")]
     push = AsyncMock()
     monkeypatch.setattr(app, "_push_editor", push)
     monkeypatch.setattr(app, "refresh_task_view", Mock())
@@ -87,11 +86,8 @@ def test_registered_passphrase_editor_changes_only_its_task(
     assert isinstance(editor, EditFieldScreen)
     callback("new phrase")
     assert app._current_state().passphrase == "new phrase"
-    if task != "backup":
-        assert app._current_state().recovery_documents == []
-        assert app.backup_state.passphrase is None
-    else:
-        assert app.restore_state.passphrase is None
+    assert app._current_state().recovery_documents == []
+    assert app.backup_state.passphrase is None
 
 
 @pytest.mark.parametrize(

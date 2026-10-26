@@ -17,13 +17,13 @@ from textual.widgets import Button, Collapsible, Footer, Input, Static
 from ethernity.app.application import ETHERNITY_DARK_THEME, ETHERNITY_LIGHT_THEME
 from ethernity.app.execution import build_review_details
 from ethernity.app.screens.help import HelpScreen
-from ethernity.app.screens.review_task import ReviewTaskScreen
-from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.task_view import _REVIEW_TITLES
 from ethernity.app.widgets.form import FormScroll, FormSection
+from ethernity.app.widgets.review_task import TaskReview
 from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.app.widgets.task_canvas import TaskCanvas
-from ethernity.app.widgets.workbench import WorkbenchSteps, WorkbenchSummary
+from ethernity.app.widgets.task_result import TaskResult
+from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.workflow_registry import workflow_definition
 from ethernity.app.workspaces.workspace_controls import BaseWorkspace
 from tests.visual.production_states import (
@@ -482,8 +482,8 @@ async def _open_review_overlay(
     plan = state.execution_plan()
     details = build_review_details(app.visual_case.task, state, plan)
     assert validation.ready
-    assert tuple(detail.label for detail in details) == review_case.expected_detail_labels
-    screen = ReviewTaskScreen(
+    assert sorted(detail.label for detail in details) == sorted(review_case.expected_detail_labels)
+    screen = TaskReview(
         title=_REVIEW_TITLES[app.visual_case.task],
         validation=validation,
         preview=state.preview(),
@@ -492,7 +492,7 @@ async def _open_review_overlay(
         review_details=details,
     )
 
-    await app.push_screen(screen)
+    app.query_one(TaskCanvas).present_document(screen)
     await pilot.pause()
     app.screen.refresh(layout=True)
     await pilot.pause()
@@ -509,7 +509,7 @@ async def _open_result_overlay(
         assert app.visual_case.key == result_case.reviewed_workflow_case_key
         reviewed_plan = app.visual_state.execution_plan()
 
-    screen = TaskResultScreen(
+    screen = TaskResult(
         task=result_case.task,
         title=result_case.title,
         result=result_case.result,
@@ -520,7 +520,7 @@ async def _open_result_overlay(
         return_section=result_case.return_section,
         context_actions_enabled=result_case.task != "restore",
     )
-    await app.push_screen(screen)
+    app.query_one(TaskCanvas).present_document(screen)
     await pilot.pause()
     app.screen.refresh(layout=True)
     await pilot.pause()
@@ -629,6 +629,19 @@ async def _open_command_palette(
         assert _inside(viewport, widget.region)
 
 
+def _assert_step_rail_geometry(app: ProductionVisualApp, width: int) -> None:
+    assert not app.query("#canvas-progress, #workbench-summary")
+    rail = app.query_one(WorkbenchSteps)
+    for summary in rail.query(".workbench-step-summary"):
+        assert summary.display is (width >= 110 and summary.has_class("completed"))
+    assert rail.region.width > 0
+    if width >= 110:
+        assert (
+            app.query_one("#canvas-task-workspaces").region.width
+            >= app.query_one("#workbench-frame").region.width - 26
+        )
+
+
 def _assert_production_geometry(
     app: ProductionVisualApp,
     terminal_size: tuple[int, int],
@@ -655,11 +668,7 @@ def _assert_production_geometry(
     assert len(str(primary.label)) <= primary.region.width
     assert app.query_one("#canvas-title").region.height == 1
     assert not app.query("#canvas-instruction, .workflow-step-heading")
-    assert app.query_one("#canvas-progress").region.height == (1 if height < 28 else 3)
-    summary = app.query_one(WorkbenchSummary)
-    has_choices = any(row.display for row in summary.query(".workbench-summary-row"))
-    assert summary.display is (width >= 110 and has_choices)
-    assert app.query_one(WorkbenchSteps).region.width > 0
+    _assert_step_rail_geometry(app, width)
 
     definition = workflow_definition(case.task)
     assert definition.workspace_id is not None
@@ -729,8 +738,8 @@ def _assert_case_geometry(
             "files": ("#workspace-backup-files",),
             "recovery": ("#workspace-backup-recovery-method",),
             "print": (
-                "#workspace-backup-paper-size",
-                "#workspace-backup-design",
+                "#backup-destination-value",
+                "#backup-destination-action",
             ),
         }[step]
         for selector in selectors:
@@ -802,15 +811,15 @@ def _assert_review_geometry(
     review_case: ReviewSnapshotCase,
     terminal_size: tuple[int, int],
 ) -> None:
-    body, actions = _assert_modal_geometry(app, "review", terminal_size)
-    screen = app.screen
+    body, actions = _assert_document_geometry(app, "review", terminal_size)
+    screen = app.query_one(TaskReview)
     labels = list(screen.query(".detail-label").results(Static))
     values = list(screen.query(".detail-value").results(Static))
 
     assert tuple(str(label.content) for label in labels) == review_case.expected_detail_labels
     assert len(values) == len(labels)
     assert set(review_case.expected_detail_values) <= {str(value.content) for value in values}
-    assert screen.query_one("#review-modal").region.width <= 100
+    assert screen.region == app.query_one("#workbench-document").region
     assert not list(screen.query("#review-output-list"))
     for widget in (*labels, *values):
         assert body.region.x <= widget.region.x < widget.region.right <= body.region.right, (
@@ -824,16 +833,16 @@ def _assert_review_geometry(
         assert button.region.height == screen.query_one("#review-execute").region.height
         assert button.region.right <= body.region.right, f"{review_case.key}: {button.id}"
         assert str(button.label) in button.render_line(button.content_size.height // 2).text
-    assert screen.focused is screen.query_one("#review-execute", Button)
+    assert app.screen.focused is screen.query_one("#review-execute", Button)
 
 
 def _assert_result_geometry(
     app: ProductionVisualApp,
     result_case: ResultSnapshotCase,
 ) -> None:
-    body, actions = _assert_modal_geometry(app, "result", result_case.terminal_size)
-    screen = app.screen
-    assert screen.query_one("#result-modal").region.width <= 100
+    body, actions = _assert_document_geometry(app, "result", result_case.terminal_size)
+    screen = app.query_one(TaskResult)
+    assert screen.region == app.query_one("#workbench-document").region
 
     for widget_id in result_case.expected_first_view_ids:
         widget = screen.query_one(f"#{widget_id}")
@@ -843,7 +852,7 @@ def _assert_result_geometry(
 
     for button_id in result_case.expected_action_ids:
         button = screen.query_one(f"#{button_id}", Button)
-        if button_id in {"result-close", "result-return"}:
+        if actions in button.ancestors:
             assert _inside(actions.region, button.region), f"{result_case.key}: {button_id}"
         else:
             assert body.region.x <= button.region.x < button.region.right <= body.region.right
@@ -871,14 +880,18 @@ def _assert_result_geometry(
             )
 
 
-def _assert_modal_geometry(
+def _assert_document_geometry(
     app: ProductionVisualApp,
     prefix: str,
     terminal_size: tuple[int, int],
 ) -> tuple[VerticalScroll, Widget]:
     width, height = terminal_size
-    screen = app.screen
-    modal = screen.query_one(f"#{prefix}-modal")
+    assert len(app.screen_stack) == 1
+    assert app.query_one("#workbench-navigation").is_on_screen
+    assert not app.query_one("#canvas-task-workspaces").display
+    screen = app.query_one(TaskCanvas).document
+    assert screen is not None
+    modal = screen.query_one(f"#{prefix}-document")
     body = screen.query_one(f"#{prefix}-body", VerticalScroll)
     actions = screen.query_one(f"#{prefix}-actions")
 

@@ -7,6 +7,7 @@ import pytest
 from textual.widgets import (
     Button,
     Collapsible,
+    Input,
     Select,
     Static,
 )
@@ -69,9 +70,6 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(140, 72)) as pilot:
-            await pilot.pause()
-
-            assert not app.backup_state.validate_task().ready
             assert workflow_support.button_label(app, "#canvas-primary") == "Continue >"
 
             await pilot.click(app.query_one(WorkbenchSteps).button_for("recovery"))
@@ -80,6 +78,7 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
                 app.query_one("#workspace-backup-qr-chunk-size", Button).tooltip
             )
 
+            await workflow_support.open_options(app, pilot, "#backup-passphrase-options")
             words_select = app.query_one("#workspace-backup-passphrase-words", Select)
             words_select.value = "18"
             await _wait_for_condition(
@@ -89,9 +88,10 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
             assert app.backup_state.passphrase_words == 18
             assert app.backup_state.passphrase is None
 
-            await pilot.click("#workspace-backup-passphrase")
-            await pilot.pause()
-            await workflow_support.enter_edit_field(app, pilot, "manual secret", plain_input=False)
+            phrase = app.query_one("#backup-passphrase", Input)
+            phrase.value = "manual secret"
+            phrase.focus()
+            await pilot.press("enter")
 
             assert app.backup_state.passphrase == "manual secret"
             assert app.backup_state.passphrase_words is None
@@ -108,6 +108,7 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
             assert app.backup_state.passphrase is None
             assert app.backup_state.passphrase_words == 24
 
+            await workflow_support.open_options(app, pilot, "#backup-signing-options")
             app.query_one("#workspace-backup-signing-key-mode", Select).value = "sharded"
             await click_when_ready(pilot, "#workspace-backup-signing-key-shards")
             await workflow_support.enter_edit_field(app, pilot, "3/5", plain_input=True)
@@ -119,6 +120,7 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
 
             await app._select_workbench_step("files")
             await pilot.pause()
+            await workflow_support.open_options(app, pilot, "#backup-paths-options")
             await pilot.click("#workspace-backup-base-dir")
             await pilot.pause()
             await workflow_support.choose_picker_paths(app, pilot, tmp_path)
@@ -128,6 +130,7 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
 
             await app._select_workbench_step("print")
             await pilot.pause()
+            await workflow_support.open_options(app, pilot, "#backup-qr-options")
             await pilot.click("#workspace-backup-qr-chunk-size")
             await pilot.pause()
             await workflow_support.enter_edit_field(app, pilot, "384", plain_input=False)

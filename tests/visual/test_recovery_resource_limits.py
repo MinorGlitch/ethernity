@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from textual.widgets import Static
 
-from ethernity.app.screens.task_result import TaskResultScreen
+from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_result import TaskResult
 from ethernity.tasks.models import TaskExecutionResult
 from tests.visual.production_states import ProductionVisualApp, production_case
 from tests.visual.snapshot_support import assert_svg_snapshot, capture_svg
@@ -14,13 +15,13 @@ from tests.visual.snapshot_support import assert_svg_snapshot, capture_svg
 @pytest.mark.parametrize("size", ((80, 24), (120, 32)))
 def test_restore_resource_limit_snapshot(size, update_tui_snapshots: bool) -> None:
     async def open_result(app, pilot) -> None:
-        screen = TaskResultScreen(
+        screen = TaskResult(
             task="restore",
             title="Restore files",
             result=TaskExecutionResult(status="failed", message="Restore failed."),
             error="age scrypt logN=22 exceeds the hard limit 21",
         )
-        await app.push_screen(screen)
+        app.query_one(TaskCanvas).present_document(screen)
         await pilot.pause()
         status = screen.query_one("#result-status", Static)
         assert screen.region.contains_region(status.region)

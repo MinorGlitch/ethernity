@@ -162,7 +162,7 @@ def test_review_shortcut_commits_focused_inline_destination_and_phrase() -> None
             destination.focus()
             destination.value = "new-destination"
             await pilot.press("ctrl+r")
-            assert app.screen.query_one("#review-modal")
+            assert app.screen.query_one("#review-document")
             assert app.restore_state.output_path == Path("new-destination")
             await pilot.click("#review-close")
             await pilot.pause()
@@ -173,7 +173,7 @@ def test_review_shortcut_commits_focused_inline_destination_and_phrase() -> None
             phrase.focus()
             phrase.value = "new phrase"
             await pilot.press("ctrl+r")
-            assert app.screen.query_one("#review-modal")
+            assert app.screen.query_one("#review-document")
             assert app.restore_state.passphrase == "new phrase"
             assert phrase.value == ""
 

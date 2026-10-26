@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
+from textual.containers import VerticalGroup
 from textual.widgets import Static
 
+from ethernity.app.widgets.collapsible import AppCollapsible
 from ethernity.app.widgets.form import FormRow, FormScroll, FormSection
 from ethernity.app.widgets.static_text import update_static_text
 from ethernity.app.widgets.workflow.controls import InlineNotice
@@ -35,19 +37,27 @@ class AddFilesWorkspace(BaseWorkspace):
     def compose(self) -> ComposeResult:
         with FormScroll(classes="task-workspace"):
             yield WorkflowStepStack(add_files_workflow_placeholder(), id="add-files-step-stack")
-            with FormSection("Verification", id="add-files-verification-section"):
-                yield labeled_select_row(
-                    "Signatures from",
-                    "workspace-add-files-signature-source",
-                    SIGNATURE_SOURCE_OPTIONS,
-                )
+            with VerticalGroup(id="add-files-verification-section", classes="workspace-options"):
+                with AppCollapsible(
+                    title="Verification",
+                    id="add-files-verification-options",
+                ):
+                    yield labeled_select_row(
+                        "Signatures from",
+                        "workspace-add-files-signature-source",
+                        SIGNATURE_SOURCE_OPTIONS,
+                    )
                 yield InlineNotice(id="add-files-verification-notice")
-            with FormSection("File paths", id="add-files-paths-section"):
-                yield field_row(
-                    "Base folder",
-                    "add-files-base-dir-value",
-                    WorkspaceAction("workspace-add-files-base-dir", "Choose base folder..."),
-                )
+            with VerticalGroup(id="add-files-paths-section", classes="workspace-options"):
+                with AppCollapsible(
+                    title="File paths",
+                    id="add-files-paths-options",
+                ):
+                    yield field_row(
+                        "Base folder",
+                        "add-files-base-dir-value",
+                        WorkspaceAction("workspace-add-files-base-dir", "Choose base folder..."),
+                    )
             with FormSection("Update series", id="add-files-series-section"):
                 yield labeled_select_row(
                     "Mode",
@@ -73,13 +83,17 @@ class AddFilesWorkspace(BaseWorkspace):
                     ),
                     id="add-files-update-mode-summary",
                 )
-            with FormSection("QR codes", id="add-files-qr-section"):
-                yield field_row(
-                    "Density",
-                    "add-files-qr-chunk-size-value",
-                    WorkspaceAction("workspace-add-files-qr-chunk-size", "Set QR density..."),
-                    tooltip=QR_DENSITY_HELP,
-                )
+            with VerticalGroup(id="add-files-qr-section", classes="workspace-options"):
+                with AppCollapsible(
+                    title="QR density",
+                    id="add-files-qr-options",
+                ):
+                    yield field_row(
+                        "Density",
+                        "add-files-qr-chunk-size-value",
+                        WorkspaceAction("workspace-add-files-qr-chunk-size", "Set QR density..."),
+                        tooltip=QR_DENSITY_HELP,
+                    )
                 yield InlineNotice(id="add-files-qr-notice")
             with FormSection("Recovery sheets", id="add-files-recovery-section"):
                 yield field_row(
@@ -98,6 +112,15 @@ class AddFilesWorkspace(BaseWorkspace):
             presentation.workflow
         )
         advanced = group(presentation, "advanced")
+        self.query_one("#add-files-paths-options", AppCollapsible).set_heading(
+            "File paths", value(advanced, "base-dir")
+        )
+        self.query_one("#add-files-verification-options", AppCollapsible).set_heading(
+            "Verification", value(advanced, "signature-source")
+        )
+        self.query_one("#add-files-qr-options", AppCollapsible).set_heading(
+            "QR density", value(advanced, "qr-chunk-size")
+        )
         locked = control_value(advanced, "update-mode-locked") == "locked"
         self.query_one("#add-files-update-mode-choice").display = not locked
         mode_label = self.query_one("#add-files-update-mode-value", Static)

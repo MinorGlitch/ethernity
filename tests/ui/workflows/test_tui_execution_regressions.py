@@ -18,8 +18,10 @@ from ethernity.app.execution import (
     normalize_execution_outcome,
 )
 from ethernity.app.output_paths import common_output_folder, single_output_folder
-from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.widgets.settings_form import SettingsForm
+from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_progress import TaskProgress
+from ethernity.app.widgets.task_result import TaskResult
 from ethernity.config import apply_config_patch, load_app_config
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.tasks.add_files import AddFilesTaskState
@@ -30,7 +32,12 @@ from ethernity.tasks.rebuild import RebuildTaskState
 from ethernity.tasks.replace_recovery_docs import ReplaceRecoveryDocsTaskState
 from ethernity.tasks.settings import SettingsTaskState
 from tests.support.app import run_app_test
-from tests.support.pilot import click_when_ready, wait_for_condition, wait_for_widget
+from tests.support.pilot import (
+    click_when_ready,
+    wait_for_condition,
+    wait_for_focus,
+    wait_for_widget,
+)
 
 
 def test_review_details_use_plain_security_and_policy_language() -> None:
@@ -201,31 +208,45 @@ def test_review_preparation_is_visible_and_locks_the_workspace_at_80_columns(
 
 
 def test_background_write_identity_remains_visible_on_a_narrow_workflow() -> None:
-    async def run() -> None:
-        app = EthernityApp()
-        async with run_app_test(app, size=(80, 24)) as pilot:
-            app.execution_controller._running_task = "backup"
-            await pilot.press("2", "ctrl+p", "?")
-
-            assert str(app.query_one("#canvas-title", Static).content) == "Restore files"
-            action = app.query_one("#canvas-primary", Button)
-            assert str(action.label) == "Backup in progress"
-            assert action.disabled
-            assert action.region.width > 0
-            assert not app.query("#canvas-instruction")
-
-    asyncio.run(run())
+    _assert_running_workbench_stays_visible("2")
 
 
 def test_background_write_identity_remains_visible_on_settings() -> None:
-    async def run() -> None:
-        app = EthernityApp()
-        async with run_app_test(app, size=(80, 24)) as pilot:
-            app.execution_controller._running_task = "backup"
-            await pilot.press("7")
+    _assert_running_workbench_stays_visible("7")
 
-            assert app.query_one("#task-action-bar").display
-            assert str(app.query_one("#canvas-primary", Button).label) == "Backup in progress"
+
+def _assert_running_workbench_stays_visible(shortcut: str) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    class HeldBackup(BackupTaskState):
+        def execute(self) -> TaskExecutionResult:
+            started.set()
+            assert release.wait(10), "test did not release the operation"
+            return TaskExecutionResult(status="succeeded", message="Complete")
+
+    async def run() -> None:
+        app = EthernityApp(backup_state=HeldBackup())
+        async with run_app_test(app, size=(80, 24)) as pilot:
+            try:
+                app.execution_controller.start(ReviewedTask.capture("backup", app.backup_state))
+                await wait_for_condition(pilot, started.is_set, "operation to start")
+                await pilot.press(shortcut, "ctrl+p", "?")
+                assert app.active_task == "backup"
+                progress = app.query_one(TaskProgress)
+                assert app.query_one(TaskCanvas).document is progress
+                assert progress.is_on_screen
+                assert app.query_one("#workbench-navigation").disabled
+                assert not app.query_one("#task-action-bar").display
+                assert len(app.screen_stack) == 1
+                assert "Backup in progress" in str(
+                    progress.query_one(".screen-title", Static).content
+                )
+            finally:
+                release.set()
+            await wait_for_widget(pilot, "#result-close")
+            assert app.running_task is None
+            assert not app.query_one("#workbench-navigation").disabled
 
     asyncio.run(run())
 
@@ -234,7 +255,7 @@ def test_failure_result_prioritizes_remediation_and_reviewed_destination(tmp_pat
     async def run() -> None:
         destination = tmp_path / "restored"
         partial = destination / "partial.txt"
-        screen = TaskResultScreen(
+        screen = TaskResult(
             task="restore",
             title="Restore files",
             result=TaskExecutionResult(
@@ -250,7 +271,7 @@ def test_failure_result_prioritizes_remediation_and_reviewed_destination(tmp_pat
         )
         app = EthernityApp()
         async with run_app_test(app, size=(120, 32)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
 
             remediation = screen.query_one("#result-remediation")
@@ -302,7 +323,7 @@ def test_progress_locks_navigation_and_failure_returns_to_live_workflow(monkeypa
                 app.backup_state.output_dir = Path("edited-while-running")
 
                 assert app.active_task == "backup"
-                assert app.screen.query_one("#progress-modal").display
+                assert app.screen.query_one("#progress-document").display
 
                 await pilot.press("q")
                 assert exit_calls == []
@@ -319,7 +340,7 @@ def test_progress_locks_navigation_and_failure_returns_to_live_workflow(monkeypa
             await pilot.pause()
 
             assert app.active_task == "backup"
-            assert not list(app.query("#review-modal"))
+            assert not list(app.query("#review-document"))
             assert len(calls) == 1
             assert app.backup_state.input_paths == []
             assert app.backup_state.output_dir == Path("edited-while-running")
@@ -462,7 +483,7 @@ def test_settings_persistence_is_locked_while_a_write_is_running(
 
                 await pilot.press("7")
                 assert settings_form.disabled
-                assert app.screen.query_one("#progress-modal").display
+                assert app.screen.query_one("#progress-document").display
                 assert not app.settings_controller.apply_text("qr_chunk_size", "2048")
 
                 assert load_app_config(config_path).qr_chunk_size == original_chunk_size
@@ -527,7 +548,7 @@ def test_cancelled_worker_keeps_write_lock_until_thread_returns(
                 assert app.running_task == "backup"
                 assert app.execution_controller.running_worker is worker
                 assert not physically_finished.is_set()
-                assert not list(app.screen.query("#result-modal"))
+                assert not list(app.screen.query("#result-document"))
 
                 await pilot.press("q")
                 assert exit_calls == []
@@ -556,8 +577,8 @@ def test_large_result_paths_scroll_while_actions_stay_visible() -> None:
     async def run(size: tuple[int, int]) -> None:
         app = EthernityApp()
         async with run_app_test(app, size=size) as pilot:
-            app.push_screen(
-                TaskResultScreen(
+            app.query_one(TaskCanvas).present_document(
+                TaskResult(
                     task="backup",
                     title="Create backup",
                     result=TaskExecutionResult(
@@ -569,14 +590,15 @@ def test_large_result_paths_scroll_while_actions_stay_visible() -> None:
             )
             await pilot.pause()
 
-            modal = app.screen.query_one("#result-modal")
+            modal = app.screen.query_one("#result-document")
             body = app.screen.query_one("#result-body", VerticalScroll)
             actions = app.screen.query_one("#result-actions")
             paths = app.screen.query_one("#result-output-paths", OptionList)
 
             assert paths.option_count == len(output_paths)
-            assert paths.max_scroll_y > 0
             paths.focus()
+            await wait_for_focus(pilot, paths)
+            assert paths.max_scroll_y > 0
             await pilot.press("end")
             assert paths.highlighted == len(output_paths) - 1
             assert paths.scroll_offset.y > 0
@@ -619,7 +641,7 @@ def test_replacement_result_reports_only_files_in_the_output_folder(monkeypatch)
     )
     assert single_output_folder(result.output_paths) == Path("replacement-docs")
 
-    screen = TaskResultScreen(
+    screen = TaskResult(
         task="replace_recovery_docs",
         title="Create replacement sheets",
         result=result,

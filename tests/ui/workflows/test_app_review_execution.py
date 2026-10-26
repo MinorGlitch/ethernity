@@ -9,6 +9,7 @@ import pytest
 from textual.widgets import (
     Button,
     Collapsible,
+    Input,
     MarkdownViewer,
     ProgressBar,
     RichLog,
@@ -16,7 +17,8 @@ from textual.widgets import (
 )
 
 from ethernity.app.application import EthernityApp
-from ethernity.app.screens.task_progress import TaskProgressScreen
+from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_progress import TaskProgress
 from ethernity.tasks.add_files import AddFilesTaskState
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.kit import PrintKitTaskState
@@ -37,17 +39,17 @@ from tests.support.pilot import (
 pytestmark = pytest.mark.usefixtures("isolated_app_settings")
 
 
-def test_textual_app_editors_and_review_open_centered() -> None:
+def test_textual_app_passphrase_is_inline_picker_is_modal_and_review_is_in_workbench() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(120, 32)) as pilot:
             await app.action_edit_passphrase()
             await pilot.pause()
-            edit_region = app.screen.query_one("#edit-field-modal").region
-            assert edit_region.x > 0
-            assert edit_region.y > 0
-
-            await pilot.press("escape")
+            phrase = app.query_one("#backup-passphrase", Input)
+            assert app.screen.focused is phrase
+            assert phrase.password
+            assert len(app.screen_stack) == 1
+            assert app.query_one("#workbench-editor").region.contains_region(phrase.region)
             await app.action_edit_primary()
             await pilot.pause()
             picker_region = app.screen.query_one("#file-picker-modal").region
@@ -59,11 +61,12 @@ def test_textual_app_editors_and_review_open_centered() -> None:
             app.backup_state.output_dir = Path("backup-out")
             app.refresh_task_view()
             await pilot.press("ctrl+r")
-            review_region = app.screen.query_one("#review-modal").region
-            assert review_region.x == (120 - review_region.width) // 2
-            assert review_region.y == 0
-            assert review_region.width == 100
-            assert review_region.height == 32
+            review_region = app.screen.query_one("#review-document").region
+            assert review_region == app.query_one("#workbench-document").region
+            assert review_region.width == app.query_one("#workbench-editor").content_size.width
+            assert review_region.y >= app.query_one("#workbench-navigation").region.bottom
+            assert review_region.bottom <= app.size.height
+            assert len(app.screen_stack) == 1
 
     asyncio.run(run())
 
@@ -74,7 +77,7 @@ def test_textual_app_blocked_review_focuses_first_requirement() -> None:
         async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
 
-            assert not list(app.screen.query("#review-modal"))
+            assert not list(app.screen.query("#review-document"))
             assert app.screen.focused is app.query_one("#workspace-backup-files", Button)
             assert "Next required action" in workflow_support.preview_text(app)
             assert "Choose at least one file or folder" in workflow_support.preview_text(app)
@@ -121,7 +124,7 @@ def test_textual_app_shows_progress_screen_while_task_runs(monkeypatch) -> None:
 
                 assert started.is_set()
                 assert app.running_task == "backup"
-                assert isinstance(app.screen, TaskProgressScreen)
+                assert isinstance(app.query_one(TaskCanvas).document, TaskProgress)
                 assert app.screen.query_one("#operation-bar", ProgressBar).total is None
                 assert expected in workflow_support.static_text(app, "#progress-destination")
                 assert not app.screen.query_one("#progress-cancel", Button).disabled
@@ -132,7 +135,7 @@ def test_textual_app_shows_progress_screen_while_task_runs(monkeypatch) -> None:
             assert app.running_task is None
             assert "Slow backup complete" in workflow_support.read_result_text(app)
             workflow_support.assert_success_result_modal_layout(app)
-            assert not any(isinstance(screen, TaskProgressScreen) for screen in app.screen_stack)
+            assert not app.query(TaskProgress)
 
     asyncio.run(run())
 
@@ -201,7 +204,8 @@ def test_textual_app_review_can_execute_ready_backup(monkeypatch) -> None:
             )
             assert workflow_support.button_label(app, "#result-copy-paths") == "Copy paths"
             assert workflow_support.button_label(app, "#result-open-folder") == "Open folder"
-            await pilot.click("#result-copy-paths")
+            await wait_for_focus(pilot, app.query_one("#result-copy-paths", Button).focus())
+            await click_when_ready(pilot, "#result-copy-paths")
             await pilot.pause()
 
             assert copied_paths == [str(Path("backup-out/main.pdf"))]
@@ -434,7 +438,7 @@ def test_textual_app_restore_rejects_nonempty_destination_before_review(tmp_path
             assert any(issue.code == "RESTORE_DESTINATION_INVALID" for issue in issues)
             assert "not empty" in state.execution_plan().safety_notes[0]
             await pilot.press("ctrl+r")
-            assert not list(app.screen.query("#review-modal"))
+            assert not list(app.screen.query("#review-document"))
             assert existing.read_text() == "keep me"
 
     asyncio.run(run())
@@ -456,7 +460,7 @@ def test_textual_app_review_cancel_returns_without_losing_inputs() -> None:
             await pilot.click("#review-close")
             await pilot.pause()
 
-            assert not list(app.screen.query("#review-modal"))
+            assert not list(app.screen.query("#review-document"))
             assert [str(path) for path in app.backup_state.input_paths] == ["secrets.txt"]
             assert app.backup_state.output_dir == Path("backup-out")
             assert workflow_support.button_label(app, "#canvas-primary") == "Continue >"
@@ -646,11 +650,11 @@ def test_textual_app_execution_failure_shows_result_screen(monkeypatch) -> None:
             assert workflow_support.button_label(app, "#result-return") == "Edit destination"
 
             await click_when_ready(pilot, "#result-return")
-            await wait_for_focus(pilot, app.query_one("#workspace-backup-output", Button))
+            await wait_for_focus(pilot, app.query_one("#backup-destination-value", Input))
 
-            assert not list(app.screen.query("#result-modal"))
-            assert not list(app.screen.query("#review-modal"))
+            assert not list(app.screen.query("#result-document"))
+            assert not list(app.screen.query("#review-document"))
             assert app.active_task == "backup"
-            assert app.screen.focused is app.query_one("#workspace-backup-output", Button)
+            assert app.screen.focused is app.query_one("#backup-destination-value", Input)
 
     asyncio.run(run())

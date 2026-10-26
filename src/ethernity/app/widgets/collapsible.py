@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Self
 
+from textual.content import Content
 from textual.widget import Widget
 from textual.widgets import Collapsible
 
@@ -19,6 +20,8 @@ class AppCollapsible(Collapsible):
         title_classes: str = "",
         **kwargs: Any,
     ) -> None:
+        kwargs.setdefault("collapsed_symbol", ADVANCED_COLLAPSED_SYMBOL)
+        kwargs.setdefault("expanded_symbol", ADVANCED_EXPANDED_SYMBOL)
         super().__init__(*children, **kwargs)
         self._title_classes = tuple(title_classes.split())
         self._label = self.title
@@ -30,6 +33,11 @@ class AppCollapsible(Collapsible):
         self._refresh_heading()
 
     def _refresh_heading(self) -> None:
+        self.tooltip = (
+            Content.from_text(self._summary, markup=False)
+            if self.collapsed and self._summary
+            else None
+        )
         self.title = (
             f"{self._label} - {self._summary}" if self.collapsed and self._summary else self._label
         )
@@ -66,8 +74,6 @@ def collapsible_panel(
         id=panel_id,
         title=title,
         collapsed=True,
-        collapsed_symbol=ADVANCED_COLLAPSED_SYMBOL,
-        expanded_symbol=ADVANCED_EXPANDED_SYMBOL,
         classes=classes,
         title_classes=title_classes,
     )

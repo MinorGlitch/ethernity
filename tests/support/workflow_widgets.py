@@ -7,6 +7,7 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 
 from ethernity.app.styling import StyledApp
+from ethernity.app.widgets.passphrase_input import PassphraseInput
 from ethernity.app.widgets.workflow.controls import WorkspaceActionRequested
 from ethernity.app.widgets.workflow.options import OptionsEditor, QuorumEditor
 from ethernity.app.widgets.workflow.paths import DestinationEditor, PathSelectionEditor
@@ -45,9 +46,11 @@ class WorkflowWidgetHarness(StyledApp):
     def record_unlock_method(self, event: UnlockEditor.MethodChanged) -> None:
         self.unlock_methods.append(event.method_key)
 
-    @on(UnlockEditor.ValueChanged)
-    def record_unlock_value(self, event: UnlockEditor.ValueChanged) -> None:
-        self.unlock_values.append(event.value)
+    @on(PassphraseInput.Committed)
+    def record_unlock_value(self, event: PassphraseInput.Committed) -> None:
+        value = event.input.take_pending_value()
+        if value is not None:
+            self.unlock_values.append(value)
 
     @on(DestinationEditor.ValueChanged)
     def record_destination_value(self, event: DestinationEditor.ValueChanged) -> None:

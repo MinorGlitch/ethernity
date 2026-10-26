@@ -239,24 +239,24 @@ REVIEW_SNAPSHOT_CASES: tuple[ReviewSnapshotCase, ...] = (
     ReviewSnapshotCase(
         "backup-review",
         "backup-ready",
-        ("Files", "Recovery", "Signing key", "Documents", "Backup pages", "Layout", "Destination"),
+        ("Destination", "Documents", "Backup pages", "Layout", "Files", "Recovery", "Signing key"),
     ),
     ReviewSnapshotCase(
         "restore-review",
         "restore-ready",
-        ("Source", "Files", "Unlock", "Version", "Signature", "Destination"),
+        ("Destination", "Source", "Files", "Unlock", "Version", "Signature"),
     ),
     ReviewSnapshotCase(
         "add-files-review",
         "add-files-ready",
         (
+            "Documents",
+            "Destination",
             "Backup",
             "Changes",
             "Source version",
             "Unlock",
             "Recovery sheets",
-            "Documents",
-            "Destination",
         ),
         ("3 new recovery sheets, 2 needed to restore",),
     ),
@@ -264,31 +264,24 @@ REVIEW_SNAPSHOT_CASES: tuple[ReviewSnapshotCase, ...] = (
         "rebuild-review",
         "rebuild-warning",
         (
+            "Documents",
+            "Layout",
+            "Destination",
             "Source",
             "Recovery sheets",
             "Unlock",
             "Source version",
-            "Documents",
-            "Layout",
-            "Destination",
         ),
     ),
     ReviewSnapshotCase(
         "replacement-review",
         "replacement-warning",
-        (
-            "Source",
-            "Unlock",
-            "Recovery sheets",
-            "Signing-key sheets",
-            "Layout",
-            "Destination",
-        ),
+        ("Layout", "Destination", "Source", "Unlock", "Recovery sheets", "Signing-key sheets"),
     ),
     ReviewSnapshotCase(
         "kit-review",
         "kit-warning",
-        ("Kit type", "Layout", "QR sizing", "Documents", "Destination"),
+        ("Documents", "Destination", "Kit type", "Layout", "QR sizing"),
     ),
 )
 
@@ -404,7 +397,7 @@ RESULT_SNAPSHOT_CASES += (
         terminal_size=(80, 24),
         expected_first_view_ids=(
             "result-overview",
-            "result-context-actions",
+            "result-test-recovery",
         ),
     ),
 )

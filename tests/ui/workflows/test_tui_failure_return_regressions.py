@@ -13,8 +13,8 @@ from ethernity.app.execution import (
     ReviewedConfig,
     ReviewedTask,
 )
-from ethernity.app.screens.task_result import TaskResultScreen
 from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_result import TaskResult
 from ethernity.core.failures import FailureInfo, FailureStage
 from ethernity.tasks.backup import BackupTaskState
 from ethernity.tasks.models import TaskExecutionResult
@@ -147,7 +147,7 @@ def test_restore_runtime_output_failure_returns_to_reviewed_destination(tmp_path
             app._present_execution_outcome(reviewed_task, outcome)
             await pilot.pause()
 
-            result_screen = cast(TaskResultScreen, app.screen)
+            result_screen = cast(TaskResult, app.query_one(TaskCanvas).document)
             assert str(result_screen.query_one("#result-return", Button).label) == (
                 "Edit destination"
             )
@@ -192,7 +192,7 @@ def test_replacement_signing_failure_returns_to_signing_key_recovery(tmp_path: P
             app._present_execution_outcome(reviewed_task, outcome)
             await pilot.pause()
 
-            result_screen = cast(TaskResultScreen, app.screen)
+            result_screen = cast(TaskResult, app.query_one(TaskCanvas).document)
             assert str(result_screen.query_one("#result-return", Button).label) == (
                 "Edit signing-key recovery"
             )

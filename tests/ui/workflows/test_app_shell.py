@@ -24,7 +24,7 @@ from ethernity.app.help_content import HELP_MODES
 from ethernity.app.screens.file_picker import FilePickerScreen
 from ethernity.app.screens.help import HelpScreen
 from ethernity.app.task_catalog import review_label
-from ethernity.app.widgets.workbench import WorkbenchSummary
+from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.options import OptionsEditor, QuorumEditor
 from ethernity.app.widgets.workflow.source import SourceChooser
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
@@ -50,9 +50,7 @@ def test_textual_app_switches_between_backup_and_restore() -> None:
             assert app.active_task == "backup"
             assert not list(app.screen.query(Header))
             assert workflow_support.static_text(app, "#app-header-brand") == "ETHERNITY"
-            assert (
-                workflow_support.static_text(app, "#app-header-title") == "Paper backup & recovery"
-            )
+            assert not app.query("#app-header-title")
             assert (
                 workflow_support.static_text(app, "#app-header-status")
                 == f"v{get_ethernity_version()}"
@@ -162,7 +160,7 @@ def test_textual_app_blocked_workflows_show_inline_summary_and_fix_action() -> N
 
                 await pilot.press("ctrl+r")
 
-                assert not list(app.screen.query("#review-modal"))
+                assert not list(app.screen.query("#review-document"))
                 assert app.screen.focused is app.query_one(focus_selector)
                 if app.active_task in app.workflow_ui_states:
                     assert blocker in workflow_support.workspace_text(app)
@@ -348,7 +346,7 @@ def test_textual_app_restore_loaded_without_destination_stays_blocked_inline() -
             assert app.query_one("#workflow-restore-destination-body-action", Button).label == (
                 "Choose restore folder..."
             )
-            assert not app.query_one(WorkbenchSummary).display
+            assert not app.query_one(WorkbenchSteps).query(".workbench-step-summary.completed")
             assert workflow_support.button_label(app, "#canvas-primary") == "Continue >"
             assert "Choose where recovered files will be written." in workflow_support.preview_text(
                 app
@@ -357,7 +355,7 @@ def test_textual_app_restore_loaded_without_destination_stays_blocked_inline() -
 
             await pilot.press("ctrl+r")
 
-            assert not list(app.screen.query("#review-modal"))
+            assert not list(app.screen.query("#review-document"))
             assert (
                 "Error: Choose where recovered files will be written."
                 in workflow_support.workspace_text(app)

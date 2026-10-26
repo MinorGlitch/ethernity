@@ -18,16 +18,17 @@ def compose_app_shell() -> ComposeResult:
 def _compose_workbench() -> ComposeResult:
     with Horizontal(id="app-header"):
         yield Label("ETHERNITY", id="app-header-brand")
-        yield Label("Paper backup & recovery", id="app-header-title")
         yield Label(app_version_label(), id="app-header-status")
     with NavigationBar(id="workbench-navigation"):
         yield Button(
-            f"1 {NAV_LABELS['backup']}",
+            NAV_LABELS["backup"],
             id="nav-create",
+            tooltip="Backup (1)",
         )
         yield Button(
-            f"2 {NAV_LABELS['restore']}",
+            NAV_LABELS["restore"],
             id="nav-restore",
+            tooltip="Restore (2)",
         )
         yield Button(
             "Manage",

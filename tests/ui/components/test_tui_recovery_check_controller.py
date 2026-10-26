@@ -6,10 +6,11 @@ from pathlib import Path
 
 from textual.widgets import Button, Input, Static
 
+from ethernity.app.application import EthernityApp
 from ethernity.app.recovery_check_controller import RecoveryCheckController
 from ethernity.app.screens.edit_field import EditFieldScreen
-from ethernity.app.screens.task_result import TaskResultScreen
-from ethernity.app.styling import StyledApp
+from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_result import TaskResult
 from ethernity.core.execution_control import OperationCancelled, cancellation_point
 from ethernity.tasks import recovery_check
 from ethernity.tasks.models import TaskExecutionResult
@@ -17,15 +18,15 @@ from tests.support.app import run_app_test
 from tests.support.pilot import wait_for_condition
 
 
-class RecoveryCheckApp(StyledApp):
+class RecoveryCheckApp(EthernityApp):
     controller: RecoveryCheckController
 
-    def on_task_result_screen_closed(self, event: TaskResultScreen.Closed) -> None:
-        self.controller.cancel(event.screen)
+    def on_task_result_closed(self, event: TaskResult.Closed) -> None:
+        self.controller.cancel(event.view)
 
 
-def _result_screen(path: Path) -> TaskResultScreen:
-    return TaskResultScreen(
+def _result_screen(path: Path) -> TaskResult:
+    return TaskResult(
         task="backup",
         title="Backup created",
         result=TaskExecutionResult(
@@ -66,7 +67,7 @@ def test_check_runs_in_background_serializes_and_discards_closed_screen(
         controller = app.controller = RecoveryCheckController(app)
         request = recovery_check.GeneratedRecoveryCheckRequest((tmp_path / "backup.pdf",))
         async with run_app_test(app, size=(100, 30)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             try:
                 assert controller.start(request, screen, "test_recovery")
@@ -77,7 +78,7 @@ def test_check_runs_in_background_serializes_and_discards_closed_screen(
                 assert screen.query_one("#result-test-recovery", Button).disabled
                 checks = screen.query_one("#result-document-checks", Static)
                 await pilot.press("escape")
-                assert screen not in app.screen_stack
+                assert not screen.is_attached
                 await wait_for_condition(pilot, cancelled.is_set, "dismissed check cancellation")
             finally:
                 release.set()
@@ -102,7 +103,7 @@ def test_worker_start_failure_restores_actions(monkeypatch, tmp_path: Path) -> N
         controller = app.controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
         async with run_app_test(app, size=(100, 30)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             monkeypatch.setattr(app, "run_worker", fail)
             assert not controller.start(
@@ -130,7 +131,7 @@ def test_missing_quorum_stays_a_failed_recovery_check(monkeypatch, tmp_path: Pat
         controller = app.controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
         async with run_app_test(app, size=(100, 30)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             assert controller.start(
                 recovery_check.GeneratedRecoveryCheckRequest((tmp_path / "backup.pdf",)),
@@ -167,7 +168,7 @@ def test_required_phrase_is_masked_and_explicit_input_retries(monkeypatch, tmp_p
         controller = app.controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
         async with run_app_test(app, size=(100, 30)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             assert controller.start(
                 recovery_check.GeneratedRecoveryCheckRequest((tmp_path / "backup.pdf",)),
@@ -215,7 +216,7 @@ def test_cancelled_phrase_restores_actions_and_reports_no_completed_check(
         controller = app.controller = RecoveryCheckController(app)
         screen = _result_screen(tmp_path / "backup.pdf")
         async with run_app_test(app, size=(100, 30)) as pilot:
-            await app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             assert controller.start(
                 recovery_check.GeneratedRecoveryCheckRequest((tmp_path / "backup.pdf",)),

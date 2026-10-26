@@ -19,10 +19,10 @@ from ethernity.app.screens.paste_text import PasteTextScreen
 from ethernity.app.task_catalog import TASK_TITLES, review_label
 from ethernity.app.widgets.form import FormSection
 from ethernity.app.widgets.settings_form import SettingsForm
-from ethernity.app.widgets.workbench import WorkbenchSteps, WorkbenchSummary
+from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import KeyedRadioSet
 from ethernity.app.widgets.workflow.options import OptionsEditor
-from ethernity.app.widgets.workflow.paths import PathSelectionEditor
+from ethernity.app.widgets.workflow.paths import DestinationEditor, PathSelectionEditor
 from ethernity.app.widgets.workflow.source import SourceChooser
 from ethernity.app.widgets.workflow.steps import WorkflowStep, WorkflowStepStack
 from ethernity.app.widgets.workflow.unlock import UnlockEditor
@@ -129,7 +129,7 @@ def test_textual_app_workspace_shows_real_flow_controls() -> None:
             assert workflow_support.button_label(app, "#workflow-add_files-source-body-load") == (
                 "Load backup documents..."
             )
-            assert not app.query_one(WorkbenchSummary).display
+            assert not app.query_one(WorkbenchSteps).query(".workbench-step-summary.completed")
             assert app.query_one(
                 "#workflow-add_files-source-body",
                 SourceChooser,
@@ -183,7 +183,7 @@ def _assert_workspace_sections(app: EthernityApp) -> None:
         visible_sections = [section for section in sections if section.region.height]
         assert visible_sections
         expected_labels = (
-            {"Paper size", "Save to"}
+            {"Paper size", "Parent folder", "New folder"}
             if app.active_task == "backup"
             else {"Save as", "Kit type", "Paper size", "Print design"}
         )
@@ -209,6 +209,11 @@ def _assert_workspace_actions(app: EthernityApp) -> None:
         for button in active_workspace.query(Button)
         if button.id is not None and button.id.startswith("workspace-")
     }
+    rendered_button_ids.update(
+        editor._presentation.action.key
+        for editor in active_workspace.query(DestinationEditor)
+        if editor._presentation.action is not None and editor.query(Button)
+    )
     presented_action_ids = {
         action.key for group in presentation.workspace_groups for action in group.actions
     }
@@ -274,7 +279,7 @@ def test_textual_app_modal_action_rows_keep_visible_gaps() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=(96, 32)) as pilot:
-            await app.action_edit_passphrase()
+            await app.action_edit_primary()
             await pilot.pause()
             workflow_support.assert_modal_action_buttons_are_spaced(app)
 

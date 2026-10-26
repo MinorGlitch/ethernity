@@ -186,7 +186,7 @@ def test_replacement_invalid_quorum_blocks_review_and_stays_visible_at_80x24() -
             await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
             await pilot.pause()
 
-            assert app.screen.query_one("#review-modal")
+            assert app.screen.query_one("#review-document")
             assert ui_state.active_step == "recovery"
 
     asyncio.run(run())
@@ -208,7 +208,7 @@ def test_existing_replacement_destination_blocks_review_and_focuses_output(tmp_p
             await pilot.click(app.query_one(WorkbenchSteps).button_for("review"))
             await pilot.pause()
 
-            assert not app.screen.query("#review-modal")
+            assert not app.screen.query("#review-document")
             assert app.workflow_ui_states["replace_recovery_docs"].active_step == "output"
             await app.action_primary()
             await pilot.pause()

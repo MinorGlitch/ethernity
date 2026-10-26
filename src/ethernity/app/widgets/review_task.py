@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalGroup, VerticalScroll
-from textual.screen import ModalScreen
+from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Label, Static
 
@@ -45,10 +45,16 @@ class ReviewEditRequest:
     section: str
 
 
-class ReviewTaskScreen(ModalScreen[bool | ReviewEditRequest]):
+class TaskReview(Widget):
     """Focused final decision before a task writes files."""
 
     BINDINGS = [("escape", "cancel", "Cancel")]
+
+    class Decided(Message):
+        def __init__(self, review: TaskReview, decision: bool | ReviewEditRequest) -> None:
+            super().__init__()
+            self.review = review
+            self.decision = decision
 
     def __init__(
         self,
@@ -72,7 +78,9 @@ class ReviewTaskScreen(ModalScreen[bool | ReviewEditRequest]):
     def compose(self) -> ComposeResult:
         ready = self._validation.ready
         visible_issues = self._visible_issues()
-        with Vertical(id="review-modal", classes="document " + ("ready" if ready else "missing")):
+        with Vertical(
+            id="review-document", classes="document " + ("ready" if ready else "missing")
+        ):
             with Vertical(id="review-header", classes="document-header"):
                 yield Static(
                     self._review_title, id="review-title", markup=False, classes="screen-title"
@@ -98,7 +106,7 @@ class ReviewTaskScreen(ModalScreen[bool | ReviewEditRequest]):
 
                 with VerticalGroup(id="review-overview"):
                     details = self._overview_details()
-                    for group, title in (("choices", "Choices"), ("output", "Output")):
+                    for group, title in (("output", "Output"), ("choices", "Choices")):
                         rows = [
                             self._detail_row(detail, index)
                             for index, detail in enumerate(details)
@@ -126,24 +134,26 @@ class ReviewTaskScreen(ModalScreen[bool | ReviewEditRequest]):
                     variant="primary",
                     disabled=not ready,
                 ),
+                align_end=False,
             )
 
-    def on_mount(self) -> None:
+    def focus_default(self) -> None:
         selector = "#review-execute" if self._validation.ready else "#review-close"
         self.query_one(selector, Button).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
         section = self._edit_sections.get(event.button.id or "")
         if section is not None:
-            self.dismiss(ReviewEditRequest(section))
+            self.post_message(self.Decided(self, ReviewEditRequest(section)))
             return
         if event.button.id == "review-execute" and self._validation.ready:
-            self.dismiss(True)
+            self.post_message(self.Decided(self, True))
             return
-        self.dismiss(False)
+        self.action_cancel()
 
     def action_cancel(self) -> None:
-        self.dismiss(False)
+        self.post_message(self.Decided(self, False))
 
     def _visible_issues(self) -> tuple[TaskIssue, ...]:
         return tuple(

@@ -16,15 +16,20 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
 from textual.widgets import Button, Static
 
 from ethernity.app.widgets.action_bar import TaskActionBar
+from ethernity.app.widgets.review_task import TaskReview
 from ethernity.app.widgets.settings_form import SettingsForm
 from ethernity.app.widgets.static_text import update_static_text
-from ethernity.app.widgets.workbench import WorkbenchSteps, WorkbenchSummary, workbench_steps
+from ethernity.app.widgets.task_progress import TaskProgress
+from ethernity.app.widgets.task_result import TaskResult
+from ethernity.app.widgets.workbench import WorkbenchSteps, workbench_steps
 from ethernity.app.widgets.workflow.controls import InlineNotice
 from ethernity.app.workflow_registry import workflow_definition
 from ethernity.app.workspaces.shell import TaskWorkspaces
@@ -36,13 +41,14 @@ from ethernity.tasks.task_types import TaskKey
 
 
 class TaskCanvas(Widget):
-    """Workbench with step navigation, a focused editor, and a live summary."""
+    """Workbench with step navigation and a focused editor."""
 
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id)
         self._presentation: TaskPresentation | None = None
         self._local_steps = {"backup": "files", "kit": "kit"}
         self._issue: tuple[str, str, str] | None = None
+        self.document: TaskReview | TaskProgress | TaskResult | None = None
 
     @property
     def active_step(self) -> str:
@@ -95,7 +101,69 @@ class TaskCanvas(Widget):
                         yield TaskWorkspaces(id="task-workspaces")
                     yield Vertical(id="canvas-settings-workspace")
                     yield TaskActionBar(id="task-action-bar")
-                yield WorkbenchSummary(id="workbench-summary")
+                    yield Vertical(id="workbench-document")
+
+    def present_document(self, document: TaskReview | TaskProgress | TaskResult) -> None:
+        """Select the live view immediately; mount it on this widget's message queue."""
+        if self.document is not None:
+            self.document.display = False
+        self.document = document
+        self._sync_document_layout()
+        self.call_later(self._mount_document, document)
+
+    async def close_document(self) -> None:
+        if self.document is not None:
+            self.document.display = False
+        self.document = None
+        closed = asyncio.Event()
+        if self.call_later(self._mount_document, None, closed):
+            await closed.wait()
+        self._sync_document_layout()
+
+    def action_back(self) -> None:
+        """Escape also works when focus has moved to the top navigation."""
+        if isinstance(self.document, TaskReview):
+            self.document.action_cancel()
+        elif isinstance(self.document, TaskProgress):
+            self.document.action_request_cancel()
+        elif isinstance(self.document, TaskResult):
+            self.document.action_close()
+
+    async def _mount_document(
+        self,
+        document: TaskReview | TaskProgress | TaskResult | None,
+        completed: asyncio.Event | None = None,
+    ) -> None:
+        # Progress may finish before its view mounts. Only the latest state may
+        # take focus. All mount/removal work uses this widget's queue so leaving
+        # review cannot prune a view while its children are still mounting.
+        try:
+            if self.document is not document:
+                return
+            host = self.query_one("#workbench-document")
+            await host.remove_children()
+            if document is not None and self.document is document:
+                await host.mount(document)
+                if self.document is document and not self.screen.disabled:
+                    document.focus_default()
+        finally:
+            if completed is not None:
+                completed.set()
+
+    def _sync_document_layout(self) -> None:
+        is_settings = self._presentation is not None and self._presentation.task_key == "settings"
+        editing = self.document is None
+        self.query_one("#workbench-document").display = not editing
+        self.query_one("#canvas-hero").display = editing and not is_settings
+        self.query_one("#canvas-task-workspaces").display = editing and not is_settings
+        self.query_one("#canvas-settings-workspace").display = editing and is_settings
+        self.query_one(TaskActionBar).display = editing and not is_settings
+        if self._presentation is not None and not is_settings:
+            self.query_one(WorkbenchSteps).sync(
+                workbench_steps(self._presentation),
+                "review" if not editing else self.active_step,
+                locked=isinstance(self.document, TaskProgress),
+            )
 
     async def prepare_task(self, task: TaskKey) -> None:
         """Finish mounting controls before applying state or moving focus."""
@@ -134,7 +202,6 @@ class TaskCanvas(Widget):
         # Padding affects only the editor, so avoid restyling every descendant form.
         self.query_one("#workbench-editor").styles.padding = 0 if is_settings else None
         self.query_one("#workbench-steps").set_class(is_settings, "settings-mode")
-        self.query_one("#workbench-summary").set_class(is_settings, "settings-mode")
         self.query_one("#canvas-hero").display = not is_settings
         action_bar = self.query_one(TaskActionBar)
         action_bar.display = not is_settings or running
@@ -173,18 +240,15 @@ class TaskCanvas(Widget):
                 )
             steps = workbench_steps(presentation)
             self.query_one(WorkbenchSteps).sync(steps, self.active_step, locked=locked)
-            self.query_one(WorkbenchSummary).sync(presentation, active_step=self.active_step)
             self.query_one("#canvas-back", Button).disabled = (
                 locked or self.adjacent_step(-1) is None
             )
-            current = next(
-                index for index, step in enumerate(steps, 1) if step.key == self.active_step
-            )
-            update_static_text(
-                self.query_one("#canvas-progress", Static), f"Step {current} of {len(steps)}"
-            )
         if is_settings:
             self.query_one(SettingsForm).update_statuses(validation)
+        if self.document is not None:
+            self._sync_document_layout()
+        else:
+            self.query_one("#workbench-document").display = False
 
     def update_settings_values(self, settings: SettingsTaskState) -> None:
         self.query_one(SettingsForm).update_values(

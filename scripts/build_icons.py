@@ -1,4 +1,4 @@
-"""Export vector icons and a flat paper-fold animation.
+"""Export desktop icons and the tray animation.
 
 Run with: uv run --with cairosvg python scripts/build_icons.py
 CairoSVG and system Cairo are export tools, not application dependencies.
@@ -20,7 +20,6 @@ IMAGES = ROOT / "images"
 ICONS = ROOT / "src/ethernity/resources/icons"
 SVG = "{http://www.w3.org/2000/svg}"
 FRAME_COUNT = 120
-FRAME_MS = 40
 TRAY_FRAME_STEP = 2
 HALF_WIDTH = 72
 CREASE_SKEW = 70
@@ -145,30 +144,6 @@ def render(source: Path, size: tuple[int, int], phase: float | None = None) -> I
         return image.convert("RGBA").resize(size, Image.Resampling.LANCZOS)
 
 
-def save_gif(frames: list[Image.Image], destination: Path) -> None:
-    # One palette keeps the flat colours stable between frames. GIF transparency
-    # is binary; exclude translucent edge pixels rather than adding a light halo.
-    samples = Image.new("RGB", (160, 90 * len(frames)))
-    for index, frame in enumerate(frames):
-        samples.paste(frame.resize((160, 90)).convert("RGB"), (0, index * 90))
-    palette = samples.quantize(colors=255, dither=Image.Dither.NONE)
-    indexed = []
-    for frame in frames:
-        image = frame.convert("RGB").quantize(palette=palette, dither=Image.Dither.NONE)
-        image.paste(255, mask=frame.getchannel("A").point(lambda alpha: 255 if alpha < 128 else 0))
-        indexed.append(image)
-    indexed[0].save(
-        destination,
-        save_all=True,
-        append_images=indexed[1:],
-        duration=FRAME_MS,
-        loop=0,
-        disposal=2,
-        transparency=255,
-        optimize=False,
-    )
-
-
 def main() -> None:
     ICONS.mkdir(parents=True, exist_ok=True)
     app_source = IMAGES / "ethernity-app.svg"
@@ -176,14 +151,10 @@ def main() -> None:
     app.save(ICONS / "app.png")
     app.save(IMAGES / "ethernity.ico", sizes=[(n, n) for n in (16, 24, 32, 48, 64, 128, 256)])
     sprite = Image.new("RGBA", (64 * (FRAME_COUNT // TRAY_FRAME_STEP), 64))
-    preview = []
-    for frame in range(FRAME_COUNT):
+    for frame in range(0, FRAME_COUNT, TRAY_FRAME_STEP):
         phase = frame / FRAME_COUNT + 0.14
-        preview.append(render(IMAGES / "ethernity-mark.svg", (640, 360), phase))
-        if frame % TRAY_FRAME_STEP == 0:
-            sprite.paste(render(app_source, (64, 64), phase), (64 * (frame // TRAY_FRAME_STEP), 0))
+        sprite.paste(render(app_source, (64, 64), phase), (64 * (frame // TRAY_FRAME_STEP), 0))
     sprite.save(ICONS / "activity.png")
-    save_gif(preview, IMAGES / "ethernity-animated.gif")
 
 
 if __name__ == "__main__":

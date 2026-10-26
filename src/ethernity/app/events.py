@@ -14,8 +14,9 @@ from ethernity.app.help_content import build_help_content
 from ethernity.app.navigation import DIRECT_NAV_TASKS
 from ethernity.app.recovery_check_requests import generated_recovery_request
 from ethernity.app.screens.help import HelpScreen
-from ethernity.app.screens.task_result import TaskResultScreen
+from ethernity.app.widgets.passphrase_input import PassphraseInput
 from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_result import TaskResult
 from ethernity.app.widgets.workbench import WorkbenchSteps
 from ethernity.app.widgets.workflow.controls import (
     KeyedRadioSet,
@@ -60,22 +61,12 @@ class AppEventHandlers(EthernityAppContext):
         self._close_nav_menu(restore_focus=False)
         await self.push_screen(HelpScreen(build_help_content(task=self.active_task)))
 
-    def on_task_result_screen_closed(self, event: TaskResultScreen.Closed) -> None:
+    def on_task_result_closed(self, event: TaskResult.Closed) -> None:
         event.stop()
-        self.recovery_check_controller.cancel(event.screen)
-        if (
-            event.task == "backup"
-            and event.result is not None
-            and event.result.status == "succeeded"
-            and event.result is self._last_execution_result
-            and self.active_task == "backup"
-            and self.screen is self.screen_stack[0]
-        ):
-            self.action_clear_task()
-            self.call_after_refresh(self._focus_active_task, "backup")
+        self.recovery_check_controller.cancel(event.view)
 
-    async def on_task_result_screen_context_action_requested(
-        self, event: TaskResultScreen.ContextActionRequested
+    async def on_task_result_context_action_requested(
+        self, event: TaskResult.ContextActionRequested
     ) -> None:
         event.stop()
         reviewed = self._last_reviewed_task
@@ -85,13 +76,13 @@ class AppEventHandlers(EthernityAppContext):
             or reviewed.task != event.task
             or self.running_task is not None
             or self.recovery_check_controller.running
-            or self.screen is not event.screen
+            or self.query_one(TaskCanvas).document is not event.view
         ):
             return
         if not event.result.recovery_check_paths:
             return
         self.recovery_check_controller.start(
-            generated_recovery_request(reviewed, event.result), event.screen, event.action
+            generated_recovery_request(reviewed, event.result), event.view, event.action
         )
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -205,15 +196,20 @@ class AppEventHandlers(EthernityAppContext):
         )
         self.refresh_task_view()
 
-    def on_unlock_editor_value_changed(self, event: UnlockEditor.ValueChanged) -> None:
+    def on_passphrase_input_committed(self, event: PassphraseInput.Committed) -> None:
         event.stop()
-        event.editor.accept_value(event.value)
-        task = _owning_task(event.editor)
+        value = event.input.take_pending_value()
+        task = _owning_task(event.input)
+        if value is None:
+            return
+        if task == "backup":
+            self._apply_backup_passphrase(value)
+            return
         if task not in {"restore", "add_files", "rebuild", "replace_recovery_docs"}:
             return
         state = cast(UnlockTaskState, self._state_for_task(task))
-        state.passphrase = event.value or None
-        if event.value:
+        state.passphrase = value or None
+        if value:
             state.recovery_documents = []
             state.recovery_payload_files = []
         ui_state = self.workflow_ui_states[task]
@@ -221,17 +217,15 @@ class AppEventHandlers(EthernityAppContext):
         self.refresh_task_view()
 
     def _commit_form_inputs(self) -> None:
-        """Drain visible field drafts before a keyboard shortcut captures a review."""
+        """Drain field drafts before a keyboard shortcut captures a review."""
+        for field in self.screen.query(PassphraseInput):
+            if _owning_task(field) == self.active_task:
+                self.on_passphrase_input_committed(PassphraseInput.Committed(field))
         for editor in self.screen.query(DestinationEditor).results(DestinationEditor):
             if editor.region.width > 0 and _owning_task(editor) == self.active_task:
                 change = editor.take_pending_change()
                 if change is not None:
                     self.on_destination_editor_value_changed(change)
-        for editor in self.screen.query(UnlockEditor).results(UnlockEditor):
-            if editor.region.width > 0 and _owning_task(editor) == self.active_task:
-                change = editor.take_pending_change()
-                if change is not None:
-                    self.on_unlock_editor_value_changed(change)
 
     def on_destination_editor_value_changed(self, event: DestinationEditor.ValueChanged) -> None:
         event.stop()

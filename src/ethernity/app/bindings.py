@@ -9,7 +9,7 @@ APP_SUB_TITLE = "Paper backup and recovery"
 
 APP_BINDINGS: list[BindingType] = [
     Binding("q", "quit", "Quit"),
-    Binding("escape", "close_navigation", "Close menu"),
+    Binding("escape", "back", "Back"),
     Binding("?", "help", "Help"),
     Binding("ctrl+b", "open_navigation", "Navigation"),
     Binding("ctrl+r", "review", "Review", show=False),

@@ -10,8 +10,9 @@ from textual.widgets import Button, ProgressBar, Static
 from ethernity.app.application import EthernityApp
 from ethernity.app.execution import ReviewedTask
 from ethernity.app.operation_progress import OperationProgress
-from ethernity.app.screens.task_progress import TaskProgressScreen
-from ethernity.app.screens.task_result import TaskResultScreen
+from ethernity.app.widgets.task_canvas import TaskCanvas
+from ethernity.app.widgets.task_progress import TaskProgress
+from ethernity.app.widgets.task_result import TaskResult
 from ethernity.core.execution_control import (
     begin_final_write,
     cancellation_point,
@@ -27,10 +28,10 @@ def test_progress_geometry_and_stopping_state(size: tuple[int, int]) -> None:
     async def run() -> None:
         app = EthernityApp()
         async with run_app_test(app, size=size) as pilot:
-            screen = TaskProgressScreen(
+            screen = TaskProgress(
                 title="Create backup", destination="~/backup-1234", cancel=lambda: True
             )
-            app.push_screen(screen)
+            app.query_one(TaskCanvas).present_document(screen)
             await pilot.pause()
             update = OperationProgress(
                 stage="Creating PDFs",
@@ -53,7 +54,7 @@ def test_progress_geometry_and_stopping_state(size: tuple[int, int]) -> None:
             screen.update_progress(update)  # A previously queued update cannot enable Cancel.
             assert button.disabled
             assert screen.query_one("#operation-bar", ProgressBar).total is None
-            assert isinstance(app.screen, TaskProgressScreen)
+            assert isinstance(app.query_one(TaskCanvas).document, TaskProgress)
 
     asyncio.run(run())
 
@@ -91,8 +92,8 @@ def test_worker_progress_finishes_cleanup_before_returning_to_form(
                     if started.is_set():
                         break
                 assert started.is_set()
-                assert isinstance(app.screen, TaskProgressScreen)
-                assert app.screen.progress.stage == "Encrypting files"
+                assert isinstance(app.query_one(TaskCanvas).document, TaskProgress)
+                assert app.query_one(TaskProgress).progress.stage == "Encrypting files"
                 if cancel:
                     await pilot.press("escape")
                     assert app.running_task == "backup"
@@ -100,13 +101,11 @@ def test_worker_progress_finishes_cleanup_before_returning_to_form(
                 release.set()
                 for _ in range(50):
                     await pilot.pause(0.02)
-                    if isinstance(app.screen, TaskResultScreen):
+                    if isinstance(app.query_one(TaskCanvas).document, TaskResult):
                         break
                 assert cleaned.is_set()
-                assert isinstance(app.screen, TaskResultScreen)
-                assert not any(
-                    isinstance(screen, TaskProgressScreen) for screen in app.screen_stack
-                )
+                assert isinstance(app.query_one(TaskCanvas).document, TaskResult)
+                assert not app.query(TaskProgress)
                 assert app.running_task is None
                 assert app._last_execution_result.status == ("cancelled" if cancel else "succeeded")
                 if cancel:

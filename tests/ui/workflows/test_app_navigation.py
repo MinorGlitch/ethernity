@@ -83,8 +83,8 @@ def test_primary_navigation_keeps_expert_tasks_in_the_palette() -> None:
             await pilot.pause()
             assert not app.query_one("#nav-menu").display
             assert [str(button.label) for button in app.query("#workbench-navigation Button")] == [
-                "1 Backup",
-                "2 Restore",
+                "Backup",
+                "Restore",
                 "Manage",
                 "Recovery Kit",
                 "Settings",
@@ -128,9 +128,7 @@ def test_loaded_documents_are_reused_without_guessing_identity_from_paths() -> N
             assert app.add_files_state.passphrase == "test passphrase"
             assert app.add_files_state.expected_head_doc_hash == "ab" * 32
             assert app.add_files_state.current_source_assessment() is not None
-            assert (
-                str(app.query_one("#app-header-title", Label).content) == "Paper backup & recovery"
-            )
+            assert str(app.query_one("#app-header-brand", Label).content) == "ETHERNITY"
 
     asyncio.run(run())
 
@@ -204,7 +202,7 @@ def test_top_navigation_actions_do_not_need_a_render_between_keys() -> None:
             await pilot.pause()
             assert menu.highlighted_child is app.query_one("#rebuild", ListItem)
 
-            app.action_close_navigation()
+            await app.action_back()
             assert app.screen.focused is app.query_one("#nav-manage", Button)
             await app.action_move_left()
             await app.action_move_left()

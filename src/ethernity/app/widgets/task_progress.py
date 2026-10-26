@@ -1,4 +1,4 @@
-"""One operation screen for every task, using the shared workflow events."""
+"""Operation progress inside the workbench, using shared workflow events."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from time import monotonic
 
 from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalGroup, VerticalScroll
-from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import Button, ProgressBar, Static
 
 from ethernity.app.operation_progress import OperationProgress, operation_steps
@@ -16,7 +16,7 @@ from ethernity.app.widgets.actions import ActionButton, modal_action_row
 from ethernity.app.widgets.collapsible import collapsible_panel
 
 
-class TaskProgressScreen(ModalScreen[None]):
+class TaskProgress(Widget):
     """Keep the operation visible until its worker and cleanup have finished."""
 
     BINDINGS = [("escape", "request_cancel", "Cancel")]
@@ -33,7 +33,7 @@ class TaskProgressScreen(ModalScreen[None]):
         self.progress = OperationProgress(destination=destination)
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="progress-modal", classes="document"):
+        with Vertical(id="progress-document", classes="document"):
             with Vertical(classes="document-header"):
                 yield Static(self._title, classes="screen-title", markup=False)
                 yield Static(id="progress-elapsed", classes="detail-label")
@@ -52,14 +52,16 @@ class TaskProgressScreen(ModalScreen[None]):
                     "progress-details", "Activity", classes="", title_classes=""
                 ):
                     yield Static(id="progress-activity", markup=False)
-            yield modal_action_row("progress-actions", ActionButton("Cancel", "progress-cancel"))
+            yield modal_action_row(
+                "progress-actions", ActionButton("Cancel", "progress-cancel"), align_end=False
+            )
 
     def on_mount(self) -> None:
         self.set_interval(1, self._update_elapsed)
         self._update_elapsed()
-        # Mount handlers run before is_mounted becomes true. Read the latest
-        # progress after mounting so a queued worker update is not overwritten.
-        self.call_after_refresh(lambda: self.update_progress(self.progress))
+        self._render_progress()
+
+    def focus_default(self) -> None:
         self.query_one("#progress-cancel", Button).focus()
 
     def _update_elapsed(self) -> None:
@@ -75,8 +77,12 @@ class TaskProgressScreen(ModalScreen[None]):
         if not progress.destination:
             progress = replace(progress, destination=self.progress.destination)
         self.progress = progress
-        if not self.is_mounted:
+        if not self.is_mounted or not self.is_attached or not self.display:
             return
+        self._render_progress()
+
+    def _render_progress(self) -> None:
+        progress = self.progress
         for index, (_label, phases) in enumerate(self._steps):
             if progress.phase in phases:
                 self._active_step = index

@@ -141,7 +141,8 @@ def test_textual_app_edit_rebuild_state(monkeypatch: pytest.MonkeyPatch) -> None
 
             await app._select_workbench_step("output")
             await wait_for_focus(pilot, destination)
-            assert app.query_one("#rebuild-qr-section", FormSection).display
+            assert app.query_one("#rebuild-qr-section").display
+            await workflow_support.open_options(app, pilot, "#rebuild-qr-options")
             density = app.query_one("#workspace-rebuild-qr-chunk-size", Button)
             density.focus()
             await wait_for_focus(pilot, density)
@@ -162,7 +163,7 @@ def test_textual_app_rebuild_signature_source_control_is_real() -> None:
         async with run_app_test(app, size=(120, 48)) as pilot:
             await pilot.press("4")
 
-            assert app.query_one("#rebuild-verification-section", FormSection).display
+            assert app.query_one("#rebuild-verification-section").display
             app.query_one("#workspace-rebuild-signature-source", Select).value = "payloads"
             await pilot.pause()
             await workflow_support.choose_picker_paths(app, pilot, Path("auth-payloads.json"))
@@ -434,6 +435,7 @@ def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
 
             await app._select_workbench_step("files")
             await pilot.pause()
+            await workflow_support.open_options(app, pilot, "#add-files-paths-options")
             base_dir = app.query_one("#workspace-add-files-base-dir", Button)
             base_dir.focus()
             await pilot.wait_for_scheduled_animations()
@@ -445,6 +447,7 @@ def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
 
             await app._select_workbench_step("output")
             await pilot.pause()
+            await workflow_support.open_options(app, pilot, "#add-files-qr-options")
             await pilot.click("#workspace-add-files-qr-chunk-size")
             await pilot.pause()
             await workflow_support.enter_edit_field(app, pilot, "384", plain_input=False)

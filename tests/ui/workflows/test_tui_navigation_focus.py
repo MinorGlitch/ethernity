@@ -137,10 +137,15 @@ def test_clicking_workspace_dismisses_menu() -> None:
         async with run_app_test(app, size=(120, 32)) as pilot:
             await pilot.click("#nav-manage")
             assert app._nav_menu_open
-            await pilot.click("#canvas-title", offset=(1, 0))
+            title = app.query_one("#canvas-title")
+            assert not app.query_one("#nav-menu").region.contains(
+                title.region.right - 1, title.region.y
+            )
+            await pilot.click(title, offset=(title.region.width - 1, 0))
             await pilot.pause()
             assert not app._nav_menu_open
             assert app.active_task == "backup"
+            await pilot.resize_terminal(80, 24)
             await pilot.click("#nav-manage")
             choose_files = app.query_one("#workspace-backup-files", Button)
             assert not app.query_one("#nav-menu").region.contains(
@@ -203,7 +208,7 @@ def test_dropdown_commit_cancel_and_traversal(size: tuple[int, int]) -> None:
             app._reveal_focus_target("#workspace-restore-auth-policy")
             await pilot.pause()
             control = app.query_one("#workspace-restore-auth-policy", Select)
-            before = app.query_one("#workflow-restore-source-body-secondary-1", Button)
+            before = app.query_one("#restore-verification-options CollapsibleTitle")
             after = app.query_one("#workspace-restore-signature-source", Select)
             original_state = app.restore_state.model_dump()
 
@@ -278,6 +283,10 @@ def test_arrows_reach_step_rail_open_sections_and_bottom_actions() -> None:
             last_source = app.query_one("#workflow-restore-source-body-secondary-1", Button)
             last_source.focus()
             await wait_for_focus(pilot, last_source)
+            await pilot.press("down")
+            title = app.query_one("#restore-verification-options CollapsibleTitle")
+            await wait_for_focus(pilot, title)
+            await pilot.press("enter")
             for key, selector in (
                 ("down", "#workspace-restore-auth-policy"),
                 ("down", "#workspace-restore-signature-source"),

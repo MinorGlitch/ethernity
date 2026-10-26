@@ -14,7 +14,7 @@ def test_global_navigation_and_help_shortcuts_remain_available() -> None:
     assert {
         ("q", "quit"),
         ("?", "help"),
-        ("escape", "close_navigation"),
+        ("escape", "back"),
         ("ctrl+b", "open_navigation"),
         ("ctrl+p", "command_palette"),
     } <= bindings
