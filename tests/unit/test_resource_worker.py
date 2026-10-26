@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import threading
 import time
-from multiprocessing.connection import Connection
 
 import pytest
 
@@ -47,7 +46,7 @@ def test_disposable_worker_returns_bounded_output() -> None:
 
 
 def test_completed_worker_result_is_read_after_timed_poll_misses_it(monkeypatch) -> None:
-    poll = Connection.poll
+    poll = resource_worker.Connection.poll
     first_poll = True
 
     def miss_first_poll(connection, timeout=0):
@@ -61,12 +60,13 @@ def test_completed_worker_result_is_read_after_timed_poll_misses_it(monkeypatch)
         process.join(timeout=5)
         assert process.exitcode == 0
 
-    monkeypatch.setattr(Connection, "poll", miss_first_poll)
+    monkeypatch.setattr(resource_worker.Connection, "poll", miss_first_poll)
     monkeypatch.setattr(
         resource_worker, "_enforce_parent_observed_limits", finish_before_liveness_check
     )
 
     assert run_disposable_worker("test", _return_bytes, (8,), limits=_limits()) == b"x" * 8
+    assert not first_poll
 
 
 def test_disposable_worker_rejects_excessive_output() -> None:

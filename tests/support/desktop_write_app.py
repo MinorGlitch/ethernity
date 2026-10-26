@@ -6,6 +6,8 @@ import sys
 import time
 from pathlib import Path
 
+from desktop_pipe_app import WindowsPipeDriver
+
 from ethernity.app.application import EthernityApp
 from ethernity.app.execution import ReviewedTask
 from ethernity.core.execution_control import begin_final_write
@@ -38,6 +40,9 @@ class WriteApp(EthernityApp):
         self.execution_controller.start(ReviewedTask.capture("backup", self.backup_state))
 
 
-WriteApp(
+app = WriteApp(
     backup_state=ControlledBackup(input_paths=[DIRECTORY / "input.txt"], output_dir=DIRECTORY)
-).run()
+)
+if sys.argv[2] == "windows-pipe":
+    app.driver_class = WindowsPipeDriver
+app.run()

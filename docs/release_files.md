@@ -49,6 +49,9 @@ Desktop checks also launch through macOS Launch Services or the Windows windowle
 verify that the server stays available after its tabs close, reopens a session, and exits through
 Quit with its child processes cleaned up. Desktop protocol tests also hold a file commit open
 while disconnecting or quitting, then verify that the write completes before shutdown.
+These tests run Textual's blocking Windows pipe reader on every platform as well as the native
+reader, so a missing pipe close can be reproduced locally. Shutdown also waits for pending review
+preparation without opening another review or result screen.
 The terminal browser command stays running until stopped explicitly.
 
 SBOMs are platform-specific. The release workflow scans each final archive with the

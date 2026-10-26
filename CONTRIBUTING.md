@@ -55,7 +55,9 @@ Run the relevant tests while working. Before opening a pull request, run the Pyt
 uv run ruff check src tests tooling
 uv run ruff format --check src tests tooling
 uv run pylint src/ethernity tooling
-uv run pyrefly check
+for platform in linux darwin win32; do
+  uv run pyrefly check --python-platform "$platform" || exit 1
+done
 uv run typos .
 uv run --locked --extra dev python -m tooling.check_tests
 ```

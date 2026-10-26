@@ -13,13 +13,17 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from multiprocessing import resource_tracker
-from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from typing import Any, TypeVar, cast
 
 import psutil
 
 from ethernity.core.execution_control import cancellation_point
+
+if sys.platform == "win32":
+    from multiprocessing.connection import PipeConnection as Connection
+else:
+    from multiprocessing.connection import Connection
 
 ResultT = TypeVar("ResultT")
 
@@ -173,25 +177,25 @@ def _terminate_process(process: BaseProcess) -> None:
 
 
 def _install_resource_limits(limits: WorkerLimits) -> None:
-    if os.name == "nt":
+    if sys.platform == "win32":
         _install_windows_job_limits(limits)
-        return
-    try:
-        import resource
+    else:
+        try:
+            import resource
 
-        if sys.platform != "darwin":
-            resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))
-        resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_seconds, limits.cpu_seconds))
-        if hasattr(resource, "RLIMIT_CORE"):
-            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-        if hasattr(resource, "RLIMIT_FSIZE"):
-            resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
-    except (ImportError, OSError, ValueError) as exc:
-        raise RuntimeError(
-            "worker resource isolation is unavailable on this platform: "
-            f"{type(exc).__qualname__}: {exc}"
-        ) from exc
-    signal.signal(signal.SIGXCPU, signal.SIG_DFL)
+            if sys.platform != "darwin":
+                resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))
+            resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_seconds, limits.cpu_seconds))
+            if hasattr(resource, "RLIMIT_CORE"):
+                resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+            if hasattr(resource, "RLIMIT_FSIZE"):
+                resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
+        except (ImportError, OSError, ValueError) as exc:
+            raise RuntimeError(
+                "worker resource isolation is unavailable on this platform: "
+                f"{type(exc).__qualname__}: {exc}"
+            ) from exc
+        signal.signal(signal.SIGXCPU, signal.SIG_DFL)
 
 
 def _enforce_parent_observed_limits(

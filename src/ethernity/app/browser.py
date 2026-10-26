@@ -85,6 +85,10 @@ class LocalAppService(AppService):
         elif self.desktop and message.get("type") == "ethernity.quit":
             self.quit_requested()
         else:
+            if message.get("type") == "exit":
+                # The UI has finished. EOF releases the Windows input thread,
+                # whose blocking pipe read cannot be interrupted by an event.
+                self.stdin.close()
             await super().on_meta(data)
 
     async def finish(self) -> None:
@@ -94,6 +98,8 @@ class LocalAppService(AppService):
                 # The UI exits only after its execution worker finishes. No deadline
                 # here: a timeout must never terminate an in-progress file commit.
                 await self._task
+                if self._process is not None:
+                    await self._process.wait()
         finally:
             try:
                 await self.stop()

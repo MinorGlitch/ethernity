@@ -210,12 +210,16 @@ class EthernityApp(
         self._desktop_shutdown_requested = True
         self.screen.disabled = True
         self._finish_desktop_shutdown()
-        self.set_interval(0.1, self._finish_desktop_shutdown)
 
     def _finish_desktop_shutdown(self) -> None:
         # The execution controller owns the write/commit boundary. Never kill its worker.
-        if self.running_task is None and self._preparing_review_task is None:
-            self.exit()
+        if (
+            self._desktop_shutdown_requested
+            and self.running_task is None
+            and self._preparing_review_task is None
+        ):
+            # Let an already-started screen mount finish before tearing down its widgets.
+            self.call_after_refresh(self.exit)
 
     def _publish_desktop_status(self, text: str, *, busy: bool) -> None:
         if isinstance(self._driver, DesktopDriver):

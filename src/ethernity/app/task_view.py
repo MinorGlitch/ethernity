@@ -204,8 +204,13 @@ class TaskViewActions(EthernityAppContext):
             preparation_error = error
         finally:
             self._preparing_review_task = None
-            self.refresh_task_view()
+            if self._desktop_shutdown_requested:
+                self._finish_desktop_shutdown()
+            else:
+                self.refresh_task_view()
 
+        if self._desktop_shutdown_requested:
+            return
         if preparation_error is not None:
             self.notify(
                 f"Ethernity could not prepare the review: {preparation_error}",
@@ -744,6 +749,9 @@ class TaskViewActions(EthernityAppContext):
         self._publish_desktop_status(f"{title} {state}", busy=False)
         self._last_execution_result = result
         self._last_reviewed_task = reviewed_task
+        if self._desktop_shutdown_requested:
+            self._finish_desktop_shutdown()
+            return
         self.refresh_task_view()
         recoverable_errors = () if result.ok else reviewed_task.state_snapshot.recoverable_errors()
         return_section = (

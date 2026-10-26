@@ -40,8 +40,14 @@ def test_desktop_launch_opens_browser_and_quits_explicitly() -> None:
     asyncio.run(check_desktop([sys.executable, "-m", "ethernity.desktop"]))
 
 
-def test_desktop_stays_open_for_other_tabs_and_refreshes(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("input_reader", ["native", "windows-pipe"])
+def test_desktop_stays_open_for_other_tabs_and_refreshes(
+    monkeypatch, tmp_path, input_reader
+) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    if input_reader == "windows-pipe":
+        script = Path(__file__).parents[1] / "support" / "desktop_pipe_app.py"
+        monkeypatch.setattr(browser, "app_command", lambda: [sys.executable, str(script)])
 
     async def check() -> None:
         statuses = []
@@ -60,7 +66,11 @@ def test_desktop_stays_open_for_other_tabs_and_refreshes(monkeypatch, tmp_path) 
             await first.close()
             assert not second.closed
             await second.close()
-            await asyncio.wait_for(asyncio.gather(*(s.closed.wait() for s in services)), 10)
+            try:
+                await asyncio.wait_for(asyncio.gather(*(s.closed.wait() for s in services)), 10)
+            finally:
+                # Reap a broken implementation too, without hiding the failed exit assertion.
+                await asyncio.gather(*(s.stop() for s in services if not s.closed.is_set()))
             assert not server.quit_requested.is_set()
             assert not server.services
             assert not server.websockets
@@ -289,14 +299,15 @@ def test_desktop_relaunches_sibling_console_executable(monkeypatch, tmp_path, su
 
 
 @pytest.mark.parametrize("quit_app", [False, True], ids=["close-tab", "quit-app"])
+@pytest.mark.parametrize("input_reader", ["native", "windows-pipe"])
 def test_desktop_shutdown_finishes_file_commit_and_reports_status(
-    monkeypatch, tmp_path, quit_app
+    monkeypatch, tmp_path, quit_app, input_reader
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     (tmp_path / "input.txt").write_text("test input")
     script = Path(__file__).parents[1] / "support" / "desktop_write_app.py"
     monkeypatch.setattr(
-        browser, "app_command", lambda: [sys.executable, str(script), str(tmp_path)]
+        browser, "app_command", lambda: [sys.executable, str(script), str(tmp_path), input_reader]
     )
 
     async def check() -> None:
@@ -314,6 +325,8 @@ def test_desktop_shutdown_finishes_file_commit_and_reports_status(
                     while not (tmp_path / "started").exists() or not any(s.busy for s in statuses):
                         await asyncio.sleep(0.02)
                 (service,) = server.services
+                process = service._process
+                assert process is not None
                 if quit_app:
                     server.quit_requested.set()
                     shutdown = asyncio.create_task(server.shutdown_desktop())
@@ -327,6 +340,7 @@ def test_desktop_shutdown_finishes_file_commit_and_reports_status(
                 assert not service.closed.is_set()
                 (tmp_path / "release").touch()
                 await asyncio.wait_for(shutdown, 10)
+                assert process.returncode == 0
                 assert (tmp_path / "saved.txt").read_text() == "complete"
                 assert not server.services
                 assert (

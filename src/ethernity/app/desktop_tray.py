@@ -8,6 +8,7 @@ import socket
 import sys
 import webbrowser
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from aiohttp import web
 from PIL import Image
@@ -15,7 +16,7 @@ from PIL import Image
 from ethernity.app.browser import HOST, ICON_PATH, LocalServer
 from ethernity.app.desktop_session import DesktopStatus
 
-if sys.platform in {"darwin", "win32"}:
+if TYPE_CHECKING or sys.platform in {"darwin", "win32"}:
     import pystray
 if sys.platform == "darwin":
     from PyObjCTools.AppHelper import callAfter
