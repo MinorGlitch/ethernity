@@ -19,6 +19,7 @@ from textual.worker import Worker
 from ethernity.app.app_context import EthernityAppContext
 from ethernity.app.app_types import UnlockTaskState
 from ethernity.app.backup_context import BACKUP_TASKS, LoadedBackupContext
+from ethernity.app.desktop_session import DesktopDriver
 from ethernity.app.execution import (
     ExecutionOutcome,
     ReviewedTask,
@@ -152,6 +153,8 @@ class TaskViewActions(EthernityAppContext):
         self.call_after_refresh(self._focus_active_task, self.active_task)
 
     async def action_review(self) -> None:
+        if self._desktop_shutdown_requested:
+            return
         self._review_edit_task = None
         if self.screen is not self.screen_stack[0]:
             self.notify("Close the current dialog before reviewing.", severity="warning")
@@ -269,6 +272,9 @@ class TaskViewActions(EthernityAppContext):
         await self.action_review()
 
     async def action_quit(self) -> None:
+        if isinstance(self._driver, DesktopDriver):
+            self._driver.request_quit()
+            return
         if self.running_task is not None:
             task_label = _TASK_ACTIVITY_LABELS[self.running_task]
             self.notify(
@@ -673,6 +679,8 @@ class TaskViewActions(EthernityAppContext):
         reviewed_task: ReviewedTask,
         confirmed: bool | ReviewEditRequest | None,
     ) -> None:
+        if self._desktop_shutdown_requested:
+            return
         if isinstance(confirmed, ReviewEditRequest):
             self.call_later(self._edit_review_field, reviewed_task.task, confirmed.section)
             return
@@ -702,6 +710,7 @@ class TaskViewActions(EthernityAppContext):
         self._review_edit_task = None
 
     def _present_execution_start(self, reviewed_task: ReviewedTask) -> None:
+        self._publish_desktop_status(_RUNNING_LABELS[reviewed_task.task], busy=True)
         self._last_execution_result = None
         self.refresh_task_view()
         self.push_screen(
@@ -714,6 +723,8 @@ class TaskViewActions(EthernityAppContext):
         )
 
     def _present_execution_progress(self, progress: OperationProgress) -> None:
+        text = " - ".join(part for part in (progress.stage, progress.count_text) if part)
+        self._publish_desktop_status(text, busy=True)
         if isinstance(self.screen, TaskProgressScreen):
             self.screen.update_progress(progress)
 
@@ -726,6 +737,11 @@ class TaskViewActions(EthernityAppContext):
         outcome: ExecutionOutcome,
     ) -> None:
         result = outcome.result
+        title = _TASK_ACTIVITY_LABELS[reviewed_task.task].capitalize()
+        state = (
+            "complete" if result.ok else "cancelled" if result.status == "cancelled" else "failed"
+        )
+        self._publish_desktop_status(f"{title} {state}", busy=False)
         self._last_execution_result = result
         self._last_reviewed_task = reviewed_task
         self.refresh_task_view()

@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from ethernity.app.browser import run_browser
+from ethernity.app.desktop_tray import run_desktop
 
 
 @contextmanager
@@ -62,7 +62,7 @@ def main() -> int:
         # Finder and Start Menu do not provide a useful working directory for file dialogs.
         os.chdir(Path.home())
         with installer_lock():
-            run_browser(desktop=True)
+            run_desktop()
     except (OSError, RuntimeError, webbrowser.Error) as error:
         message = str(error) or "The browser did not connect. Open Ethernity again to retry."
         show_error(message)

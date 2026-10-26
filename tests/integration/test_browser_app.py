@@ -35,52 +35,44 @@ def test_browser_launches_app_and_cleans_up_disconnected_tabs(browser_command) -
     asyncio.run(check_browser(browser_command))
 
 
-def test_desktop_launch_opens_browser_and_exits_with_its_tabs() -> None:
+@pytest.mark.skipif(sys.platform not in {"darwin", "win32"}, reason="Native desktop platforms")
+def test_desktop_launch_opens_browser_and_quits_explicitly() -> None:
     asyncio.run(check_desktop([sys.executable, "-m", "ethernity.desktop"]))
-
-
-def test_desktop_waits_for_first_connection_but_not_forever() -> None:
-    async def check() -> None:
-        server = browser.LocalServer(0)
-        with pytest.raises(TimeoutError):
-            await server.wait_for_desktop_close(startup_timeout=0.01)
-        assert not server.connected.is_set()
-
-    asyncio.run(check())
 
 
 def test_desktop_stays_open_for_other_tabs_and_refreshes(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
     async def check() -> None:
-        server = browser.LocalServer(0)
+        statuses = []
+        server = browser.LocalServer(0, on_status=statuses.append)
         async with TestClient(
             TestServer(await server._make_app()), cookie_jar=aiohttp.CookieJar(unsafe=True)
         ) as client:
             server.port = client.server.port
             server.public_url = str(client.make_url("/")).rstrip("/")
             await client.get(f"/?token={server.token}")
-            lifetime = asyncio.create_task(
-                server.wait_for_desktop_close(startup_timeout=10, reconnect_timeout=0.2)
-            )
-            try:
-                first = await client.ws_connect("/ws", origin=server.public_url)
-                second = await client.ws_connect("/ws", origin=server.public_url)
-                await expect_screen(first, "Choose files")
-                await expect_screen(second, "Choose files")
-                await first.close()
-                # More than the reconnect interval: another tab must keep the server alive.
-                with pytest.raises(TimeoutError):
-                    await asyncio.wait_for(asyncio.shield(lifetime), timeout=0.3)
-                await second.close()
-                async with client.ws_connect("/ws", origin=server.public_url) as refreshed:
-                    await expect_screen(refreshed, "Choose files")
-                    assert not lifetime.done()
-                await asyncio.wait_for(lifetime, timeout=10)
-                assert not server.websockets
-            finally:
-                lifetime.cancel()
-                await asyncio.gather(lifetime, return_exceptions=True)
+            first = await client.ws_connect("/ws", origin=server.public_url)
+            second = await client.ws_connect("/ws", origin=server.public_url)
+            await expect_screen(first, "Choose files")
+            await expect_screen(second, "Choose files")
+            services = tuple(server.services)
+            await first.close()
+            assert not second.closed
+            await second.close()
+            await asyncio.wait_for(asyncio.gather(*(s.closed.wait() for s in services)), 10)
+            assert not server.quit_requested.is_set()
+            assert not server.services
+            assert not server.websockets
+            async with client.ws_connect("/ws", origin=server.public_url) as refreshed:
+                await expect_screen(refreshed, "Choose files")
+                await refreshed.send_json(["stdin", "q"])
+                await asyncio.wait_for(server.quit_requested.wait(), 10)
+                await asyncio.wait_for(server.shutdown_desktop(), 10)
+            assert server.quitting
+            assert statuses[-1].text == "Quitting"
+            response = await client.get("/ws", headers={"Origin": server.public_url})
+            assert response.status == 503
 
     asyncio.run(check())
 
@@ -294,3 +286,76 @@ def test_desktop_relaunches_sibling_console_executable(monkeypatch, tmp_path, su
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(tmp_path / f"ethernity-desktop{suffix}"))
     assert browser.app_command() == [str(tmp_path / f"ethernity{suffix}")]
+
+
+@pytest.mark.parametrize("quit_app", [False, True], ids=["close-tab", "quit-app"])
+def test_desktop_shutdown_finishes_file_commit_and_reports_status(
+    monkeypatch, tmp_path, quit_app
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    (tmp_path / "input.txt").write_text("test input")
+    script = Path(__file__).parents[1] / "support" / "desktop_write_app.py"
+    monkeypatch.setattr(
+        browser, "app_command", lambda: [sys.executable, str(script), str(tmp_path)]
+    )
+
+    async def check() -> None:
+        statuses = []
+        server = browser.LocalServer(0, on_status=statuses.append)
+        async with TestClient(
+            TestServer(await server._make_app()), cookie_jar=aiohttp.CookieJar(unsafe=True)
+        ) as client:
+            server.port = client.server.port
+            server.public_url = str(client.make_url("/")).rstrip("/")
+            await client.get(f"/?token={server.token}")
+            ws = await client.ws_connect("/ws", origin=server.public_url)
+            try:
+                async with asyncio.timeout(15):
+                    while not (tmp_path / "started").exists() or not any(s.busy for s in statuses):
+                        await asyncio.sleep(0.02)
+                (service,) = server.services
+                if quit_app:
+                    server.quit_requested.set()
+                    shutdown = asyncio.create_task(server.shutdown_desktop())
+                else:
+                    await ws.close()
+                    shutdown = asyncio.create_task(service.closed.wait())
+                # Shutdown must not cross the commit boundary, even after the tab disconnects.
+                with pytest.raises(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(shutdown), 0.2)
+                assert not (tmp_path / "saved.txt").exists()
+                assert not service.closed.is_set()
+                (tmp_path / "release").touch()
+                await asyncio.wait_for(shutdown, 10)
+                assert (tmp_path / "saved.txt").read_text() == "complete"
+                assert not server.services
+                assert (
+                    any(s.text == "Backup complete" and not s.busy for s in statuses) or quit_app
+                ), statuses
+                assert all(str(tmp_path) not in s.text for s in statuses)
+            finally:
+                (tmp_path / "release").touch()
+                await ws.close()
+
+    asyncio.run(check())
+
+
+@pytest.mark.skipif(sys.platform not in {"darwin", "win32"}, reason="Native desktop platforms")
+def test_native_status_icon_animates_during_work_and_stops_when_idle() -> None:
+    async def check() -> None:
+        script = Path(__file__).parents[1] / "support" / "desktop_animation.py"
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(script),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            output, _ = await asyncio.wait_for(process.communicate(), 15)
+            assert process.returncode == 0, output.decode(errors="replace")
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+
+    asyncio.run(check())

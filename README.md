@@ -10,6 +10,10 @@ No account or online service is required.
 Use it for seed phrases, private keys, certificates, and configuration files.
 
 <p align="center">
+  <img src="images/ethernity-animated.gif" alt="Ethernity folded-paper infinity logo" width="400">
+</p>
+
+<p align="center">
   <a href="images/readme/backup_flow.gif">
     <img src="images/readme/backup_flow.gif" alt="Selecting files, creating paper backup PDFs, and checking recovery with two recovery sheets" width="900">
   </a>
@@ -57,7 +61,8 @@ for compression examples, other paper sizes, and how to check your own files.
 
 ## Install
 
-The desktop app opens in your browser; the `ethernity` command opens in your terminal.
+The desktop app opens in your browser, with a menu-bar or notification-area icon for status and Quit.
+The `ethernity` command opens in your terminal.
 Both use the same interface and work offline. Packaged downloads include Python and everything
 needed to create and restore backups.
 

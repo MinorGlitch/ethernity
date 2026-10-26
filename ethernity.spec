@@ -16,6 +16,9 @@ hiddenimports = (
     + collect_submodules("zxingcpp")
 )
 datas = collect_data_files("ethernity") + copy_metadata("ethernity-paper")
+if sys.platform in {"darwin", "win32"}:
+    hiddenimports += ["pystray._darwin" if sys.platform == "darwin" else "pystray._win32"]
+hiddenimports += ["ethernity.app.desktop_session"]
 datas += copy_metadata("textual-serve")
 datas += collect_data_files("pypdfium2", includes=["version.json"])
 datas += collect_data_files("pypdfium2_raw", includes=["version.json"])
@@ -61,7 +64,7 @@ if sys.platform in {"win32", "darwin"}:
         exclude_binaries=True,
         name="ethernity-desktop",
         console=False,
-        icon="images/readme_logo.png",
+        icon="src/ethernity/resources/icons/app.png",
         strip=False,
         upx=True,
         argv_emulation=False,
@@ -86,7 +89,7 @@ if sys.platform == "darwin":
         desktop_exe,
         [("ethernity", exe.name, "EXECUTABLE"), *a.binaries, *a.datas],
         name="Ethernity.app",
-        icon="images/readme_logo.png",
+        icon="src/ethernity/resources/icons/app.png",
         bundle_identifier="org.minorglitch.ethernity",
         version=version,
         info_plist={

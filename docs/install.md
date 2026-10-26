@@ -10,9 +10,13 @@ uses your usual settings, and reads and writes your local files. Fonts and scrip
 an internet connection is not needed. No additional installation is required.
 
 When launched with `ethernity --web`, keep the terminal open; Ctrl+C stops the server and its
-sessions. The desktop app needs no terminal and stops a few seconds after its last tab closes.
-Closing or refreshing a tab ends that tab's app session; reopening starts a new one. Finish or
-cancel a running operation before closing the tab. Files already written remain on disk.
+sessions. Finish or cancel running operations before stopping this terminal command.
+
+Desktop launches add an Ethernity icon to the macOS menu bar or Windows notification area.
+Its menu shows task progress and the most recent result. Use **Open Ethernity** to reopen the
+browser and **Quit Ethernity** to exit. Quit waits for active operations to finish writing files.
+Closing the last tab leaves the desktop launcher running; an active operation finishes before
+that tab's session closes. Reopening starts a new session. Files already written remain on disk.
 
 The server listens only on `127.0.0.1` and chooses an available port. The terminal command prints
 a private link for that launch. Use `ethernity --web --no-open` to open it yourself. It cannot be

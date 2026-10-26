@@ -24,6 +24,7 @@ CloseApplications=no
 RestartApplications=no
 DisableProgramGroupPage=yes
 WizardStyle=modern
+SetupIconFile=..\..\images\ethernity.ico
 Compression=lzma2
 SolidCompression=yes
 UninstallDisplayIcon={app}\app-{#AppVersion}\ethernity-desktop.exe

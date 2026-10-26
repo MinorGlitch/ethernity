@@ -36,7 +36,7 @@ async def check_session(url: str, process_id: int) -> None:
         html = await response.text()
         if "<title>Ethernity</title>" not in html or "https://" in html:
             raise RuntimeError("Browser page is missing or uses external resources.")
-        for asset in ("/static/app.js", "/static/app.css"):
+        for asset in ("/static/app.js", "/static/app.css", "/icon.png"):
             response = await client.get(origin + asset)
             response.raise_for_status()
             if len(await response.read()) < 100:

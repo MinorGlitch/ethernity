@@ -53,11 +53,10 @@ def test_desktop_reports_startup_failure_without_a_terminal(monkeypatch, tmp_pat
     messages = []
     monkeypatch.chdir(tmp_path)
 
-    def fail(**options):
-        assert options == {"desktop": True}
+    def fail():
         raise error
 
-    monkeypatch.setattr(desktop, "run_browser", fail)
+    monkeypatch.setattr(desktop, "run_desktop", fail)
     monkeypatch.setattr(desktop, "show_error", messages.append)
     assert desktop.main() == 1
     assert messages == [str(error)]

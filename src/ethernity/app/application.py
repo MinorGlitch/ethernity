@@ -16,6 +16,7 @@ from ethernity.app.app_state import (
 from ethernity.app.backup_context import LoadedBackupContext
 from ethernity.app.backup_estimate_controller import BackupEstimateController
 from ethernity.app.bindings import APP_BINDINGS, APP_SUB_TITLE, APP_TITLE
+from ethernity.app.desktop_session import DesktopDriver, DesktopShutdownRequested
 from ethernity.app.editing.actions import TaskEditingActions
 from ethernity.app.events import AppEventHandlers
 from ethernity.app.execution import ReviewedTask
@@ -176,6 +177,7 @@ class EthernityApp(
         self._last_reviewed_task: ReviewedTask | None = None
         self._review_edit_task: TaskKey | None = None
         self._preparing_review_task: TaskKey | None = None
+        self._desktop_shutdown_requested = False
         self.workflow_ui_states = initial_workflow_ui_states()
         self.source_assessment_controller = SourceAssessmentController(self)
         self.backup_estimate_controller = BackupEstimateController(self)
@@ -202,7 +204,26 @@ class EthernityApp(
         self.backup_estimate_controller.close()
         self.recovery_check_controller.close()
 
+    def on_desktop_shutdown_requested(self, _event: DesktopShutdownRequested) -> None:
+        if self._desktop_shutdown_requested:
+            return
+        self._desktop_shutdown_requested = True
+        self.screen.disabled = True
+        self._finish_desktop_shutdown()
+        self.set_interval(0.1, self._finish_desktop_shutdown)
+
+    def _finish_desktop_shutdown(self) -> None:
+        # The execution controller owns the write/commit boundary. Never kill its worker.
+        if self.running_task is None and self._preparing_review_task is None:
+            self.exit()
+
+    def _publish_desktop_status(self, text: str, *, busy: bool) -> None:
+        if isinstance(self._driver, DesktopDriver):
+            self._driver.publish_status(text, busy=busy)
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if self._desktop_shutdown_requested:
+            return False
         if self.running_task is not None and action in {
             "command_palette",
             "help",

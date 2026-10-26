@@ -50,6 +50,7 @@ class EthernityAppContext(StyledApp):
     _last_reviewed_task: ReviewedTask | None
     _review_edit_task: TaskKey | None
     _preparing_review_task: TaskKey | None
+    _desktop_shutdown_requested: bool = False
     _nav_menu_open: bool
     _loaded_backup_context: LoadedBackupContext | None
 
@@ -58,6 +59,8 @@ class EthernityAppContext(StyledApp):
         raise NotImplementedError
 
     def refresh_task_view(self) -> None: ...
+
+    def _publish_desktop_status(self, text: str, *, busy: bool) -> None: ...
 
     def action_clear_task(self) -> None: ...
 

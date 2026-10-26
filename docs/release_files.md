@@ -46,8 +46,10 @@ Packages also include the local assets for `ethernity --web`. Browser mode uses 
 the terminal launcher and needs no extra downloads. Native package smoke checks open a real
 browser session over its WebSocket and verify that disconnecting stops its app process.
 Desktop checks also launch through macOS Launch Services or the Windows windowless executable and
-verify that the server exits after its last tab closes. The terminal browser command stays running
-until stopped explicitly.
+verify that the server stays available after its tabs close, reopens a session, and exits through
+Quit with its child processes cleaned up. Desktop protocol tests also hold a file commit open
+while disconnecting or quitting, then verify that the write completes before shutdown.
+The terminal browser command stays running until stopped explicitly.
 
 SBOMs are platform-specific. The release workflow scans each final archive with the
 repository-pinned Anchore SBOM action and Syft version. It does not reuse a dependency manifest as

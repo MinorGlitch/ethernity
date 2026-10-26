@@ -11,13 +11,18 @@ import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import urlsplit
 
+import aiohttp
 import psutil
 
-from tooling.release.browser_smoke import check_session
+from tooling.release.browser_smoke import check_session, expect_screen
 
 PROBE = """import json, os, sys
 from pathlib import Path
+from urllib.parse import urlsplit
+
+import aiohttp
 import psutil
 for parent in psutil.Process().parents():
     command = parent.cmdline()
@@ -36,7 +41,7 @@ else:
 async def check_desktop(
     command: list[str], *, while_running: Callable[[], None] | None = None
 ) -> None:
-    """Check the URL, real UI sessions and automatic server/child shutdown."""
+    """Check real UI sessions, reopening, and explicit desktop server/child shutdown."""
     with tempfile.TemporaryDirectory(prefix="ethernity-desktop-") as temporary:
         directory = Path(temporary)
         probe = directory / "browser.py"
@@ -76,6 +81,10 @@ async def check_desktop(
             if while_running is not None:
                 await asyncio.to_thread(while_running)
             await check_session(data["url"], server.pid)
+            if not server.is_running():
+                raise RuntimeError("Desktop exited when its last browser tab closed")
+            # Reopen after the disconnected tabs, then use the app's ordinary Quit action.
+            await quit_from_browser(data["url"])
             # asyncio owns and reaps this child. psutil.wait() would race its child watcher.
             _, stderr = await asyncio.wait_for(process.communicate(), timeout=15)
             if process.returncode != 0:
@@ -83,9 +92,23 @@ async def check_desktop(
             if server.pid != process.pid:
                 _, alive = await asyncio.to_thread(psutil.wait_procs, [server], timeout=5)
                 if alive:
-                    raise RuntimeError("Desktop server remained running after its last tab closed")
+                    raise RuntimeError("Desktop server remained running after Quit")
         finally:
             await stop_owned_processes(process, server)
+
+
+async def quit_from_browser(url: str) -> None:
+    address = urlsplit(url)
+    origin = f"{address.scheme}://{address.netloc}"
+    async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        async with client.ws_connect(origin + "/ws", origin=origin) as ws:
+            await expect_screen(ws, "Choose files")
+            await ws.send_json(["stdin", "q"])
+            async with asyncio.timeout(15):
+                async for _message in ws:
+                    pass
 
 
 async def stop_owned_processes(
