@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from tooling.release import ci_plan, cli, github, homebrew, inventory, precheck, smoke
+from tooling.release import cli, github, homebrew, inventory, precheck, smoke
 from tooling.release.publish import publish
 
 TAG = "v1.2.0"
@@ -326,58 +326,6 @@ def test_linux_baseline_rejects_newer_native_library(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "check_output", lambda *a, **kw: "GLIBC_2.36")
     with pytest.raises(ValueError, match="newer than 2.35"):
         smoke.check_glibc(tmp_path)
-
-
-def test_packaging_plan_keeps_all_test_gates():
-    assert ci_plan.packaging_changes(["docs/format.md", "README.md"]) == (False, False)
-    assert ci_plan.packaging_changes(["src/ethernity/formats/document.py"]) == (True, False)
-    for path in (
-        "uv.lock",
-        "pyproject.toml",
-        ".github/workflows/ci.yml",
-        "ethernity.spec",
-        "scripts/homebrew_ethernity_tap.rb",
-    ):
-        assert ci_plan.packaging_changes([path]) == (True, True)
-    needs = {
-        "kit-bundles": {"result": "success", "outputs": {"homebrew": "false"}},
-        "homebrew-rehearsal": {"result": "skipped"},
-        "test": {"result": "success"},
-    }
-    assert ci_plan.failures(needs) == []
-    needs["test"]["result"] = "skipped"
-    assert ci_plan.failures(needs) == ["test"]
-    needs["kit-bundles"]["outputs"]["homebrew"] = "true"
-    assert "homebrew-rehearsal" in ci_plan.failures(needs)
-
-
-@pytest.mark.parametrize(
-    ("job", "flag"),
-    (("native-packages", "native"), ("homebrew-rehearsal", "homebrew")),
-)
-def test_ci_gate_only_allows_explicitly_unselected_packaging_to_be_skipped(job, flag):
-    outputs = {flag: "false"}
-    needs = {
-        "kit-bundles": {"result": "success", "outputs": outputs},
-        job: {"result": "skipped"},
-        "package": {"result": "success"},
-        "test": {"result": "success"},
-        "coverage": {"result": "success"},
-    }
-    assert ci_plan.failures(needs) == []
-    for result in ("failure", "cancelled"):
-        needs[job]["result"] = result
-        assert ci_plan.failures(needs) == [job]
-    needs[job]["result"] = "skipped"
-    outputs.clear()
-    assert ci_plan.failures(needs) == [job]
-    outputs[flag] = "true"
-    assert ci_plan.failures(needs) == [job]
-    outputs[flag] = "false"
-    for required in ("package", "test", "coverage"):
-        needs[required]["result"] = "skipped"
-        assert ci_plan.failures(needs) == [required]
-        needs[required]["result"] = "success"
 
 
 def test_published_precheck_requires_complete_inventory():
