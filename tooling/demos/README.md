@@ -55,24 +55,28 @@ and the final PDF preview. No application code or test fixtures are changed by r
 
 ## Logo
 
-The README shows `images/ethernity-animated.gif` below the status badges, followed by the
-introduction and backup walkthrough. The logo is a transparent, 640 by 338 pixel loop.
+The README shows `images/ethernity-animated.png` below the status badges, followed by the
+introduction and backup walkthrough. The logo is a transparent, 640 by 338 pixel animated PNG.
 The paper assembles into the infinity mark, holds, and folds away over ten seconds.
 The first and last frames are blank. Clicking the logo opens the static
 `images/ethernity-logo.svg`.
 
-To rebuild, install the kit's Node dependencies and Playwright Chromium, plus FFmpeg and
-Gifsicle on your PATH. From the repository root:
+The renderer draws at four times the output resolution, then downsamples with alpha-aware
+filtering. Animated PNG preserves the partially transparent edge pixels; GIF would discard
+them and leave jagged edges. The 640-pixel asset displays at 320 pixels in the README.
+
+To rebuild, install the kit's Node dependencies and Playwright Chromium, plus FFmpeg
+on your PATH. From the repository root:
 
 ```sh
 node tooling/demos/render_logo.mjs
 ```
 
-Inspect `build/readme-logo/paper-assembly/ribbon.gif` on light and dark backgrounds, then
+Inspect `build/readme-logo/paper-assembly/ribbon.png` on light and dark backgrounds, then
 copy the reviewed output:
 
 ```sh
-cp build/readme-logo/paper-assembly/ribbon.gif images/ethernity-animated.gif
+cp build/readme-logo/paper-assembly/ribbon.png images/ethernity-animated.png
 ```
 
 Frames and intermediate files stay in the ignored build directory. The desktop icons

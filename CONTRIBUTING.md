@@ -84,9 +84,21 @@ Keep exact-copy checks for recovery instructions whose meaning matters. When edi
 instructions, update the expected text and retain the checks for output, state and error handling.
 Do not import production messages into test expectations, which would make both change together.
 
-The [CI workflow](.github/workflows/ci.yml) retains separate platform runs, the PDF review
-matrix, JavaScript/browser tests, packaging checks and dependency audits. The local Python
-command does not replace those gates or reproduce another operating system.
+The [CI workflow](.github/workflows/ci.yml) selects short documentation checks when a pull request
+or push changes only root Markdown files, Markdown under `docs/`, the README media under
+`images/readme/`, or the named README logos and media guides in
+[`ci_plan.py`](tooling/release/ci_plan.py). It checks spelling and that the repository and package
+README files are present and nonempty, without installing the app or building packages.
+Demo scripts, application icons, source code, tests, dependencies, CI files
+and any unrecognized paths run the full checks. Mixed changes also run the full checks.
+`docs/format_rationale.md` also keeps full CI because a test validates its recovery phrase example.
+Scheduled and manually dispatched runs always use full CI; missing or empty change comparisons
+do too. The required `ci-gate` runs in both cases and rejects failed, cancelled, missing or
+unexpectedly skipped jobs.
+
+Full CI retains separate platform runs, the PDF review matrix, JavaScript/browser tests,
+packaging checks and dependency audits. The local Python command does not replace those gates
+or reproduce another operating system.
 Dependency audits cover the locked runtime, development, and build packages and fail on any known
 vulnerability. The Python audit reads a fully resolved, hashed uv export without installing it
 again. Dependabot updates `uv.lock` and groups security fixes separately from routine updates.

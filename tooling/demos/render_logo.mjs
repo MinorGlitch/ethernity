@@ -6,6 +6,7 @@ import { chromium } from "../../kit/node_modules/playwright/index.mjs";
 const OUT = new URL("../../build/readme-logo/paper-assembly/", import.meta.url);
 const WIDTH = 640,
   HEIGHT = 338,
+  SUPERSAMPLE = 4,
   FRAMES = 250,
   FPS = 25;
 const gold = "#e2b85f",
@@ -238,63 +239,79 @@ await mkdir(new URL("frames/", OUT), { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage();
-  await page.setContent(`<canvas width="${WIDTH * 2}" height="${HEIGHT * 2}"></canvas>`);
-  await page.evaluate(() => {
-    const canvas = document.querySelector("canvas");
-    const gl = canvas.getContext("webgl", {
-      alpha: true,
-      antialias: true,
-      preserveDrawingBuffer: true,
-      premultipliedAlpha: false,
-    });
-    if (!gl) throw new Error("WebGL is unavailable");
-    const compile = (kind, source) => {
-      const shader = gl.createShader(kind);
-      gl.shaderSource(shader, source);
-      gl.compileShader(shader);
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
-        throw new Error(gl.getShaderInfoLog(shader));
-      return shader;
-    };
-    const program = gl.createProgram();
-    gl.attachShader(
-      program,
-      compile(
-        gl.VERTEX_SHADER,
-        "attribute vec3 position; attribute vec3 color; varying vec3 paint; void main(){gl_Position=vec4(position,1.0);paint=color;}",
-      ),
-    );
-    gl.attachShader(
-      program,
-      compile(
-        gl.FRAGMENT_SHADER,
-        "precision mediump float; varying vec3 paint; void main(){gl_FragColor=vec4(paint,1.0);}",
-      ),
-    );
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS))
-      throw new Error(gl.getProgramInfoLog(program));
-    gl.useProgram(program);
-    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-    for (const [name, offset] of [
-      ["position", 0],
-      ["color", 12],
-    ]) {
-      const location = gl.getAttribLocation(program, name);
-      gl.enableVertexAttribArray(location);
-      gl.vertexAttribPointer(location, 3, gl.FLOAT, false, 24, offset);
-    }
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.LEQUAL);
-    gl.clearColor(0, 0, 0, 0);
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    window.renderLogo = (data) => {
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.DYNAMIC_DRAW);
-      gl.drawArrays(gl.TRIANGLES, 0, data.length / 6);
-      return canvas.toDataURL("image/png").split(",")[1];
-    };
-  });
+  await page.setContent(
+    `<canvas width="${WIDTH * SUPERSAMPLE}" height="${HEIGHT * SUPERSAMPLE}"></canvas>`,
+  );
+  await page.evaluate(
+    ({ width, height }) => {
+      const canvas = document.querySelector("canvas");
+      const gl = canvas.getContext("webgl", {
+        alpha: true,
+        antialias: true,
+        preserveDrawingBuffer: true,
+        // Multisample edge colors already include coverage. Unpremultiply them when
+        // exporting, otherwise translucent gold edges turn dark on light backgrounds.
+        premultipliedAlpha: true,
+      });
+      if (!gl) throw new Error("WebGL is unavailable");
+      const compile = (kind, source) => {
+        const shader = gl.createShader(kind);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
+          throw new Error(gl.getShaderInfoLog(shader));
+        return shader;
+      };
+      const program = gl.createProgram();
+      gl.attachShader(
+        program,
+        compile(
+          gl.VERTEX_SHADER,
+          "attribute vec3 position; attribute vec3 color; varying vec3 paint; void main(){gl_Position=vec4(position,1.0);paint=color;}",
+        ),
+      );
+      gl.attachShader(
+        program,
+        compile(
+          gl.FRAGMENT_SHADER,
+          "precision mediump float; varying vec3 paint; void main(){gl_FragColor=vec4(paint,1.0);}",
+        ),
+      );
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+        throw new Error(gl.getProgramInfoLog(program));
+      gl.useProgram(program);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+      for (const [name, offset] of [
+        ["position", 0],
+        ["color", 12],
+      ]) {
+        const location = gl.getAttribLocation(program, name);
+        gl.enableVertexAttribArray(location);
+        gl.vertexAttribPointer(location, 3, gl.FLOAT, false, 24, offset);
+      }
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthFunc(gl.LEQUAL);
+      gl.clearColor(0, 0, 0, 0);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      const output = document.createElement("canvas");
+      output.width = width;
+      output.height = height;
+      const context = output.getContext("2d");
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      window.renderLogo = (data) => {
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.DYNAMIC_DRAW);
+        gl.drawArrays(gl.TRIANGLES, 0, data.length / 6);
+        // Canvas resizing preserves edge coverage in premultiplied color space.
+        context.clearRect(0, 0, width, height);
+        context.drawImage(canvas, 0, 0, width, height);
+        return output.toDataURL("image/png").split(",")[1];
+      };
+    },
+    { width: WIDTH, height: HEIGHT },
+  );
   for (let i = 0; i < FRAMES; i++) {
     // Begin and end on transparent frames; the strip opens before the attached folds.
     const png = await page.evaluate((data) => window.renderLogo(data), mesh(i / FPS));
@@ -306,35 +323,33 @@ try {
 } finally {
   await browser.close();
 }
-for (const [cmd, args] of [
+// GIF's binary transparency destroys antialiasing. APNG preserves full RGBA
+// colors and the original frame timing without a background matte or palette.
+const result = spawnSync(
+  "ffmpeg",
   [
-    "ffmpeg",
-    [
-      "-v",
-      "error",
-      "-y",
-      "-framerate",
-      String(FPS),
-      "-i",
-      fileURLToPath(new URL("frames/", OUT)) + "%03d.png",
-      "-filter_complex",
-      `trim=end_frame=${FRAMES},scale=${WIDTH}:${HEIGHT}:flags=lanczos,split[a][b];[a]palettegen=max_colors=96:reserve_transparent=1:stats_mode=full[p];[b][p]paletteuse=dither=none:alpha_threshold=128`,
-      "-loop",
-      "0",
-      fileURLToPath(new URL("encoded.gif", OUT)),
-    ],
+    "-v",
+    "error",
+    "-y",
+    "-framerate",
+    String(FPS),
+    "-i",
+    `${fileURLToPath(new URL("frames/", OUT))}%03d.png`,
+    "-frames:v",
+    String(FRAMES),
+    "-c:v",
+    "apng",
+    "-pix_fmt",
+    "rgba",
+    "-compression_level",
+    "9",
+    "-plays",
+    "0",
+    "-f",
+    "apng",
+    fileURLToPath(new URL("ribbon.png", OUT)),
   ],
-  [
-    "gifsicle",
-    [
-      "-O3",
-      fileURLToPath(new URL("encoded.gif", OUT)),
-      "-o",
-      fileURLToPath(new URL("ribbon.gif", OUT)),
-    ],
-  ],
-]) {
-  const result = spawnSync(cmd, args, { stdio: "inherit" });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`${cmd} failed`);
-}
+  { stdio: "inherit" },
+);
+if (result.error) throw result.error;
+if (result.status !== 0) throw new Error("ffmpeg failed");

@@ -22,7 +22,57 @@ env:
   UV_LOCKED: "true"
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.select.outputs.full }}
+      tag: ${{ steps.select.outputs.tag }}
+      native: ${{ steps.select.outputs.native }}
+      homebrew: ${{ steps.select.outputs.homebrew }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - name: Select checks
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          if [[ -n "$BASE_SHA" && "$BASE_SHA" != "0000000000000000000000000000000000000000" ]] &&
+             ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "Base unavailable; using full CI."
+          fi
+          python3 -m tooling.release.ci_plan
+
+  documentation-checks:
+    needs: plan
+    if: needs.plan.outputs.full == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check required README files
+        run: |
+          test -s README.md
+          test -s README_PYPI.md
+      - name: Setup uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.31"
+          enable-cache: false
+      - name: Check spelling with the locked tool version
+        shell: bash
+        run: |
+          version=$(python3 -c 'import pathlib, tomllib; lock = tomllib.loads(pathlib.Path("uv.lock").read_text()); print(next(p["version"] for p in lock["package"] if p["name"] == "typos"))')
+          uv tool run --from "typos==$version" typos .
+
   python-checks:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -60,6 +110,8 @@ jobs:
         run: uv run typos .
 
   kit-lint:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -83,6 +135,8 @@ jobs:
           npm run check
 
   render-visual:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     name: render-visual (${{ matrix.suite }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -122,6 +176,8 @@ jobs:
           retention-days: 7
 
   portability:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -140,7 +196,8 @@ jobs:
 
   test:
     name: test (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.suite }})
-    needs: kit-bundles
+    needs: [plan, kit-bundles]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -210,7 +267,8 @@ jobs:
           retention-days: 7
 
   coverage:
-    needs: test
+    needs: [plan, test]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -244,7 +302,8 @@ jobs:
         run: uv run python -m tooling.check_tests coverage --results-dir coverage-data
 
   e2e:
-    needs: kit-bundles
+    needs: [plan, kit-bundles]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -272,22 +331,13 @@ jobs:
           retention-days: 7
 
   kit-bundles:
-    outputs:
-      tag: ${{ steps.version.outputs.tag }}
-      native: ${{ steps.version.outputs.native }}
-      homebrew: ${{ steps.version.outputs.homebrew }}
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - name: Select packaging checks and read version
-        id: version
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python3 -m tooling.release.ci_plan
       - name: Verify generated bundles are not committed
         run: |
           TRACKED="$(git ls-files -- \
@@ -322,28 +372,29 @@ jobs:
           retention-days: 30
 
   native-packages:
-    if: needs.kit-bundles.outputs.native == 'true'
+    if: needs.plan.outputs.native == 'true'
     # Let Homebrew request its runners after source staging, before native builds
     # compete with the test matrix for the total and macOS runner limits.
-    needs: [kit-bundles, package]
+    needs: [plan, kit-bundles, package]
     uses: ./.github/workflows/native-packages.yml
     with:
       commit_sha: ${{ github.sha }}
-      tag: ${{ needs.kit-bundles.outputs.tag }}
+      tag: ${{ needs.plan.outputs.tag }}
       kit_artifact: recovery-kit-bundles
 
   package:
-    needs: kit-bundles
+    needs: [plan, kit-bundles]
+    if: needs.plan.outputs.full == 'true'
     uses: ./.github/workflows/python-packages.yml
     with:
       commit_sha: ${{ github.sha }}
-      tag: ${{ needs.kit-bundles.outputs.tag }}
+      tag: ${{ needs.plan.outputs.tag }}
       kit_artifact: recovery-kit-bundles
-      stage_homebrew: ${{ needs.kit-bundles.outputs.homebrew == 'true' }}
+      stage_homebrew: ${{ needs.plan.outputs.homebrew == 'true' }}
 
   homebrew-rehearsal:
-    if: needs.kit-bundles.outputs.homebrew == 'true'
-    needs: [package, kit-bundles]
+    if: needs.plan.outputs.homebrew == 'true'
+    needs: [plan, package, kit-bundles]
     uses: ./.github/workflows/homebrew-build.yml
     with:
       formula_artifact: homebrew-rehearsal-formula
@@ -351,7 +402,8 @@ jobs:
       source_artifact: release-source
 
   kit-verify:
-    needs: kit-bundles
+    needs: [plan, kit-bundles]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     container:
@@ -397,6 +449,8 @@ jobs:
           npm run test:browser
 
   python-audit:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -421,6 +475,8 @@ jobs:
             --requirement "${RUNNER_TEMP}/audit-requirements.txt"
 
   npm-audit:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -442,6 +498,8 @@ jobs:
   ci-gate:
     if: ${{ always() }}
     needs:
+      - plan
+      - documentation-checks
       - python-checks
       - kit-lint
       - render-visual
