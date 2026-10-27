@@ -25,7 +25,7 @@ CairoSVG needs the system Cairo library. On macOS with Homebrew, set
 Neither CairoSVG nor Cairo is an application dependency. PyInstaller converts `app.png` to
 native icon formats while packaging.
 
-The README uses a separate animation, `ethernity-animated.gif`: a 640 by 338 pixel,
+The README uses a separate animated PNG, `ethernity-animated.png`: a 640 by 338 pixel,
 ten-second loop in which the paper unfolds into the infinity mark and folds away.
 `ethernity-logo.svg` is its static counterpart. See the
 [README media guide](../tooling/demos/README.md#logo) for the source and rebuild command.

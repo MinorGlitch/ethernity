@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="images/ethernity-logo.svg">
-    <img src="images/ethernity-animated.gif" alt="Paper unfolding into Ethernity's infinity logo" width="320" height="169">
+    <img src="images/ethernity-animated.png" alt="Paper unfolding into Ethernity's infinity logo" width="320" height="169">
   </a>
 </p>
 
